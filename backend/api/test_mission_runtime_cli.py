@@ -9,23 +9,34 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from api import mission_runtime_cli
 from harness.mission_runtime.contracts import (
     MissionLedgerView,
+    MissionModeAdapter,
     MissionRuntimeRequest,
+    MissionModeRunEnvelope,
     ModeCycleContext,
     ModeInterpretation,
-    ModePolicy,
     ModeRecommendation,
     ModeTransitionRecommendation,
     TerminalRecommendation,
 )
-from harness.mission_runtime.registry import ModePolicyRegistry
+from harness.mission_runtime.registry import MissionModeAdapterRegistry
 
 
-class _DeedTerminalPolicy(ModePolicy):
+class _DeedTerminalAdapter(MissionModeAdapter):
     mode_name = "deed_to_ir"
 
     def build_context(self, *, request: MissionRuntimeRequest, ledger: MissionLedgerView) -> ModeCycleContext:
         del request, ledger
         return ModeCycleContext(payload={})
+
+    def build_run_envelope(
+        self,
+        *,
+        request: MissionRuntimeRequest,
+        ledger: MissionLedgerView,
+        context: ModeCycleContext,
+    ) -> MissionModeRunEnvelope:
+        del request, ledger, context
+        return MissionModeRunEnvelope(summary="deed_done")
 
     def interpret(
         self,
@@ -51,7 +62,7 @@ class _DeedTerminalPolicy(ModePolicy):
         )
 
 
-class _DeedTransitionPolicy(_DeedTerminalPolicy):
+class _DeedTransitionAdapter(_DeedTerminalAdapter):
     def recommend(
         self,
         *,
@@ -77,12 +88,22 @@ class _DeedTransitionPolicy(_DeedTerminalPolicy):
         )
 
 
-class _TranscriptTransitionPolicy(ModePolicy):
+class _TranscriptTransitionAdapter(MissionModeAdapter):
     mode_name = "transcript_edit"
 
     def build_context(self, *, request: MissionRuntimeRequest, ledger: MissionLedgerView) -> ModeCycleContext:
         del request, ledger
         return ModeCycleContext(payload={})
+
+    def build_run_envelope(
+        self,
+        *,
+        request: MissionRuntimeRequest,
+        ledger: MissionLedgerView,
+        context: ModeCycleContext,
+    ) -> MissionModeRunEnvelope:
+        del request, ledger, context
+        return MissionModeRunEnvelope(summary="transcript_done")
 
     def interpret(
         self,
@@ -118,8 +139,8 @@ class _TranscriptTransitionPolicy(ModePolicy):
 def test_mission_runtime_cli_emits_canonical_payload(monkeypatch, capsys) -> None:
     monkeypatch.setattr(
         mission_runtime_cli,
-        "_build_policy_registry",
-        lambda args, mission_request: ModePolicyRegistry([_DeedTerminalPolicy()]),
+        "_build_adapter_registry",
+        lambda args, mission_request: MissionModeAdapterRegistry([_DeedTerminalAdapter()]),
     )
     code = mission_runtime_cli.run_cli(
         [
@@ -145,8 +166,8 @@ def test_mission_runtime_cli_emits_canonical_payload(monkeypatch, capsys) -> Non
 def test_mission_runtime_cli_supports_linear_roundtrip_shape(monkeypatch, capsys) -> None:
     monkeypatch.setattr(
         mission_runtime_cli,
-        "_build_policy_registry",
-        lambda args, mission_request: ModePolicyRegistry([_DeedTransitionPolicy(), _TranscriptTransitionPolicy()]),
+        "_build_adapter_registry",
+        lambda args, mission_request: MissionModeAdapterRegistry([_DeedTransitionAdapter(), _TranscriptTransitionAdapter()]),
     )
     code = mission_runtime_cli.run_cli(
         [
@@ -158,7 +179,7 @@ def test_mission_runtime_cli_supports_linear_roundtrip_shape(monkeypatch, capsys
             "Example deed body",
             "--enable-roundtrip",
             "--max-cycles",
-            "2",
+            "3",
             "--json-only",
         ]
     )

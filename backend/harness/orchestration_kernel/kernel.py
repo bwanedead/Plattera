@@ -41,28 +41,16 @@ def run_orchestration_kernel_loop(
     progress_cb: Callable[[dict[str, Any]], None] | None = None,
     resume_hitl_response: dict[str, Any] | None = None,
 ) -> KernelLoopResult:
-    """Drive the phase grammar loop with domain_pack as the content + policy surface.
+    """Drive the shared orchestration loop with domain_pack as the content seam.
 
-    Phase grammar per iteration:
-      Pre-phase: if hitl_state == "answered_unintegrated" → hook 9 (integrate feedback)
-      Phase 2:  refresh     → hook 2
-      Phase 3:  project     → hook 3 (kernel writes work-state atomically)
-      Phase 4:  select-focus (kernel uses ranked list from hook 3; ephemeral)
-      [no focus → phase 8 → terminalize-or-continue]
-      Phase 5a: build_focus_packet → hook 4
-      Phase 5b: resolve_move       → hook 5
-      Phase 5c: compile_move       → hook 6
-      Phase 6:  execute (kernel dispatches via KernelSessionManager.step)
-      Phase 7:  supply_progress_metrics → hook 7 + shared evaluate_progress
-      Phase 8:  supply_closure_rules    → hook 8
-      Phase 9:  terminalize-or-continue (kernel)
+    The kernel owns the fixed rails: orient, refresh, project, execute, progress,
+    closure, and terminal handling. The domain pack fills the hooks with content:
+    focus selection, evidence assembly, move resolution, compilation, progress
+    metrics, and closure rules.
 
-    Phase 1 (orient) runs once before the loop.
-
-    The kernel owns: focus state, HitlState, stagnation/progress counters,
-    evidence_signal_counter, TerminalDecision emission.
-    Domain pack owns: work-item schema, evidence assembly, move selection,
-    compilation, closure rules.
+    If ``hitl_state == "answered_unintegrated"``, the pre-phase integrates feedback
+    before the next refresh. Focus continuity is kernel-carried; if continuity is
+    absent, the domain pack authors the next selected focus.
     """
     loop_memory = LoopMemoryState()
     # P3: pre-seed HITL state so the first iteration's pre-phase fires integrate_feedback.
@@ -165,15 +153,11 @@ def run_orchestration_kernel_loop(
         loop_memory.work_item_collection = list(projection.work_item_collection)
         loop_memory.blocker_surface = list(projection.blocker_surface)
         loop_memory.closure_posture_summary = dict(projection.closure_posture_summary)
-        # Ephemeral — consumed only in phase 4; discarded after selection.
         ranked_list = list(projection.ranked_work_item_list)
 
-        # Phase 4: Select focus (kernel).
+        # Carry focus continuity only; selection is authored by the domain pack.
         prev_focus_key = loop_memory.active_focus_key
-        selected_focus_key = _select_focus(
-            ranked_work_item_list=ranked_list,
-            current_focus_key=loop_memory.active_focus_key,
-        )
+        selected_focus_key = projection.selected_focus_key or loop_memory.active_focus_key
         if selected_focus_key != prev_focus_key:
             loop_memory.active_focus_key = selected_focus_key
             loop_memory.focus_stagnation_streak = 0
@@ -187,15 +171,13 @@ def run_orchestration_kernel_loop(
         # If no actionable focus: go straight to decide without executing.
         if selected_focus_key is None:
             _LOG.info("TX_KERNEL no_actionable_focus ► iter=%s going_to_decide", iterations)
-            # No-focus iteration makes no progress; advance stagnation counters so the
-            # stagnation brake can fire instead of silently burning max_iterations.
+            # No-focus iteration increments warning counters only; hard stops remain mechanical.
             loop_memory.no_progress_streak += 1
             loop_memory.focus_stagnation_streak += 1
             closure_eval = domain_pack.supply_closure_rules(context)
             terminal = _decide_terminal(
                 closure_eval=closure_eval,
                 loop_memory=loop_memory,
-                max_no_progress=max_no_progress_iterations,
                 max_invalid_plan=max_invalid_plan_attempts,
                 iterations=iterations,
                 session_id=session_id,
@@ -398,6 +380,13 @@ def run_orchestration_kernel_loop(
         else:
             loop_memory.no_progress_streak += 1
             loop_memory.focus_stagnation_streak += 1
+            if loop_memory.no_progress_streak >= max_no_progress_iterations:
+                _LOG.warning(
+                    "TX_KERNEL progress_warning ► iter=%s streak=%s threshold=%s",
+                    iterations,
+                    loop_memory.no_progress_streak,
+                    max_no_progress_iterations,
+                )
         loop_memory.last_progress_reason = delta.reason_code
         _LOG.info(
             "TX_KERNEL progress ► iter=%s progress=%s reason=%s streak=%s",
@@ -423,7 +412,6 @@ def run_orchestration_kernel_loop(
         terminal = _decide_terminal(
             closure_eval=closure_eval,
             loop_memory=loop_memory,
-            max_no_progress=max_no_progress_iterations,
             max_invalid_plan=max_invalid_plan_attempts,
             iterations=iterations,
             session_id=session_id,
@@ -451,39 +439,10 @@ def run_orchestration_kernel_loop(
 # ---------------------------------------------------------------------------
 
 
-def _select_focus(
-    *,
-    ranked_work_item_list: list[dict[str, Any]],
-    current_focus_key: str | None,
-) -> str | None:
-    """Kernel phase-4 focus selection.
-
-    Selects the first actionable item from the domain-supplied ranked list.
-    An item is actionable if it has a non-empty "focus_key" and is not marked
-    as "resolved" or "completed" in its state field.
-
-    Returns None if the ranked list is empty or contains no actionable items.
-    """
-    non_terminal_states = frozenset(
-        {"unknown", "candidate_found", "disputed", "accepted_with_risk", "open", "unresolved"}
-    )
-    for item in ranked_work_item_list:
-        if not isinstance(item, dict):
-            continue
-        key = str(item.get("focus_key") or "").strip()
-        if not key:
-            continue
-        state = str(item.get("state") or "open").strip().lower()
-        if state in non_terminal_states or state not in {"resolved", "completed", "closed", "skipped"}:
-            return key
-    return None
-
-
 def _decide_terminal(
     *,
     closure_eval: ClosureEvaluation,
     loop_memory: LoopMemoryState,
-    max_no_progress: int,
     max_invalid_plan: int,
     iterations: int,
     session_id: str,
@@ -496,27 +455,12 @@ def _decide_terminal(
     Returns KernelLoopResult if the run should stop, None to continue.
 
     Loop brake priority (kernel):
-    1. stagnation threshold → exhausted
+    1. repeated apply refusal on the same focus (structural dead-end)
     2. invalid plan strike threshold → blocked (reason: invalid_refused)
     3. domain_complete → completed
     4. domain signals cannot-proceed → use domain_terminal_class
     """
-    # Brake 1: stagnation.
-    if loop_memory.no_progress_streak >= max_no_progress:
-        _LOG.info(
-            "TX_KERNEL brake_stagnation ► iter=%s streak=%s", iterations, loop_memory.no_progress_streak
-        )
-        return _make_result(
-            loop_memory=loop_memory,
-            terminal_class="exhausted",
-            reason_code="stagnation_threshold_reached",
-            iterations=iterations,
-            session_id=session_id,
-            run_artifact_ref=run_artifact_ref,
-            tracer=tracer,
-        )
-
-    # Brake 1b: repeated apply refusal on the same focus (structural dead-end).
+    # Brake 1: repeated apply refusal on the same focus (structural dead-end).
     if loop_memory.apply_refusal_same_focus_streak >= max_invalid_plan:
         _LOG.info(
             "TX_KERNEL brake_repeated_apply_refusal ► iter=%s streak=%s focus=%s",

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .blocker_registry import select_primary_blocker, select_primary_emergent_blocker_with_reason
+from .blocker_registry import select_primary_emergent_blocker_with_reason
 from .decision_ledger import is_unresolved_target_scope_mapping_blocking_decision
 from .feedback_lifecycle import (
     active_ticket_snapshot,
@@ -64,20 +64,24 @@ def _select_focus_target(
                     "active_blocker": emergent_row,
                 }
 
-    primary = select_primary_blocker(blocker_registry if isinstance(blocker_registry, dict) else None) or {}
-    primary_key = str(primary.get("decision_key") or "").strip().lower()
-    primary_state = str(primary.get("state") or "").strip().lower()
-    if (
-        primary_key
-        and primary_state in {"answered_unintegrated", "waiting_feedback"}
-        and is_unresolved_target_scope_mapping_blocking_decision(decision_ledger, primary_key)
-    ):
-        return {
-            "decision_key": primary_key,
-            "focus_source": "legacy_fallback",
-            "focus_reason_code": "legacy_priority_feedback_state",
-            "active_blocker": None,
-        }
+    if isinstance(blocker_registry, dict):
+        for row in list(blocker_registry.get("rows") or []):
+            if not isinstance(row, dict):
+                continue
+            blocker_key = str(row.get("decision_key") or "").strip().lower()
+            blocker_state = str(row.get("state") or "").strip().lower()
+            if (
+                blocker_key
+                and blocker_state in {"answered_unintegrated", "waiting_feedback"}
+                and is_unresolved_target_scope_mapping_blocking_decision(decision_ledger, blocker_key)
+            ):
+                return {
+                    "decision_key": blocker_key,
+                    "focus_source": "legacy_fallback",
+                    "focus_reason_code": "legacy_priority_feedback_state",
+                    "active_blocker": None,
+                }
+
     if isinstance(focus_feedback, dict):
         feedback_key = str(focus_feedback.get("decision_key") or "").strip().lower()
         if feedback_key and is_unresolved_target_scope_mapping_blocking_decision(decision_ledger, feedback_key):

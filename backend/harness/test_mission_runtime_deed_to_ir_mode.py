@@ -20,11 +20,11 @@ from agents.controller.controller_runtime import ControllerRunResult
 from harness.mission_runtime.contracts import MissionRuntimeRequest
 from harness.mission_runtime.modes.deed_to_ir import (
     DEED_TO_IR_MODE_NAME,
-    DeedToIRModePolicy,
+    DeedToIRModeAdapter,
     adapt_controller_run_result,
-    build_deed_to_ir_mode_policy_from_controller_inputs,
+    build_deed_to_ir_mode_adapter_from_controller_inputs,
 )
-from harness.mission_runtime.registry import ModePolicyRegistry
+from harness.mission_runtime.registry import MissionModeAdapterRegistry
 from harness.mission_runtime.runtime import MissionRuntime
 
 
@@ -64,15 +64,15 @@ def _controller_result(
     )
 
 
-def test_deed_to_ir_mode_policy_registers_and_runs_through_mission_runtime() -> None:
+def test_deed_to_ir_mode_adapter_registers_and_runs_through_mission_runtime() -> None:
     run_calls = {"count": 0}
 
     def _runner(_request: MissionRuntimeRequest, _ledger: Any) -> ControllerRunResult:
         run_calls["count"] += 1
         return _controller_result()
 
-    policy = DeedToIRModePolicy(runner=_runner)
-    runtime = MissionRuntime(policy_registry=ModePolicyRegistry([policy]), now_fn=lambda: 100.0)
+    policy = DeedToIRModeAdapter(runner=_runner)
+    runtime = MissionRuntime(adapter_registry=MissionModeAdapterRegistry([policy]), now_fn=lambda: 100.0)
 
     result = runtime.run_cycle(request=_make_request())
 
@@ -153,14 +153,14 @@ def test_builder_wraps_kernel_runner_signature(monkeypatch: Any) -> None:
         ),
         dossier_id="dossier-1",
     )
-    policy = build_deed_to_ir_mode_policy_from_controller_inputs(
+    policy = build_deed_to_ir_mode_adapter_from_controller_inputs(
         session_manager=object(),  # type: ignore[arg-type]
         llm_client=object(),  # type: ignore[arg-type]
         start_request=start_req,
         model="gpt-5-mini",
         max_iterations=9,
     )
-    runtime = MissionRuntime(policy_registry=ModePolicyRegistry([policy]), now_fn=lambda: 100.0)
+    runtime = MissionRuntime(adapter_registry=MissionModeAdapterRegistry([policy]), now_fn=lambda: 100.0)
 
     result = runtime.run_cycle(request=_make_request())
 
@@ -172,8 +172,8 @@ def test_builder_wraps_kernel_runner_signature(monkeypatch: Any) -> None:
 
 
 def test_deed_to_ir_phase_b_keeps_cycle_linear_without_transition_or_tx_state() -> None:
-    policy = DeedToIRModePolicy(runner=lambda _request, _ledger: _controller_result())
-    runtime = MissionRuntime(policy_registry=ModePolicyRegistry([policy]), now_fn=lambda: 100.0)
+    policy = DeedToIRModeAdapter(runner=lambda _request, _ledger: _controller_result())
+    runtime = MissionRuntime(adapter_registry=MissionModeAdapterRegistry([policy]), now_fn=lambda: 100.0)
 
     result = runtime.run_cycle(request=_make_request())
 

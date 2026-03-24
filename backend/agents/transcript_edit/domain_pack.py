@@ -82,7 +82,6 @@ from .evidence_runtime import (
 from .focus_packet import build_focus_packet
 from .focus_resolver import resolve_focus_move
 from .focus_runtime import recent_image_evidence_attempt_count
-from .iteration_repair_focus import _select_focus_target
 from .loop_runtime import (
     idempotency_key as _make_idempotency_key,
     read_step_outputs_inline,
@@ -103,9 +102,9 @@ from .decision_ledger_adapter import transcript_edit_unified_and_closure_read_fr
 from .llm_startup_understanding import (
     apply_llm_startup_to_ledger_and_registry,
     fallback_decision_key_for_startup_merge,
+    select_startup_focus_key,
 )
 from .decision_ledger_focus import choose_investigation_focus
-from .domain_pack_focus_wiring import choose_investigation_fallback_focus_from_state
 from .state_projection import (
     derive_waiting_feedback_projection,
     sync_pending_feedback_cache_from_registry,
@@ -714,10 +713,11 @@ class TranscriptEditDomainPack:
 
         Three persisted sub-surfaces: work_item_collection, blocker_surface,
         closure_posture_summary.
-        One ephemeral sub-surface: ranked_work_item_list (consumed by phase 4).
+        The authored focus key is surfaced separately as selected_focus_key.
+        ranked_work_item_list remains contextual only.
 
-        Focus state (active_focus_key, focus_stagnation_streak) is kernel-owned
-        and NOT part of this projection.
+        Focus continuity state (active_focus_key, focus_stagnation_streak) is
+        kernel-owned and NOT part of this projection.
         """
         state = self._state
         unified, read_ledger = transcript_edit_unified_and_closure_read_from_loop_state(state)
@@ -761,41 +761,48 @@ class TranscriptEditDomainPack:
             "closure_clear": mapping_blocking == 0,
         }
 
-        # Ranked work-item list — ephemeral focus-selection hints for phase 4.
-        # Uses transcript focus selection logic: choose_investigation_focus for fallback,
-        # _select_focus_target for blocker-aware priority ordering.
+        # Ranked work-item list — ephemeral context for continuity only.
+        # The shared kernel reads only selected_focus_key; this list is advisory.
         ranked: list[dict[str, Any]] = []
+        bootstrap_focus: dict[str, Any] = {}
         if work_item_collection:
-            fallback_focus = choose_investigation_focus(state.decision_ledger, work_board=unified) or {}
-            feedback_payload = (
-                dict(self._state.latest_feedback)
-                if isinstance(self._state.latest_feedback, dict)
-                else None
+            bootstrap_focus = choose_investigation_focus(state.decision_ledger, work_board=unified) or {}
+            seed_candidate = (
+                dict(bootstrap_focus.get("seed_candidate"))
+                if isinstance(bootstrap_focus.get("seed_candidate"), dict)
+                else {}
             )
-            focus_target = _select_focus_target(
-                decision_ledger=read_ledger,
-                fallback_focus=fallback_focus,
-                focus_feedback=feedback_payload,
-                blocker_registry=registry,
-            )
-            primary_key = str(focus_target.get("decision_key") or "").strip().lower()
-            if primary_key:
+            bootstrap_key = str(
+                seed_candidate.get("decision_key")
+                or bootstrap_focus.get("decision_key")
+                or ""
+            ).strip().lower()
+            if bootstrap_key:
                 ranked.append({
-                    "focus_key": primary_key,
+                    "focus_key": bootstrap_key,
                     "state": "unresolved",
                     "priority": 0,
-                    "focus_source": focus_target.get("focus_source", "primary"),
+                    "focus_source": seed_candidate.get("focus_target_kind") or bootstrap_focus.get("focus_source", "advisory"),
                 })
             # Add remaining unresolved items after the primary.
             for item in work_item_collection:
                 key = str(item.get("focus_key") or "").strip().lower()
-                if key and key != primary_key:
+                if key and key != bootstrap_key:
                     ranked.append({**item, "priority": len(ranked)})
 
+        selected_focus_key = select_startup_focus_key(
+            last_focus_key=state.last_focus_key,
+            startup=(
+                dict(state.llm_startup_understanding)
+                if isinstance(state.llm_startup_understanding, dict)
+                else None
+            ),
+        )
         return WorkStateProjection(
             work_item_collection=work_item_collection,
             blocker_surface=blocker_surface,
             closure_posture_summary=closure_posture_summary,
+            selected_focus_key=selected_focus_key,
             ranked_work_item_list=ranked,
         )
 
@@ -829,20 +836,9 @@ class TranscriptEditDomainPack:
                     break
 
         _, read_ledger = transcript_edit_unified_and_closure_read_from_loop_state(state)
-        fallback_focus = choose_investigation_fallback_focus_from_state(state)
-        focus_target = _select_focus_target(
-            decision_ledger=read_ledger,
-            fallback_focus=fallback_focus,
-            focus_feedback=feedback,
-            blocker_registry=state.blocker_registry,
-        )
-        target_key = str((focus_target or {}).get("decision_key") or "").strip().lower()
-        aligned_with_kernel = target_key == str(focus_key or "").strip().lower()
-        focus_source = str((focus_target or {}).get("focus_source") or "legacy_fallback").strip().lower() or "legacy_fallback"
-        focus_reason_code = str((focus_target or {}).get("focus_reason_code") or "domain_pack_focus").strip()[:120] or "domain_pack_focus"
-        emergent_from_target = None
-        if aligned_with_kernel and isinstance((focus_target or {}).get("active_blocker"), dict):
-            emergent_from_target = dict((focus_target or {})["active_blocker"])
+        focus_source = "emergent_blocker" if focus_key.startswith("harness:emergent:") else "domain_pack_focus"
+        focus_reason_code = "domain_pack_focus"
+        emergent_from_target = active_blocker if focus_source == "emergent_blocker" else None
 
         # Native store only — ``build_focus_packet`` builds unified + closure read models inside.
         packet = build_focus_packet(

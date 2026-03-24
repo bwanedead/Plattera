@@ -2,13 +2,13 @@
 
 ## Scope
 - Folder: `backend/harness/orchestration_kernel/`
-- Purpose: Shared phase grammar runner and loop governance layer. Sits above the execution kernel (agent_kernel/) and domain packs (agents/*/domain_pack.py).
+- Purpose: Shared orchestration host and loop-governance layer. Sits above the execution kernel (`agent_kernel/`) and domain packs (`agents/*/domain_pack.py`).
 
 ## Contracts & invariants
-- **Phase grammar is frozen (Phase 2).** Do not reorder or skip phases: orient(1) → refresh(2) → project(3) → select-focus(4) → resolve-move(5) → execute(6) → evaluate-progress(7) → decide(8) → terminalize-or-continue(9).
-- **Kernel owns:** `active_focus_key`, `focus_stagnation_streak`, `HitlState`, `no_progress_streak`, `evidence_signal_counter` (loop_memory), `invalid_plan_strikes`, terminal decision.
-- **Domain pack owns:** `decision_ledger`, `blocker_registry`, evidence assembly, move resolution, compilation, progress metric derivation, closure rules.
-- **WorkStateProjection** has 3 persisted sub-surfaces (`work_item_collection`, `blocker_surface`, `closure_posture_summary`) + 1 ephemeral `ranked_work_item_list` (consumed by phase 4, never persisted).
+- **Kernel is rails-first, not a semantic planner.** The loop still runs the same coarse hook order, but `selected_focus_key` is pack/agent-authored and `ranked_work_item_list` is advisory context only. Do not reintroduce kernel-owned focus selection or semantic phase doctrine.
+- **Kernel owns:** `active_focus_key`, `focus_stagnation_streak`, `HitlState`, `no_progress_streak`, `evidence_signal_counter` (loop_memory), `invalid_plan_strikes`, terminal decision, and continuity rails.
+- **Domain pack owns:** `decision_ledger`, `blocker_registry`, evidence assembly, move resolution, compilation, progress metric derivation, closure rules, and authored `selected_focus_key` when continuity is absent.
+- **WorkStateProjection** has 3 persisted sub-surfaces (`work_item_collection`, `blocker_surface`, `closure_posture_summary`) + 1 ephemeral `ranked_work_item_list` (advisory candidate context, never persisted). `selected_focus_key` is continuity-carried when present and otherwise authored by pack/model startup understanding.
 - **Domain packs must not write kernel-owned fields.** They surface updates only via hook return values.
 - **Hook 8 constraint:** domain pack must not return `waiting_human` from `supply_closure_rules` unless `hitl_state != "no_prompt"`.
 - **TerminalClass** values: `completed | blocked | waiting_human | waiting_evidence | exhausted | failed`. Subtypes go in `reason_code`, not as separate terminal classes.
@@ -31,8 +31,8 @@
 - `run_artifact_ref` in `KernelLoopResult` defaults to `None` — the mission runtime adapter must pass the correct ref if available.
 
 ## Patterns
-- Naming: hook functions on `DomainPack` match phase names (`orient`, `refresh`, `project`, `build_focus_packet`, `resolve_move`, `compile_move`, `supply_progress_metrics`, `supply_closure_rules`, `integrate_feedback`).
-- Structure: `contracts.py` → frozen dataclasses + Protocol; `loop_memory.py` → mutable kernel state; `kernel.py` → phase runner; `progress.py` → shared evaluator.
+- Naming: hook functions on `DomainPack` match the loop seams (`orient`, `refresh`, `project`, `build_focus_packet`, `resolve_move`, `compile_move`, `supply_progress_metrics`, `supply_closure_rules`, `integrate_feedback`).
+- Structure: `contracts.py` → frozen dataclasses + Protocol; `loop_memory.py` → mutable kernel state; `kernel.py` → orchestration host; `progress.py` → shared warning/telemetry evaluator.
 
 ## Links
 - Docs: `docs/architecture/agent-kernel/orchestration-kernel-contracts-v1.md`

@@ -6,7 +6,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 from backend.agents.transcript_edit.decision_ledger_focus import choose_investigation_focus
-from backend.agents.transcript_edit.focus_authority_policy import authority_rank_for_candidate
+from backend.agents.transcript_edit.decision_ledger_focus import authority_rank_for_candidate
 from backend.harness.work_board.contracts import new_work_board, work_board_item_dict
 
 
@@ -53,6 +53,9 @@ def test_ledger_mapping_authority_wins_over_emergent() -> None:
     focus = choose_investigation_focus(ledger, work_board=wb)
     assert focus is not None
     assert focus.get("decision_key") == "range"
+    assert isinstance(focus.get("seed_candidate"), dict)
+    assert str((focus.get("seed_candidate") or {}).get("decision_key") or "") == "range"
+    assert isinstance(focus.get("advisory_candidates"), list)
     assert focus.get("focus_target_kind") == "ledger_decision"
     fa = focus.get("focus_authority")
     assert isinstance(fa, dict)
@@ -89,6 +92,7 @@ def test_emergent_preferred_when_no_material_mapping_blocker_in_closure() -> Non
     focus = choose_investigation_focus(ledger, work_board=wb)
     assert focus is not None
     assert str(focus.get("decision_key") or "").startswith("harness:emergent:")
+    assert str((focus.get("seed_candidate") or {}).get("decision_key") or "").startswith("harness:emergent:")
     assert focus.get("focus_target_kind") == "harness_emergent"
     fa = focus.get("focus_authority")
     assert isinstance(fa, dict)

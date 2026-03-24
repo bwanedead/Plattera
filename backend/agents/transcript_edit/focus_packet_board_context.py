@@ -5,7 +5,7 @@ from typing import Any
 
 from .decision_ledger_closure import unresolved_mapping_blocking_requirements
 from .decision_ledger_scope import _ensure_ledger_shape
-from .focus_authority_policy import focus_authority_audit
+from .decision_ledger_focus import focus_authority_audit
 
 MAX_FOCUS_NOTE_BODY = 200
 MAX_LINKED_HINTS = 2

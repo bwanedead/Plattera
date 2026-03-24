@@ -12,9 +12,9 @@ from agent_kernel.models import StopReason, TerminalOutcome, TerminalOutcomeKind
 from agents.controller.controller_runtime import ControllerRunResult
 from agents.transcript_edit.contracts import TranscriptEditAgentRunResult
 from harness.mission_runtime.contracts import MissionRuntimeRequest
-from harness.mission_runtime.modes.deed_to_ir import DEED_TO_IR_MODE_NAME, DeedToIRModePolicy
-from harness.mission_runtime.modes.transcript_edit import TRANSCRIPT_EDIT_MODE_NAME, TranscriptEditModePolicy
-from harness.mission_runtime.registry import ModePolicyRegistry
+from harness.mission_runtime.modes.deed_to_ir import DEED_TO_IR_MODE_NAME, DeedToIRModeAdapter
+from harness.mission_runtime.modes.transcript_edit import TRANSCRIPT_EDIT_MODE_NAME, TranscriptEditModeAdapter
+from harness.mission_runtime.registry import MissionModeAdapterRegistry
 from harness.mission_runtime.runtime import MissionRuntime, build_mission_observability_payload
 from harness.review.reporting import build_run_review_summary
 from harness.run_state import build_mission_runtime_run_state
@@ -83,10 +83,10 @@ def test_multi_mode_mission_observability_is_one_continuous_story() -> None:
         return _tx_result()
 
     runtime = MissionRuntime(
-        policy_registry=ModePolicyRegistry(
+        adapter_registry=MissionModeAdapterRegistry(
             [
-                DeedToIRModePolicy(runner=_deed_runner),
-                TranscriptEditModePolicy(runner=_tx_runner),
+                DeedToIRModeAdapter(runner=_deed_runner),
+                TranscriptEditModeAdapter(runner=_tx_runner),
             ]
         ),
         now_fn=lambda: 100.0,

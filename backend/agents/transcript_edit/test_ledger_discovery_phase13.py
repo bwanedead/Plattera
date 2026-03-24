@@ -78,7 +78,8 @@ def test_stable_discovery_outranks_weak_seed_placeholder() -> None:
     unified = build_transcript_edit_unified_decision_ledger(decision_ledger=ledger)
     focus = choose_investigation_focus(ledger, work_board=unified) or {}
     assert str(focus.get("decision_key") or "").startswith(DISCOVERY_KEY_PREFIX)
-    assert focus.get("winner_weak_seed_scaffolding") is False
+    assert str((focus.get("seed_candidate") or {}).get("decision_key") or "").startswith(DISCOVERY_KEY_PREFIX)
+    assert str(focus.get("bootstrap_focus_source") or "") in {"ledger_discovery", "ledger_decision", "harness_emergent"}
 
 
 def test_seed_wins_when_closure_authority_strong() -> None:

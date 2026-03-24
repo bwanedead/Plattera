@@ -75,6 +75,7 @@ from .feedback_lifecycle import (
     stable_feedback_confirmation_count,
     ticket_lifecycle_snapshot_for_key,
 )
+from .llm_startup_understanding import select_startup_focus_key
 from .draft_persistence import persist_agent_edit_draft
 from .focus_packet import build_focus_packet
 from .focus_resolver import resolve_focus_move
@@ -211,6 +212,22 @@ from .iteration_repair_moves import (
 MAX_EVIDENCE_REPEATS_PER_SIGNATURE = 2
 
 
+def _focus_packet_support_state(focus_packet: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(focus_packet, dict):
+        return {}
+    support_state = focus_packet.get("support_state")
+    if isinstance(support_state, dict):
+        return dict(support_state)
+    out: dict[str, Any] = {}
+    if isinstance(focus_packet.get("investigation_brief"), dict):
+        out["investigation_brief"] = focus_packet.get("investigation_brief")
+    if isinstance(focus_packet.get("working_plan"), dict):
+        out["working_plan"] = focus_packet.get("working_plan")
+    if isinstance(focus_packet.get("policy_signals"), dict):
+        out["policy_signals"] = focus_packet.get("policy_signals")
+    return out
+
+
 def run_standalone_edit_planner_for_focus_packet(
     *,
     planner_client: TranscriptEditPlanPlanner,
@@ -230,8 +247,9 @@ def run_standalone_edit_planner_for_focus_packet(
     Lives here (not a separate bridge module) so the edit-planner call stays next to repair iteration wiring.
     """
     execution_context = focus_packet.get("execution_context") if isinstance(focus_packet.get("execution_context"), dict) else None
-    investigation_brief = focus_packet.get("investigation_brief") if isinstance(focus_packet.get("investigation_brief"), dict) else None
-    working_plan = focus_packet.get("working_plan") if isinstance(focus_packet.get("working_plan"), dict) else None
+    support_state = _focus_packet_support_state(focus_packet)
+    investigation_brief = support_state.get("investigation_brief") if isinstance(support_state.get("investigation_brief"), dict) else None
+    working_plan = support_state.get("working_plan") if isinstance(support_state.get("working_plan"), dict) else None
     span_trim = [dict(x) for x in span_context if isinstance(x, dict)][:32]
     findings_trim = [dict(x) for x in top_findings if isinstance(x, dict)][:12]
     return planner_client.propose_plan(
@@ -600,8 +618,23 @@ def handle_repair_iteration(
         )
         else {}
     )
+    startup_focus_key = select_startup_focus_key(
+        last_focus_key=None,
+        startup=(
+            dict(state.llm_startup_understanding)
+            if isinstance(state.llm_startup_understanding, dict)
+            else (
+                dict(state.decision_ledger.get("llm_startup_understanding"))
+                if isinstance(state.decision_ledger, dict)
+                and isinstance(state.decision_ledger.get("llm_startup_understanding"), dict)
+                else None
+            )
+        ),
+    )
     ledger_focus_fallback: dict[str, Any] = (
-        choose_investigation_focus(state.decision_ledger, work_board=unified_decision_ledger) or {}
+        {"decision_key": startup_focus_key, "focus_source": "startup_understanding"}
+        if startup_focus_key
+        else {}
     )
     manual_plan_override: dict[str, Any] | None = None
     focus_feedback: dict[str, Any] | None = state.latest_feedback if isinstance(state.latest_feedback, dict) else None
@@ -899,7 +932,12 @@ def handle_repair_iteration(
         )
         return None
 
-    fallback_focus = mapping_focus or ledger_focus_fallback
+    continuity_focus = (
+        {"decision_key": str(state.last_focus_key or "").strip().lower()}
+        if str(state.last_focus_key or "").strip()
+        else {}
+    )
+    fallback_focus = mapping_focus or continuity_focus or ledger_focus_fallback
     focus_target = _select_focus_target(
         blocker_registry=state.blocker_registry,
         decision_ledger=closure_read_ledger,
@@ -1000,9 +1038,7 @@ def handle_repair_iteration(
             run_link_id=str(viewer_run_id or ""),
             mission_objective=request.mission_objective or "",
         )
-    focus_policy_signals = (
-        focus_packet.get("policy_signals") if isinstance(focus_packet.get("policy_signals"), dict) else {}
-    )
+    focus_policy_signals = _focus_packet_support_state(focus_packet).get("policy_signals") or {}
     if (
         focus_source == "legacy_fallback"
         and not str((fallback_focus or {}).get("decision_key") or "").strip()
@@ -1019,7 +1055,7 @@ def handle_repair_iteration(
                 detail={
                     "focus_decision_key": str(focus_key or "").strip().lower() or None,
                     "fallback_driven": True,
-                    "fallback_source": "choose_investigation_focus",
+                    "fallback_source": "startup_understanding",
                     "focus_source": focus_source,
                     "step_story": {
                         "step_kind": "focus_selection",
@@ -1371,7 +1407,7 @@ def handle_repair_iteration(
         image_verification=image_verification,
         evidence_attempts_counts=evidence_attempts_counts,
         raw_output_excerpt=raw_output_excerpt,
-        policy_signals=(focus_packet.get("policy_signals") if isinstance(focus_packet.get("policy_signals"), dict) else {}),
+        policy_signals=_focus_packet_support_state(focus_packet).get("policy_signals") or {},
         emit_progress_fn=emit_progress,
         progress_cb=progress_cb,
         append_blocker_iteration_recap_fn=append_blocker_iteration_recap_fn,
@@ -1440,6 +1476,3 @@ def handle_repair_iteration(
         return pre_move_decision
     state.last_reason = resolver_reason
     return None
-
-
-

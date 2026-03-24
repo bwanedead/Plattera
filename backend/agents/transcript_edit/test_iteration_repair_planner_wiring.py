@@ -61,6 +61,11 @@ def test_handle_repair_iteration_invokes_standalone_planner_with_execution_conte
         decision_ledger=ledger,
         blocker_registry={},
         continuity_log=[],
+        llm_startup_understanding={
+            "initial_focus_candidates": [
+                {"decision_key": "range", "title": "Range startup-authored focus"}
+            ]
+        },
     )
     planner = _PlannerCapture()
     request = TranscriptEditAgentRunRequest(

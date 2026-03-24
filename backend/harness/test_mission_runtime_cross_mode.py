@@ -12,9 +12,9 @@ from agent_kernel.models import StopReason, TerminalOutcome, TerminalOutcomeKind
 from agents.controller.controller_runtime import ControllerRunResult
 from agents.transcript_edit.contracts import TranscriptEditAgentRunResult
 from harness.mission_runtime.contracts import MissionRuntimeRequest
-from harness.mission_runtime.modes.deed_to_ir import DEED_TO_IR_MODE_NAME, DeedToIRModePolicy
-from harness.mission_runtime.modes.transcript_edit import TRANSCRIPT_EDIT_MODE_NAME, TranscriptEditModePolicy
-from harness.mission_runtime.registry import ModePolicyRegistry
+from harness.mission_runtime.modes.deed_to_ir import DEED_TO_IR_MODE_NAME, DeedToIRModeAdapter
+from harness.mission_runtime.modes.transcript_edit import TRANSCRIPT_EDIT_MODE_NAME, TranscriptEditModeAdapter
+from harness.mission_runtime.registry import MissionModeAdapterRegistry
 from harness.mission_runtime.runtime import MissionRuntime
 
 
@@ -93,10 +93,10 @@ def test_linear_round_trip_transitions_preserve_one_mission_continuity_chain() -
         return _transcript_result()
 
     runtime = MissionRuntime(
-        policy_registry=ModePolicyRegistry(
+        adapter_registry=MissionModeAdapterRegistry(
             [
-                DeedToIRModePolicy(runner=_deed_runner),
-                TranscriptEditModePolicy(runner=_transcript_runner),
+                DeedToIRModeAdapter(runner=_deed_runner),
+                TranscriptEditModeAdapter(runner=_transcript_runner),
             ]
         ),
         now_fn=lambda: 100.0,

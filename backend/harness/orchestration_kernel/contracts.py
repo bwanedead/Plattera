@@ -20,10 +20,11 @@ class WorkStateProjection:
     """Domain pack's hook 3 output.
 
     Three sub-surfaces are persisted atomically into Work-State memory by the kernel.
-    The ranked_work_item_list is ephemeral: consumed by phase 4 focus selection and
-    discarded. It is NOT written to Work-State memory and NOT present in persisted state.
+    The selected_focus_key is authored by the domain pack and carried forward by the kernel.
+    The ranked_work_item_list is context only: it is not treated as kernel-authored focus
+    authority and is not written back as work-state truth.
 
-    Focus state (active_focus_key, focus_stagnation_streak) is kernel-owned and is NOT
+    Focus continuity state (active_focus_key, focus_stagnation_streak) is kernel-owned and is not
     part of this projection.
     """
 
@@ -31,8 +32,10 @@ class WorkStateProjection:
     work_item_collection: list[dict[str, Any]]
     blocker_surface: list[dict[str, Any]]
     closure_posture_summary: dict[str, Any]
-    # Ephemeral phase-4 input (consumed by focus selection; not persisted):
-    ranked_work_item_list: list[dict[str, Any]]
+    # Authoritative focus key for the next iteration; kernel preserves continuity only.
+    selected_focus_key: str | None = None
+    # Context-only candidate list for telemetry / packet assembly.
+    ranked_work_item_list: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -128,7 +131,7 @@ class ProgressDelta:
 
 @dataclass(frozen=True)
 class ClosureEvaluation:
-    """Domain pack's hook 8 output.
+    """Domain pack's closure evaluation output.
 
     Constraint: domain_terminal_class must use one of the six shared TerminalClass values.
     If domain cannot proceed, use "blocked" with closure_reason_code "impossible_unsupported".
@@ -145,7 +148,7 @@ class ClosureEvaluation:
 
 @dataclass(frozen=True)
 class IntegrationResult:
-    """Domain pack's hook 9 output — feedback integration completion signal.
+    """Domain pack's feedback integration completion signal.
 
     The kernel advances HitlState from "answered_unintegrated" to "consumed"
     only on successful return (integrated=True). The domain pack must not write
@@ -229,16 +232,13 @@ class OrchestratorContext:
 class DomainPack(Protocol):
     """Nine-hook protocol a domain pack must implement to plug into the orchestration kernel.
 
-    Phase grammar: orient(1) → refresh(2) → project(3) → [select-focus(kernel,4)] →
-    build_focus_packet(5a) → resolve_move(5b) → compile_move(5c) → [execute(kernel,6)] →
-    supply_progress_metrics(7) → supply_closure_rules(8) → [terminalize(kernel,9)]
-
-    Pre-phase: if hitl_state == "answered_unintegrated", integrate_feedback fires before
-    phase 2 (refresh).
+    The kernel provides rails and transport. The pack authors focus, context, move resolution,
+    progress metrics, and closure rules. If hitl_state == "answered_unintegrated",
+    integrate_feedback fires before refresh.
     """
 
     def orient(self, context: OrchestratorContext) -> None:
-        """Phase 1 — Run once at loop start (not on resume).
+        """Run once at loop start (not on resume).
 
         Domain initializes its work-state from source material (baseline audit,
         ledger initialization, span seeds, etc.). Writes to context.loop_memory.domain_state
@@ -247,7 +247,7 @@ class DomainPack(Protocol):
         ...
 
     def refresh(self, context: OrchestratorContext) -> RefreshResult:
-        """Phase 2 — Per-iteration re-observation pass.
+        """Per-iteration re-observation pass.
 
         Runs the domain's audit/re-audit step and updates domain work-state.
         Returns updated latest_refs and execution status.
@@ -255,17 +255,17 @@ class DomainPack(Protocol):
         ...
 
     def project(self, context: OrchestratorContext) -> WorkStateProjection:
-        """Phase 3 — Project domain authority into shared Work-State sub-surfaces.
+        """Project domain authority into shared Work-State sub-surfaces.
 
         Domain projects from its authoritative sources (e.g. decision_ledger,
         blocker_registry) into the shared three-surface projection. The kernel
-        writes these atomically. The ranked_work_item_list is ephemeral input
-        to phase 4 only.
+        writes these atomically. selected_focus_key is authored by the domain pack
+        and carried forward by the kernel; ranked_work_item_list is advisory context only.
         """
         ...
 
     def build_focus_packet(self, context: OrchestratorContext, focus_key: str) -> FocusPacket:
-        """Phase 5 step 1 — Assemble evidence and context for the selected focus item.
+        """Assemble evidence and context for the current focus item.
 
         Domain assembles its evidence waterfall (span context, image verification,
         visual evidence, feedback payload) for the given focus_key.
@@ -273,7 +273,7 @@ class DomainPack(Protocol):
         ...
 
     def resolve_move(self, context: OrchestratorContext, focus_packet: FocusPacket) -> MoveDecision:
-        """Phase 5 step 2 — Determine the next move for the focused item.
+        """Determine the next move for the focused item.
 
         Domain calls its planner/resolver and returns the resolved move type
         with opaque domain_move_payload for hook 6 to compile.
@@ -281,7 +281,7 @@ class DomainPack(Protocol):
         ...
 
     def compile_move(self, context: OrchestratorContext, move_decision: MoveDecision) -> MoveExecutionPlan:
-        """Phase 5 step 3 — Compile move decision into an execution-ready plan.
+        """Compile the move decision into an execution-ready plan.
 
         Domain translates the move type and payload into a concrete ActionType
         + action_inputs + idempotency_key. Sets hitl_intent_flag=True for HITL moves.
@@ -289,7 +289,7 @@ class DomainPack(Protocol):
         ...
 
     def supply_progress_metrics(self, context: OrchestratorContext) -> ProgressMetrics:
-        """Phase 7 — Supply domain-specific progress metrics for the shared evaluator.
+        """Supply domain-specific progress metrics for the shared evaluator.
 
         Domain derives metrics from its authoritative state (signatures, counts, flags).
         The kernel increments evidence_signal_counter when new_evidence_signal is True;
@@ -298,7 +298,7 @@ class DomainPack(Protocol):
         ...
 
     def supply_closure_rules(self, context: OrchestratorContext) -> ClosureEvaluation:
-        """Phase 8 — Evaluate domain closure conditions and map to shared terminal scaffold.
+        """Evaluate domain closure conditions and map to shared terminal scaffold.
 
         Maps domain-specific closure conditions to the six shared TerminalClass values.
         """
@@ -307,7 +307,7 @@ class DomainPack(Protocol):
     def integrate_feedback(
         self, context: OrchestratorContext, feedback_response: dict[str, Any]
     ) -> IntegrationResult:
-        """Pre-phase 2 — Integrate a received human feedback response into domain work-state.
+        """Integrate a received human feedback response into domain work-state.
 
         Fires when OrchestratorContext.loop_memory.hitl_state == "answered_unintegrated".
         Domain integrates feedback into its authoritative state (e.g. ledger, registry).

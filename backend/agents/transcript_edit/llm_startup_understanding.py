@@ -155,6 +155,21 @@ def emergent_blocker_updates_from_llm_blockers(
     return out
 
 
+def select_startup_focus_key(
+    *,
+    last_focus_key: str | None,
+    startup: dict[str, Any] | None,
+) -> str | None:
+    """Continuity-first startup focus selection for pack/runtime startup paths."""
+    continuity_key = str(last_focus_key or "").strip().lower() or None
+    if continuity_key:
+        return continuity_key
+    return fallback_decision_key_for_startup_merge(
+        orient_items=[],
+        startup=(dict(startup) if isinstance(startup, dict) else None),
+    )
+
+
 def apply_llm_startup_to_ledger_and_registry(
     *,
     ledger: dict[str, Any],
@@ -240,5 +255,6 @@ __all__ = [
     "emergent_blocker_updates_from_llm_blockers",
     "fallback_decision_key_for_startup_merge",
     "native_rows_from_llm_initial_ledger_items",
+    "select_startup_focus_key",
     "startup_understanding_has_minimum_viable",
 ]

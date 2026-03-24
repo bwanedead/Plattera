@@ -9,7 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 from backend.agents.transcript_edit.decision_ledger import initialize_decision_ledger_with_domain_template_seed
 from backend.agents.transcript_edit.decision_ledger_focus import choose_investigation_focus
 from backend.agents.transcript_edit.decision_ledger_state import reconcile_ledger_derived_fields
-from backend.agents.transcript_edit.focus_authority_policy import authority_rank_for_candidate
+from backend.agents.transcript_edit.decision_ledger_focus import authority_rank_for_candidate
 from backend.agents.transcript_edit.focus_packet import build_focus_packet
 from backend.agents.transcript_edit.llm_startup_understanding import native_rows_from_llm_initial_ledger_items
 from backend.agents.transcript_edit.transcript_edit_ledger_discovery_prep import (

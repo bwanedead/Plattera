@@ -51,6 +51,87 @@ If a shared layer only makes sense for one concrete mission family, it is not ge
 
 ---
 
+## 1.1.1 Runtime Shell Rule
+
+The mission runtime is part of the **shared trunk**, not a place where domains define alternate harness species.
+
+Its role is generic:
+
+- hold mission identity and continuity
+- hold active mode / active pack selection
+- run generic cycle/transition mechanics
+- record bounded blocker / verification / resumability summaries
+- record high-signal artifact refs
+- invoke a runner seam and store the returned generic result
+
+Mode-specific code at the runtime boundary must be treated as an **adapter seam**, not as foundational harness law.
+
+That means:
+
+- domains may provide runner adapters
+- domains may provide domain result shaping into generic runtime containers
+- domains may suggest mode transitions or handoffs
+
+That does **not** mean:
+
+- domains define different species of mission runtime policy
+- domains define different generic memory schemes
+- domains define different generic cycle semantics
+- domains define different generic transition mechanics
+- domains get to place mission-specific ontology into shared runtime contracts
+
+If two modes differ only in source material, prompts, tools, state interpretation, or downstream handoff semantics, that difference belongs in:
+
+- domain packs
+- domain prompts
+- domain adapters
+- product composition
+
+It does not belong in the shared mission-runtime law.
+
+The shared runtime may choose **which** runner/adapter to invoke.
+It must not become domain-owned in its own mechanics because of that choice.
+
+Naming guidance:
+
+- treat ``ModePolicy``-style seams as runtime adapters unless they are proven to express truly generic runtime law
+- do not let mission-specific adapters become the practical source of harness behavior
+
+---
+
+## 1.2 Turn And Motion Rule
+
+The harness may own continuity across cycles.
+It must not quietly turn one meaningful agent turn into a deterministic semantic mini-pipeline.
+
+Preferred bias:
+
+- one meaningful iteration should map as closely as practical to one agent-authored move
+- deterministic code may realize, persist, validate, and transport that move
+- deterministic code must not decide additional semantic substeps between model contacts
+
+Allowed cross-cycle deterministic rails:
+
+- continuity state
+- persistence
+- budgets
+- idempotency
+- tool execution requested by the agent
+- HITL transport state
+- trace collection
+
+Forbidden intra-cycle semantic authorship:
+
+- choosing the active focus from candidate work on the agent's behalf
+- deciding the next move from projected work-state on the agent's behalf
+- deciding that human feedback has been semantically incorporated
+- deciding substantive progress from heuristic signatures or counts
+- deciding continue vs stop because deterministic code thinks the case is exhausted
+
+If a multi-phase control pipeline exists, every deterministic phase must be justifiable as mechanics or context carriage rather than semantic motion.
+
+---
+
 ## 2. What The Harness Is Allowed To Do
 
 The harness may:
@@ -64,6 +145,7 @@ The harness may:
 - shape bounded prompts and focus packets
 - expose tool results and evidence to the agent
 - enforce execution invariants that are mechanical rather than semantic
+- track transport lifecycle for human feedback, retries, and waiting states
 
 These are rails.
 They support the run without deciding the case.
@@ -81,6 +163,10 @@ The harness must not:
 - decide what is mapping-critical through scripted finding types
 - generate correction plans from deterministic domain heuristics
 - declare semantic closure because a validator says the transcript is clean
+- choose focus from ranked candidates as shared-harness truth
+- mark human feedback as semantically integrated merely because transport state advanced
+- convert mechanical counters, signatures, or audit deltas into substantive mission meaning on the agent's behalf
+- route continue vs terminal posture from heuristic semantic judgments that the agent could make itself
 
 If a deterministic component is deciding what work exists or what that work means, the architecture is out of bounds.
 
@@ -99,6 +185,7 @@ The following must be agent-authored:
 - closure posture
 - next-step planning
 - interpretation of evidence
+- semantic incorporation of human feedback
 
 Valid semantic origins are:
 
@@ -191,6 +278,31 @@ Shared layers must not:
 
 When ambiguity remains, preserve ambiguity or bounce the payload back for repair.
 Do not silently invent mission posture.
+
+## 4.4 HITL Integration Rule
+
+Shared layers may track human-feedback transport posture only, such as:
+
+- prompt issued
+- waiting on answer
+- answer received
+- answer surfaced back to the agent
+
+Shared layers must not infer that feedback has been semantically incorporated just because:
+
+- a response exists
+- a registry row changed
+- a lifecycle flag advanced
+- a deterministic adapter updated local state
+
+If the system needs a durable claim that feedback was actually incorporated, that claim must come from:
+
+- explicit agent-authored acknowledgment
+- explicit human confirmation
+- or a narrow mechanical tool whose contract is genuinely incorporation-complete
+
+The harness may remind the agent that feedback remains pending.
+It must not pretend to know that the meaning has been absorbed.
 
 ---
 
@@ -310,12 +422,15 @@ The harness may:
 - supply bounded context
 - store blocker state
 - require explicit structured output
+- preserve the last agent-chosen focus as continuity state
+- surface candidate work items as optional context
 
 The harness must not:
 
 - hard-code which issue type outranks another
 - infer blocker truth from deterministic finding categories
 - use scripted priority ladders as the practical source of focus
+- deterministically pick the active focus from candidate rows as shared runtime truth
 
 Priority policy may exist as a prompt doctrine.
 It must not exist as hidden deterministic authorship.
@@ -357,6 +472,38 @@ Transcript-edit may define closure around mapping-readiness and transcript integ
 Another mission may define closure completely differently.
 The harness must not bake one mission's closure doctrine into shared labels.
 
+## 8.1 Progress And Terminal Rule
+
+Mechanical signals are allowed:
+
+- counts
+- signatures
+- timestamps
+- retry counters
+- budget consumption
+- presence of new artifacts or feedback
+
+These may support observability and agent prompting.
+They must not become the harness's substitute for semantic judgment.
+
+Shared layers must not deterministically conclude things like:
+
+- "real progress happened"
+- "the agent is stuck on meaning"
+- "this focus is exhausted"
+- "the case should now terminate"
+
+based only on heuristic signatures, counts, or scripted delta logic.
+
+Purely mechanical brakes are allowed, such as:
+
+- hard budget ceilings
+- explicit max-iteration ceilings
+- repeated invariant violations
+- malformed payload loops
+
+Semantic stagnation, mission exhaustion, and closure posture must remain agent-judged or human-judged.
+
 ---
 
 ## 9. Prompt And Packet Rule
@@ -373,6 +520,16 @@ But the content carried in those structures should be agent-authored wherever it
 Prompt scaffolding may shape the container.
 It must not smuggle in the work content through deterministic doctrine.
 
+Support packets should bias toward:
+
+- evidence
+- history
+- continuity
+- unresolved questions
+- optional prompt hints
+
+They should not become deterministic working plans, focus agendas, or semantic next-step scripts masquerading as context.
+
 ---
 
 ## 10. Anti-Regression Rule
@@ -388,6 +545,53 @@ If a change adds semantic convenience by scripting what the case means, that cha
 
 ---
 
+## 10.1 Shared-Harness Drift Watchpoints
+
+After major purification work, the main regression risk is no longer obvious domain takeover.
+It is subtle drift in shared seams, control shape, naming, and compatibility surfaces.
+
+### Adapter seam watchpoint
+
+Mission-runtime adapters must remain adapter seams only.
+
+They may:
+
+- build runner context
+- adapt concrete runner output into generic runtime envelopes
+- provide bounded transition or handoff hints
+
+They must not:
+
+- define alternate runtime law
+- introduce domain-specific mission-shell mechanics
+- become the practical source of generic harness behavior
+
+### Hook-grammar watchpoint
+
+Stable orchestration hook structure is allowed as hosting shape.
+
+But hook grammar must not become a channel for deterministic semantic staging, planner logic, or hidden case authorship.
+
+If a hook exists mainly because of inherited pipeline shape rather than genuine shared mechanics, it should be scrutinized or simplified.
+
+### Mechanical-naming watchpoint
+
+Shared-harness names should match mechanical reality.
+
+If a field or helper means only loop-control telemetry, anti-spin support, transport posture, or execution state, its naming should not imply semantic truth, semantic progress, semantic closure, or semantic authority.
+
+### Compatibility-surface watchpoint
+
+Compatibility wrappers, aliases, and legacy entrypoints may exist, but they must remain visibly secondary.
+
+They must not:
+
+- compete with canonical interfaces
+- teach the wrong architecture through naming or exports
+- become the default foundation for new work
+
+---
+
 ## 11. Review Questions
 
 Every substantial harness or loop change should be reviewed with these questions:
@@ -398,6 +602,15 @@ Every substantial harness or loop change should be reviewed with these questions
 4. Is focus still agent-chosen rather than script-ranked?
 5. Is closure still agent-judged rather than validator-declared?
 6. Are tool outputs evidence-shaped instead of issue-authorship-shaped?
+7. Is one iteration still close to one agent-authored move rather than a deterministic semantic mini-pipeline?
+8. Is HITL incorporation still agent-confirmed or human-confirmed rather than kernel-inferred?
+9. Are progress and terminal decisions still mechanical-only unless the agent explicitly authored the semantic judgment?
+10. Is the mission runtime still generic trunk behavior rather than mode-specific harness law?
+11. Are mode/domain adapters only supplying content and runner wiring, rather than defining distinct runtime mechanics?
+12. Is the adapter seam still only translation and wiring rather than a source of trunk runtime law?
+13. Does the orchestration hook grammar still serve hosting mechanics rather than semantic staging?
+14. Do shared-layer names describe mechanical signals accurately rather than implying semantic truth?
+15. Are compatibility surfaces clearly secondary and unable to masquerade as canonical architecture?
 
 If any answer is "no", the design is drifting out of bounds.
 

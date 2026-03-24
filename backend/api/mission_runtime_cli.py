@@ -26,7 +26,7 @@ from harness.mission_runtime.cli_support import (
     persist_mission_trace_index,
     resolve_tx_scenario,
 )
-from harness.mission_runtime.registry import ModePolicyRegistry
+from harness.mission_runtime.registry import MissionModeAdapterRegistry
 from harness.mission_runtime.runtime import MissionRuntime
 
 
@@ -137,8 +137,8 @@ def run_cli(argv: Sequence[str] | None = None, stdout: TextIO | None = None, std
     try:
         _validate_args(args, parser=parser)
         mission_request = _build_mission_runtime_request(args)
-        registry = _build_policy_registry(args=args, mission_request=mission_request)
-        runtime = MissionRuntime(policy_registry=registry)
+        registry = _build_adapter_registry(args=args, mission_request=mission_request)
+        runtime = MissionRuntime(adapter_registry=registry)
         cycle_results: list[Any] = []
         ledger = None
         for _ in range(max(1, int(args.max_cycles))):
@@ -231,11 +231,11 @@ def _build_mission_runtime_request(args: argparse.Namespace) -> MissionRuntimeRe
     )
 
 
-def _build_policy_registry(
+def _build_adapter_registry(
     *,
     args: argparse.Namespace,
     mission_request: MissionRuntimeRequest,
-) -> ModePolicyRegistry:
+) -> MissionModeAdapterRegistry:
     deed_inputs = DeedModeCliInputs(
         dossier_id=args.deed_dossier_id,
         deed_text=_resolve_text(args.deed_text, args.deed_text_file),
@@ -277,7 +277,7 @@ def _build_policy_registry(
         deed_inputs=deed_inputs,
         transcript_inputs=transcript_inputs,
     )
-    return ModePolicyRegistry(policies)
+    return MissionModeAdapterRegistry(policies)
 
 
 def _resolve_text(inline_text: str | None, text_file: str | None) -> str | None:

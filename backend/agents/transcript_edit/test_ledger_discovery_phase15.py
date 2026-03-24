@@ -42,7 +42,7 @@ def test_startup_remains_discovery_led_with_dormant_seed_present() -> None:
     assert comp.get("discovery_led_startup_surface") is True
     assert comp.get("startup_active_work_posture") == "discovery_first_surface"
     focus = choose_investigation_focus(ledger, work_board=unified) or {}
-    assert focus.get("startup_discovery_led_surface") is True
+    assert str(focus.get("bootstrap_focus_source") or "") == "ledger_discovery"
     assert str(focus.get("decision_key") or "").startswith(DISCOVERY_KEY_PREFIX)
 
 

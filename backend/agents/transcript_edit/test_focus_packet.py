@@ -96,23 +96,30 @@ def test_focus_packet_filters_recent_attempts_to_focus_key() -> None:
     attempts = packet["recent_attempts"]
     assert len(attempts) == 2
     assert all(str(row.get("decision_key") or "") == "range" for row in attempts)
-    brief = packet.get("investigation_brief")
+    support_state = packet.get("support_state")
+    assert isinstance(support_state, dict)
+    assert packet.get("investigation_brief") is None
+    assert packet.get("working_plan") is None
+    assert packet.get("policy_signals") is None
+    brief = support_state.get("investigation_brief")
     assert isinstance(brief, dict)
     assert str(brief.get("role") or "") == "sticky_note"
     assert str(brief.get("purpose") or "") == "current_case_understanding"
-    working_plan = packet.get("working_plan")
+    assert "next_recommended_action" not in brief
+    working_plan = support_state.get("working_plan")
     assert isinstance(working_plan, dict)
     assert str(working_plan.get("role") or "") == "working_plan"
     assert str(working_plan.get("purpose") or "") == "short_horizon_case_rail"
-    support_state = packet.get("support_state")
-    assert isinstance(support_state, dict)
+    focus_selection = packet.get("focus_selection")
+    if isinstance(focus_selection, dict):
+        assert "why_active_now" not in focus_selection
     assert isinstance(support_state.get("investigation_brief"), dict)
     assert isinstance(support_state.get("working_plan"), dict)
     assert isinstance(support_state.get("policy_signals"), dict)
     signals = support_state.get("policy_signals") if isinstance(support_state.get("policy_signals"), dict) else {}
     assert str(signals.get("understanding_strength") or "") in {"weak", "moderate", "narrow"}
-    assert "repair_eligible" in signals
-    assert signals.get("focus_is_material") is True
+    assert "needs_orientation" in signals
+    assert "needs_inventory" in signals
 
 
 def test_focus_packet_materiality_comes_from_closure_requirement() -> None:
@@ -137,9 +144,8 @@ def test_focus_packet_materiality_comes_from_closure_requirement() -> None:
     )
     signals = (packet.get("support_state") or {}).get("policy_signals") if isinstance(packet.get("support_state"), dict) else {}
     assert isinstance(signals, dict)
-    assert signals.get("focus_is_material") is True
-    assert signals.get("repair_eligible") is False
-    assert signals.get("escalation_eligible") is False
+    assert signals.get("needs_inventory") is True
+    assert signals.get("needs_orientation") is True
 
 
 def test_focus_packet_flags_repeated_no_signal_evidence_attempts() -> None:
@@ -260,12 +266,12 @@ def test_focus_packet_injects_answered_unintegrated_human_resolution_ticket() ->
         "feedback_ready_for_integration",
         "answered_unintegrated",
     }
-    brief = packet.get("investigation_brief")
+    support_state = packet.get("support_state")
+    assert isinstance(support_state, dict)
+    brief = support_state.get("investigation_brief")
     assert isinstance(brief, dict)
     assert isinstance(brief.get("knowns"), dict)
     assert isinstance(brief.get("open_questions"), list)
-    support_state = packet.get("support_state")
-    assert isinstance(support_state, dict)
     assert str((support_state.get("working_plan") or {}).get("role") or "") == "working_plan"
     assert isinstance((support_state.get("policy_signals") or {}), dict)
 
@@ -424,6 +430,7 @@ def test_focus_packet_marks_emergent_focus_source_and_blocker_fields() -> None:
         continuity_log=[],
     )
     assert str(packet.get("focus_source") or "") == "emergent_blocker"
+    assert packet.get("recent_iteration_lane") is None
     blocker = packet.get("active_emergent_blocker")
     assert isinstance(blocker, dict)
     assert str(blocker.get("blocker_id") or "") == "emergent:agent:test:1"
@@ -473,13 +480,16 @@ def test_focus_packet_execution_context_parity_and_generic_knowns() -> None:
     assert isinstance(parity, dict)
     assert parity.get("code") == "ok"
     assert parity.get("identity_aligned") is True
-    brief = packet.get("investigation_brief")
+    support_state = packet.get("support_state")
+    assert isinstance(support_state, dict)
+    brief = support_state.get("investigation_brief")
     assert isinstance(brief, dict)
     gwb = (brief.get("knowns") or {}).get("generic_work_board")
     assert isinstance(gwb, dict)
     assert gwb.get("item_id") == "te:ledger:township"
     rich = (ec.get("recent_iterations") or {}).get("rich_capsules") or []
     assert rich
+    assert packet.get("recent_iteration_lane") is None
     step0 = rich[0]["steps"][0]
     assert "gather_more_evidence" in (step0.get("state_changes_hint") or "")
 

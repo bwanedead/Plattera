@@ -5,7 +5,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
-from backend.agents.transcript_edit.focus_authority_policy import (
+from backend.agents.transcript_edit.decision_ledger_focus import (
     authority_rank_for_candidate,
     focus_authority_audit,
     resolve_focus_authority_mode,

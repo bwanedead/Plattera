@@ -74,7 +74,15 @@ def test_mark_blocked_accepts_dependency_case_and_rejects_generic_case() -> None
 def test_apply_edit_plan_acceptance_requires_focus_scope_and_ops() -> None:
     good_plan = {"ops": [{"op_id": "op-1"}]}
     bad_plan = {"ops": []}
-    assert _accept_apply_edit_plan(resolver_decision_key="range", focus_key="range", plan_payload=good_plan) is True
+    assert (
+        _accept_apply_edit_plan(
+            resolver_decision_key="range",
+            focus_key="range",
+            plan_payload=good_plan,
+            policy_signals={"understanding_strength": "moderate", "has_fresh_signal": True},
+        )
+        is True
+    )
     assert _accept_apply_edit_plan(resolver_decision_key="section", focus_key="range", plan_payload=good_plan) is False
     assert _accept_apply_edit_plan(resolver_decision_key="range", focus_key="range", plan_payload=bad_plan) is False
 
@@ -86,7 +94,7 @@ def test_apply_edit_plan_rejected_when_understanding_is_weak() -> None:
             resolver_decision_key="range",
             focus_key="range",
             plan_payload=good_plan,
-            policy_signals={"understanding_strength": "weak", "repair_eligible": False},
+            policy_signals={"understanding_strength": "weak", "has_fresh_signal": False, "cached_context_present": False},
         )
         is False
     )
@@ -95,14 +103,14 @@ def test_apply_edit_plan_rejected_when_understanding_is_weak() -> None:
 def test_request_human_feedback_rejected_when_understanding_is_weak() -> None:
     assert (
         _accept_request_human_feedback(
-            policy_signals={"understanding_strength": "weak", "escalation_eligible": False},
+            policy_signals={"understanding_strength": "weak", "has_fresh_signal": False, "cached_context_present": False},
             hitl_enabled=True,
         )
         is False
     )
     assert (
         _accept_request_human_feedback(
-            policy_signals={"understanding_strength": "narrow", "escalation_eligible": True},
+            policy_signals={"understanding_strength": "narrow", "has_fresh_signal": True, "cached_context_present": True},
             hitl_enabled=True,
         )
         is True

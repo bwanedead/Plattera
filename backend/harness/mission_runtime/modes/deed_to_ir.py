@@ -24,12 +24,13 @@ from ...terminal_taxonomy import classify_controller_terminal
 from ..contracts import (
     MissionBlockerPostureSummary,
     MissionLedgerView,
+    MissionModeRunEnvelope,
     MissionResumabilitySummary,
     MissionRuntimeRequest,
     MissionVerificationPostureSummary,
     ModeCycleContext,
     ModeInterpretation,
-    ModePolicy,
+    MissionModeAdapter,
     ModeRecommendation,
     ModeTransitionRecommendation,
     TerminalRecommendation,
@@ -38,8 +39,8 @@ from ..contracts import (
 DEED_TO_IR_MODE_NAME = "deed_to_ir"
 
 
-class DeedToIRModePolicy(ModePolicy):
-    """MissionRuntime ModePolicy adapter for deed-to-IR controller runtime."""
+class DeedToIRModeAdapter(MissionModeAdapter):
+    """MissionRuntime mode adapter for deed-to-IR controller runtime."""
 
     mode_name = DEED_TO_IR_MODE_NAME
 
@@ -62,6 +63,41 @@ class DeedToIRModePolicy(ModePolicy):
             execution_adapter=lambda: self._runner(request, ledger),
         )
 
+    def build_run_envelope(
+        self,
+        *,
+        request: MissionRuntimeRequest,
+        ledger: MissionLedgerView,
+        context: ModeCycleContext,
+    ) -> MissionModeRunEnvelope:
+        result = _require_controller_result(context)
+        interpretation, recommendation = adapt_controller_run_result(result)
+        transition = _recommend_transition_to_transcript_edit(
+            request=request,
+            recommendation=recommendation,
+            result=result,
+        )
+        return MissionModeRunEnvelope(
+            summary=interpretation.summary,
+            high_signal_artifact_refs=tuple(recommendation.high_signal_artifact_refs),
+            blocker_posture=recommendation.blocker_posture,
+            verification_posture=recommendation.verification_posture,
+            resumability=recommendation.resumability,
+            terminal=recommendation.terminal,
+            transition=transition,
+            domain_payload={
+                "mode": DEED_TO_IR_MODE_NAME,
+                "terminal_outcome": result.terminal.terminal_outcome.value,
+                "stop_reason": result.terminal.stop_reason.value,
+                "reason_code": result.terminal.reason_code,
+                "iterations": result.iterations,
+                "session_id": result.session_id,
+                "run_artifact_ref": result.run_artifact_ref,
+                "transcript_artifact_ref": result.transcript_artifact_ref,
+                "latest_refs": dict(result.last_dashboard.get("latest_refs") or {}),
+            },
+        )
+
     def interpret(
         self,
         *,
@@ -69,7 +105,11 @@ class DeedToIRModePolicy(ModePolicy):
         ledger: MissionLedgerView,
         context: ModeCycleContext,
     ) -> ModeInterpretation:
-        return interpret_controller_run_result(_require_controller_result(context))
+        envelope = _require_controller_run_envelope(context)
+        return ModeInterpretation(
+            summary=envelope.summary,
+            details=dict(envelope.domain_payload),
+        )
 
     def recommend(
         self,
@@ -79,18 +119,20 @@ class DeedToIRModePolicy(ModePolicy):
         context: ModeCycleContext,
         interpretation: ModeInterpretation,
     ) -> ModeRecommendation:
-        result = _require_controller_result(context)
-        recommendation = recommend_controller_run_result(result)
-        transition = _recommend_transition_to_transcript_edit(
-            request=request,
-            recommendation=recommendation,
-            result=result,
+        envelope = _require_controller_run_envelope(context)
+        recommendation = ModeRecommendation(
+            next_step_hint=None,
+            terminal=envelope.terminal,
+            high_signal_artifact_refs=list(envelope.high_signal_artifact_refs),
+            blocker_posture=envelope.blocker_posture,
+            verification_posture=envelope.verification_posture,
+            resumability=envelope.resumability,
         )
-        if transition is None:
+        if envelope.transition is None:
             return recommendation
         return ModeRecommendation(
             next_step_hint="handoff_to_transcript_edit",
-            transition=transition,
+            transition=envelope.transition,
             terminal=recommendation.terminal,
             high_signal_artifact_refs=list(recommendation.high_signal_artifact_refs),
             blocker_posture=recommendation.blocker_posture,
@@ -99,7 +141,7 @@ class DeedToIRModePolicy(ModePolicy):
         )
 
 
-def build_deed_to_ir_mode_policy_from_controller_inputs(
+def build_deed_to_ir_mode_adapter_from_controller_inputs(
     *,
     session_manager: KernelSessionManager,
     llm_client: NextStepLLMClient,
@@ -107,8 +149,8 @@ def build_deed_to_ir_mode_policy_from_controller_inputs(
     start_request_factory: Callable[[MissionRuntimeRequest, MissionLedgerView], KernelSessionStartRequest] | None = None,
     model: str = "gpt-5-mini",
     max_iterations: int = 20,
-) -> DeedToIRModePolicy:
-    """Build a deed-to-IR ModePolicy backed by the orchestration kernel."""
+) -> DeedToIRModeAdapter:
+    """Build a deed-to-IR mode adapter backed by the orchestration kernel."""
 
     def _runner(_request: MissionRuntimeRequest, _ledger: MissionLedgerView) -> ControllerRunResult:
         req = start_request_factory(_request, _ledger) if start_request_factory is not None else start_request
@@ -122,7 +164,9 @@ def build_deed_to_ir_mode_policy_from_controller_inputs(
             max_iterations=max_iterations,
         )
 
-    return DeedToIRModePolicy(runner=_runner)
+    return DeedToIRModeAdapter(runner=_runner)
+
+
 
 
 # ---------------------------------------------------------------------------
@@ -435,3 +479,10 @@ def _require_controller_result(context: ModeCycleContext) -> ControllerRunResult
     if isinstance(result, ControllerRunResult):
         return result
     raise ValueError("deed_to_ir_mode_context_missing_execution_result")
+
+
+def _require_controller_run_envelope(context: ModeCycleContext) -> MissionModeRunEnvelope:
+    envelope = context.run_envelope
+    if isinstance(envelope, MissionModeRunEnvelope):
+        return envelope
+    raise ValueError("deed_to_ir_mode_context_missing_run_envelope")

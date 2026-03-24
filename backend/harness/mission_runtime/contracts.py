@@ -75,6 +75,7 @@ class ModeCycleContext:
     payload: Mapping[str, Any] = field(default_factory=dict)
     execution_adapter: Callable[[], Any] | None = None
     execution_result: Any | None = None
+    run_envelope: "MissionModeRunEnvelope" | None = None
 
 
 @dataclass(frozen=True)
@@ -86,6 +87,20 @@ class ModeRecommendation:
     blocker_posture: MissionBlockerPostureSummary | None = None
     verification_posture: MissionVerificationPostureSummary | None = None
     resumability: MissionResumabilitySummary | None = None
+
+
+@dataclass(frozen=True)
+class MissionModeRunEnvelope:
+    """Generic mission-mode run summary consumed at the runtime seam."""
+
+    summary: str
+    high_signal_artifact_refs: tuple[str, ...] = field(default_factory=tuple)
+    blocker_posture: MissionBlockerPostureSummary | None = None
+    verification_posture: MissionVerificationPostureSummary | None = None
+    resumability: MissionResumabilitySummary | None = None
+    terminal: TerminalRecommendation | None = None
+    transition: ModeTransitionRecommendation | None = None
+    domain_payload: Mapping[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -207,13 +222,14 @@ class MissionRuntimeCycleResult:
     ledger: MissionLedger
     interpretation: ModeInterpretation
     recommendation: ModeRecommendation
+    mode_run_envelope: MissionModeRunEnvelope | None = None
     transition: ModeTransition | None = None
     terminal_handoff: TerminalRecommendation | None = None
     trace_segment: MissionTraceSegment | None = None
 
 
 @runtime_checkable
-class ModePolicy(Protocol):
+class MissionModeAdapter(Protocol):
     mode_name: str
 
     def build_context(
@@ -222,6 +238,14 @@ class ModePolicy(Protocol):
         request: MissionRuntimeRequest,
         ledger: MissionLedgerView,
     ) -> ModeCycleContext: ...
+
+    def build_run_envelope(
+        self,
+        *,
+        request: MissionRuntimeRequest,
+        ledger: MissionLedgerView,
+        context: ModeCycleContext,
+    ) -> MissionModeRunEnvelope: ...
 
     def interpret(
         self,

@@ -22,11 +22,11 @@ from services.agent_kernel.run_artifact_persistence_service import RunArtifactPe
 
 from .hitl_watch import hitl_pending_path
 
-from .contracts import MissionRuntimeCycleResult, MissionRuntimeRequest, ModePolicy
+from .contracts import MissionRuntimeCycleResult, MissionRuntimeRequest, MissionModeAdapter
 from .modes import (
-    DeedToIRModePolicy,
-    TranscriptEditModePolicy,
-    build_deed_to_ir_mode_policy_from_controller_inputs,
+    DeedToIRModeAdapter,
+    TranscriptEditModeAdapter,
+    build_deed_to_ir_mode_adapter_from_controller_inputs,
 )
 from .modes.transcript_edit import run_orchestration_kernel_transcript_loop
 from .runtime import build_mission_observability_payload
@@ -118,11 +118,11 @@ class TranscriptModeCliInputs:
     auto_promote: bool
 
 
-def build_deed_mode_policy_from_cli_inputs(
+def build_deed_mode_adapter_from_cli_inputs(
     inputs: DeedModeCliInputs,
     *,
     mission_request: MissionRuntimeRequest | None = None,
-) -> DeedToIRModePolicy:
+) -> DeedToIRModeAdapter:
     session_manager = build_plattera_default_kernel_session_manager(
         persistence_service=RunArtifactPersistenceService()
     )
@@ -137,7 +137,7 @@ def build_deed_mode_policy_from_cli_inputs(
             mission_id=mid,
         )
 
-    return build_deed_to_ir_mode_policy_from_controller_inputs(
+    return build_deed_to_ir_mode_adapter_from_controller_inputs(
         session_manager=session_manager,
         llm_client=llm_client,
         start_request_factory=_build_start_request,
@@ -199,11 +199,11 @@ def build_deed_mode_start_request(*, inputs: DeedModeCliInputs, mission_id: str 
     )
 
 
-def build_transcript_mode_policy_from_cli_inputs(
+def build_transcript_mode_adapter_from_cli_inputs(
     *,
     inputs: TranscriptModeCliInputs,
     mission_request: MissionRuntimeRequest,
-) -> TranscriptEditModePolicy:
+) -> TranscriptEditModeAdapter:
     session_manager = build_kernel_session_manager(
         action_executor=build_plattera_default_action_executor(),
         persistence_service=RunArtifactPersistenceService(),
@@ -338,7 +338,7 @@ def build_transcript_mode_policy_from_cli_inputs(
 
         return result  # Max HITL resume rounds reached.
 
-    return TranscriptEditModePolicy(runner=_runner)
+    return TranscriptEditModeAdapter(runner=_runner)
 
 
 def infer_transcript_ref_from_ledger(ledger: Any) -> str | None:
@@ -426,8 +426,8 @@ def build_policy_list_for_cli(
     mission_request: MissionRuntimeRequest,
     deed_inputs: DeedModeCliInputs | None,
     transcript_inputs: TranscriptModeCliInputs | None,
-) -> list[ModePolicy]:
-    policies: list[ModePolicy] = []
+) -> list[MissionModeAdapter]:
+    policies: list[MissionModeAdapter] = []
     needs_deed = (
         mission_request.initial_mode == "deed_to_ir"
         or bool(mission_request.metadata.get("transcript_edit_transition_to_deed_to_ir"))
@@ -439,12 +439,12 @@ def build_policy_list_for_cli(
     if needs_deed:
         if deed_inputs is None:
             raise ValueError("deed_mode_inputs_required")
-        policies.append(build_deed_mode_policy_from_cli_inputs(deed_inputs, mission_request=mission_request))
+        policies.append(build_deed_mode_adapter_from_cli_inputs(deed_inputs, mission_request=mission_request))
     if needs_tx:
         if transcript_inputs is None:
             raise ValueError("transcript_mode_inputs_required")
         policies.append(
-            build_transcript_mode_policy_from_cli_inputs(
+            build_transcript_mode_adapter_from_cli_inputs(
                 inputs=transcript_inputs,
                 mission_request=mission_request,
             )

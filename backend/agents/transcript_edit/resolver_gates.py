@@ -84,9 +84,9 @@ def accept_request_human_feedback(*, policy_signals: dict[str, Any] | None = Non
     signals = policy_signals if isinstance(policy_signals, dict) else {}
     if not hitl_enabled:
         return False
-    if not bool(signals.get("escalation_eligible")):
-        return False
     if str(signals.get("understanding_strength") or "").strip().lower() == "weak":
+        return False
+    if not (bool(signals.get("has_fresh_signal")) or bool(signals.get("cached_context_present"))):
         return False
     return True
 
@@ -108,6 +108,6 @@ def accept_apply_edit_plan(
         return False
     if str(signals.get("understanding_strength") or "").strip().lower() == "weak":
         return False
-    if not bool(signals.get("repair_eligible", True)):
+    if not (bool(signals.get("has_fresh_signal")) or bool(signals.get("cached_context_present"))):
         return False
     return True

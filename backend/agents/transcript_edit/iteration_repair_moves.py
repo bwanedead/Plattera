@@ -80,12 +80,14 @@ def _continuity_delta_and_next_hints(
     delta = "; ".join(parts)[:280] or None
     sig = policy_signals if isinstance(policy_signals, dict) else {}
     nxt: str | None = None
-    if bool(sig.get("repair_eligible")):
-        nxt = "posture_allows_repair_when_evidence_supports_safe_edit"
-    elif bool(sig.get("escalation_eligible")):
-        nxt = "consider_hitl_or_escalation_when_machine_path_stalls"
+    if str(sig.get("understanding_strength") or "").strip().lower() == "weak":
+        nxt = "bias_inventory_and_orientation_before_aggressive_edit"
     elif bool(sig.get("needs_orientation")):
         nxt = "bias_inventory_and_orientation_before_aggressive_edit"
+    elif bool(sig.get("needs_inventory")):
+        nxt = "gather_inventory_or_evidence_before_bounding"
+    elif bool(sig.get("has_fresh_signal")) and str(sig.get("understanding_strength") or "").strip().lower() in {"moderate", "narrow"}:
+        nxt = "consider_safe_repair_when_signal_supports_it"
     elif str(move or "").strip().lower() == "gather_more_evidence":
         nxt = "re_evaluate_resolver_after_evidence_step"
     return delta, (nxt[:280] if nxt else None)
@@ -476,12 +478,11 @@ def handle_repair_move_outcome(
                 state.llm_iteration_understanding = dict(state.decision_ledger["llm_iteration_understanding"])
     state_before_summary = {
         "understanding_strength": str(signals.get("understanding_strength") or "unknown").strip().lower() or "unknown",
+        "needs_orientation": bool(signals.get("needs_orientation")),
+        "needs_inventory": bool(signals.get("needs_inventory")),
         "has_fresh_signal": bool(signals.get("has_fresh_signal")),
         "cached_context_present": bool(signals.get("cached_context_present")),
         "repeat_without_signal": bool(signals.get("repeat_without_signal")),
-        "escalation_eligible": bool(signals.get("escalation_eligible")),
-        "repair_eligible": bool(signals.get("repair_eligible")),
-        "focus_is_material": bool(signals.get("focus_is_material")),
         "generic_board_mapping_signal": signals.get("generic_board_mapping_signal"),
         "generic_board_materiality": signals.get("generic_board_materiality"),
     }

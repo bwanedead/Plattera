@@ -6,7 +6,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
-from backend.agent_kernel import KernelSessionManager, run_kernel
+from backend.agent_kernel import KernelSessionManager
+from backend.agent_kernel.kernel import run_kernel
 from backend.agents.transcript_edit.decision_ledger import initialize_decision_ledger, initialize_decision_ledger_with_domain_template_seed
 from backend.agents.transcript_edit.decision_ledger_adapter import (
     build_transcript_edit_unified_decision_ledger,

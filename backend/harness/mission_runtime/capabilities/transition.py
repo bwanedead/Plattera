@@ -28,7 +28,7 @@ def evaluate_mode_transition(
         status_reason = "transition_reason_required"
     elif not mode_exists(next_mode):
         status = "rejected"
-        status_reason = "next_mode_policy_not_registered"
+        status_reason = "next_mode_adapter_not_registered"
     return ModeTransition(
         prior_mode=prior_mode,
         next_mode=next_mode,

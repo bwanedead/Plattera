@@ -9,6 +9,61 @@ from .work_board_emergence_hints import (
 )
 
 _MAX_PLANNER_WORKING_PLAN_STEP_CHARS = 160
+_FOCUS_AUTHORED_ATTENTION_DOCTRINE = (
+    "Do not behave like a scripted checklist runner; choose the next bounded move from the evolving case model. "
+    "When continuity is absent, the first bounded focus should come from LLM orientation / startup understanding and the candidate context, not from deterministic ranking. "
+)
+_PLANNER_SUPPORT_STATE_DOCTRINE = (
+    "Treat support_state.investigation_brief / the investigation brief as a living sticky note for the case, not as canonical truth. "
+    "Treat support_state.working_plan as advisory case context, not as doctrine. "
+    "Treat support_state.policy_signals as derived runtime observations, not as doctrine or truth. "
+)
+_RESOLVER_SUPPORT_STATE_DOCTRINE = (
+    "Treat support_state.investigation_brief as the current sticky-note summary of the run; it is editable, additive context, not canonical truth. "
+    "Treat support_state.working_plan as advisory context; it may be adjusted when the case understanding changes. "
+    "Treat support_state.policy_signals as derived observations: weak understanding should bias toward orientation/inventory/verification, narrow understanding may permit repair or bounded HITL, and repeated no-signal work should be discouraged. "
+)
+
+
+def _packet_support_state(focus_packet: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(focus_packet, dict):
+        return {}
+    support_state = focus_packet.get("support_state")
+    if isinstance(support_state, dict):
+        return dict(support_state)
+    out: dict[str, Any] = {}
+    if isinstance(focus_packet.get("investigation_brief"), dict):
+        out["investigation_brief"] = focus_packet.get("investigation_brief")
+    if isinstance(focus_packet.get("working_plan"), dict):
+        out["working_plan"] = focus_packet.get("working_plan")
+    if isinstance(focus_packet.get("policy_signals"), dict):
+        out["policy_signals"] = focus_packet.get("policy_signals")
+    return out
+
+
+def _default_working_plan(*, investigation_brief: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not isinstance(investigation_brief, dict):
+        return None
+    return {
+        "role": "working_plan",
+        "purpose": "short_horizon_case_rail",
+        "editable": True,
+        "canonical": False,
+        "status": "advisory",
+    }
+
+
+def _support_state_payload(
+    *,
+    investigation_brief: dict[str, Any] | None,
+    working_plan: dict[str, Any] | None,
+    policy_signals: dict[str, Any] | None,
+) -> dict[str, Any]:
+    return {
+        "investigation_brief": investigation_brief,
+        "working_plan": working_plan,
+        "policy_signals": policy_signals,
+    }
 
 
 def slim_execution_context_for_planner(execution_context: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -22,9 +77,9 @@ def slim_execution_context_for_planner(execution_context: dict[str, Any] | None)
         slim_wp = {
             "current_goal": str(wp.get("current_goal") or "").strip()[:200] or None,
             "status": str(wp.get("status") or "").strip()[:32] or None,
-            "next_steps": [
+            "advisory_hints": [
                 str(s).strip()[:_MAX_PLANNER_WORKING_PLAN_STEP_CHARS]
-                for s in list(wp.get("next_steps") or [])
+                for s in list(wp.get("advisory_hints") or [])
                 if str(s).strip()
             ][:4],
         }
@@ -49,10 +104,8 @@ def build_planner_system_message() -> str:
         "You are a legal transcript edit planner. "
         "Your mission is to drive the transcript toward zero mapping-critical inaccuracies for downstream deed-to-IR and mapping loops. "
         "Propose a bounded EditPlanV0 JSON object only. "
-        "Treat support_state.investigation_brief / the investigation brief as a living sticky note for the case, not as canonical truth. "
-        "Treat support_state.working_plan as a revisable short-horizon rail, not as doctrine. "
-        "Treat support_state.policy_signals as derived runtime posture, not as doctrine or truth. "
-        "Do not behave like a scripted checklist runner; choose the next bounded move from the evolving case model. "
+        f"{_PLANNER_SUPPORT_STATE_DOCTRINE}"
+        f"{_FOCUS_AUTHORED_ATTENTION_DOCTRINE}"
         "Startup and initial work items come from LLM orientation (support_state.llm_startup_understanding when present), not from deterministic audit taxonomies. "
         "For deed-style transcript work, common concerns often include legal-description identity, contradictions, dependencies, tie data, closure, and acreage — but these are situational hints, not a required checklist. "
         "If uncertainty remains, keep the plan bounded and honest rather than forcing a speculative edit. "
@@ -90,12 +143,7 @@ def build_planner_user_message(
     execution_context: dict[str, Any] | None = None,
 ) -> str:
     if working_plan is None and isinstance(investigation_brief, dict):
-        working_plan = {
-            "role": "working_plan",
-            "purpose": "short_horizon_case_rail",
-            "editable": True,
-            "canonical": False,
-        }
+        working_plan = _default_working_plan(investigation_brief=investigation_brief)
     schema_snippet = {
         "plan_version": "edit_plan_v0",
         "source_transcript_ref": source_transcript_ref,
@@ -134,11 +182,11 @@ def build_planner_user_message(
         "schema_snippet": schema_snippet,
         "findings_summary": findings_summary,
         "investigation_brief": investigation_brief,
-        "support_state": {
-            "investigation_brief": investigation_brief,
-            "working_plan": working_plan,
-            "policy_signals": policy_signals,
-        },
+        "support_state": _support_state_payload(
+            investigation_brief=investigation_brief,
+            working_plan=working_plan,
+            policy_signals=policy_signals,
+        ),
         "top_findings": top_findings,
         "span_context": span_context,
         "image_verification": image_verification,
@@ -181,8 +229,8 @@ def build_plan_repair_user_message(
             "global_flags",
         ],
         "note_on_investigation": "If uncertainty remains, use the investigation brief as a sticky note and keep the plan bounded rather than inventing unsupported edits.",
-        "note_on_working_plan": "The working plan is a revisable rail, not doctrine; keep it short-horizon and update it by selecting a better bounded move, not by inventing hidden steps.",
-        "note_on_policy_signals": "Derived policy signals express weak vs narrow understanding, repetition pressure, and escalation/repair eligibility; use them as posture, not as a script.",
+        "note_on_working_plan": "The working plan is advisory context, not doctrine; keep it bounded and update it only when the case understanding changes.",
+        "note_on_policy_signals": "Derived policy signals express weak vs narrow understanding, repetition pressure, and observable freshness; use them as observations, not as a script.",
         "note": "If no safe edit is justified, return ops=[] with rationale.",
     }
     return json.dumps(payload, ensure_ascii=False)
@@ -195,13 +243,11 @@ def build_focus_resolver_system_message() -> str:
         "support_state.audit_evidence_snapshot is mechanical inspection output (counts, observations) — not authoritative issue truth; "
         "you interpret evidence and author meaning via support_state.llm_startup_understanding, support_state.llm_iteration_understanding, "
         "and explicit move payloads (iteration_understanding, work_board_changes, blocker_updates). "
-        "Do not behave like a scripted checklist runner; choose the next bounded move from the evolving case model. "
-        "The runtime preselects the focus decision_key; do not switch focus to any other item. "
+        f"{_FOCUS_AUTHORED_ATTENTION_DOCTRINE}"
+        "The runtime carries continuity when it exists; if continuity is absent, the startup understanding authors the initial focus and candidate context remains advisory. "
         "It is valid to create emergent focus items or blockers when the case needs separate investigation, orientation, or baseline-building work; "
         "use propose_blocker_updates with custom:<name> blocker_kind when that is the best way to make the work explicit. "
-        "Treat support_state.investigation_brief as the current sticky-note summary of the run; it is editable, additive context, not canonical truth. "
-        "Treat support_state.working_plan as a revisable short-horizon rail; it may be adjusted when the case understanding changes. "
-        "Treat support_state.policy_signals as derived posture: weak understanding should bias toward orientation/inventory/verification, narrow understanding may permit repair or bounded HITL, and repeated no-signal work should be discouraged. "
+        f"{_RESOLVER_SUPPORT_STATE_DOCTRINE}"
         "Organized work is one harness decision ledger; focus_packet.work_board is that ledger envelope (historical JSON field name). "
         "Allowed move values: apply_edit_plan, request_human_feedback, gather_more_evidence, mark_blocked, mark_resolved_no_edit, propose_blocker_updates, propose_work_board_changes. "
         "If move=apply_edit_plan, include a valid EditPlanV0 in edit_plan. "
@@ -273,30 +319,16 @@ def build_focus_resolver_user_message(
         if isinstance(focus_packet, dict) and isinstance(focus_packet.get("focused_blocker_feedback_pair"), dict)
         else {}
     )
+    support_state = _packet_support_state(focus_packet if isinstance(focus_packet, dict) else None)
     working_plan = (
-        dict(focus_packet.get("working_plan"))
-        if isinstance(focus_packet, dict) and isinstance(focus_packet.get("working_plan"), dict)
-        else (
-            {
-                "role": "working_plan",
-                "purpose": "short_horizon_case_rail",
-                "editable": True,
-                "canonical": False,
-            }
-            if isinstance(focus_packet, dict) and isinstance(focus_packet.get("investigation_brief"), dict)
-            else None
-        )
-    )
-    support_state = (
-        dict(focus_packet.get("support_state"))
-        if isinstance(focus_packet, dict) and isinstance(focus_packet.get("support_state"), dict)
-        else (
-            {
-                "investigation_brief": focus_packet.get("investigation_brief") if isinstance(focus_packet, dict) else None,
-                "working_plan": working_plan,
-            }
-            if isinstance(focus_packet, dict)
-            else None
+        dict(support_state.get("working_plan"))
+        if isinstance(support_state.get("working_plan"), dict)
+        else _default_working_plan(
+            investigation_brief=(
+                dict(support_state.get("investigation_brief"))
+                if isinstance(support_state.get("investigation_brief"), dict)
+                else None
+            )
         )
     )
     execution_context = (
@@ -338,13 +370,25 @@ def build_focus_resolver_user_message(
         },
         "required_fields": ["decision_key", "move", "reason", "iteration_summary"],
         "focus_packet": focus_packet,
-        "support_state": support_state,
-        "investigation_brief": focus_packet.get("investigation_brief") if isinstance(focus_packet, dict) else None,
+        "support_state": _support_state_payload(
+            investigation_brief=(
+                support_state.get("investigation_brief")
+                if isinstance(support_state.get("investigation_brief"), dict)
+                else None
+            ),
+            working_plan=working_plan,
+            policy_signals=(
+                support_state.get("policy_signals")
+                if isinstance(support_state.get("policy_signals"), dict)
+                else None
+            ),
+        ),
+        "investigation_brief": support_state.get("investigation_brief") if isinstance(support_state.get("investigation_brief"), dict) else None,
         "working_plan": working_plan,
         "policy_signals": (
             support_state.get("policy_signals")
-            if isinstance(support_state, dict) and support_state.get("policy_signals") is not None
-            else (focus_packet.get("policy_signals") if isinstance(focus_packet, dict) else None)
+            if support_state.get("policy_signals") is not None
+            else None
         ),
         "external_context_injections": injections,
         "blocker_feedback_state": blocker_feedback_state,

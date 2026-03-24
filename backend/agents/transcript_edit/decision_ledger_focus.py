@@ -27,7 +27,6 @@ from .decision_ledger_scope import (
     _scope_label,
     _scope_rank,
 )
-from .focus_authority_policy import authority_rank_for_candidate, focus_authority_audit
 from .organized_work_composition import compute_organized_work_composition
 from .transcript_edit_discovery_lifecycle import discovery_lifecycle_priority_penalty
 from .transcript_edit_ledger_discovery_prep import (
@@ -45,6 +44,58 @@ from .work_board_projection import (
 from .work_board_read import board_is_mapping_blocking
 
 _UNRESOLVED_STATES = {"unknown", "candidate_found", "disputed", "accepted_with_risk"}
+
+
+def resolve_focus_authority_mode(*, mapping_blocking_by_key: dict[str, Any]) -> str:
+    """Derive advisory ordering mode from material mapping-blocking closure keys."""
+    return "ledger_absolute_precedence" if mapping_blocking_by_key else "emergent_may_lead"
+
+
+def authority_rank_for_candidate(
+    candidate: dict[str, Any],
+    *,
+    mapping_blocking_by_key: dict[str, Any],
+) -> int:
+    """Lower sort ranks surface earlier in bootstrap advisory ordering."""
+    mode = resolve_focus_authority_mode(mapping_blocking_by_key=mapping_blocking_by_key)
+    src = str(candidate.get("_candidate_source") or "")
+    key = str(candidate.get("key") or "").strip().lower()
+    if src in {"ledger_decision", "ledger_discovery"}:
+        mapped = mapping_blocking_by_key.get(key)
+        if isinstance(mapped, dict) and bool(mapped.get("mapping_blocking")):
+            return 0
+        return 1
+    if src == "harness_emergent":
+        return 2 if mode == "ledger_absolute_precedence" else 0
+    return 1
+
+
+def focus_authority_audit(
+    *,
+    mapping_blocking_by_key: dict[str, Any],
+    winner: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Compact advisory-ordering snapshot for packet/debug surfaces."""
+    mode = resolve_focus_authority_mode(mapping_blocking_by_key=mapping_blocking_by_key)
+    n = len(mapping_blocking_by_key)
+    note = (
+        "Material ledger mapping-blocking closure rows exist; emergent board rows defer in advisory ordering."
+        if mode == "ledger_absolute_precedence"
+        else "No material ledger mapping-blocking closure rows; emergent board rows may lead advisory ordering."
+    )
+    out: dict[str, Any] = {
+        "schema_version": "focus_authority.v1",
+        "mode": mode,
+        "material_mapping_blocker_key_count": n,
+        "policy_summary": note[:320],
+    }
+    if isinstance(winner, dict) and winner:
+        out["winner_authority_rank"] = authority_rank_for_candidate(
+            winner,
+            mapping_blocking_by_key=mapping_blocking_by_key,
+        )
+        out["winner_candidate_source"] = str(winner.get("_candidate_source") or "") or None
+    return out
 
 
 def _board_row_to_pseudo_ledger_state(board_state_raw: str) -> str:
@@ -114,7 +165,7 @@ def choose_investigation_focus(
     *,
     work_board: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
-    """Select next focus from the **unified harness decision ledger** envelope.
+    """Advisory focus ordering from the **unified harness decision ledger** envelope.
 
     Transitional call shapes (all equivalent when data is consistent):
 
@@ -122,6 +173,10 @@ def choose_investigation_focus(
     - ``ledger`` only: unified envelope is ``project_decision_ledger_to_work_board(ledger)`` (no emergent rows).
     - ``ledger`` = unified envelope (``work_board.v1``): closure rows are reconstructed from ``te:ledger:*`` items.
     - ``work_board`` only: pass ``ledger=None``; closure reconstructed from the envelope.
+
+    The result is advisory context for the pack/runtime. It should not be treated as the sole
+    source of focus truth when continuity, feedback, or emergent blockers already establish the
+    active item.
     """
     if work_board is not None:
         unified = work_board
@@ -171,9 +226,6 @@ def choose_investigation_focus(
             continue
         if _it.get("seed_scaffolding_dormant") is not True:
             seed_awake_unresolved += 1
-    # Phase 15: when discovery is unresolved and every unresolved seed row is still dormant,
-    # sort discovery candidates ahead of ledger_decision so startup posture matches discovery-led composition.
-    startup_discovery_surface = bool(has_unresolved_discovery and seed_awake_unresolved == 0)
     for item in normalized["items"]:
         if not isinstance(item, dict):
             continue
@@ -239,21 +291,9 @@ def choose_investigation_focus(
             }
         )
     ledger_candidate_keys = {str(c.get("key") or "").strip().lower() for c in candidates if str(c.get("key") or "").strip()}
-    candidates.extend(
-        _harness_emergent_focus_candidates(unified, ledger_candidate_keys=ledger_candidate_keys)
-    )
+    candidates.extend(_harness_emergent_focus_candidates(unified, ledger_candidate_keys=ledger_candidate_keys))
     if not candidates:
         return None
-
-    def _discovery_startup_rank(c: dict[str, Any]) -> int:
-        if not startup_discovery_surface:
-            return 0
-        src = str(c.get("_candidate_source") or "")
-        if src == "ledger_discovery":
-            return 0
-        if src == "ledger_decision":
-            return 1
-        return 0
 
     def sort_key(c: dict[str, Any]) -> tuple[Any, ...]:
         if str(c.get("_candidate_source") or "") == "harness_emergent":
@@ -274,8 +314,9 @@ def choose_investigation_focus(
                     li,
                     board_item,
                 )
+        authority_rank = authority_rank_for_candidate(c, mapping_blocking_by_key=mapping_blocking_by_key)
         return (
-            authority_rank_for_candidate(c, mapping_blocking_by_key=mapping_blocking_by_key),
+            int(authority_rank),
             0 if c["blocking"] else 1,
             int(c["scope_priority"]),
             -int(c["contradiction_rank"]),
@@ -287,38 +328,41 @@ def choose_investigation_focus(
     candidates.sort(key=sort_key)
     winner = candidates[0]
     reason_code, reason_text = _focus_reason_for_candidate(winner)
-    auth = focus_authority_audit(mapping_blocking_by_key=mapping_blocking_by_key, winner=winner)
     comp = compute_organized_work_composition(
         native_decision_ledger=closure_source,
         unified_work_board=unified,
     )
-    wli = winner.get("_ledger_item") if isinstance(winner.get("_ledger_item"), dict) else {}
-    w_dm = wli.get("discovery_meta") if isinstance(wli.get("discovery_meta"), dict) else {}
+    advisory_candidates = [
+        _public_candidate_view(c)
+        for c in candidates[:5]
+    ]
+    seed_candidate = _public_candidate_view(
+        winner,
+        reason_code=reason_code,
+        reason_text=reason_text,
+    )
     out = {
-        "decision_key": winner["key"],
-        "decision_label": winner["label"],
-        "state": winner["state"],
-        "blocking": winner["blocking"],
-        "scope_id": winner["scope_id"],
-        "scope_label": winner["scope_label"],
-        "scope_priority": winner["scope_priority"],
-        "in_target_scope": winner["scope_id"] == "target_scope",
-        "next_check_reason_code": reason_code,
-        "next_check_reason": reason_text,
-        "focus_target_kind": (
-            "harness_emergent"
-            if str(winner.get("_candidate_source") or "") == "harness_emergent"
-            else (
-                "ledger_discovery"
-                if str(winner.get("_candidate_source") or "") == "ledger_discovery"
-                else "ledger_decision"
-            )
+        "seed_candidate": seed_candidate,
+        "seed_source": str(winner.get("_candidate_source") or "").strip() or None,
+        # Transitional aliases for current callers/tests; advisory_candidates is the primary surface.
+        "decision_key": seed_candidate.get("decision_key"),
+        "decision_label": seed_candidate.get("label"),
+        "state": seed_candidate.get("state"),
+        "blocking": seed_candidate.get("blocking"),
+        "scope_id": seed_candidate.get("scope_id"),
+        "scope_label": seed_candidate.get("scope_label"),
+        "scope_priority": seed_candidate.get("scope_priority"),
+        "in_target_scope": seed_candidate.get("in_target_scope"),
+        "next_check_reason_code": seed_candidate.get("next_check_reason_code"),
+        "next_check_reason": seed_candidate.get("next_check_reason"),
+        "focus_target_kind": seed_candidate.get("focus_target_kind"),
+        "focus_authority": focus_authority_audit(
+            mapping_blocking_by_key=mapping_blocking_by_key,
+            winner=winner,
         ),
-        "focus_authority": auth,
         "organized_work_composition": comp,
-        "winner_discovery_posture": str(w_dm.get("posture") or "").strip() or None,
-        "winner_weak_seed_scaffolding": bool(winner.get("_weak_seed_scaffolding")),
-        "startup_discovery_led_surface": startup_discovery_surface,
+        "advisory_candidates": advisory_candidates,
+        "bootstrap_focus_source": str(winner.get("_candidate_source") or "").strip() or None,
     }
     return out
 
@@ -368,3 +412,39 @@ def _focus_reason_for_candidate(candidate: dict[str, Any]) -> tuple[str, str]:
     if state == "disputed":
         return ("highest_uncertainty", f"Prioritizing {label}: it has the highest unresolved uncertainty.")
     return ("next_open_item", f"Prioritizing {label}: it is the next unresolved checklist item.")
+
+
+def _public_candidate_view(
+    candidate: dict[str, Any],
+    *,
+    reason_code: str | None = None,
+    reason_text: str | None = None,
+) -> dict[str, Any]:
+    key = str(candidate.get("key") or "").strip().lower() or None
+    label = str(candidate.get("label") or "").strip() or None
+    scope_id = str(candidate.get("scope_id") or "").strip() or None
+    target_kind = (
+        "harness_emergent"
+        if str(candidate.get("_candidate_source") or "") == "harness_emergent"
+        else (
+            "ledger_discovery"
+            if str(candidate.get("_candidate_source") or "") == "ledger_discovery"
+            else "ledger_decision"
+        )
+    )
+    out = {
+        "decision_key": key,
+        "label": label,
+        "focus_target_kind": target_kind,
+        "state": str(candidate.get("state") or "").strip().lower() or None,
+        "blocking": bool(candidate.get("blocking")),
+        "scope_id": scope_id,
+        "scope_label": str(candidate.get("scope_label") or "").strip() or None,
+        "scope_priority": int(candidate.get("scope_priority") or 99),
+        "in_target_scope": scope_id == "target_scope",
+    }
+    if reason_code:
+        out["next_check_reason_code"] = reason_code
+    if reason_text:
+        out["next_check_reason"] = reason_text
+    return out

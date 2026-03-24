@@ -12,10 +12,10 @@ from agents.transcript_edit.contracts import TranscriptEditAgentRunRequest, Tran
 from harness.mission_runtime.contracts import MissionRuntimeRequest
 from harness.mission_runtime.modes.transcript_edit import (
     TRANSCRIPT_EDIT_MODE_NAME,
-    TranscriptEditModePolicy,
-    build_transcript_edit_mode_policy_from_controller_inputs,
+    TranscriptEditModeAdapter,
+    build_transcript_edit_mode_adapter_from_controller_inputs,
 )
-from harness.mission_runtime.registry import ModePolicyRegistry
+from harness.mission_runtime.registry import MissionModeAdapterRegistry
 from harness.mission_runtime.runtime import MissionRuntime
 
 
@@ -64,7 +64,7 @@ def _result(
     )
 
 
-def test_transcript_edit_mode_policy_registers_and_runs_through_mission_runtime() -> None:
+def test_transcript_edit_mode_adapter_registers_and_runs_through_mission_runtime() -> None:
     calls = {"count": 0}
 
     def _runner(_request: MissionRuntimeRequest, _ledger: Any) -> TranscriptEditAgentRunResult:
@@ -72,7 +72,7 @@ def test_transcript_edit_mode_policy_registers_and_runs_through_mission_runtime(
         return _result()
 
     runtime = MissionRuntime(
-        policy_registry=ModePolicyRegistry([TranscriptEditModePolicy(runner=_runner)]),
+        adapter_registry=MissionModeAdapterRegistry([TranscriptEditModeAdapter(runner=_runner)]),
         now_fn=lambda: 100.0,
     )
     result = runtime.run_cycle(request=_request())
@@ -88,7 +88,7 @@ def test_transcript_edit_mode_policy_registers_and_runs_through_mission_runtime(
 
 
 def test_transcript_edit_closure_summary_is_ledger_backed() -> None:
-    policy = TranscriptEditModePolicy(
+    policy = TranscriptEditModeAdapter(
         runner=lambda _request, _ledger: _result(
             status="needs_review",
             reason_code="tx_agent_closure_requirements_unresolved",
@@ -103,7 +103,7 @@ def test_transcript_edit_closure_summary_is_ledger_backed() -> None:
             },
         )
     )
-    runtime = MissionRuntime(policy_registry=ModePolicyRegistry([policy]), now_fn=lambda: 100.0)
+    runtime = MissionRuntime(adapter_registry=MissionModeAdapterRegistry([policy]), now_fn=lambda: 100.0)
     result = runtime.run_cycle(request=_request())
 
     assert result.recommendation.verification_posture is not None
@@ -114,7 +114,7 @@ def test_transcript_edit_closure_summary_is_ledger_backed() -> None:
 
 
 def test_transcript_edit_waiting_summary_is_registry_backed() -> None:
-    policy = TranscriptEditModePolicy(
+    policy = TranscriptEditModeAdapter(
         runner=lambda _request, _ledger: _result(
             status="needs_review",
             reason_code="tx_agent_waiting_feedback",
@@ -129,7 +129,7 @@ def test_transcript_edit_waiting_summary_is_registry_backed() -> None:
             },
         )
     )
-    runtime = MissionRuntime(policy_registry=ModePolicyRegistry([policy]), now_fn=lambda: 100.0)
+    runtime = MissionRuntime(adapter_registry=MissionModeAdapterRegistry([policy]), now_fn=lambda: 100.0)
     result = runtime.run_cycle(request=_request())
 
     assert result.terminal_handoff is not None
@@ -143,7 +143,7 @@ def test_transcript_edit_waiting_summary_is_registry_backed() -> None:
 
 
 def test_transcript_edit_clear_ledger_verification_posture_does_not_echo_reason_code() -> None:
-    policy = TranscriptEditModePolicy(
+    policy = TranscriptEditModeAdapter(
         runner=lambda _request, _ledger: _result(
             status="needs_review",
             reason_code="tx_agent_no_safe_plan_for_findings",
@@ -158,7 +158,7 @@ def test_transcript_edit_clear_ledger_verification_posture_does_not_echo_reason_
             },
         )
     )
-    runtime = MissionRuntime(policy_registry=ModePolicyRegistry([policy]), now_fn=lambda: 100.0)
+    runtime = MissionRuntime(adapter_registry=MissionModeAdapterRegistry([policy]), now_fn=lambda: 100.0)
     result = runtime.run_cycle(request=_request())
 
     assert result.recommendation.verification_posture is not None
@@ -182,12 +182,12 @@ def test_transcript_edit_builder_wraps_kernel_runner_signature(monkeypatch: Any)
         source_transcript_ref="artifact://tx/source/1",
         mode="audit_then_repair_then_promote",
     )
-    policy = build_transcript_edit_mode_policy_from_controller_inputs(
+    policy = build_transcript_edit_mode_adapter_from_controller_inputs(
         session_manager=object(),  # type: ignore[arg-type]
         transcript_request=tx_request,
         request_id_prefix="tx-mission-prefix",
     )
-    runtime = MissionRuntime(policy_registry=ModePolicyRegistry([policy]), now_fn=lambda: 100.0)
+    runtime = MissionRuntime(adapter_registry=MissionModeAdapterRegistry([policy]), now_fn=lambda: 100.0)
     cycle = runtime.run_cycle(request=_request())
 
     assert observed.get("request_id_prefix") == "tx-mission-prefix"

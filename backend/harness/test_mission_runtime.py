@@ -13,6 +13,7 @@ if str(_BACKEND_ROOT) not in sys.path:
 from harness.mission_runtime.contracts import (
     MissionBlockerPostureSummary,
     MissionLedgerView,
+    MissionModeRunEnvelope,
     MissionResumabilitySummary,
     MissionRuntimeRequest,
     MissionVerificationPostureSummary,
@@ -22,11 +23,11 @@ from harness.mission_runtime.contracts import (
     ModeTransitionRecommendation,
     TerminalRecommendation,
 )
-from harness.mission_runtime.registry import ModePolicyLookupError, ModePolicyRegistry
+from harness.mission_runtime.registry import MissionModeAdapterRegistry, ModeAdapterLookupError
 from harness.mission_runtime.runtime import MissionRuntime
 
 
-class FakeModePolicy:
+class FakeModeAdapter:
     def __init__(
         self,
         *,
@@ -50,6 +51,25 @@ class FakeModePolicy:
         self.context_calls += 1
         return ModeCycleContext(
             payload={"mission_id": request.mission_id, "active_mode": ledger.active_mode}
+        )
+
+    def build_run_envelope(
+        self,
+        *,
+        request: MissionRuntimeRequest,
+        ledger: MissionLedgerView,
+        context: ModeCycleContext,
+    ) -> MissionModeRunEnvelope:
+        del request, ledger
+        return MissionModeRunEnvelope(
+            summary=self._interpretation_summary,
+            high_signal_artifact_refs=tuple(self._recommendation.high_signal_artifact_refs),
+            blocker_posture=self._recommendation.blocker_posture,
+            verification_posture=self._recommendation.verification_posture,
+            resumability=self._recommendation.resumability,
+            terminal=self._recommendation.terminal,
+            transition=self._recommendation.transition,
+            domain_payload=dict(context.payload),
         )
 
     def interpret(
@@ -84,9 +104,9 @@ def _request(initial_mode: str = "mode.alpha") -> MissionRuntimeRequest:
 
 
 def test_runtime_initializes_with_active_mode_and_bounded_ledger_shape() -> None:
-    policy = FakeModePolicy(mode_name="mode.alpha")
+    policy = FakeModeAdapter(mode_name="mode.alpha")
     runtime = MissionRuntime(
-        policy_registry=ModePolicyRegistry([policy]),
+        adapter_registry=MissionModeAdapterRegistry([policy]),
         now_fn=lambda: 100.0,
     )
 
@@ -95,6 +115,7 @@ def test_runtime_initializes_with_active_mode_and_bounded_ledger_shape() -> None
     assert result.active_mode == "mode.alpha"
     assert result.ledger.mode_history == ["mode.alpha"]
     assert result.ledger.mission_id == "mission-1"
+    assert result.mode_run_envelope is not None
     assert set(vars(result.ledger).keys()) == {
         "mission_id",
         "mission_objective",
@@ -113,11 +134,11 @@ def test_runtime_initializes_with_active_mode_and_bounded_ledger_shape() -> None
     }
 
 
-def test_mode_policy_lookup_works_and_invokes_hooks() -> None:
-    alpha = FakeModePolicy(mode_name="mode.alpha")
-    beta = FakeModePolicy(mode_name="mode.beta")
+def test_mode_adapter_lookup_works_and_invokes_hooks() -> None:
+    alpha = FakeModeAdapter(mode_name="mode.alpha")
+    beta = FakeModeAdapter(mode_name="mode.beta")
     runtime = MissionRuntime(
-        policy_registry=ModePolicyRegistry([alpha, beta]),
+        adapter_registry=MissionModeAdapterRegistry([alpha, beta]),
         now_fn=lambda: 100.0,
     )
 
@@ -129,18 +150,18 @@ def test_mode_policy_lookup_works_and_invokes_hooks() -> None:
     assert alpha.context_calls == 0
 
 
-def test_missing_mode_policy_fails_clearly() -> None:
+def test_missing_mode_adapter_fails_clearly() -> None:
     runtime = MissionRuntime(
-        policy_registry=ModePolicyRegistry(),
+        adapter_registry=MissionModeAdapterRegistry(),
         now_fn=lambda: 100.0,
     )
 
-    with pytest.raises(ModePolicyLookupError, match="mode_policy_not_registered:mode.missing"):
+    with pytest.raises(ModeAdapterLookupError, match="mode_adapter_not_registered:mode.missing"):
         runtime.run_cycle(request=_request(initial_mode="mode.missing"))
 
 
 def test_transition_recommendation_is_validated_and_applied_structurally() -> None:
-    alpha = FakeModePolicy(
+    alpha = FakeModeAdapter(
         mode_name="mode.alpha",
         recommendation=ModeRecommendation(
             transition=ModeTransitionRecommendation(
@@ -153,9 +174,9 @@ def test_transition_recommendation_is_validated_and_applied_structurally() -> No
             high_signal_artifact_refs=["artifact://source/1"],
         ),
     )
-    beta = FakeModePolicy(mode_name="mode.beta")
+    beta = FakeModeAdapter(mode_name="mode.beta")
     runtime = MissionRuntime(
-        policy_registry=ModePolicyRegistry([alpha, beta]),
+        adapter_registry=MissionModeAdapterRegistry([alpha, beta]),
         now_fn=lambda: 100.0,
     )
 
@@ -176,7 +197,7 @@ def test_transition_recommendation_is_validated_and_applied_structurally() -> No
 
 
 def test_invalid_transition_is_rejected_without_mode_switch() -> None:
-    alpha = FakeModePolicy(
+    alpha = FakeModeAdapter(
         mode_name="mode.alpha",
         recommendation=ModeRecommendation(
             transition=ModeTransitionRecommendation(
@@ -186,7 +207,7 @@ def test_invalid_transition_is_rejected_without_mode_switch() -> None:
         ),
     )
     runtime = MissionRuntime(
-        policy_registry=ModePolicyRegistry([alpha]),
+        adapter_registry=MissionModeAdapterRegistry([alpha]),
         now_fn=lambda: 100.0,
     )
 
@@ -194,13 +215,13 @@ def test_invalid_transition_is_rejected_without_mode_switch() -> None:
 
     assert result.transition is not None
     assert result.transition.status == "rejected"
-    assert result.transition.status_reason == "next_mode_policy_not_registered"
+    assert result.transition.status_reason == "next_mode_adapter_not_registered"
     assert result.ledger.active_mode == "mode.alpha"
     assert result.ledger.mode_history == ["mode.alpha"]
 
 
 def test_runtime_carries_mission_identity_through_cycle() -> None:
-    alpha = FakeModePolicy(
+    alpha = FakeModeAdapter(
         mode_name="mode.alpha",
         recommendation=ModeRecommendation(
             next_step_hint="continue",
@@ -217,7 +238,7 @@ def test_runtime_carries_mission_identity_through_cycle() -> None:
         ),
     )
     runtime = MissionRuntime(
-        policy_registry=ModePolicyRegistry([alpha]),
+        adapter_registry=MissionModeAdapterRegistry([alpha]),
         now_fn=lambda: 100.0,
     )
 
@@ -234,7 +255,7 @@ def test_runtime_carries_mission_identity_through_cycle() -> None:
 
 
 def test_terminal_recommendation_routes_through_shell_handoff() -> None:
-    alpha = FakeModePolicy(
+    alpha = FakeModeAdapter(
         mode_name="mode.alpha",
         recommendation=ModeRecommendation(
             terminal=TerminalRecommendation(
@@ -245,7 +266,7 @@ def test_terminal_recommendation_routes_through_shell_handoff() -> None:
         ),
     )
     runtime = MissionRuntime(
-        policy_registry=ModePolicyRegistry([alpha]),
+        adapter_registry=MissionModeAdapterRegistry([alpha]),
         now_fn=lambda: 100.0,
     )
 
@@ -258,14 +279,14 @@ def test_terminal_recommendation_routes_through_shell_handoff() -> None:
     assert result.ledger.mission_status.reason_code == "phase_a_shell_done"
 
 
-def test_duplicate_mode_policy_registration_fails() -> None:
-    registry = ModePolicyRegistry([FakeModePolicy(mode_name="mode.alpha")])
-    with pytest.raises(ValueError, match="mode_policy_already_registered:mode.alpha"):
-        registry.register(FakeModePolicy(mode_name="mode.alpha"))
+def test_duplicate_mode_adapter_registration_fails() -> None:
+    registry = MissionModeAdapterRegistry([FakeModeAdapter(mode_name="mode.alpha")])
+    with pytest.raises(ValueError, match="mode_adapter_already_registered:mode.alpha"):
+        registry.register(FakeModeAdapter(mode_name="mode.alpha"))
 
 
 def test_policy_cannot_mutate_runtime_owned_ledger_state() -> None:
-    class MutatingPolicy(FakeModePolicy):
+    class MutatingAdapter(FakeModeAdapter):
         def __init__(self) -> None:
             super().__init__(mode_name="mode.alpha")
             self.mutation_blocked = False
@@ -287,9 +308,9 @@ def test_policy_cannot_mutate_runtime_owned_ledger_state() -> None:
                 self.nested_mutation_blocked = True
             return ModeCycleContext(payload={"mission_id": request.mission_id})
 
-    policy = MutatingPolicy()
+    policy = MutatingAdapter()
     runtime = MissionRuntime(
-        policy_registry=ModePolicyRegistry([policy]),
+        adapter_registry=MissionModeAdapterRegistry([policy]),
         now_fn=lambda: 100.0,
     )
 

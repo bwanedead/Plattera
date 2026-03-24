@@ -11,13 +11,14 @@ from harness.mission_runtime.capabilities.transition import evaluate_mode_transi
 from harness.mission_runtime.contracts import (
     MissionLedger,
     MissionLedgerView,
+    MissionModeRunEnvelope,
     MissionRuntimeRequest,
     ModeCycleContext,
     ModeInterpretation,
     ModeRecommendation,
     ModeTransitionRecommendation,
 )
-from harness.mission_runtime.registry import ModePolicyRegistry
+from harness.mission_runtime.registry import MissionModeAdapterRegistry
 from harness.mission_runtime.runtime import MissionRuntime
 
 
@@ -36,7 +37,7 @@ def test_transition_capability_rejects_unknown_mode() -> None:
         now_epoch_seconds=100.0,
     )
     assert transition.status == "rejected"
-    assert transition.status_reason == "next_mode_policy_not_registered"
+    assert transition.status_reason == "next_mode_adapter_not_registered"
 
 
 def test_runtime_executes_typed_mode_context_before_policy_interpretation() -> None:
@@ -53,6 +54,16 @@ def test_runtime_executes_typed_mode_context_before_policy_interpretation() -> N
                 payload={},
                 execution_adapter=lambda: {"value": 7},
             )
+
+        def build_run_envelope(
+            self,
+            *,
+            request: MissionRuntimeRequest,
+            ledger: MissionLedgerView,
+            context: ModeCycleContext,
+        ) -> MissionModeRunEnvelope:
+            del request, ledger
+            return MissionModeRunEnvelope(summary="value:7", domain_payload={"value": 7})
 
         def interpret(
             self,
@@ -74,7 +85,7 @@ def test_runtime_executes_typed_mode_context_before_policy_interpretation() -> N
         ) -> ModeRecommendation:
             return ModeRecommendation(next_step_hint="continue")
 
-    runtime = MissionRuntime(policy_registry=ModePolicyRegistry([AdapterPolicy()]), now_fn=lambda: 100.0)
+    runtime = MissionRuntime(adapter_registry=MissionModeAdapterRegistry([AdapterPolicy()]), now_fn=lambda: 100.0)
     result = runtime.run_cycle(
         request=MissionRuntimeRequest(
             mission_id="m-adapter",
@@ -82,4 +93,6 @@ def test_runtime_executes_typed_mode_context_before_policy_interpretation() -> N
             initial_mode="mode.adapter",
         )
     )
+    assert result.mode_run_envelope is not None
+    assert result.mode_run_envelope.summary == "value:7"
     assert result.interpretation.summary == "value:7"

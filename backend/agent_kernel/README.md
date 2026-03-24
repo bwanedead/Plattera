@@ -4,8 +4,8 @@
 - Deterministic orchestration loop for request-driven deed-to-map kernel execution.
 - Library-first package (`run_kernel`) with a thin JSON CLI wrapper (`python -m backend.agent_kernel.cli`).
 - Primary interface is now step-driven via `KernelSessionManager.start_session()` and `KernelSessionManager.step()`.
-- `run_kernel` remains as a legacy/autopilot harness for deterministic regression/smoke usage.
-- Compatibility seam policy: keep `run_kernel` narrow and stable; do not grow new harness features on this surface.
+- `run_kernel` remains as a legacy/autopilot compatibility harness for deterministic regression/smoke usage.
+- Compatibility seam policy: keep `run_kernel` narrow, stable, and clearly secondary to the step-driven path.
 - See `COMPATIBILITY.md` for explicit **active canonical** vs **active compatibility** vs **vestigial** classification (Phase 17 audit).
 
 ## Core Invariants
@@ -25,3 +25,4 @@
 - `KernelGoal` supports `requires_global_placement` and `render_required`.
 - Missing both `initial_ir_ref` and `initial_graph_json` is classified as `needs_upload`.
 - Prefer `INTERNAL_ERROR` for unexpected exceptions or invariant breaks; keep `ERROR` as legacy compatibility only.
+- Treat `run_kernel` as a compatibility surface, not the canonical entrypoint for new work.

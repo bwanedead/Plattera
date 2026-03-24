@@ -19,12 +19,13 @@ from ...terminal_taxonomy import classify_transcript_edit_terminal
 from ..contracts import (
     MissionBlockerPostureSummary,
     MissionLedgerView,
+    MissionModeRunEnvelope,
     MissionResumabilitySummary,
     MissionRuntimeRequest,
     MissionVerificationPostureSummary,
     ModeCycleContext,
     ModeInterpretation,
-    ModePolicy,
+    MissionModeAdapter,
     ModeRecommendation,
     ModeTransitionRecommendation,
     TerminalRecommendation,
@@ -45,7 +46,7 @@ class _TranscriptAuthoritySnapshot:
     terminal_classification: str | None
 
 
-class TranscriptEditModePolicy(ModePolicy):
+class TranscriptEditModeAdapter(MissionModeAdapter):
     mode_name = TRANSCRIPT_EDIT_MODE_NAME
 
     def __init__(
@@ -66,6 +67,39 @@ class TranscriptEditModePolicy(ModePolicy):
             execution_adapter=lambda: self._runner(request, ledger),
         )
 
+    def build_run_envelope(
+        self,
+        *,
+        request: MissionRuntimeRequest,
+        ledger: MissionLedgerView,
+        context: ModeCycleContext,
+    ) -> MissionModeRunEnvelope:
+        result = _require_transcript_result(context)
+        interpretation, recommendation = adapt_transcript_edit_run_result(result)
+        transition = _recommend_transition_back_to_deed_to_ir(
+            request=request,
+            recommendation=recommendation,
+            result=result,
+        )
+        return MissionModeRunEnvelope(
+            summary=interpretation.summary,
+            high_signal_artifact_refs=tuple(recommendation.high_signal_artifact_refs),
+            blocker_posture=recommendation.blocker_posture,
+            verification_posture=recommendation.verification_posture,
+            resumability=recommendation.resumability,
+            terminal=recommendation.terminal,
+            transition=transition,
+            domain_payload={
+                "mode": TRANSCRIPT_EDIT_MODE_NAME,
+                "status": result.status,
+                "reason_code": result.reason_code,
+                "iterations": result.iterations,
+                "session_id": result.session_id,
+                "run_artifact_ref": result.run_artifact_ref,
+                "latest_refs": dict(result.latest_refs),
+            },
+        )
+
     def interpret(
         self,
         *,
@@ -73,7 +107,11 @@ class TranscriptEditModePolicy(ModePolicy):
         ledger: MissionLedgerView,
         context: ModeCycleContext,
     ) -> ModeInterpretation:
-        return interpret_transcript_edit_run_result(_require_transcript_result(context))
+        envelope = _require_transcript_run_envelope(context)
+        return ModeInterpretation(
+            summary=envelope.summary,
+            details=dict(envelope.domain_payload),
+        )
 
     def recommend(
         self,
@@ -83,18 +121,20 @@ class TranscriptEditModePolicy(ModePolicy):
         context: ModeCycleContext,
         interpretation: ModeInterpretation,
     ) -> ModeRecommendation:
-        result = _require_transcript_result(context)
-        recommendation = recommend_transcript_edit_run_result(result)
-        transition = _recommend_transition_back_to_deed_to_ir(
-            request=request,
-            recommendation=recommendation,
-            result=result,
+        envelope = _require_transcript_run_envelope(context)
+        recommendation = ModeRecommendation(
+            next_step_hint=None,
+            terminal=envelope.terminal,
+            high_signal_artifact_refs=list(envelope.high_signal_artifact_refs),
+            blocker_posture=envelope.blocker_posture,
+            verification_posture=envelope.verification_posture,
+            resumability=envelope.resumability,
         )
-        if transition is None:
+        if envelope.transition is None:
             return recommendation
         return ModeRecommendation(
             next_step_hint="handoff_back_to_deed_to_ir",
-            transition=transition,
+            transition=envelope.transition,
             terminal=recommendation.terminal,
             high_signal_artifact_refs=list(recommendation.high_signal_artifact_refs),
             blocker_posture=recommendation.blocker_posture,
@@ -103,14 +143,14 @@ class TranscriptEditModePolicy(ModePolicy):
         )
 
 
-def build_transcript_edit_mode_policy_from_controller_inputs(
+def build_transcript_edit_mode_adapter_from_controller_inputs(
     *,
     session_manager: KernelSessionManager,
     transcript_request: TranscriptEditAgentRunRequest,
     request_id_prefix: str,
     planner: Any | None = None,
     progress_cb: Callable[[dict[str, Any]], None] | None = None,
-) -> TranscriptEditModePolicy:
+) -> TranscriptEditModeAdapter:
     def _runner(
         _request: MissionRuntimeRequest,
         _ledger: MissionLedgerView,
@@ -123,7 +163,9 @@ def build_transcript_edit_mode_policy_from_controller_inputs(
             progress_cb=progress_cb,
         )
 
-    return TranscriptEditModePolicy(runner=_runner)
+    return TranscriptEditModeAdapter(runner=_runner)
+
+
 
 
 # ---------------------------------------------------------------------------
@@ -551,3 +593,10 @@ def _require_transcript_result(context: ModeCycleContext) -> TranscriptEditAgent
     if isinstance(result, TranscriptEditAgentRunResult):
         return result
     raise ValueError("transcript_edit_mode_context_missing_execution_result")
+
+
+def _require_transcript_run_envelope(context: ModeCycleContext) -> MissionModeRunEnvelope:
+    envelope = context.run_envelope
+    if isinstance(envelope, MissionModeRunEnvelope):
+        return envelope
+    raise ValueError("transcript_edit_mode_context_missing_run_envelope")

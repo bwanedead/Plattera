@@ -16,7 +16,6 @@ from harness.work_board.recent_iteration_lane import build_recent_iteration_lane
 from .focus_packet_board_context import build_work_board_focus_context_bundle
 from .focus_runtime import (
     baseline_residual_from_unresolved,
-    next_recommended_action_text,
     recent_image_evidence_attempt_count,
 )
 from .decision_ledger_adapter import transcript_edit_unified_and_closure_read_for_native
@@ -241,19 +240,14 @@ def build_focus_packet(
         "decision_key": key or None,
         "focus_source": str(focus_source or "legacy_fallback").strip().lower() or "legacy_fallback",
         "focus_reason_code": str(focus_reason_code or "").strip()[:120] or None,
-        "why_active_now": (
-            f"Focus resolver selected {key} via "
-            f"{str(focus_source or 'legacy_fallback').strip().lower() or 'legacy_fallback'} "
-            f"({str(focus_reason_code or 'unspecified').strip()[:80]})."
-            if key
-            else None
-        ),
     }
     blocker_posture = {
         "active_emergent_blocker_id": str(emergent_focus.get("blocker_id") or "").strip() or None,
         "understanding_strength": str(policy_signals.get("understanding_strength") or ""),
-        "repair_eligible": bool(policy_signals.get("repair_eligible")),
-        "escalation_eligible": bool(policy_signals.get("escalation_eligible")),
+        "needs_orientation": bool(policy_signals.get("needs_orientation")),
+        "needs_inventory": bool(policy_signals.get("needs_inventory")),
+        "has_fresh_signal": bool(policy_signals.get("has_fresh_signal")),
+        "cached_context_present": bool(policy_signals.get("cached_context_present")),
         "repeat_without_signal": bool(policy_signals.get("repeat_without_signal")),
     }
     if is_emergent_focus:
@@ -319,12 +313,8 @@ def build_focus_packet(
         "loop_iteration": loop_iteration,
         # Unified decision ledger envelope (work_board.v1 wire — historical field name `work_board`).
         "work_board": work_board,
-        "recent_iteration_lane": recent_iteration_lane,
         "execution_context": execution_context,
         "decision_key": key,
-        "investigation_brief": investigation_brief,
-        "working_plan": working_plan,
-        "policy_signals": policy_signals,
         "support_state": support_state,
         "active_emergent_blocker": (
             {
@@ -528,7 +518,6 @@ def _investigation_brief(
     gwb = generic_knowns_snapshot(board_item) if isinstance(board_item, dict) else None
     if gwb:
         knowns["generic_work_board"] = gwb
-    next_action = next_recommended_action_text([residual] if residual else [])
     return {
         "role": "sticky_note",
         "purpose": "current_case_understanding",
@@ -537,7 +526,6 @@ def _investigation_brief(
         "open_questions": open_questions,
         "recent_attempts": recent_attempts[-MAX_RECENT_ATTEMPTS:],
         "memory_summary": memory_summary[:MAX_MEMORY_SUMMARY_CHARS],
-        "next_recommended_action": next_action[:MAX_MEMORY_SUMMARY_CHARS],
         "editable": True,
         "canonical": False,
     }
@@ -563,37 +551,26 @@ def _working_plan(
         if mapping_blocking or str(source_completeness).strip().lower() in {"unknown", "partial"}
         else "apply the safest bounded next step"
     )
-    next_action = str(investigation_brief.get("next_recommended_action") or "").strip()
-    if not next_action:
-        next_action = next_recommended_action_text([residual] if residual else [])
-    steps: list[str] = []
+    advisory_hints: list[str] = []
     if focus_source == "emergent_blocker" and isinstance(active_emergent_blocker, dict):
         title = str(active_emergent_blocker.get("title") or focus_label).strip() or focus_label
-        steps.append(f"Work the emergent blocker explicitly: {title}.")
+        advisory_hints.append(f"Work the emergent blocker explicitly: {title}.")
     if mapping_blocking:
-        steps.append("Verify or narrow the mapping-critical uncertainty before any speculative edit.")
+        advisory_hints.append("Verify or narrow the mapping-critical uncertainty before any speculative edit.")
     elif str(closure_requirement.get("scope_status") or "").strip().lower() == "unknown":
-        steps.append("Keep scope and dependency uncertainty explicit while the case is still being oriented.")
-    if next_action:
-        steps.append(next_action)
-    if not steps:
-        steps.append("Proceed with the current bounded focus item and preserve additive state.")
+        advisory_hints.append("Keep scope and dependency uncertainty explicit while the case is still being oriented.")
+    if not advisory_hints:
+        advisory_hints.append("Proceed with the current bounded focus item and preserve additive state.")
     board_notes = None
     if isinstance(board_item, dict):
         bm = board_materiality(board_item)
         bs = board_state(board_item)
         if bm or bs:
             board_notes = f"generic board: materiality={bm or 'unknown'}, state={bs or 'unknown'}"
-    replan_triggers = [
-        "new evidence changes the ledger state or mapping impact",
-        "human feedback arrives or is superseded",
-        "repeated no-signal attempts suggest the current approach is stale",
-        "the investigation brief gains a materially different known/open-question set",
-    ]
     return {
         "role": "working_plan",
         "purpose": "short_horizon_case_rail",
-        "plan_version": "working_plan_v0",
+        "plan_version": "working_plan_v1",
         "editable": True,
         "canonical": False,
         "status": "working" if recent_attempts or mapping_blocking else "lightweight",
@@ -605,8 +582,7 @@ def _working_plan(
             "scope_status": str(closure_requirement.get("scope_status") or "unknown").strip().lower() or "unknown",
         },
         "current_goal": current_goal,
-        "next_steps": steps[:4],
-        "replan_triggers": replan_triggers,
+        "advisory_hints": advisory_hints[:4],
         "notes": str(investigation_brief.get("memory_summary") or "").strip()[:MAX_MEMORY_SUMMARY_CHARS] or None,
         "recent_attempts_seen": len(recent_attempts),
         "generic_board_snapshot": board_notes,
@@ -670,18 +646,6 @@ def _derived_policy_signals(
     needs_orientation = understanding_strength == "weak" and not bool(recent_attempts)
     needs_inventory = understanding_strength == "weak" or (mapping_blocking and not has_fresh_signal)
     repeat_without_signal = bool(recent_image_attempts >= 2 and not has_fresh_signal)
-    escalation_eligible = bool(
-        mapping_blocking
-        and scope_status in {"in_target", "unknown"}
-        and understanding_strength in {"moderate", "narrow"}
-        and (has_fresh_signal or recent_image_attempts >= 1)
-    )
-    repair_eligible = bool(
-        mapping_blocking
-        and understanding_strength != "weak"
-        and has_fresh_signal
-    )
-    focus_is_material = bool(mapping_blocking)
     board_maps = board_is_mapping_blocking(board_item) if isinstance(board_item, dict) else None
     board_mat = board_materiality(board_item) if isinstance(board_item, dict) else None
     return {
@@ -693,9 +657,6 @@ def _derived_policy_signals(
         "has_fresh_signal": has_fresh_signal,
         "cached_context_present": cached_context_present,
         "repeat_without_signal": repeat_without_signal,
-        "escalation_eligible": escalation_eligible,
-        "repair_eligible": repair_eligible,
-        "focus_is_material": focus_is_material,
         "generic_board_mapping_signal": board_maps,
         "generic_board_materiality": board_mat,
         "recent_image_attempts": int(recent_image_attempts),

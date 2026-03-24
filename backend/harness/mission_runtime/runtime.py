@@ -5,6 +5,7 @@ from typing import Any, Callable
 
 from .contracts import (
     MissionLedger,
+    MissionModeAdapter,
     MissionRuntime as MissionRuntimeContract,
     MissionRuntimeCycleResult,
     MissionRuntimeRequest,
@@ -14,12 +15,13 @@ from .contracts import (
     ModeTransition,
     ModeTransitionRecommendation,
     ModeCycleContext,
+    MissionModeRunEnvelope,
     TerminalRecommendation,
     build_mission_ledger_view,
 )
 from .capabilities.transition import evaluate_mode_transition
 from .observability import build_mission_observation_from_runtime
-from .registry import ModePolicyLookupError, ModePolicyRegistry
+from .registry import ModeAdapterLookupError, MissionModeAdapterRegistry
 
 
 class MissionRuntimeError(RuntimeError):
@@ -32,14 +34,14 @@ class MissionRuntime(MissionRuntimeContract):
     def __init__(
         self,
         *,
-        policy_registry: ModePolicyRegistry,
+        adapter_registry: MissionModeAdapterRegistry,
         now_fn: Callable[[], float] | None = None,
     ) -> None:
-        self._policy_registry = policy_registry
+        self._adapter_registry = adapter_registry
         self._now_fn = now_fn or time
 
     def start_mission(self, *, request: MissionRuntimeRequest) -> MissionLedger:
-        self._policy_registry.require(request.initial_mode)
+        self._adapter_registry.require(request.initial_mode)
         started_at = self._now_fn()
         return MissionLedger(
             mission_id=request.mission_id,
@@ -62,18 +64,25 @@ class MissionRuntime(MissionRuntimeContract):
             raise MissionRuntimeError("mission_id_mismatch")
 
         active_mode = active_ledger.active_mode
-        policy = self._policy_registry.require(active_mode)
-        policy_ledger_view = build_mission_ledger_view(active_ledger)
-        context = policy.build_context(request=request, ledger=policy_ledger_view)
+        adapter = self._adapter_registry.require(active_mode)
+        ledger_view = build_mission_ledger_view(active_ledger)
+        context = adapter.build_context(request=request, ledger=ledger_view)
         context = _execute_mode_context(context)
-        interpretation = policy.interpret(
+        run_envelope = _build_mode_run_envelope(
+            adapter=adapter,
             request=request,
-            ledger=policy_ledger_view,
+            ledger=ledger_view,
             context=context,
         )
-        recommendation = policy.recommend(
+        context.run_envelope = run_envelope
+        interpretation = adapter.interpret(
             request=request,
-            ledger=policy_ledger_view,
+            ledger=ledger_view,
+            context=context,
+        )
+        recommendation = adapter.recommend(
+            request=request,
+            ledger=ledger_view,
             context=context,
             interpretation=interpretation,
         )
@@ -97,6 +106,7 @@ class MissionRuntime(MissionRuntimeContract):
             ledger=active_ledger,
             interpretation=interpretation,
             recommendation=recommendation,
+            mode_run_envelope=run_envelope,
             transition=transition,
             terminal_handoff=recommendation.terminal,
             trace_segment=trace_segment,
@@ -111,7 +121,7 @@ class MissionRuntime(MissionRuntimeContract):
         return evaluate_mode_transition(
             ledger=ledger,
             recommendation=recommendation,
-            mode_exists=lambda mode_name: self._policy_registry.resolve(mode_name) is not None,
+            mode_exists=lambda mode_name: self._adapter_registry.resolve(mode_name) is not None,
             now_epoch_seconds=self._now_fn(),
         )
 
@@ -196,6 +206,19 @@ def _execute_mode_context(context: ModeCycleContext) -> ModeCycleContext:
     if context.execution_adapter is not None and context.execution_result is None:
         context.execution_result = context.execution_adapter()
     return context
+
+
+def _build_mode_run_envelope(
+    *,
+    adapter: MissionModeAdapter,
+    request: MissionRuntimeRequest,
+    ledger: Any,
+    context: ModeCycleContext,
+) -> MissionModeRunEnvelope:
+    envelope = adapter.build_run_envelope(request=request, ledger=ledger, context=context)
+    if not isinstance(envelope, MissionModeRunEnvelope):
+        raise MissionRuntimeError("mode_adapter_invalid_run_envelope")
+    return envelope
 
 
 def build_mission_observability_payload(

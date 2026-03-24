@@ -40,6 +40,7 @@ class HarnessAction(str, Enum):
     GEOREFERENCE = GEOREFERENCE_ARTIFACT
     VALIDATE = VALIDATE_ARTIFACT
     RENDER = RENDER_ARTIFACT
+    UPSERT_DEED_SPAN_INDEX = UPSERT_ARTIFACT_SPAN_INDEX
 
 # Backward-compatible alias for call sites still named ActionType (harness-only members).
 ActionType = HarnessAction
@@ -54,6 +55,7 @@ LEGACY_ACTION_VALUE_ALIASES: dict[str, str] = {
     "georeference": HarnessAction.GEOREFERENCE_ARTIFACT.value,
     "validate": HarnessAction.VALIDATE_ARTIFACT.value,
     "render": HarnessAction.RENDER_ARTIFACT.value,
+    "upsert_deed_span_index": HarnessAction.UPSERT_ARTIFACT_SPAN_INDEX.value,
 }
 
 

@@ -53,6 +53,7 @@ def test_focus_resolver_system_message_mentions_binding_answered_unintegrated_gu
     assert "emergent focus items" in lower
     assert "investigation_brief" in lower
     assert "do not ignore provided human feedback" in lower
+    assert "startup understanding authors the initial focus" in lower
     assert "crop_box_normalized" in system_msg
     assert "zoom_factor" in system_msg
     # refine_region / grid_selection internal steps removed (D3-A clean vocab)
@@ -71,7 +72,8 @@ def test_planner_system_message_mentions_investigation_brief_as_sticky_note() ->
     assert "sticky note" in lower
     assert "bounded and honest" in lower
     assert "working_plan" in lower
-    assert "short-horizon rail" in lower
+    assert "do not behave like a scripted checklist runner" in lower
+    assert "first bounded focus" in lower
     assert "policy_signals" in lower
     assert "execution_context.active_work_item" in system_msg
     assert "recent_iterations" in lower
@@ -88,7 +90,11 @@ def test_planner_user_message_carries_investigation_brief() -> None:
             findings_summary={},
             investigation_brief={"role": "sticky_note", "purpose": "current_case_understanding"},
             working_plan={"role": "working_plan", "purpose": "short_horizon_case_rail"},
-            policy_signals={"understanding_strength": "weak", "repair_eligible": False},
+            policy_signals={
+                "understanding_strength": "weak",
+                "has_fresh_signal": False,
+                "cached_context_present": False,
+            },
             top_findings=[],
             span_context=[],
             image_verification={},
@@ -111,13 +117,25 @@ def test_planner_user_message_includes_slim_execution_context_with_recent_lane()
         "focus_selection": {"decision_key": "range"},
         "active_work_item": {"item_id": "te:ledger:range", "state": "blocked"},
         "recent_iterations": {"schema_version": "recent_iteration_lane.v1", "rich_capsules": [{"iteration": 2}]},
-        "blocker_posture": {"repair_eligible": True},
+        "blocker_posture": {
+            "understanding_strength": "moderate",
+            "needs_orientation": False,
+            "needs_inventory": False,
+            "has_fresh_signal": True,
+            "cached_context_present": True,
+            "repeat_without_signal": False,
+        },
         "support_state": {
-            "policy_signals": {"understanding_strength": "moderate"},
+            "policy_signals": {
+                "understanding_strength": "moderate",
+                "has_fresh_signal": True,
+                "cached_context_present": True,
+                "repeat_without_signal": False,
+            },
             "working_plan": {
                 "current_goal": "test goal",
                 "status": "working",
-                "next_steps": ["step a", "step b"],
+                "advisory_hints": ["step a", "step b"],
             },
             "investigation_brief": {"knowns": {"x": "y"}},
         },
@@ -142,7 +160,7 @@ def test_planner_user_message_includes_slim_execution_context_with_recent_lane()
     assert isinstance(slim, dict)
     assert slim.get("active_work_item", {}).get("item_id") == "te:ledger:range"
     assert isinstance(slim.get("recent_iterations"), dict)
-    assert slim.get("support_state", {}).get("working_plan", {}).get("next_steps")
+    assert slim.get("support_state", {}).get("working_plan", {}).get("advisory_hints")
     assert "investigation_brief" not in (slim.get("support_state") or {})
 
 
@@ -152,14 +170,14 @@ def test_slim_planner_execution_context_bounded_working_plan() -> None:
             "working_plan": {
                 "current_goal": "g",
                 "status": "working",
-                "next_steps": ["a", "b", "c", "d", "e"],
+                "advisory_hints": ["a", "b", "c", "d", "e"],
             }
         }
     }
     slim = slim_execution_context_for_planner(ec)
     assert slim is not None
     steps = (slim.get("support_state") or {}).get("working_plan") or {}
-    assert len(steps.get("next_steps") or []) <= 4
+    assert len(steps.get("advisory_hints") or []) <= 4
 
 
 def test_focus_resolver_user_message_emits_hitl_alert_when_feedback_present() -> None:
@@ -170,7 +188,11 @@ def test_focus_resolver_user_message_emits_hitl_alert_when_feedback_present() ->
             "source_transcript_hash": "sha256:test",
             "investigation_brief": {"role": "sticky_note", "purpose": "current_case_understanding"},
             "working_plan": {"role": "working_plan", "purpose": "short_horizon_case_rail"},
-            "policy_signals": {"understanding_strength": "weak", "escalation_eligible": False},
+            "policy_signals": {
+                "understanding_strength": "weak",
+                "has_fresh_signal": False,
+                "cached_context_present": False,
+            },
             "feedback": {
                 "decision_key": "range",
                 "selected_value": "Range 75 West",

@@ -2,34 +2,34 @@ from __future__ import annotations
 
 from typing import Iterable
 
-from .contracts import ModePolicy
+from .contracts import MissionModeAdapter
 
 
-class ModePolicyLookupError(KeyError):
-    """Raised when a requested mode policy is not registered."""
+class ModeAdapterLookupError(KeyError):
+    """Raised when a requested mode adapter is not registered."""
 
 
-class ModePolicyRegistry:
-    """Small registry seam for runtime mode-policy lookup."""
+class MissionModeAdapterRegistry:
+    """Small registry seam for runtime mode-adapter lookup."""
 
-    def __init__(self, policies: Iterable[ModePolicy] | None = None) -> None:
-        self._policies: dict[str, ModePolicy] = {}
+    def __init__(self, policies: Iterable[MissionModeAdapter] | None = None) -> None:
+        self._policies: dict[str, MissionModeAdapter] = {}
         for policy in policies or ():
             self.register(policy)
 
-    def register(self, policy: ModePolicy) -> None:
+    def register(self, policy: MissionModeAdapter) -> None:
         name = policy.mode_name.strip()
         if not name:
-            raise ValueError("mode_policy_name_required")
+            raise ValueError("mode_adapter_name_required")
         if name in self._policies:
-            raise ValueError(f"mode_policy_already_registered:{name}")
+            raise ValueError(f"mode_adapter_already_registered:{name}")
         self._policies[name] = policy
 
-    def resolve(self, mode_name: str) -> ModePolicy | None:
+    def resolve(self, mode_name: str) -> MissionModeAdapter | None:
         return self._policies.get(mode_name)
 
-    def require(self, mode_name: str) -> ModePolicy:
+    def require(self, mode_name: str) -> MissionModeAdapter:
         policy = self.resolve(mode_name)
         if policy is None:
-            raise ModePolicyLookupError(f"mode_policy_not_registered:{mode_name}")
+            raise ModeAdapterLookupError(f"mode_adapter_not_registered:{mode_name}")
         return policy
