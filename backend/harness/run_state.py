@@ -87,6 +87,14 @@ class MissionModeSummary(BaseModel):
     resume_context_summary: dict[str, Any] = Field(default_factory=dict)
 
 
+class PromptObservabilitySummary(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    prompt_event_count: int = Field(default=0, ge=0)
+    last_prompt_event_id: str | None = Field(default=None, max_length=128)
+    last_prompt_event_surface: str | None = Field(default=None, max_length=64)
+
+
 class SharedRunStateEnvelope(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -102,6 +110,7 @@ class SharedRunStateEnvelope(BaseModel):
     terminal_summary: NormalizedTerminalSummary
     continuity_summary: ContinuitySummary
     mission_mode_summary: MissionModeSummary = Field(default_factory=MissionModeSummary)
+    prompt_observability_summary: PromptObservabilitySummary = Field(default_factory=PromptObservabilitySummary)
     envelope_version: str = Field(min_length=1, max_length=64)
 
 
@@ -200,6 +209,7 @@ def build_transcript_edit_run_state(*, run_snapshot: dict[str, Any]) -> SharedRu
             has_recent_activity=bool(progress_log or critical_events),
         ),
         mission_mode_summary=MissionModeSummary(active_mode=_as_str(request.get("mode"))),
+        prompt_observability_summary=_prompt_observability_summary_from_snapshot(snapshot),
         envelope_version=RUN_STATE_VERSION,
     )
 
@@ -283,6 +293,7 @@ def build_controller_kernel_run_state(
             has_recent_activity=bool(transcript_events),
         ),
         mission_mode_summary=MissionModeSummary(active_mode=_as_str(run_header_payload.get("mode"))),
+        prompt_observability_summary=_prompt_observability_summary_from_transcript(transcript_events),
         envelope_version=RUN_STATE_VERSION,
     )
 
@@ -368,6 +379,7 @@ def build_mission_runtime_run_state(*, mission_runtime_payload: dict[str, Any]) 
                     ),
                 },
             ),
+        prompt_observability_summary=_prompt_observability_summary_from_payload(mission_runtime_payload, default_surface=active_mode),
         envelope_version=RUN_STATE_VERSION,
     )
 
@@ -376,6 +388,55 @@ def _resolve_run_payload(run_snapshot: dict[str, Any]) -> tuple[dict[str, Any], 
     if isinstance(run_snapshot.get("snapshot"), dict):
         return run_snapshot, _as_dict(run_snapshot.get("snapshot"))
     return {}, run_snapshot
+
+
+def _prompt_observability_summary_from_snapshot(snapshot: dict[str, Any]) -> PromptObservabilitySummary:
+    prompt_frame = _as_dict(snapshot.get("run_progress_frame"))
+    posture = _as_dict(prompt_frame.get("run_posture"))
+    prompt_count = _as_int(posture.get("prompt_event_count")) or 0
+    return PromptObservabilitySummary(
+        prompt_event_count=prompt_count,
+        last_prompt_event_id=_as_str(posture.get("last_prompt_event_id")),
+        last_prompt_event_surface=_as_str(posture.get("last_prompt_event_surface")),
+    )
+
+
+def _prompt_observability_summary_from_payload(
+    payload: dict[str, Any],
+    *,
+    default_surface: str | None = None,
+) -> PromptObservabilitySummary:
+    summary = payload.get("prompt_observability_summary")
+    if isinstance(summary, dict):
+        return PromptObservabilitySummary(
+            prompt_event_count=_as_int(summary.get("prompt_event_count")) or 0,
+            last_prompt_event_id=_as_str(summary.get("last_prompt_event_id")),
+            last_prompt_event_surface=_as_str(summary.get("last_prompt_event_surface")) or _as_str(default_surface),
+        )
+    prompt_frame = _as_dict(payload.get("run_progress_frame"))
+    if prompt_frame:
+        return _prompt_observability_summary_from_snapshot({"run_progress_frame": prompt_frame})
+    return PromptObservabilitySummary(last_prompt_event_surface=_as_str(default_surface))
+
+
+def _prompt_observability_summary_from_transcript(events: list[dict[str, Any]]) -> PromptObservabilitySummary:
+    prompt_events = [
+        event
+        for event in events
+        if _as_str(event.get("phase")) == "prompt_event"
+        or (
+            isinstance(event.get("payload"), dict)
+            and isinstance(event["payload"].get("prompt_event"), dict)
+        )
+    ]
+    last_payload = _as_dict(prompt_events[-1].get("payload")) if prompt_events else {}
+    last_prompt_event = _as_dict(last_payload.get("prompt_event"))
+    metadata = _as_dict(last_prompt_event.get("metadata"))
+    return PromptObservabilitySummary(
+        prompt_event_count=len(prompt_events),
+        last_prompt_event_id=_as_str(metadata.get("prompt_event_id")),
+        last_prompt_event_surface=_as_str(metadata.get("surface")) or _as_str(last_payload.get("surface")),
+    )
 
 
 def _summarize_refs(refs: dict[str, Any]) -> LatestRefsSummary:

@@ -171,6 +171,43 @@ def test_tx_orient_baseline_uses_refs_and_reports_hydration_summary() -> None:
         assert hydration["hydration_selection_strategy"] == "first_middle_last"
 
 
+def test_tx_orient_baseline_emits_prompt_event_artifact_and_source_provenance() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        canonical_path = root / "canonical.json"
+        _write_transcript(canonical_path, "Canonical transcript text.")
+        calls: list[dict[str, object]] = []
+        tool = TranscriptOrientBaselineTool(
+            persistence=TranscriptionEditPersistenceService(root=root / "artifacts"),
+            service=_FakeOpenAIService(),
+        )
+        tool.wire_identity_trace_cb(calls.append)
+
+        result = tool.orient_and_baseline(
+            {
+                "dossier_id": "D1",
+                "canonical_ref": str(canonical_path),
+                "candidate_texts": ["Candidate text A", "Candidate text B"],
+            }
+        )
+
+        assert result["reason_codes"] == ["tx_orient_baseline_completed"]
+        assert len(calls) == 2
+        identity_payload = calls[0]
+        prompt_payload = calls[1]
+        assert "prompt_event" not in identity_payload
+        assert prompt_payload["surface"] == "tx_orient_baseline"
+        assert prompt_payload["domain"] == "transcript_edit"
+        assert prompt_payload["prompt_event_metadata"]["surface"] == "tx_orient_baseline"
+        prompt_event = prompt_payload["prompt_event"]
+        assert isinstance(prompt_event, dict)
+        assert prompt_event["outcome_kind"] == "orient_completed"
+        assert prompt_event["downstream_refs_delta"]["tx_span_seeds_ref"]
+        owners = {row["owner"] for row in prompt_payload["source_blocks"]}
+        assert "shared_harness" in owners
+        assert "transcript_edit" in owners
+
+
 def test_tx_orient_baseline_ref_budget_exhausted_refuses() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)

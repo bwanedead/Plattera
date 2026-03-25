@@ -41,11 +41,12 @@ from .contracts import (
     validate_action_args,
 )
 from .prompting import (
-    build_developer_message,
+    build_developer_message_with_identity,
     build_refusal_repair_user_message,
     build_repair_user_message,
     build_user_message,
 )
+from agents.common.prompt_observability import build_prompt_event_artifact, build_prompt_trace_payload
 from .retrieval_intents import classify_retrieval_degradation, map_retrieval_intent_to_inputs
 from .tool_specs import ToolSpec
 from .bootstrap import load_transcript_span_seeds_for_mapping, materialize_seed_spans_from_text
@@ -78,6 +79,52 @@ from .controller_transcript import (
     _proposal_failure_payload,
 )
 
+def _emit_prompt_event(
+    *,
+    identity_trace_cb: Callable[[dict[str, object]], None] | None,
+    system_text: str,
+    identity_result: Any,
+    user_text: str,
+    structured_payloads: dict[str, Any],
+    model_output_payload: dict[str, Any],
+    model_output_text: str | None,
+    outcome_kind: str | None,
+    outcome_ref: str | None,
+    parse_error: str | None,
+    attempt_label: str,
+) -> None:
+    if identity_trace_cb is None:
+        return
+    try:
+        prompt_event = build_prompt_event_artifact(
+            metadata=identity_result.prompt_event_metadata,
+            system_text=system_text,
+            user_text=user_text,
+            structured_payloads=structured_payloads,
+            model_output_payload=model_output_payload,
+            model_output_text=model_output_text,
+            parsed_output_summary={
+                "parse_error": parse_error,
+                "attempt_label": attempt_label,
+            },
+            outcome_kind=outcome_kind,
+            outcome_ref=outcome_ref,
+            downstream_refs_delta={},
+        )
+        identity_trace_cb(
+            build_prompt_trace_payload(
+                surface=identity_result.metadata.surface,
+                domain=identity_result.metadata.domain,
+                model=identity_result.metadata.model,
+                identity_source_blocks=identity_result.source_blocks,
+                prompt_event_metadata=identity_result.prompt_event_metadata,
+                prompt_event=prompt_event,
+            )
+        )
+    except Exception:
+        pass
+
+
 def _propose_next_step(
     *,
     llm_client: NextStepLLMClient,
@@ -86,19 +133,50 @@ def _propose_next_step(
     transcript: list[dict[str, object]],
     run_link_id: str = "",
     mission_objective: str = "",
+    identity_trace_cb: Callable[[dict[str, object]], None] | None = None,
 ) -> KernelStepProposal | None:
     tool_menu = observation.get("tool_menu")
     tool_specs = action_tool_specs_for_menu(tool_menu if isinstance(tool_menu, list) else [])
     if not tool_specs:
         tool_specs = []
+    developer_message, identity = build_developer_message_with_identity(
+        run_link_id=run_link_id,
+        model=model,
+        mission_objective=mission_objective,
+        identity_trace_cb=identity_trace_cb,
+    )
+    user_message = build_user_message(context_packet=observation)
     first = llm_client.propose_next_step(
         model=model,
         tools=tool_specs,
         tool_choice_name=None,
-        developer_message=build_developer_message(run_link_id=run_link_id, model=model, mission_objective=mission_objective),
-        user_message=build_user_message(context_packet=observation),
+        developer_message=developer_message,
+        user_message=user_message,
     )
     proposal, parse_error = _coerce_proposal(first)
+    _emit_prompt_event(
+        identity_trace_cb=identity_trace_cb,
+        system_text=developer_message,
+        identity_result=identity,
+        user_text=user_message,
+        structured_payloads={
+            "tool_menu": [
+                {
+                    "name": spec.name,
+                    "description": spec.description,
+                    "parameters_schema": spec.parameters_schema,
+                }
+                for spec in tool_specs
+            ],
+            "context_packet": observation,
+        },
+        model_output_payload=dict(first) if isinstance(first, dict) else {},
+        model_output_text=str(first.get("text") or "") if isinstance(first, dict) else None,
+        outcome_kind="proposal_valid" if proposal is not None else "proposal_invalid",
+        outcome_ref=str(proposal.action_type) if proposal is not None else None,
+        parse_error=parse_error,
+        attempt_label="first",
+    )
     if proposal is not None:
         return proposal
     first_failure = _proposal_failure_payload(first, attempt="first", parse_error=parse_error)
@@ -114,10 +192,33 @@ def _propose_next_step(
         model=model,
         tools=tool_specs,
         tool_choice_name=None,
-        developer_message=build_developer_message(run_link_id=run_link_id, model=model, mission_objective=mission_objective),
+        developer_message=developer_message,
         user_message=build_repair_user_message(parse_error=parse_error),
     )
     proposal, parse_error = _coerce_proposal(second)
+    _emit_prompt_event(
+        identity_trace_cb=identity_trace_cb,
+        system_text=developer_message,
+        identity_result=identity,
+        user_text=build_repair_user_message(parse_error=parse_error),
+        structured_payloads={
+            "tool_menu": [
+                {
+                    "name": spec.name,
+                    "description": spec.description,
+                    "parameters_schema": spec.parameters_schema,
+                }
+                for spec in tool_specs
+            ],
+            "context_packet": observation,
+        },
+        model_output_payload=dict(second) if isinstance(second, dict) else {},
+        model_output_text=str(second.get("text") or "") if isinstance(second, dict) else None,
+        outcome_kind="proposal_valid" if proposal is not None else "proposal_invalid",
+        outcome_ref=str(proposal.action_type) if proposal is not None else None,
+        parse_error=parse_error,
+        attempt_label="repair",
+    )
     if proposal is not None:
         return proposal
     second_failure = _proposal_failure_payload(second, attempt="repair", parse_error=parse_error)
@@ -140,6 +241,7 @@ def _propose_refusal_repair_step(
     repair_request: dict[str, object],
     run_link_id: str = "",
     mission_objective: str = "",
+    identity_trace_cb: Callable[[dict[str, object]], None] | None = None,
 ) -> KernelStepProposal | None:
     tool_menu = observation.get("tool_menu")
     available_specs = action_tool_specs_for_menu(tool_menu if isinstance(tool_menu, list) else [])
@@ -149,18 +251,49 @@ def _propose_refusal_repair_step(
     if not tools:
         return None
     minimal_example = repair_request.get("minimal_working_example")
+    developer_message, identity = build_developer_message_with_identity(
+        run_link_id=run_link_id,
+        model=model,
+        mission_objective=mission_objective,
+        identity_trace_cb=identity_trace_cb,
+    )
+    user_message = build_refusal_repair_user_message(
+        reason_code=str(repair_request.get("reason_code") or "unknown_refusal"),
+        required_fields=[str(v) for v in (repair_request.get("required_fields") or []) if isinstance(v, str)],
+        minimal_working_example=minimal_example if isinstance(minimal_example, dict) else None,
+    )
     first = llm_client.propose_next_step(
         model=model,
         tools=tools,
         tool_choice_name=tools[0].name if len(tools) == 1 else action_type_raw,
-        developer_message=build_developer_message(run_link_id=run_link_id, model=model, mission_objective=mission_objective),
-        user_message=build_refusal_repair_user_message(
-            reason_code=str(repair_request.get("reason_code") or "unknown_refusal"),
-            required_fields=[str(v) for v in (repair_request.get("required_fields") or []) if isinstance(v, str)],
-            minimal_working_example=minimal_example if isinstance(minimal_example, dict) else None,
-        ),
+        developer_message=developer_message,
+        user_message=user_message,
     )
     proposal, parse_error = _coerce_proposal(first)
+    _emit_prompt_event(
+        identity_trace_cb=identity_trace_cb,
+        system_text=developer_message,
+        identity_result=identity,
+        user_text=user_message,
+        structured_payloads={
+            "tool_menu": [
+                {
+                    "name": spec.name,
+                    "description": spec.description,
+                    "parameters_schema": spec.parameters_schema,
+                }
+                for spec in tools
+            ],
+            "context_packet": observation,
+            "repair_request": repair_request,
+        },
+        model_output_payload=dict(first) if isinstance(first, dict) else {},
+        model_output_text=str(first.get("text") or "") if isinstance(first, dict) else None,
+        outcome_kind="repair_valid" if proposal is not None else "repair_invalid",
+        outcome_ref=str(proposal.action_type) if proposal is not None else None,
+        parse_error=parse_error,
+        attempt_label="refusal_repair",
+    )
     if proposal is not None:
         return proposal
     failure = _proposal_failure_payload(first, attempt="refusal_repair", parse_error=parse_error)

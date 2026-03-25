@@ -58,9 +58,6 @@ def test_ontology_block_present_in_full_trunk() -> None:
             surface=surface,
             inheritance_mode=InheritanceMode.FULL,
         )
-        assert "[TRUNK:root_constitution_v2]" in result.header_text, (
-            f"Missing trunk constitution block in FULL header for {domain}/{surface}"
-        )
         assert "bounded reasoning step" in result.header_text
         assert "conversational memory" in result.header_text
         assert "mission objective" in result.header_text
@@ -71,6 +68,9 @@ def test_ontology_block_present_in_full_trunk() -> None:
         assert "evidence-first closure" in result.header_text
         assert "Anti-thrash discipline" in result.header_text
         assert "Universal harness laws" in result.header_text
+        assert result.prompt_event_metadata is not None
+        block_ids = {block.block_id for block in result.source_blocks}
+        assert {"machine_identity", "generic_run_choreography", "generic_response_law"}.issubset(block_ids)
 
 
 def test_ontology_block_present_in_light_trunk() -> None:
@@ -87,11 +87,11 @@ def test_ontology_block_present_in_light_trunk() -> None:
             surface=surface,
             inheritance_mode=InheritanceMode.LIGHT,
         )
-        assert "[TRUNK:root_constitution_v2 mode=light]" in result.header_text, (
-            f"Missing light trunk block for {domain}/{surface}"
-        )
         assert "bounded step" in result.header_text
         assert "Investigate before escalating" in result.header_text
+        assert result.prompt_event_metadata is not None
+        block_ids = {block.block_id for block in result.source_blocks}
+        assert {"machine_identity", "generic_run_choreography", "generic_response_law"}.issubset(block_ids)
 
 
 # ---------------------------------------------------------------------------

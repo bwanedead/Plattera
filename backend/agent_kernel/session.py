@@ -68,6 +68,10 @@ class KernelSessionManager:
         self._claimability_policy = claimability_policy
         self._persistence_service = persistence_service
 
+    def wire_identity_trace_cb(self, cb: Callable[[dict[str, Any]], None] | None) -> None:
+        """Wire prompt/identity tracing through the configured action executor."""
+        self._action_executor.wire_identity_trace_cb(cb)
+
     def start_session(self, request: KernelSessionStartRequest) -> KernelSessionStartResult:
         missing_inputs = _validate_bootstrap_inputs(request)
         if missing_inputs:

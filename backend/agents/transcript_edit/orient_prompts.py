@@ -12,6 +12,20 @@ from agents.common.identity_composer import (
 )
 
 
+def build_transcript_edit_orient_system_leaf_message() -> str:
+    return (
+        "You are running orientation for a legal-transcript / deed editing mission. "
+        "Do not propose edits or execution plans. Respond with JSON only. "
+        "The shared runtime exposes generic containers only; you choose titles, tags, optional suggested keys, "
+        "and priorities. "
+        "For deed-style work, common concerns often include legal-description identity, PLSS calls, ties, closure, "
+        "and acreage — situational hints only, not a mandatory checklist. "
+        "You may optionally emit legacy ``items`` rows keyed for the transcript-edit checklist read model when helpful; "
+        "prefer ``candidate_work_items`` for exploratory work. "
+        "When emitting optional checklist ``items``, layer_tag / operational_impact / state follow transcript-edit conventions."
+    )
+
+
 def build_transcript_edit_orient_system_message(
     *,
     run_link_id: str = "",
@@ -26,18 +40,7 @@ def build_transcript_edit_orient_system_message(
         inheritance_mode=InheritanceMode.LIGHT,
         model=model,
     )
-    leaf = (
-        "You are running orientation for a legal-transcript / deed editing mission. "
-        "Do not propose edits or execution plans. Respond with JSON only. "
-        "The shared runtime exposes generic containers only; you choose titles, tags, optional suggested keys, "
-        "and priorities. "
-        "For deed-style work, common concerns often include legal-description identity, PLSS calls, ties, closure, "
-        "and acreage — situational hints only, not a mandatory checklist. "
-        "You may optionally emit legacy ``items`` rows keyed for the transcript-edit checklist read model when helpful; "
-        "prefer ``candidate_work_items`` for exploratory work. "
-        "When emitting optional checklist ``items``, layer_tag / operational_impact / state follow transcript-edit conventions."
-    )
-    return identity.header_text + leaf
+    return identity.header_text + build_transcript_edit_orient_system_leaf_message()
 
 
 def build_transcript_edit_orient_user_message(*, transcript_text: str, candidate_texts: list[str]) -> str:

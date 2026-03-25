@@ -4,13 +4,16 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from typing import Callable
 
 from agents.common.identity_composer import (
     Domain,
     InheritanceMode,
     Surface,
+    IdentityResult,
     compose_identity_header,
 )
+from agents.common.prompt_observability import build_prompt_trace_payload
 
 
 @dataclass(frozen=True)
@@ -85,12 +88,13 @@ _DEVELOPER_MESSAGE_LEAF = (
 )
 
 
-def build_developer_message(
+def build_developer_message_with_identity(
     *,
     run_link_id: str = "",
     model: str = "",
     mission_objective: str = "",
-) -> str:
+    identity_trace_cb: Callable[[dict[str, object]], None] | None = None,
+) -> tuple[str, IdentityResult]:
     """Build deed-controller developer message with identity header prepended.
 
     Args:
@@ -107,7 +111,44 @@ def build_developer_message(
         inheritance_mode=InheritanceMode.FULL,
         model=model,
     )
-    return identity.header_text + _DEVELOPER_MESSAGE_LEAF
+    if identity_trace_cb is not None:
+        try:
+            identity_trace_cb(
+                {
+                    "surface": identity.metadata.surface,
+                    "domain": identity.metadata.domain,
+                    "inheritance_mode": identity.metadata.inheritance_mode,
+                    "constitution_version": identity.metadata.constitution_version,
+                    "run_link_id": identity.metadata.run_link_id,
+                    "model": identity.metadata.model,
+                    **build_prompt_trace_payload(
+                        surface=identity.metadata.surface,
+                        domain=identity.metadata.domain,
+                        model=identity.metadata.model,
+                        identity_source_blocks=identity.source_blocks,
+                        prompt_event_metadata=identity.prompt_event_metadata,
+                    ),
+                }
+            )
+        except Exception:
+            pass
+    return identity.header_text + _DEVELOPER_MESSAGE_LEAF, identity
+
+
+def build_developer_message(
+    *,
+    run_link_id: str = "",
+    model: str = "",
+    mission_objective: str = "",
+    identity_trace_cb: Callable[[dict[str, object]], None] | None = None,
+) -> str:
+    developer_message, _identity = build_developer_message_with_identity(
+        run_link_id=run_link_id,
+        model=model,
+        mission_objective=mission_objective,
+        identity_trace_cb=identity_trace_cb,
+    )
+    return developer_message
 
 
 def build_user_message(*, context_packet: dict[str, object]) -> str:

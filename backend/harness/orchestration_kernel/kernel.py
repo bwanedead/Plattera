@@ -81,6 +81,21 @@ def run_orchestration_kernel_loop(
     # so the absolute contact count is available in run_progress_frame and CLI output.
     if hasattr(domain_pack, "wire_identity_trace_cb"):
         def _identity_trace_cb(info: dict[str, Any]) -> None:
+            prompt_event = info.get("prompt_event")
+            if isinstance(prompt_event, dict):
+                metadata = prompt_event.get("metadata") if isinstance(prompt_event.get("metadata"), dict) else {}
+                tracer.emit_prompt_event(
+                    iteration=None,
+                    prompt_event=prompt_event,
+                    surface=str(metadata.get("surface") or info.get("surface") or ""),
+                    domain=str(metadata.get("domain") or info.get("domain") or ""),
+                    model=str(metadata.get("model") or info.get("model") or ""),
+                )
+                loop_memory.register_prompt_event(
+                    prompt_event_id=str(metadata.get("prompt_event_id") or ""),
+                    surface=str(metadata.get("surface") or info.get("surface") or ""),
+                )
+                return
             tracer.emit_llm_call_identity(
                 iteration=None,
                 surface=str(info.get("surface") or ""),
@@ -92,6 +107,8 @@ def run_orchestration_kernel_loop(
             )
             loop_memory.register_llm_contact()
         domain_pack.wire_identity_trace_cb(_identity_trace_cb)
+    if hasattr(session_manager, "wire_identity_trace_cb"):
+        session_manager.wire_identity_trace_cb(_identity_trace_cb)
 
     # Phase 1: Orient — runs once at loop start.
     _LOG.info("TX_KERNEL orient ► request_id=%s", request_id_prefix)

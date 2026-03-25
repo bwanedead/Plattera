@@ -38,6 +38,9 @@ class RunReviewSummary(BaseModel):
     transition_count: int = Field(default=0, ge=0)
     transition_reasons: list[str] = Field(default_factory=list, max_length=16)
     mode_event_distribution: list[dict[str, Any]] = Field(default_factory=list, max_length=16)
+    prompt_event_count: int = Field(default=0, ge=0)
+    prompt_event_surfaces: list[str] = Field(default_factory=list, max_length=16)
+    prompt_event_outcomes: list[str] = Field(default_factory=list, max_length=16)
 
 
 class ReviewAggregateSummary(BaseModel):
@@ -79,6 +82,7 @@ def build_run_review_summary(
     mission_modes = _mission_mode_summary(trace=trace, run_state=run_state)
     transition_reasons = _transition_reasons(trace=trace)
     mode_event_distribution = _mode_event_distribution(trace=trace)
+    prompt_event_count, prompt_event_surfaces, prompt_event_outcomes = _prompt_event_summary(trace=trace)
 
     flags = _derive_review_flags(
         trace=trace,
@@ -121,6 +125,9 @@ def build_run_review_summary(
         transition_count=len(trace.transition_events),
         transition_reasons=transition_reasons,
         mode_event_distribution=mode_event_distribution,
+        prompt_event_count=prompt_event_count,
+        prompt_event_surfaces=prompt_event_surfaces,
+        prompt_event_outcomes=prompt_event_outcomes,
     )
 
 
@@ -314,3 +321,28 @@ def _mode_event_distribution(trace: CanonicalTraceRecord) -> list[dict[str, Any]
         if mode:
             counts[mode] += 1
     return [{"mode": mode, "count": count} for mode, count in counts.most_common(16)]
+
+
+def _prompt_event_summary(trace: CanonicalTraceRecord) -> tuple[int, list[str], list[str]]:
+    prompt_events = [
+        event
+        for event in trace.events
+        if event.phase == "prompt_event"
+        or (
+            isinstance(event.payload, dict)
+            and isinstance(event.payload.get("prompt_event"), dict)
+        )
+    ]
+    surfaces: list[str] = []
+    outcomes: list[str] = []
+    for event in prompt_events:
+        payload = event.payload if isinstance(event.payload, dict) else {}
+        prompt_event = payload.get("prompt_event") if isinstance(payload.get("prompt_event"), dict) else {}
+        metadata = prompt_event.get("metadata") if isinstance(prompt_event.get("metadata"), dict) else {}
+        surface = str(metadata.get("surface") or payload.get("surface") or "").strip()
+        if surface and surface not in surfaces:
+            surfaces.append(surface)
+        outcome_kind = str(prompt_event.get("outcome_kind") or "").strip()
+        if outcome_kind and outcome_kind not in outcomes:
+            outcomes.append(outcome_kind)
+    return len(prompt_events), surfaces[:16], outcomes[:16]

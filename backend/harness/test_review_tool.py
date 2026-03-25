@@ -261,8 +261,9 @@ def test_single_run_review_bundle_shape_and_metadata() -> None:
     assert isinstance(bundle["metadata"]["generated_at"], str)
     assert len(bundle["runs"]) == 1
     run = bundle["runs"][0]
-    assert sorted(run.keys()) == ["input", "loop_family", "review", "run_id", "run_state", "trace"]
+    assert sorted(run.keys()) == ["input", "loop_family", "prompt_events", "review", "run_id", "run_state", "trace"]
     assert run["trace"]["loop_family"] == "controller_kernel"
+    assert run["prompt_events"] == []
     assert run["run_state"]["loop_family"] == "controller_kernel"
     assert run["review"]["loop_family"] == "controller_kernel"
 

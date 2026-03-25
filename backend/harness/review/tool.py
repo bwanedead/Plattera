@@ -1,3 +1,10 @@
+"""Review-bundle inspection is the canonical human path for prompt events.
+
+The bundle keeps trace, run-state, review summary, and derived prompt-event
+snapshots together so prompt observability remains inspectable without adding a
+parallel reporting regime.
+"""
+
 from __future__ import annotations
 
 import json
@@ -223,6 +230,7 @@ def _review_artifact(
         },
         "run_state": run_state.model_dump(mode="json"),
         "review": review.model_dump(mode="json"),
+        "prompt_events": extract_prompt_events_from_trace(trace=trace),
     }
 
 
@@ -244,6 +252,7 @@ def _review_bundle_run(
         "trace": trace.model_dump(mode="json"),
         "run_state": run_state.model_dump(mode="json"),
         "review": review.model_dump(mode="json"),
+        "prompt_events": extract_prompt_events_from_trace(trace=trace),
     }
 
 
@@ -294,6 +303,33 @@ def _infer_input_refs(*, trace: CanonicalTraceRecord) -> list[str]:
         if isinstance(row, str) and row.strip():
             refs.append(f"latest_ref:{row.strip()}")
     return refs[:16]
+
+
+def extract_prompt_events_from_trace(*, trace: CanonicalTraceRecord) -> list[dict[str, Any]]:
+    prompt_events: list[dict[str, Any]] = []
+    for event in trace.events:
+        payload = event.payload if isinstance(event.payload, dict) else {}
+        prompt_event = payload.get("prompt_event") if isinstance(payload.get("prompt_event"), dict) else None
+        if not (event.phase == "prompt_event" or prompt_event is not None):
+            continue
+        prompt_event_data = prompt_event or payload
+        metadata = prompt_event_data.get("metadata") if isinstance(prompt_event_data.get("metadata"), dict) else {}
+        prompt_events.append(
+            {
+                "event_id": event.event_id,
+                "event_index": event.event_index,
+                "iteration_index": event.iteration_index,
+                "phase": event.phase,
+                "surface": str(metadata.get("surface") or payload.get("surface") or "").strip(),
+                "domain": str(metadata.get("domain") or payload.get("domain") or "").strip(),
+                "model": str(metadata.get("model") or payload.get("model") or "").strip(),
+                "prompt_event_id": str(metadata.get("prompt_event_id") or payload.get("prompt_event_id") or "").strip() or None,
+                "outcome_kind": str(prompt_event_data.get("outcome_kind") or "").strip() or None,
+                "outcome_ref": str(prompt_event_data.get("outcome_ref") or "").strip() or None,
+                "prompt_event": prompt_event_data,
+            }
+        )
+    return prompt_events
 
 
 def _load_json_object(path: str) -> dict[str, Any]:

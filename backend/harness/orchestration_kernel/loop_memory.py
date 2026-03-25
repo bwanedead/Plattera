@@ -73,6 +73,9 @@ class LoopMemoryState:
     # Monotonic count of model prompt→response contacts across all surfaces in this run.
     # Incremented via register_llm_contact() — pure telemetry, does not affect loop logic.
     llm_contact_count: int = 0
+    prompt_event_count: int = 0
+    last_prompt_event_id: str | None = None
+    last_prompt_event_surface: str | None = None
 
     def register_llm_contact(self) -> None:
         """Telemetry: increment the absolute LLM contact count.
@@ -81,3 +84,15 @@ class LoopMemoryState:
         This field is telemetry only and must not be used to gate loop decisions.
         """
         self.llm_contact_count += 1
+
+    def register_prompt_event(self, *, prompt_event_id: str | None, surface: str | None) -> None:
+        """Telemetry: record a persisted prompt-event artifact.
+
+        Safe to call from any surface. The prompt-event counter is observability-only
+        and must not affect loop decisions.
+        """
+        self.prompt_event_count += 1
+        if isinstance(prompt_event_id, str) and prompt_event_id.strip():
+            self.last_prompt_event_id = prompt_event_id.strip()
+        if isinstance(surface, str) and surface.strip():
+            self.last_prompt_event_surface = surface.strip()

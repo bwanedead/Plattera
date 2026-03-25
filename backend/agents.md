@@ -31,3 +31,12 @@
 - Docs: `docs/linting/static-governance.md`
 - Related code: `backend/api/logs.py`
 - Related code: `backend/services/logging_service.py`
+
+## Prompt Architecture Notes
+- Shared harness prompt source words live in `backend/agents/common/prompt_sources.py`.
+- Domain-branch prompt words live in domain-owned `prompt_sources.py` modules.
+- Surface-local packet/task wording lives in the prompt assembly modules, not in the shared source modules.
+- Prompt events are inspected through review bundles in `backend/harness/review/tool.py` (`build_single_run_review_bundle(...)` / `build_multi_run_review_bundle(...)`).
+- Do not hide doctrine in composers.
+- Do not put strategy into structured state.
+- Do not add new prompt surfaces without prompt-event capture and review-path visibility.

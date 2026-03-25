@@ -133,6 +133,9 @@ def build_run_progress_frame(
             "invalid_plan_strikes": lm.invalid_plan_strikes,
             "pending_refresh": lm.pending_refresh,
             "llm_contact_count": lm.llm_contact_count,
+            "prompt_event_count": lm.prompt_event_count,
+            "last_prompt_event_id": lm.last_prompt_event_id,
+            "last_prompt_event_surface": lm.last_prompt_event_surface,
         },
         "work_summary": {
             "blocking_items_top": shallow_blockers,

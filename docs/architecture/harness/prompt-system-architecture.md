@@ -390,18 +390,22 @@ Current repo state already contains partial pieces of this design:
 
 ### Existing shared prompt source concept
 
+- [backend/agents/common/prompt_sources.py](/C:/projects/Plattera/backend/agents/common/prompt_sources.py)
 - [backend/agents/common/identity_composer.py](/C:/projects/Plattera/backend/agents/common/identity_composer.py)
 
-This already contains:
+The canonical shared trunk source now lives in `prompt_sources.py`. `identity_composer.py`
+handles assembly, identity headers, and source-block provenance.
 
-- harness trunk-like identity text
-- full/light inheritance modes
-- branch overlays
-- surface metadata
+`identity_composer.py` still carries the deed-to-IR compatibility branch overlay until that
+domain is split into its own source module.
 
 ### Existing domain/surface prompt source
 
+- [backend/agents/transcript_edit/prompt_sources.py](/C:/projects/Plattera/backend/agents/transcript_edit/prompt_sources.py)
 - [backend/agents/transcript_edit/prompting.py](/C:/projects/Plattera/backend/agents/transcript_edit/prompting.py)
+
+`prompt_sources.py` now owns transcript-edit doctrine text. `prompting.py` is the
+assembly surface for planner/resolver packets and structured state payloads.
 
 ### Existing structured state payloads
 
@@ -416,17 +420,20 @@ This already contains:
 
 [backend/agents/common/identity_composer.py](/C:/projects/Plattera/backend/agents/common/identity_composer.py) currently mixes:
 
-- shared trunk text
-- domain branch text
+- shared assembly
+- a deed-to-IR compatibility branch
 - shared surface taxonomy
 
-This is conceptually useful, but not the clean end state.
+The shared trunk source and transcript-edit branch source have now moved into
+dedicated modules. The remaining deed branch is compatibility residue, not the
+clean end state.
 
 ### 9.2 Surface doctrine sprawl
 
-[backend/agents/transcript_edit/prompting.py](/C:/projects/Plattera/backend/agents/transcript_edit/prompting.py) currently carries a lot of doctrine directly.
+[backend/agents/transcript_edit/prompting.py](/C:/projects/Plattera/backend/agents/transcript_edit/prompting.py) still carries surface-local doctrine and packet/task assembly.
 
-That is not necessarily wrong today, but it means source ownership and assembly are still more blended than ideal.
+This is now more clearly assembly than source ownership, but some prompt text
+still lives here until later surface cleanup.
 
 ### 9.3 Structured-state advisory drift
 
@@ -479,3 +486,25 @@ The prompt system should converge to:
 - thin prompt composition logic
 
 That is the target architecture this repo should implement.
+
+---
+
+## 12. Current Repo Mapping
+
+Current implementation surfaces should be read as:
+
+| Layer | Current code surface |
+| --- | --- |
+| Shared harness prompt source | [backend/agents/common/prompt_sources.py](/C:/projects/Plattera/backend/agents/common/prompt_sources.py) |
+| Shared harness prompt assembly | [backend/agents/common/identity_composer.py](/C:/projects/Plattera/backend/agents/common/identity_composer.py) |
+| Transcript-edit domain branch source | [backend/agents/transcript_edit/prompt_sources.py](/C:/projects/Plattera/backend/agents/transcript_edit/prompt_sources.py) |
+| Transcript-edit prompt assembly | [backend/agents/transcript_edit/prompting.py](/C:/projects/Plattera/backend/agents/transcript_edit/prompting.py), [backend/agents/transcript_edit/orient_prompts.py](/C:/projects/Plattera/backend/agents/transcript_edit/orient_prompts.py) |
+| Prompt observability scaffold | [backend/agents/common/prompt_observability.py](/C:/projects/Plattera/backend/agents/common/prompt_observability.py) |
+| Run context / structured state | [backend/harness/orchestration_kernel/run_progress_frame.py](/C:/projects/Plattera/backend/harness/orchestration_kernel/run_progress_frame.py), [backend/harness/tracing/rationale_continuity_strip.py](/C:/projects/Plattera/backend/harness/tracing/rationale_continuity_strip.py) |
+
+The shared trunk source is intentionally canonical. Domain doctrine should live
+in domain-owned source modules. Prompt assembly should stay thinner than source
+ownership.
+
+`orient_prompts.py` and the controller/deed leaf builders are surface-local
+assembly surfaces. They are not prompt source-of-truth modules.

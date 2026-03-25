@@ -336,6 +336,42 @@ class KernelTraceCollector:
             )
         )
 
+    def emit_prompt_event(
+        self,
+        *,
+        iteration: int | None,
+        prompt_event: dict[str, Any],
+        surface: str,
+        domain: str,
+        model: str,
+    ) -> None:
+        """Emitted once per substantive model call after output is known."""
+        prompt_event_id = ""
+        metadata = prompt_event.get("metadata") if isinstance(prompt_event.get("metadata"), dict) else {}
+        if isinstance(metadata, dict):
+            prompt_event_id = str(metadata.get("prompt_event_id") or "").strip()
+        self._append(
+            RawTraceEvent(
+                timestamp_epoch_seconds=self._now(),
+                event_kind="model_proposal",
+                phase="prompt_event",
+                iteration_index=iteration,
+                actor="kernel",
+                status="completed",
+                refs_delta={},
+                payload={
+                    "prompt_event_id": prompt_event_id or None,
+                    "surface": surface,
+                    "domain": domain,
+                    "model": model,
+                    "prompt_event": prompt_event,
+                },
+                source_origin=self._source(
+                    local_id=f"iter_{iteration}_prompt_event_{surface or 'unknown'}"
+                ),
+            )
+        )
+
     # ------------------------------------------------------------------
     # Output
     # ------------------------------------------------------------------

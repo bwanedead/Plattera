@@ -157,11 +157,48 @@ class ActionExecutor:
 
     def __init__(self, deps: ActionExecutorDeps | None = None) -> None:
         self._deps = deps or ActionExecutorDeps()
+        self._identity_trace_cb: Callable[[dict[str, object]], None] | None = None
 
     @property
     def deps(self) -> ActionExecutorDeps:
         """Configured dependency bundle (harness tools + provider registrations)."""
         return self._deps
+
+    def wire_identity_trace_cb(self, cb: Callable[[dict[str, object]], None] | None) -> None:
+        """Wire prompt/identity tracing through provider-backed tools when they support it."""
+        self._identity_trace_cb = cb
+        for provider in (
+            self._deps.artifact_hydrator,
+            self._deps.artifact_opener,
+            self._deps.text_span_opener,
+            self._deps.artifact_draft_proposer,
+            self._deps.span_index_upserter,
+            self._deps.evidence_retriever,
+            self._deps.artifact_compiler,
+            self._deps.artifact_judge,
+            self._deps.artifact_bundler,
+            self._deps.artifact_georeferencer,
+            self._deps.artifact_validator,
+            self._deps.artifact_renderer,
+            self._deps.patch_proposer,
+            self._deps.status_summarizer,
+        ):
+            self._wire_provider_identity_trace(provider, cb)
+        for registered in self._deps.provider_actions.values():
+            handler = getattr(registered, "handler", None)
+            provider = getattr(handler, "__self__", None)
+            self._wire_provider_identity_trace(provider, cb)
+
+    @staticmethod
+    def _wire_provider_identity_trace(
+        provider: object | None,
+        cb: Callable[[dict[str, object]], None] | None,
+    ) -> None:
+        if provider is None:
+            return
+        wire = getattr(provider, "wire_identity_trace_cb", None)
+        if callable(wire):
+            wire(cb)
 
     def available_actions(self, *, allow_stubbed: bool = False) -> tuple[str, ...]:
         """Return action ids currently available from configured dependencies."""

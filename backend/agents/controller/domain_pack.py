@@ -422,6 +422,7 @@ class DeedToIRDomainPack:
                 observation=observation,
                 transcript=self._transcript,
                 repair_request=repair_request,
+                identity_trace_cb=self._identity_trace_cb,
             )
         else:
             proposal = _propose_next_step(
@@ -429,6 +430,7 @@ class DeedToIRDomainPack:
                 model=self._model,
                 observation=observation,
                 transcript=self._transcript,
+                identity_trace_cb=self._identity_trace_cb,
             )
         # D4: count this deed controller LLM contact.
         self._emit_llm_contact()

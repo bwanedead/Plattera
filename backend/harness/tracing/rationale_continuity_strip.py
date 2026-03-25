@@ -14,7 +14,7 @@ Entry shape:
     move_type:          str | None
     why_summary:        str   (normalized rationale, capped at per_entry_cap)
     outcome_summary:    str   (execution_state summary)
-    carry_forward_hint: str   (deterministic tactical guidance; empty for normal progress)
+    carry_forward_hint: str   (observational continuity hint; empty for normal progress)
 
 Inclusion / omission rules:
     Include an iteration when it introduces a NEW tactical constraint (execution

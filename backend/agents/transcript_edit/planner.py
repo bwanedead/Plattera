@@ -12,6 +12,7 @@ from agents.common.identity_composer import (
     Surface,
     compose_identity_header,
 )
+from agents.common.prompt_observability import build_prompt_event_artifact, build_prompt_trace_payload
 from services.llm.openai import OpenAIService
 from transcript_edit.contracts import EditPlanV0
 
@@ -34,6 +35,48 @@ KNOWN_IMAGE_EVIDENCE_DICT_TARGET_FIELDS = {
     "grid_selection",
     "grid_spec",
 }
+
+
+def _emit_prompt_event(
+    *,
+    identity_trace_cb: Callable[[dict[str, Any]], None] | None,
+    identity_result: Any,
+    system_text: str,
+    user_text: str,
+    structured_payloads: dict[str, Any],
+    model_output_payload: dict[str, Any],
+    model_output_text: str,
+    parsed_output_summary: dict[str, Any],
+    outcome_kind: str,
+    outcome_ref: str | None,
+) -> None:
+    if identity_trace_cb is None:
+        return
+    try:
+        prompt_event = build_prompt_event_artifact(
+            metadata=identity_result.prompt_event_metadata,
+            system_text=system_text,
+            user_text=user_text,
+            structured_payloads=structured_payloads,
+            model_output_payload=model_output_payload,
+            model_output_text=model_output_text,
+            parsed_output_summary=parsed_output_summary,
+            outcome_kind=outcome_kind,
+            outcome_ref=outcome_ref,
+            downstream_refs_delta={},
+        )
+        identity_trace_cb(
+            build_prompt_trace_payload(
+                surface=identity_result.metadata.surface,
+                domain=identity_result.metadata.domain,
+                model=identity_result.metadata.model,
+                identity_source_blocks=identity_result.source_blocks,
+                prompt_event_metadata=identity_result.prompt_event_metadata,
+                prompt_event=prompt_event,
+            )
+        )
+    except Exception:
+        pass
 
 
 class TranscriptEditPlanPlanner:
@@ -92,14 +135,23 @@ class TranscriptEditPlanPlanner:
         )
         if self._identity_trace_cb is not None:
             try:
-                self._identity_trace_cb({
-                    "surface": identity.metadata.surface,
-                    "domain": identity.metadata.domain,
-                    "inheritance_mode": identity.metadata.inheritance_mode,
-                    "constitution_version": identity.metadata.constitution_version,
-                    "run_link_id": identity.metadata.run_link_id,
-                    "model": identity.metadata.model,
-                })
+                self._identity_trace_cb(
+                    {
+                        "surface": identity.metadata.surface,
+                        "domain": identity.metadata.domain,
+                        "inheritance_mode": identity.metadata.inheritance_mode,
+                        "constitution_version": identity.metadata.constitution_version,
+                        "run_link_id": identity.metadata.run_link_id,
+                        "model": identity.metadata.model,
+                        **build_prompt_trace_payload(
+                            surface=identity.metadata.surface,
+                            domain=identity.metadata.domain,
+                            model=identity.metadata.model,
+                            identity_source_blocks=identity.source_blocks,
+                            prompt_event_metadata=identity.prompt_event_metadata,
+                        ),
+                    }
+                )
             except Exception:
                 pass
         system_msg = identity.header_text + build_planner_system_message()
@@ -123,6 +175,20 @@ class TranscriptEditPlanPlanner:
             policy_signals=policy_signals,
             execution_context=execution_context if isinstance(execution_context, dict) else None,
         )
+        prompt_inputs = {
+            "source_transcript_ref": source_transcript_ref,
+            "source_transcript_hash": source_transcript_hash,
+            "findings_summary": findings_summary,
+            "top_findings": top_findings,
+            "span_context": span_context,
+            "image_verification": image_verification or {},
+            "candidate_disagreement_hints": candidate_disagreement_hints or {},
+            "mapping_priority_focus": mapping_priority_focus or {},
+            "investigation_brief": investigation_brief,
+            "working_plan": working_plan,
+            "policy_signals": policy_signals,
+            "execution_context": execution_context if isinstance(execution_context, dict) else None,
+        }
         raw_content = ""
         last_error = "planner_invalid_response"
         for attempt in range(1, max_attempts + 1):
@@ -146,6 +212,18 @@ class TranscriptEditPlanPlanner:
                 )
             except Exception as exc:
                 last_error = f"planner_api_error:{type(exc).__name__}"
+                _emit_prompt_event(
+                    identity_trace_cb=self._identity_trace_cb,
+                    identity_result=identity,
+                    system_text=system_msg,
+                    user_text=user_msg,
+                    structured_payloads=prompt_inputs,
+                    model_output_payload={},
+                    model_output_text="",
+                    parsed_output_summary={"error": last_error, "attempt": attempt},
+                    outcome_kind="api_error",
+                    outcome_ref=None,
+                )
                 user_msg = build_plan_repair_user_message(
                     error_reason=last_error,
                     raw_content="",
@@ -158,6 +236,18 @@ class TranscriptEditPlanPlanner:
             raw_content = content if isinstance(content, str) else ""
             if not raw_content.strip():
                 last_error = "planner_empty_response"
+                _emit_prompt_event(
+                    identity_trace_cb=self._identity_trace_cb,
+                    identity_result=identity,
+                    system_text=system_msg,
+                    user_text=user_msg,
+                    structured_payloads=prompt_inputs,
+                    model_output_payload={"text": raw_content},
+                    model_output_text=raw_content,
+                    parsed_output_summary={"error": last_error, "attempt": attempt},
+                    outcome_kind="empty_response",
+                    outcome_ref=None,
+                )
                 user_msg = build_plan_repair_user_message(
                     error_reason=last_error,
                     raw_content=raw_content,
@@ -173,9 +263,33 @@ class TranscriptEditPlanPlanner:
                 parsed.setdefault("source_transcript_ref", source_transcript_ref)
                 parsed.setdefault("source_transcript_hash", source_transcript_hash)
                 plan = EditPlanV0.model_validate(parsed)
+                _emit_prompt_event(
+                    identity_trace_cb=self._identity_trace_cb,
+                    identity_result=identity,
+                    system_text=system_msg,
+                    user_text=user_msg,
+                    structured_payloads=prompt_inputs,
+                    model_output_payload={"text": raw_content, "parsed": parsed},
+                    model_output_text=raw_content,
+                    parsed_output_summary={"status": "parsed", "attempt": attempt},
+                    outcome_kind="plan_valid",
+                    outcome_ref=str(getattr(plan, "plan_id", "") or ""),
+                )
                 return plan, "ok", raw_content
             except Exception as exc:
                 last_error = f"plan_invalid:{type(exc).__name__}"
+                _emit_prompt_event(
+                    identity_trace_cb=self._identity_trace_cb,
+                    identity_result=identity,
+                    system_text=system_msg,
+                    user_text=user_msg,
+                    structured_payloads=prompt_inputs,
+                    model_output_payload={"text": raw_content},
+                    model_output_text=raw_content,
+                    parsed_output_summary={"error": last_error, "attempt": attempt},
+                    outcome_kind="plan_invalid",
+                    outcome_ref=None,
+                )
                 user_msg = build_plan_repair_user_message(
                     error_reason=last_error,
                     raw_content=raw_content,
@@ -216,20 +330,34 @@ class TranscriptEditPlanPlanner:
         )
         if self._identity_trace_cb is not None:
             try:
-                self._identity_trace_cb({
-                    "surface": identity.metadata.surface,
-                    "domain": identity.metadata.domain,
-                    "inheritance_mode": identity.metadata.inheritance_mode,
-                    "constitution_version": identity.metadata.constitution_version,
-                    "run_link_id": identity.metadata.run_link_id,
-                    "model": identity.metadata.model,
-                })
+                self._identity_trace_cb(
+                    {
+                        "surface": identity.metadata.surface,
+                        "domain": identity.metadata.domain,
+                        "inheritance_mode": identity.metadata.inheritance_mode,
+                        "constitution_version": identity.metadata.constitution_version,
+                        "run_link_id": identity.metadata.run_link_id,
+                        "model": identity.metadata.model,
+                        **build_prompt_trace_payload(
+                            surface=identity.metadata.surface,
+                            domain=identity.metadata.domain,
+                            model=identity.metadata.model,
+                            identity_source_blocks=identity.source_blocks,
+                            prompt_event_metadata=identity.prompt_event_metadata,
+                        ),
+                    }
+                )
             except Exception:
                 pass
         system_msg = identity.header_text + build_focus_resolver_system_message()
         user_msg = build_focus_resolver_user_message(focus_packet=focus_packet)
         decision_key = str(focus_packet.get("decision_key") or "decision")
         injection_context = _resolver_injection_context(focus_packet=focus_packet, decision_key=decision_key)
+        prompt_inputs = {
+            "focus_packet": focus_packet,
+            "decision_key": decision_key,
+            "injection_context": injection_context,
+        }
         raw_content = ""
         last_error = "resolver_invalid_response"
 
@@ -252,6 +380,18 @@ class TranscriptEditPlanPlanner:
                 completion = client.chat.completions.create(**params)
             except Exception as exc:
                 last_error = f"resolver_api_error:{type(exc).__name__}"
+                _emit_prompt_event(
+                    identity_trace_cb=self._identity_trace_cb,
+                    identity_result=identity,
+                    system_text=system_msg,
+                    user_text=user_msg,
+                    structured_payloads=prompt_inputs,
+                    model_output_payload={},
+                    model_output_text="",
+                    parsed_output_summary={"error": last_error, "attempt": attempt},
+                    outcome_kind="api_error",
+                    outcome_ref=None,
+                )
                 user_msg = build_focus_resolver_repair_user_message(
                     error_reason=last_error,
                     raw_content="",
@@ -266,6 +406,18 @@ class TranscriptEditPlanPlanner:
             raw_content = content if isinstance(content, str) else ""
             if not raw_content.strip():
                 last_error = "resolver_empty_response"
+                _emit_prompt_event(
+                    identity_trace_cb=self._identity_trace_cb,
+                    identity_result=identity,
+                    system_text=system_msg,
+                    user_text=user_msg,
+                    structured_payloads=prompt_inputs,
+                    model_output_payload={"text": raw_content},
+                    model_output_text=raw_content,
+                    parsed_output_summary={"error": last_error, "attempt": attempt},
+                    outcome_kind="empty_response",
+                    outcome_ref=None,
+                )
                 user_msg = build_focus_resolver_repair_user_message(
                     error_reason=last_error,
                     raw_content=raw_content,
@@ -303,6 +455,18 @@ class TranscriptEditPlanPlanner:
                     source_transcript_ref=str(focus_packet.get("source_transcript_ref") or ""),
                     source_transcript_hash=str(focus_packet.get("source_transcript_hash") or ""),
                 )
+                _emit_prompt_event(
+                    identity_trace_cb=self._identity_trace_cb,
+                    identity_result=identity,
+                    system_text=system_msg,
+                    user_text=user_msg,
+                    structured_payloads=prompt_inputs,
+                    model_output_payload={"text": raw_content, "parsed": parsed},
+                    model_output_text=raw_content,
+                    parsed_output_summary={"status": "parsed", "attempt": attempt},
+                    outcome_kind="focus_move_valid",
+                    outcome_ref=str(validated.get("move") or ""),
+                )
                 return validated, "ok", raw_content
             except Exception as exc:
                 message = str(exc).strip()
@@ -310,6 +474,18 @@ class TranscriptEditPlanPlanner:
                     f"resolver_invalid:{type(exc).__name__}:{message[:120]}"
                     if message
                     else f"resolver_invalid:{type(exc).__name__}"
+                )
+                _emit_prompt_event(
+                    identity_trace_cb=self._identity_trace_cb,
+                    identity_result=identity,
+                    system_text=system_msg,
+                    user_text=user_msg,
+                    structured_payloads=prompt_inputs,
+                    model_output_payload={"text": raw_content},
+                    model_output_text=raw_content,
+                    parsed_output_summary={"error": last_error, "attempt": attempt},
+                    outcome_kind="focus_move_invalid",
+                    outcome_ref=None,
                 )
                 fallback = _post_feedback_invalid_apply_fallback(
                     parsed=parsed,
