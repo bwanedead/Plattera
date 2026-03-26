@@ -70,16 +70,16 @@ def test_planner_system_message_mentions_investigation_brief_as_sticky_note() ->
     lower = system_msg.lower()
     assert "investigation brief" in lower
     assert "sticky note" in lower
-    assert "bounded and honest" in lower
-    assert "working_plan" in lower
+    assert "item_context" in lower
+    assert "continuity_context" in lower
+    assert "evidence_context" in lower
     assert "do not behave like a scripted checklist runner" in lower
     assert "first bounded focus" in lower
-    assert "policy_signals" in lower
     assert "execution_context.active_work_item" in system_msg
     assert "recent_iterations" in lower
-    assert "raw history" in lower or "transcript archive" in lower
-    assert "propose_work_board_changes" not in lower
-    assert "focus resolver" in lower
+    assert "working_plan" not in lower
+    assert "policy_signals" not in lower
+    assert "planner" in lower
 
 
 def test_planner_user_message_carries_investigation_brief() -> None:
@@ -89,12 +89,11 @@ def test_planner_user_message_carries_investigation_brief() -> None:
             source_transcript_hash="sha256:test",
             findings_summary={},
             investigation_brief={"role": "sticky_note", "purpose": "current_case_understanding"},
-            working_plan={"role": "working_plan", "purpose": "short_horizon_case_rail"},
-            policy_signals={
-                "understanding_strength": "weak",
-                "has_fresh_signal": False,
-                "cached_context_present": False,
-            },
+            item_context={"role": "sticky_note", "purpose": "current_case_understanding"},
+            continuity_context={"active_item_id": "range", "focus_source": "continuity"},
+            evidence_context={"source_completeness": "unknown"},
+            item_history=[{"decision_key": "range"}],
+            unresolved_questions=["Resolve the range conflict."],
             top_findings=[],
             span_context=[],
             image_verification={},
@@ -106,8 +105,12 @@ def test_planner_user_message_carries_investigation_brief() -> None:
     assert str((payload.get("investigation_brief") or {}).get("role") or "") == "sticky_note"
     support_state = payload.get("support_state")
     assert isinstance(support_state, dict)
-    assert str((support_state.get("working_plan") or {}).get("role") or "") == "working_plan"
-    assert str((support_state.get("policy_signals") or {}).get("understanding_strength") or "") == "weak"
+    assert str((support_state.get("item_context") or {}).get("role") or "") == "sticky_note"
+    assert str((support_state.get("continuity_context") or {}).get("active_item_id") or "") == "range"
+    assert str((support_state.get("evidence_context") or {}).get("source_completeness") or "") == "unknown"
+    assert isinstance(support_state.get("item_history"), list)
+    assert isinstance(support_state.get("unresolved_questions"), list)
+    assert "policy_signals" not in payload
 
 
 def test_planner_user_message_includes_slim_execution_context_with_recent_lane() -> None:
@@ -126,18 +129,20 @@ def test_planner_user_message_includes_slim_execution_context_with_recent_lane()
             "repeat_without_signal": False,
         },
         "support_state": {
-            "policy_signals": {
+            "item_context": {
+                "role": "sticky_note",
+                "purpose": "current_case_understanding",
+                "open_questions": ["x"],
+                "recent_attempts": [{"move": "a"}, {"move": "b"}],
+            },
+            "continuity_context": {"active_item_id": "range", "focus_source": "continuity"},
+            "evidence_context": {"source_completeness": "unknown", "recent_image_attempts": 1},
+            "blocker_posture": {
                 "understanding_strength": "moderate",
                 "has_fresh_signal": True,
                 "cached_context_present": True,
                 "repeat_without_signal": False,
             },
-            "working_plan": {
-                "current_goal": "test goal",
-                "status": "working",
-                "advisory_hints": ["step a", "step b"],
-            },
-            "investigation_brief": {"knowns": {"x": "y"}},
         },
     }
     payload = json.loads(
@@ -160,24 +165,27 @@ def test_planner_user_message_includes_slim_execution_context_with_recent_lane()
     assert isinstance(slim, dict)
     assert slim.get("active_work_item", {}).get("item_id") == "te:ledger:range"
     assert isinstance(slim.get("recent_iterations"), dict)
-    assert slim.get("support_state", {}).get("working_plan", {}).get("advisory_hints")
-    assert "investigation_brief" not in (slim.get("support_state") or {})
+    assert slim.get("support_state", {}).get("item_context", {}).get("role") == "sticky_note"
+    assert slim.get("support_state", {}).get("continuity_context", {}).get("active_item_id") == "range"
+    assert "working_plan" not in (slim.get("support_state") or {})
+    assert "policy_signals" not in (slim.get("support_state") or {})
 
 
 def test_slim_planner_execution_context_bounded_working_plan() -> None:
     ec = {
         "support_state": {
-            "working_plan": {
-                "current_goal": "g",
-                "status": "working",
-                "advisory_hints": ["a", "b", "c", "d", "e"],
-            }
+            "item_context": {
+                "recent_attempts": [{"move": "a"} for _ in range(5)],
+                "open_questions": ["a", "b", "c", "d", "e"],
+            },
+            "continuity_context": {"active_item_id": "range"},
+            "evidence_context": {"source_completeness": "unknown"},
         }
     }
     slim = slim_execution_context_for_planner(ec)
     assert slim is not None
-    steps = (slim.get("support_state") or {}).get("working_plan") or {}
-    assert len(steps.get("advisory_hints") or []) <= 4
+    steps = (slim.get("support_state") or {}).get("item_context") or {}
+    assert len(steps.get("open_questions") or []) <= 4
 
 
 def test_focus_resolver_user_message_emits_hitl_alert_when_feedback_present() -> None:
@@ -186,13 +194,10 @@ def test_focus_resolver_user_message_emits_hitl_alert_when_feedback_present() ->
             "decision_key": "range",
             "source_transcript_ref": "in-memory://source.json",
             "source_transcript_hash": "sha256:test",
-            "investigation_brief": {"role": "sticky_note", "purpose": "current_case_understanding"},
-            "working_plan": {"role": "working_plan", "purpose": "short_horizon_case_rail"},
-            "policy_signals": {
-                "understanding_strength": "weak",
-                "has_fresh_signal": False,
-                "cached_context_present": False,
-            },
+            "item_context": {"role": "sticky_note", "purpose": "current_case_understanding"},
+            "continuity_context": {"active_item_id": "range"},
+            "evidence_context": {"source_completeness": "unknown"},
+            "blocker_posture": {"understanding_strength": "weak", "has_fresh_signal": False, "cached_context_present": False},
             "feedback": {
                 "decision_key": "range",
                 "selected_value": "Range 75 West",
@@ -208,8 +213,9 @@ def test_focus_resolver_user_message_emits_hitl_alert_when_feedback_present() ->
     assert str(alert.get("decision_key")) == "range"
     assert str(alert.get("selected_value")) == "Range 75 West"
     assert isinstance(payload.get("investigation_brief"), dict)
-    assert isinstance(payload.get("working_plan"), dict)
-    assert isinstance(payload.get("policy_signals"), dict)
+    assert isinstance(payload.get("item_context"), dict)
+    assert isinstance(payload.get("continuity_context"), dict)
+    assert isinstance(payload.get("evidence_context"), dict)
     handling = payload.get("required_feedback_handling")
     assert isinstance(handling, list)
     assert len(handling) >= 1

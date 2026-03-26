@@ -1,12 +1,17 @@
 # Harness Decision Ledger (generic organized work)
 
 Date: 2026-03-19  
-Status: **Converging** — single harness-owned decision ledger is the **primary runtime read** direction; transcript-edit native JSON remains the **mutation/persistence** store; **Phase 17** default startup is **discovery-native** (no pre-authored checklist items); optional full checklist via ``initialize_decision_ledger_with_domain_template_seed``; composition **v5** carries ``ledger_establishment_mode`` / ``initial_ledger_source``; vestigial placeholder ``discovery_ledger_merge_hook_placeholder`` **removed** (use merge helpers); agent-kernel ``run_kernel`` remains **active compatibility** per ``backend/agent_kernel/COMPATIBILITY.md`` — all domain-local except noted; harness contract unchanged  
+Status: **Transitional** — this document describes the current compatibility-era organized-work implementation. For new architecture and migration direction, prefer:
 
-**Phase 18 (end-state framing, not migration diary):**  
+- `docs/architecture/harness/mission-state-and-resolution-state-architecture.md`
+- `docs/architecture/harness/mission-state-migration-roadmap.md`
+
+Current implementation status: single harness-owned decision ledger is the **primary runtime read** direction; transcript-edit native JSON remains the **mutation/persistence** store; **Phase 17** default startup is **discovery-native** (no pre-authored checklist items); optional full checklist via ``initialize_decision_ledger_with_domain_template_seed``; composition **v5** carries ``ledger_establishment_mode`` / ``initial_ledger_source``; vestigial placeholder ``discovery_ledger_merge_hook_placeholder`` **removed** (use merge helpers); agent-kernel ``run_kernel`` remains **active compatibility** per ``backend/agent_kernel/COMPATIBILITY.md`` — all domain-local except noted; harness contract unchanged  
+
+**Phase 18 (transitional end-state framing, not final target naming):**  
 - **One** organized-work read model: unified harness **decision ledger** envelope (`work_board.v1` = stable wire name for that envelope).  
 - Transcript-edit **native** `state.decision_ledger` is a **write/persistence seam** (plus domain-only row extensions like `discovery_meta`); it does not conceptually own closure/focus/packet reasoning.  
-- **Naming:** prefer “decision ledger” in prose; `work_board` in APIs/packets is the historical field/wire id for the same envelope.  
+- **Naming:** this doc predates the current naming cleanup. `work_board` in APIs/packets is the historical field/wire id for the same envelope. New architecture should prefer `mission_state` / `resolution_state` language.  
 - **Domain policy** = doctrine, templates, heuristics — not a hidden default work universe; discovery-first remains default.  
 - **Agent kernel:** `KernelSessionManager` = canonical; `run_kernel` + `cli` = compatibility (see `COMPATIBILITY.md`).
 

@@ -1,8 +1,8 @@
-"""Board-informed tie-break helpers for ledger-primary focus selection.
+"""Board-informed tie-break helpers for legacy ledger-primary focus selection.
 
-Used after ledger-primary sort keys; when ledger/board parity is broken, board
-signals are not used for ordering. Global focus ordering (including emergent vs
-ledger) is owned by ``decision_ledger_focus.choose_investigation_focus``.
+These helpers remain available for compatibility paths, but the runtime focus
+rail now comes from continuity-first selection and shared resolution-state
+projection rather than deterministic board ranking.
 """
 from __future__ import annotations
 

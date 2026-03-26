@@ -16,10 +16,9 @@ pytestmark = pytest.mark.skipif(
     reason="Legacy controller tests are opt-in. Set PLATTERA_ENABLE_LEGACY_CONTROLLERS=1 to run.",
 )
 
-from backend.agent_kernel.actions import ActionExecutor, ActionExecutorDeps
+from backend.agent_kernel.actions import ActionExecutor
 from backend.agent_kernel.session import KernelSessionManager
-from backend.agents.transcript_edit.kernel_action_registration import build_transcript_edit_provider_actions
-from backend.agents.transcript_edit.provider_step_projections import build_transcript_edit_provider_step_projectors
+from backend.agents.transcript_edit.capability_wiring import build_transcript_edit_action_executor_deps
 from backend.agent_kernel.tooling import (
     TranscriptAuditTool,
     TranscriptEditPlanApplyTool,
@@ -69,6 +68,12 @@ class _ImageVerifierUnclearStub:
             "tx_image_verify_summary": {"total_checks": 2, "match_count": 1, "mismatch_count": 0, "unclear_count": 1},
             "tx_image_verify_results": [{"check_id": "c1", "status": "unclear", "confidence": "low"}],
         }
+
+
+class _EvidenceRetrieverStub:
+    def retrieve_evidence(self, inputs):  # type: ignore[no-untyped-def]
+        del inputs
+        return {"artifact_ref": {"artifact_path": "in-memory://tx/retrieve.json"}}
 
 
 class _PlannerSuccess:
@@ -564,17 +569,15 @@ class _OrientBaselinerPartialTruncatedUnknownScopeStub:
 
 def _session_manager(image_verifier=None, orient_baseliner=None) -> KernelSessionManager:
     executor = ActionExecutor(
-        deps=ActionExecutorDeps(
-            provider_actions=build_transcript_edit_provider_actions(
-                transcript_auditor=TranscriptAuditTool(),
-                transcript_orient_baseliner=orient_baseliner or _OrientBaselinerStub(),
-                transcript_span_opener=TranscriptSpanOpenerTool(),
-                transcript_image_verifier=image_verifier or _ImageVerifierStub(),
-                transcript_plan_applier=TranscriptEditPlanApplyTool(),
-                transcript_span_seeds_saver=TranscriptSpanSeedsSaverTool(),
-                transcript_promoter=TranscriptMappingPromoterTool(),
-            ),
-            provider_step_projectors=build_transcript_edit_provider_step_projectors(),
+        deps=build_transcript_edit_action_executor_deps(
+            transcript_auditor=TranscriptAuditTool(),
+            transcript_orient_baseliner=orient_baseliner or _OrientBaselinerStub(),
+            transcript_span_opener=TranscriptSpanOpenerTool(),
+            transcript_image_verifier=image_verifier or _ImageVerifierStub(),
+            transcript_plan_applier=TranscriptEditPlanApplyTool(),
+            transcript_span_seeds_saver=TranscriptSpanSeedsSaverTool(),
+            transcript_promoter=TranscriptMappingPromoterTool(),
+            evidence_retriever=_EvidenceRetrieverStub(),
         )
     )
     return KernelSessionManager(action_executor=executor, persistence_service=_InMemoryPersistence())

@@ -109,7 +109,6 @@ def test_focus_packet_execution_context_has_work_board_focus_context() -> None:
     assert wbc.get("schema_version") == "work_board_focus_context.v1"
     assert wbc.get("focus_target_kind") == "harness_emergent"
     assert wbc.get("board_item_id") == "harness:emergent:dddddddddddd"
-    assert wbc.get("board_authority_mode") == "emergent_may_lead"
-    assert isinstance(wbc.get("board_authority"), dict)
+    assert wbc.get("board_mapping_blocking_count") == 0
     assert (wbc.get("board_lifecycle") or {}).get("board_state") == "investigating"
     assert wbc.get("open_work_summary")

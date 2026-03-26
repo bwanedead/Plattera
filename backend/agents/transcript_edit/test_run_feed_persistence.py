@@ -30,6 +30,10 @@ def test_run_feed_writes_latest_run_and_recent_feed(tmp_path: Path) -> None:
             "status": "needs_review",
             "reason_code": "tx_agent_no_progress:repeat_signal_pressure",
             "why_this_decision": "Run ended without full closure.",
+            "handoff_posture": {
+                "posture": "blocked_pending_dependency",
+                "reason_code": "mapping_critical_dependency_unresolved",
+            },
         },
         final_freshness_posture={
             "focus_decision_key": "range",
@@ -51,6 +55,7 @@ def test_run_feed_writes_latest_run_and_recent_feed(tmp_path: Path) -> None:
     assert latest["final_freshness_posture"]["repeat_without_signal"] is True
     assert latest["final_freshness_summary"] == "Run ended after repeated no-signal evidence pressure."
     assert latest["terminal_summary"]["terminal_classification"] == "blocked_no_safe_autonomous_move"
+    assert latest["terminal_summary"]["handoff_posture"]["posture"] == "blocked_pending_dependency"
     assert "support_state" not in latest
     assert "investigation_brief" not in latest
     assert "focus_packet" not in latest
@@ -101,6 +106,10 @@ def test_recent_runs_feed_stays_compact(tmp_path: Path) -> None:
             "terminal_classification": "blocked_cached_context_only",
             "closure_state": "blocked",
             "status": "needs_review",
+            "handoff_posture": {
+                "posture": "no_handoff",
+                "reason_code": "tx_agent_no_handoff",
+            },
         },
         final_freshness_posture={
             "focus_decision_key": "range",

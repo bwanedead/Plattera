@@ -151,3 +151,4 @@ class TranscriptEditAgentRunResult:
     latest_refs: dict[str, Any]
     review_required: bool
     runtime_hitl_state: dict[str, Any] | None = None
+    handoff_posture: dict[str, Any] | None = None

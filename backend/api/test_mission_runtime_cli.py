@@ -8,6 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from api import mission_runtime_cli
 from harness.mission_runtime.contracts import (
+    MappingFamilyCoordination,
     MissionLedgerView,
     MissionModeAdapter,
     MissionRuntimeRequest,
@@ -36,7 +37,15 @@ class _DeedTerminalAdapter(MissionModeAdapter):
         context: ModeCycleContext,
     ) -> MissionModeRunEnvelope:
         del request, ledger, context
-        return MissionModeRunEnvelope(summary="deed_done")
+        return MissionModeRunEnvelope(
+            summary="deed_done",
+            family_coordination=MappingFamilyCoordination(
+                current_mode="deed_to_ir",
+                posture="no_handoff",
+                coordination_state="no_handoff",
+                summary="mapping family sees deed_to_ir posture no_handoff; no transition recommended",
+            ),
+        )
 
     def interpret(
         self,
@@ -103,7 +112,17 @@ class _TranscriptTransitionAdapter(MissionModeAdapter):
         context: ModeCycleContext,
     ) -> MissionModeRunEnvelope:
         del request, ledger, context
-        return MissionModeRunEnvelope(summary="transcript_done")
+        return MissionModeRunEnvelope(
+            summary="transcript_done",
+            family_coordination=MappingFamilyCoordination(
+                current_mode="transcript_edit",
+                posture="ready_for_downstream_domain",
+                target_domain_id="deed_to_ir",
+                target_family_id="mapping",
+                coordination_state="transition_recommended",
+                summary="mapping family recommends transition from transcript_edit to deed_to_ir for ready_for_downstream_domain posture",
+            ),
+        )
 
     def interpret(
         self,
@@ -161,6 +180,8 @@ def test_mission_runtime_cli_emits_canonical_payload(monkeypatch, capsys) -> Non
     mission_runtime = payload["mission_runtime"]
     assert mission_runtime["active_mode"] == "deed_to_ir"
     assert mission_runtime["mode_history"] == ["deed_to_ir"]
+    assert mission_runtime["family_coordination"]["family_id"] == "mapping"
+    assert mission_runtime["family_coordination"]["current_mode"] == "deed_to_ir"
 
 
 def test_mission_runtime_cli_supports_linear_roundtrip_shape(monkeypatch, capsys) -> None:
@@ -188,6 +209,9 @@ def test_mission_runtime_cli_supports_linear_roundtrip_shape(monkeypatch, capsys
     mission_runtime = payload["mission_runtime"]
     assert mission_runtime["mode_history"] == ["deed_to_ir", "transcript_edit", "deed_to_ir"]
     assert len(mission_runtime["transition_history"]) == 2
+    assert mission_runtime["family_coordination"]["family_id"] == "mapping"
+    assert mission_runtime["family_coordination"]["current_mode"] == "deed_to_ir"
+    assert mission_runtime["family_coordination"]["posture"] == "no_handoff"
     assert mission_runtime["cycles"][0]["executed_mode"] == "deed_to_ir"
     assert mission_runtime["cycles"][0]["resulting_active_mode"] == "transcript_edit"
     assert mission_runtime["cycles"][1]["executed_mode"] == "transcript_edit"

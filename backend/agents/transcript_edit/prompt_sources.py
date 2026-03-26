@@ -19,14 +19,14 @@ TRANSCRIPT_EDIT_FOCUS_AUTHORED_ATTENTION_DOCTRINE = (
     "When continuity is absent, the first bounded focus should come from LLM orientation / startup understanding and the candidate context, not from deterministic ranking. "
 )
 TRANSCRIPT_EDIT_PLANNER_SUPPORT_STATE_DOCTRINE = (
-    "Treat support_state.investigation_brief / the investigation brief as a living sticky note for the case, not as canonical truth. "
-    "Treat support_state.working_plan as advisory case context, not as doctrine. "
-    "Treat support_state.policy_signals as derived runtime observations, not as doctrine or truth. "
+    "Treat support_state.item_context / the investigation brief as a living sticky note for the case, not as canonical truth. "
+    "Treat support_state.continuity_context, support_state.evidence_context, and support_state.item_history as bounded, observational context. "
+    "Do not reintroduce steering-shaped working plans or policy signals under softer names. "
 )
 TRANSCRIPT_EDIT_RESOLVER_SUPPORT_STATE_DOCTRINE = (
-    "Treat support_state.investigation_brief as the current sticky-note summary of the run; it is editable, additive context, not canonical truth. "
-    "Treat support_state.working_plan as advisory context; it may be adjusted when the case understanding changes. "
-    "Treat support_state.policy_signals as derived observations: weak understanding should bias toward orientation/inventory/verification, narrow understanding may permit repair or bounded HITL, and repeated no-signal work should be discouraged. "
+    "Treat support_state.item_context as the current sticky-note summary of the run; it is editable, additive context, not canonical truth. "
+    "Treat support_state.continuity_context as the active-item continuity rail, support_state.evidence_context as bounded evidence carriage, and support_state.item_history as recent item-local history. "
+    "Treat support_state.blocker_posture as derived observations only: weak understanding may bias toward orientation/inventory/verification, narrow understanding may permit repair or bounded HITL, and repeated no-signal work should be discouraged. "
 )
 
 
@@ -57,13 +57,13 @@ def build_transcript_edit_branch_blocks(*, inheritance_mode: str) -> tuple[Promp
             _make_block(
                 block_id="transcript_edit_planner_support_state",
                 text=(
-                    "Treat support_state.investigation_brief as sticky-note context, support_state.working_plan as advisory, and support_state.policy_signals as observations only. "
+                    "Treat support_state.item_context as sticky-note context, support_state.continuity_context as continuity carriage, and support_state.evidence_context as observations only. "
                 ),
             ),
             _make_block(
                 block_id="transcript_edit_resolver_support_state",
                 text=(
-                    "Treat support_state.investigation_brief as additive context, working_plan as advisory, and policy_signals as derived observations."
+                    "Treat support_state.item_context as additive context, support_state.continuity_context as the active-item rail, and support_state.blocker_posture as derived observations."
                 ),
             ),
         )

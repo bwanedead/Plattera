@@ -8,7 +8,9 @@ from typing import Any, Mapping
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
 from agent_kernel.harness_action_ids import ActionType
-from agents.transcript_edit.execution_action_ids import (
+from .tool_specs import ToolSpec
+from .transcript_edit_compatibility import (
+    TRANSCRIPT_EDIT_COMPATIBILITY_ACTION_IDS,
     TX_APPLY_EDIT_PLAN,
     TX_AUDIT_TRANSCRIPT,
     TX_OPEN_TRANSCRIPT_SPANS,
@@ -17,7 +19,6 @@ from agents.transcript_edit.execution_action_ids import (
     TX_SAVE_TRANSCRIPT_SPAN_SEEDS,
     TX_VERIFY_TRANSCRIPT_WITH_IMAGE,
 )
-from .tool_specs import ToolSpec
 
 
 class RetrievalIntent(str, Enum):
@@ -426,24 +427,11 @@ _ACTION_ARG_MODELS: dict[str, type[BaseModel]] = {
     ActionType.UPSERT_DEED_SPAN_INDEX.value: _UpsertDeedSpanIndexArgs,
 }
 
-_TRANSCRIPT_EXECUTION_ACTION_IDS = frozenset(
-    {
-        TX_AUDIT_TRANSCRIPT,
-        TX_OPEN_TRANSCRIPT_SPANS,
-        TX_ORIENT_AND_BASELINE,
-        TX_VERIFY_TRANSCRIPT_WITH_IMAGE,
-        TX_SAVE_TRANSCRIPT_SPAN_SEEDS,
-        TX_APPLY_EDIT_PLAN,
-        TX_PROMOTE_TRANSCRIPT_FOR_MAPPING,
-    }
-)
-
-
 def coerce_action_type(action_type: str) -> str | None:
     try:
         return ActionType(action_type).value
     except Exception:
-        if action_type in _TRANSCRIPT_EXECUTION_ACTION_IDS:
+        if action_type in TRANSCRIPT_EDIT_COMPATIBILITY_ACTION_IDS:
             return action_type
         return None
 

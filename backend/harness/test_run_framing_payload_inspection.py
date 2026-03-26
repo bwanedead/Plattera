@@ -28,7 +28,10 @@ from agents.common.identity_composer import (
     compose_identity_header,
 )
 from agents.transcript_edit.contracts import TranscriptEditAgentRunRequest
-from agents.transcript_edit.domain_pack import TranscriptEditDomainPack
+from agents.transcript_edit.domain_pack import (
+    TranscriptEditDomainPack,
+    build_transcript_edit_domain_pack_bundle,
+)
 from agents.transcript_edit.loop_state import TranscriptEditLoopState
 from harness.orchestration_kernel.contracts import OrchestratorContext
 from harness.orchestration_kernel.loop_memory import LoopMemoryState
@@ -133,12 +136,14 @@ def _make_tx_domain_pack(
         blocker_registry=blocker_registry or {},
         current_transcript_ref="artifacts/tx/source.json",
     )
-    return TranscriptEditDomainPack(
+    pack = TranscriptEditDomainPack(
         request=request,
         session_id="sess_test",
         request_id_prefix="req_test",
         initial_state=state,
     )
+    build_transcript_edit_domain_pack_bundle(pack)
+    return pack
 
 
 # ---------------------------------------------------------------------------
@@ -417,6 +422,10 @@ def test_investigation_state_present_in_focus_packet() -> None:
     """investigation_state must be injected into domain_packet by build_focus_packet."""
     ctx = _make_tx_context()
     pack = _make_tx_domain_pack()
+    assert pack.domain_pack_bundle is not None
+    assert pack.domain_manifest is not None
+    assert pack.domain_pack_bundle.manifest.domain_id == "transcript_edit"
+    assert pack.domain_pack_bundle.prompt_branch_source_ref == "agents.transcript_edit.prompt_sources"
     fp = pack.build_focus_packet(ctx, "range")
     packet = fp.domain_packet
     assert "investigation_state" in packet, "investigation_state must be injected into focus packet"

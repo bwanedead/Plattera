@@ -20,7 +20,6 @@ from .controller_context import _build_context_packet, _safe_artifact_hint
 from .controller_guardrails import (
     _compute_controller_idempotency_key,
     _ir_health_from_hint,
-    _recommended_next_moves,
     _semantic_span_repair_signature_for_context,
     _semantic_span_repair_thrash_refusal,
 )

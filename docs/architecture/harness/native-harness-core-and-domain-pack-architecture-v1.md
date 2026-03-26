@@ -10,6 +10,8 @@ Related:
 - `docs/architecture/harness/target-harness-v1.md`
 - `docs/architecture/agent-kernel/domain-pack-interface-v1.md`
 - `docs/architecture/agent-kernel/orchestration-kernel-contracts-v1.md`
+- `docs/architecture/harness/generic-harness-native-core-target.md`
+- `docs/architecture/harness/generic-harness-native-core-roadmap.md`
 
 ## Purpose
 

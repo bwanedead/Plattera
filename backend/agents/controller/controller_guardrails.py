@@ -289,40 +289,47 @@ def _judge_excerpt_from_hint(judge_hint: dict[str, object]) -> dict[str, object]
     return out
 
 
-def _recommended_next_moves(progress_payload: dict[str, object]) -> list[str]:
+def _progress_state_labels(progress_payload: dict[str, object]) -> list[str]:
+    """Return observational labels for the current progress state.
+
+    These labels describe evidence, artifact presence, and claimability posture.
+    They are not move recommendations.
+    """
+
     raw_lr = progress_payload.get("latest_refs")
     if not isinstance(raw_lr, dict):
         return []
     latest_refs = _flatten_latest_refs_payload(raw_lr)
+    labels: list[str] = []
     map_sanity = progress_payload.get("map_sanity_excerpt")
     if isinstance(map_sanity, dict):
         validate_top_issues = map_sanity.get("validate_top_issues")
         issues = [str(v).lower() for v in validate_top_issues] if isinstance(validate_top_issues, list) else []
         if any("section_centroid_anchor_fallback" in item for item in issues):
-            return [
-                "open_text_spans for the deed's POB tie language and encode an explicit tie_to_corner instead of centroid fallback",
-                "re-georeference, validate, and render after replacing centroid fallback anchoring",
-            ]
+            labels.extend([
+                "validate_issue:section_centroid_anchor_fallback",
+                "geometry_state:tie_to_corner_unresolved",
+            ])
         if any("placeholder_geometry" in item for item in issues):
-            return [
-                "draft_ir update: replace placeholder parcel geometry with deed-faithful traverse/closed boundary before georeference",
-                "re-compile, judge, bundle, georeference, validate, render",
-            ]
+            labels.extend([
+                "ir_issue:placeholder_geometry",
+                "geometry_state:deed_faithfulness_unresolved",
+            ])
         if any("unresolved_tie_to_corner" in item for item in issues):
-            return [
-                "open_text_spans for tie-to-corner language and encode tie_to_corner on the mapped parcel/POB metadata",
-                "re-georeference, validate, and render after tie is explicit",
-            ]
+            labels.extend([
+                "validate_issue:unresolved_tie_to_corner",
+                "geometry_state:tie_to_corner_missing",
+            ])
     ir_health = progress_payload.get("ir_health")
     if isinstance(ir_health, dict) and ir_health.get("is_stub") is True:
-        return [
-            "draft_ir with graph (non-empty FeatureGraph) before compile/judge",
-            "use open_text_spans to extract deed calls, then encode nodes/op_expr",
-        ]
+        labels.extend([
+            "ir_state:stub",
+            "evidence_state:graph_required",
+        ])
     if latest_refs.get("ir_ref") and not latest_refs.get("compile_ref"):
-        return ["run compile on latest ir_ref before more inspection", "then judge to refresh actionable gaps"]
+        labels.append("artifact_state:ir_present_compile_missing")
     if latest_refs.get("compile_ref") and not latest_refs.get("judge_ref"):
-        return ["run judge on latest compile/ir state to refresh gaps", "inspect judge repair_view/top gaps after judge"]
+        labels.append("artifact_state:compile_present_judge_missing")
     gap_summary = progress_payload.get("gap_summary")
     if latest_refs.get("judge_ref") and isinstance(gap_summary, dict):
         counts = gap_summary.get("gap_counts_by_kind")
@@ -349,42 +356,46 @@ def _recommended_next_moves(progress_payload: dict[str, object]) -> list[str]:
             )
             if latest_refs.get("bundle_ref") and latest_refs.get("georef_ref") and latest_refs.get("validate_ref"):
                 if "has_render" in missing_claimability and not latest_refs.get("render_ref"):
-                    return ["run render on latest georef_ref to produce a visual map preview", "then declare_done if claimability clears"]
-                return ["declare_done with justification if semantics are satisfied"]
+                    labels.append("claimability_missing:has_render")
+                else:
+                    labels.append("claimability_state:ready_for_closure_review")
             if (
                 latest_refs.get("bundle_ref")
                 and ("has_georef" in missing_claimability)
                 and local_polygon_missing_known
             ):
-                return [
-                    "draft_ir update: add explicit local parcel polygon geometry (region Polygon or closed LineString ring)",
-                    "re-bundle, then georeference and validate",
-                ]
+                labels.extend([
+                    "claimability_missing:has_georef",
+                    "geometry_state:local_polygon_missing",
+                ])
             if (
                 latest_refs.get("bundle_ref")
                 and ("has_georef" in missing_claimability)
                 and not has_structured_plss_anchor
             ):
-                return [
-                    "draft_ir update: add structured plss_anchor to FRAME.metadata.plss_anchor or graph.metadata.plss_anchor",
-                    "re-bundle, then georeference and validate",
-                ]
+                labels.extend([
+                    "claimability_missing:has_georef",
+                    "geometry_state:structured_plss_anchor_missing",
+                ])
             if latest_refs.get("bundle_ref") and ("has_georef" in missing_claimability or "validation_passed" in missing_claimability):
-                return ["run georeference on latest bundle, then validate", "declare_done only after georef/validate claimability clears"]
+                labels.append("artifact_state:bundle_present_georef_validation_pending")
             if latest_refs.get("bundle_ref") and not latest_refs.get("georef_ref"):
-                return ["run georeference on latest bundle", "then validate and consider declare_done"]
+                labels.append("artifact_state:bundle_present_georef_missing")
             if latest_refs.get("georef_ref") and not latest_refs.get("validate_ref"):
-                return ["run validate on latest georef_ref", "then consider declare_done if claimability clears"]
+                labels.append("artifact_state:georef_present_validate_missing")
             if latest_refs.get("georef_ref") and latest_refs.get("validate_ref") and ("has_render" in missing_claimability):
-                return ["run render on latest georef_ref", "then consider declare_done if claimability clears"]
-            if latest_refs.get("bundle_ref"):
-                return ["declare_done with justification if semantics are satisfied"]
-            return ["bundle latest graph artifacts, then georeference/validate if required"]
+                labels.append("claimability_missing:has_render")
+            if latest_refs.get("bundle_ref") and not labels:
+                labels.append("claimability_state:semantics_reviewed")
+            if not latest_refs.get("bundle_ref") and not labels:
+                labels.append("artifact_state:bundle_missing")
     if latest_refs.get("judge_ref"):
-        return ["inspect judge_report_excerpt/top gaps, then revise IR graph", "compile and judge immediately after each IR change"]
+        labels.append("artifact_state:judge_present")
+        if gap_summary:
+            labels.append("evidence_state:gap_summary_available")
     if latest_refs.get("ir_ref"):
-        return ["run compile then judge on latest ir_ref"]
-    return ["draft_ir with graph (non-empty FeatureGraph)"]
+        labels.append("artifact_state:ir_present")
+    return labels
 
 
 def _map_sanity_excerpt_from_hints(
@@ -554,56 +565,67 @@ def _redundant_deterministic_step_refusal(
     *,
     action_type: ActionType,
     dashboard: dict[str, object],
-) -> tuple[KernelRefusal, ActionType | None] | None:
+) -> tuple[KernelRefusal, list[str]] | None:
     latest_refs = _latest_refs_summary(dashboard)
     if action_type == ActionType.COMPILE and latest_refs.get("compile_ref"):
-        next_action = ActionType.JUDGE if not latest_refs.get("judge_ref") else None
         return (
             KernelRefusal(
                 reason_code="compile_already_current",
                 missing_inputs=[],
                 retryable=True,
             ),
-            next_action,
+            [
+                "artifact_state:compile_present",
+                "artifact_state:judge_missing" if not latest_refs.get("judge_ref") else "artifact_state:judge_present",
+            ],
         )
     if action_type == ActionType.JUDGE and latest_refs.get("judge_ref"):
-        next_action = ActionType.BUNDLE if not latest_refs.get("bundle_ref") else None
         return (
             KernelRefusal(
                 reason_code="judge_already_current",
                 missing_inputs=[],
                 retryable=True,
             ),
-            next_action,
+            [
+                "artifact_state:judge_present",
+                "artifact_state:bundle_missing" if not latest_refs.get("bundle_ref") else "artifact_state:bundle_present",
+            ],
         )
     return None
 
 
-def _inspection_thrash_suggested_next_action(dashboard: dict[str, object]) -> ActionType | None:
+def _inspection_thrash_suggested_next_action(dashboard: dict[str, object]) -> list[str]:
     latest_refs = _latest_refs_summary(dashboard)
+    labels: list[str] = []
     if latest_refs.get("ir_ref") and not latest_refs.get("compile_ref"):
-        return ActionType.COMPILE
+        labels.append("artifact_state:ir_present_compile_missing")
     if latest_refs.get("compile_ref") and not latest_refs.get("judge_ref"):
-        return ActionType.JUDGE
+        labels.append("artifact_state:compile_present_judge_missing")
     if latest_refs.get("judge_ref"):
-        return ActionType.DRAFT_IR
-    return None
+        labels.append("artifact_state:judge_present")
+    return labels
 
 
-def _semantic_span_repair_thrash_suggested_next_action(dashboard: dict[str, object]) -> ActionType | None:
+def _semantic_span_repair_thrash_suggested_next_action(dashboard: dict[str, object]) -> list[str]:
     latest_refs = _latest_refs_summary(dashboard)
+    labels: list[str] = []
     if not latest_refs.get("deed_span_index_ref"):
-        return ActionType.UPSERT_DEED_SPAN_INDEX
-    return ActionType.DRAFT_IR
+        labels.append("artifact_state:deed_span_index_missing")
+    else:
+        labels.append("artifact_state:deed_span_index_present")
+    return labels
 
 
-def _span_open_thrash_suggested_next_action(dashboard: dict[str, object]) -> ActionType | None:
+def _span_open_thrash_suggested_next_action(dashboard: dict[str, object]) -> list[str]:
     latest_refs = _latest_refs_summary(dashboard)
+    labels: list[str] = []
     if not latest_refs.get("deed_span_index_ref"):
-        return ActionType.UPSERT_DEED_SPAN_INDEX
+        labels.append("artifact_state:deed_span_index_missing")
     if latest_refs.get("ir_ref"):
-        return ActionType.DRAFT_IR
-    return ActionType.OPEN_ARTIFACT
+        labels.append("artifact_state:ir_present")
+    if not labels:
+        labels.append("artifact_state:span_open_observation_only")
+    return labels
 
 
 def _build_parse_failure_resync_proposal(

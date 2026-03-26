@@ -60,13 +60,11 @@ def _transcript_edit_closure_read_ledger(state: TranscriptEditLoopState) -> dict
     return read
 
 
-def _continuity_delta_and_next_hints(
+def _continuity_delta_summary(
     *,
     move: str,
-    resolver_reason: str,
     resolver_outcome: dict[str, Any] | None,
-    policy_signals: dict[str, Any] | None,
-) -> tuple[str | None, str | None]:
+) -> str | None:
     parts: list[str] = [f"move={move or 'unknown'}"]
     ro = resolver_outcome if isinstance(resolver_outcome, dict) else {}
     if ro.get("edit_plan"):
@@ -77,20 +75,7 @@ def _continuity_delta_and_next_hints(
         parts.append("carry_blocker_updates")
     if ro.get("feedback_prompt"):
         parts.append("carry_feedback_prompt")
-    delta = "; ".join(parts)[:280] or None
-    sig = policy_signals if isinstance(policy_signals, dict) else {}
-    nxt: str | None = None
-    if str(sig.get("understanding_strength") or "").strip().lower() == "weak":
-        nxt = "bias_inventory_and_orientation_before_aggressive_edit"
-    elif bool(sig.get("needs_orientation")):
-        nxt = "bias_inventory_and_orientation_before_aggressive_edit"
-    elif bool(sig.get("needs_inventory")):
-        nxt = "gather_inventory_or_evidence_before_bounding"
-    elif bool(sig.get("has_fresh_signal")) and str(sig.get("understanding_strength") or "").strip().lower() in {"moderate", "narrow"}:
-        nxt = "consider_safe_repair_when_signal_supports_it"
-    elif str(move or "").strip().lower() == "gather_more_evidence":
-        nxt = "re_evaluate_resolver_after_evidence_step"
-    return delta, (nxt[:280] if nxt else None)
+    return "; ".join(parts)[:280] or None
 
 
 def _append_continuity_step(
@@ -104,7 +89,6 @@ def _append_continuity_step(
     state_before_summary: dict[str, Any] | None,
     evidence_kind: str | None = None,
     state_delta_hint: str | None = None,
-    next_open_move_hint: str | None = None,
     continuity_supplement: dict[str, Any] | None = None,
 ) -> None:
     row: dict[str, Any] = {
@@ -117,7 +101,6 @@ def _append_continuity_step(
         "evidence_kind": str(evidence_kind).strip()[:120] if evidence_kind else None,
         "why_no_closure": str(resolver_reason or "").strip()[:280] or None,
         "state_delta_hint": str(state_delta_hint).strip()[:280] if state_delta_hint else None,
-        "next_open_move_hint": str(next_open_move_hint).strip()[:280] if next_open_move_hint else None,
     }
     if isinstance(continuity_supplement, dict) and continuity_supplement:
         row.update(continuity_supplement)
@@ -444,7 +427,7 @@ def handle_repair_move_outcome(
     image_verification: dict[str, Any],
     evidence_attempts_counts: dict[str, int],
     raw_output_excerpt: str,
-    policy_signals: dict[str, Any] | None,
+    blocker_posture: dict[str, Any] | None,
     emit_progress_fn: Callable[[Callable[[dict[str, Any]], None] | None, dict[str, Any]], None],
     progress_cb: Callable[[dict[str, Any]], None] | None,
     append_blocker_iteration_recap_fn: Callable[..., None],
@@ -460,7 +443,7 @@ def handle_repair_move_outcome(
     latest_human_resolution_ticket_fn: Callable[..., dict[str, Any] | None],
     registry_row_for_decision_key_fn: Callable[..., dict[str, Any] | None],
 ) -> TranscriptEditDecision | None:
-    signals = policy_signals if isinstance(policy_signals, dict) else {}
+    signals = blocker_posture if isinstance(blocker_posture, dict) else {}
     if isinstance(resolver_outcome, dict):
         _it_u = resolver_outcome.get("iteration_understanding")
         if isinstance(_it_u, dict) and _it_u:
@@ -486,11 +469,9 @@ def handle_repair_move_outcome(
         "generic_board_mapping_signal": signals.get("generic_board_mapping_signal"),
         "generic_board_materiality": signals.get("generic_board_materiality"),
     }
-    _sd_hint, _nx_hint = _continuity_delta_and_next_hints(
+    _sd_hint = _continuity_delta_summary(
         move=move,
-        resolver_reason=resolver_reason,
         resolver_outcome=resolver_outcome if isinstance(resolver_outcome, dict) else None,
-        policy_signals=policy_signals,
     )
     _append_continuity_step(
         state,
@@ -501,7 +482,6 @@ def handle_repair_move_outcome(
         focus_source=focus_source,
         state_before_summary=state_before_summary,
         state_delta_hint=_sd_hint,
-        next_open_move_hint=_nx_hint,
     )
     board_sync = sync_focused_emergent_item_from_resolver_outcome(
         state,
@@ -1120,11 +1100,6 @@ def handle_repair_move_outcome(
         _ek = f"{str(evidence_result.get('kind') or '')}:{str(evidence_result.get('mode') or '')}".rstrip(":")
         _ev_st = str(evidence_result.get("status") or "").strip().lower()
         _g_delta = f"gather_more_evidence; status={_ev_st or 'n/a'}; kind={_ek or 'n/a'}"
-        _g_next = (
-            "re_evaluate_resolver_after_evidence_step"
-            if _ev_st not in {"unsupported", "invalid", "repeat_blocked"}
-            else "recover_evidence_path_or_shift_resolver_move"
-        )
         _append_continuity_step(
             state,
             focus_key=focus_key,
@@ -1135,7 +1110,6 @@ def handle_repair_move_outcome(
             state_before_summary=state_before_summary,
             evidence_kind=_ek or None,
             state_delta_hint=_g_delta,
-            next_open_move_hint=_g_next,
         )
         if str(evidence_result.get("status") or "") == "repeat_blocked":
             emit_progress_fn(

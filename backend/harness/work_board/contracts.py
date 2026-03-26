@@ -1,9 +1,9 @@
-"""Mission-agnostic organized-work item contract (harness-owned).
+"""Compatibility organized-work item contract.
 
-Canonical product name: **decision ledger** (see ``harness.decision_ledger``).
-``WORK_BOARD_VERSION`` / ``work_board.v1`` is the **stable JSON wire id** for the same
-envelope (historical module name); new code should think “decision ledger envelope,”
-not a separate “work board” product.
+Canonical shared-state naming now lives in ``harness.mission_state`` /
+``harness.mission_state.contracts``. This module remains the historical
+``work_board.v1`` wire surface for the same envelope, with domain payloads
+carried through generically.
 """
 from __future__ import annotations
 

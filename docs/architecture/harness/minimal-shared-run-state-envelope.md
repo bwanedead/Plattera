@@ -12,13 +12,20 @@ Define the minimum shared run-state/continuity envelope required across loop fam
 
 This is intentionally not a full canonical run ledger. It is the smallest weight-bearing shared state needed for resumability, observability, and convergence.
 
+The canonical shared contract now has two nested surfaces:
+
+- `mission_state`: top-level continuity, identity, posture, and bounded run summaries
+- `resolution_state`: the active organized-work surface inside `mission_state`
+
+Legacy names such as `work_board` and `decision_ledger` remain compatibility projections during migration.
+
 ## Minimum Shared Envelope (Required Fields)
 
 Required top-level fields:
 - `identity`: `run_id`, `session_id` (if present), `request_id`, `loop_family`.
 - `objective`: bounded request/objective metadata.
 - `latest_refs`: current working artifact refs snapshot.
-- `blocker_summary`: unresolved blocker counts/status by `blocker_kind`, `blocking_impact`, and waiting state.
+- `blocker_summary`: unresolved blockage counts/status and waiting state, kept generic rather than ontology-specific.
 - `verification_summary`: latest verification posture (performed/missing, key reason context).
 - `progress_summary`: current phase, iteration index, last significant reason code.
 - `resumability`: `resumable` bool, `resume_reason`, `resume_requirements`.
@@ -35,6 +42,18 @@ Migration note:
 - `blocker_summary` may be a derived projection (from refusals, failure classification, and terminal context) until explicit blocker records are adopted in a loop family.
 
 ## Current-State Mapping
+
+The current runtime already has enough pieces to project into the new contract:
+
+- `mission_state` maps from the existing run-state summaries, mission ledger continuity, and family posture fields.
+- `resolution_state` maps from the current organized-work/read surfaces where they exist, plus bounded active-item continuity.
+- `resolution_state.items` carries the generic item rows previously expressed through `work_board` / `decision_ledger`.
+- lightweight item relations are a separate generic surface, not a graph engine.
+- `active_item_id` lives on `resolution_state` and is a continuity rail, not a deterministic chooser.
+
+Compatibility rule:
+
+- `work_board` and `decision_ledger` are still allowed as wire/module aliases, but they are no longer the target architecture vocabulary.
 
 ## Controller/kernel family
 

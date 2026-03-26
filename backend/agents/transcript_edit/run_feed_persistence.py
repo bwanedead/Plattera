@@ -179,6 +179,7 @@ class TranscriptEditRunFeedPersistenceService:
             "why_this_decision": summary.get("why_this_decision"),
             "closure_not_reached_reason": summary.get("closure_not_reached_reason"),
             "blocking_items_count": summary.get("blocking_items_count"),
+            "handoff_posture": summary.get("handoff_posture"),
             "blocking_breakdown": {
                 "dependency_count": blocking_breakdown.get("dependency_count"),
                 "ambiguity_count": blocking_breakdown.get("ambiguity_count"),

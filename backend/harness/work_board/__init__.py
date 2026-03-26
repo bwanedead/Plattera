@@ -1,7 +1,8 @@
-"""Generic harness work-board contracts (mission-agnostic organized work).
+"""Compatibility harness work-board surface.
 
-Domain loops project discovered work items onto this board; domain ontology
-lives in extension payloads, not in harness-native field semantics.
+Canonical shared-state naming now lives under ``harness.mission_state``.
+Domain loops still project discovered work items through this legacy wire shape
+for backward compatibility.
 """
 
 from __future__ import annotations

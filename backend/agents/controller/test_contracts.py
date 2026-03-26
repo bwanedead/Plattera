@@ -6,7 +6,8 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 from backend.agent_kernel.harness_action_ids import ActionType
-from backend.agents.transcript_edit.execution_action_ids import (
+from backend.agents.controller.transcript_edit_compatibility import (
+    TRANSCRIPT_EDIT_COMPATIBILITY_ACTION_IDS,
     TX_APPLY_EDIT_PLAN,
     TX_OPEN_TRANSCRIPT_SPANS,
 )
@@ -18,6 +19,12 @@ from backend.agents.controller.contracts import (
     kernel_step_tool_spec,
     validate_action_args,
 )
+
+
+def test_transcript_edit_compatibility_action_ids_are_bounded() -> None:
+    assert TX_APPLY_EDIT_PLAN in TRANSCRIPT_EDIT_COMPATIBILITY_ACTION_IDS
+    assert TX_OPEN_TRANSCRIPT_SPANS in TRANSCRIPT_EDIT_COMPATIBILITY_ACTION_IDS
+    assert len(TRANSCRIPT_EDIT_COMPATIBILITY_ACTION_IDS) == 7
 
 
 def test_kernel_step_tool_spec_has_required_minimal_fields() -> None:
@@ -88,7 +95,7 @@ def test_action_how_to_guide_declare_done_has_concrete_minimal_example() -> None
 
 def test_coerce_action_type_returns_none_for_unknown_value() -> None:
     assert coerce_action_type("not_a_real_action") is None
-    assert coerce_action_type("compile") == ActionType.COMPILE
+    assert coerce_action_type(ActionType.COMPILE.value) == ActionType.COMPILE.value
 
 
 def test_validate_action_args_compile_requires_ir_ref() -> None:

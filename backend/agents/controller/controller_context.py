@@ -78,7 +78,7 @@ from .controller_guardrails import (
     _judge_excerpt_from_hint,
     _map_sanity_excerpt_from_hints,
     _read_str,
-    _recommended_next_moves,
+    _progress_state_labels,
 )
 from .controller_transcript import _bound_payload, _bounded_text, _latest_refs_summary
 
@@ -128,6 +128,7 @@ def _build_context_packet(
         "progress": progress,
         "working_memory": {
             "phase_hint": phase_hint,
+            # Descriptive posture only; do not embed move instructions here.
             "plan_bullets": _phase_plan_bullets(phase_hint),
             "anchor_templates": _anchor_templates_for_deed(bootstrap_context),
             "semantic_sanity_checklist": _semantic_sanity_checklist(),
@@ -166,7 +167,7 @@ def _build_context_packet(
                 georef_hint if isinstance(georef_hint, dict) else None,
                 validate_hint if isinstance(validate_hint, dict) else None,
             )
-        progress_payload["recommended_next"] = _recommended_next_moves(progress_payload)
+        progress_payload["observed_state_labels"] = _progress_state_labels(progress_payload)
     bounded = _bound_payload(packet, max_items=24)
     if isinstance(bounded, dict):
         deed_text_full = bootstrap_context.get("deed_text_full")
@@ -257,27 +258,29 @@ def _extract_reason_code_from_payload(payload: object) -> str | None:
 
 
 def _phase_plan_bullets(phase_hint: str) -> list[str]:
+    """Return descriptive phase posture bullets, not workflow instructions."""
+
     plans: dict[str, list[str]] = {
         "bootstrap": [
-            "If deed text ref is missing, hydrate deed first.",
-            "Draft minimal FeatureGraph IR from deed.",
-            "Compile, then judge for gap diagnosis after IR is non-stub.",
-            "Bundle after IR stabilizes.",
+            "Deed evidence hydration is still needed when the deed ref is missing.",
+            "IR remains unsettled until a non-stub graph exists.",
+            "Compilation and judge outputs are the primary structural checkpoints.",
+            "Bundle state tends to lag until the graph stabilizes.",
         ],
         "author_ir": [
-            "Produce or update IR with minimal valid graph structure.",
-            "Prefer refs to prior artifacts, avoid blob payloads.",
-            "Compile after each meaningful IR change.",
+            "IR authoring is the active phase posture.",
+            "Artifact refs remain the dominant evidence surface.",
+            "Compilation is the next structural checkpoint after meaningful IR change.",
         ],
         "verify": [
-            "Judge latest IR for gaps.",
-            "Patch or re-draft only to address explicit gaps.",
-            "Bundle once compile/judge are present.",
+            "Judge output is the active review surface.",
+            "Gap resolution is the current structural concern.",
+            "Bundle state reflects convergence rather than completion.",
         ],
         "declare_candidate": [
-            "Ensure compile/judge/bundle refs are available.",
-            "Provide semantic justification with evidence links and assumptions.",
-            "Attempt DECLARE_DONE when claimability is ready.",
+            "Claimability is the active boundary.",
+            "Closure remains evidence-bound rather than status-driven.",
+            "Downstream readiness depends on the current domain state.",
         ],
     }
     selected = plans.get(phase_hint, plans["bootstrap"])

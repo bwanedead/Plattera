@@ -78,18 +78,14 @@ from .controller_guardrails import (
     _compute_controller_idempotency_key,
     _infer_phase_hint,
     _inspection_thrash_refusal,
-    _inspection_thrash_suggested_next_action,
     _material_change_fingerprint,
     _open_text_spans_signature,
     _quality_gate_refusal_for_step_result,
     _read_str,
-    _recommended_next_moves,
     _redundant_deterministic_step_refusal,
     _semantic_span_repair_signature_for_context,
     _semantic_span_repair_thrash_refusal,
-    _semantic_span_repair_thrash_suggested_next_action,
     _span_open_thrash_refusal,
-    _span_open_thrash_suggested_next_action,
     _update_refusal_streak,
 )
 from .controller_proposals import (
@@ -170,6 +166,7 @@ class ControllerRunResult:
     session_id: str | None
     run_artifact_ref: str | None
     iterations: int
+    handoff_posture: dict[str, object] | None = None
 
 
 def _run_controller_loop_impl(

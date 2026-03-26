@@ -46,12 +46,18 @@ from backend.agents.controller.controller import (
     _compute_controller_idempotency_key,
     _controller_proposal_log_payload,
     _ir_health_from_hint,
-    _recommended_next_moves,
     _refusal_repair_request,
     _safe_artifact_hint,
     _semantic_span_repair_signature_for_context,
     _semantic_span_repair_thrash_refusal,
     run_controller_loop,
+)
+from backend.agents.controller.controller_guardrails import (
+    _inspection_thrash_suggested_next_action,
+    _progress_state_labels,
+    _redundant_deterministic_step_refusal,
+    _semantic_span_repair_thrash_suggested_next_action,
+    _span_open_thrash_suggested_next_action,
 )
 from backend.agents.controller.contracts import KernelStepProposal, kernel_step_tool_spec
 
@@ -1384,6 +1390,8 @@ def test_redundant_compile_is_refused_before_kernel_step() -> None:
         e.get("event_type") == "controller_refusal"
         and isinstance(e.get("payload"), dict)
         and e.get("payload", {}).get("refusal", {}).get("reason_code") == "compile_already_current"
+        and "how_to" not in e.get("payload", {})
+        and "redundant_refusal_labels" in e.get("payload", {})
         for e in transcript["events"]
     )
 
@@ -1406,7 +1414,7 @@ def test_open_text_spans_autofill_supplies_deed_ref_and_span_index_ref() -> None
     assert filled["deed_span_index_ref"] == "artifacts/spans/index.json"
 
 
-def test_recommended_next_prefers_ir_update_when_global_placement_missing_and_no_structured_anchor() -> None:
+def test_progress_state_labels_capture_bundle_and_claimability_observations() -> None:
     progress = {
         "latest_refs": {
             "ir_ref": "artifacts/ir/ir-001.json",
@@ -1422,28 +1430,27 @@ def test_recommended_next_prefers_ir_update_when_global_placement_missing_and_no
         "ir_health": {"is_stub": False, "has_structured_plss_anchor": False},
     }
 
-    recs = _recommended_next_moves(progress)
+    recs = _progress_state_labels(progress)
 
-    joined = " | ".join(recs).lower()
-    assert "plss_anchor" in joined
-    assert "re-bundle" in joined
-    assert "georeference" in joined
-    assert "open_artifact" not in joined
+    assert "artifact_state:ir_present_compile_missing" not in recs
+    assert "artifact_state:judge_present" in recs
+    assert "claimability_missing:has_georef" in recs
 
 
-def test_recommended_next_prefers_draft_ir_before_compile_when_ir_is_stub() -> None:
+def test_progress_state_labels_capture_stub_and_evidence_state() -> None:
     progress = {
         "latest_refs": {"ir_ref": "artifacts/ir/ir-stub.json"},
         "ir_health": {"is_stub": True, "has_structured_plss_anchor": False, "has_local_polygon_geometry": False},
     }
 
-    recs = _recommended_next_moves(progress)
+    recs = _progress_state_labels(progress)
 
     assert recs
-    assert recs[0].lower().startswith("draft_ir")
+    assert "ir_state:stub" in recs
+    assert "evidence_state:graph_required" in recs
 
 
-def test_recommended_next_prefers_polygon_repair_when_georef_missing_and_anchor_present() -> None:
+def test_progress_state_labels_capture_geometry_and_artifact_observations() -> None:
     progress = {
         "latest_refs": {
             "ir_ref": "artifacts/ir/ir-001.json",
@@ -1456,25 +1463,51 @@ def test_recommended_next_prefers_polygon_repair_when_georef_missing_and_anchor_
         "ir_health": {"is_stub": False, "has_structured_plss_anchor": True, "has_local_polygon_geometry": False},
     }
 
-    recs = _recommended_next_moves(progress)
+    recs = _progress_state_labels(progress)
 
-    joined = " | ".join(recs).lower()
-    assert "polygon" in joined
-    assert "re-bundle" in joined
-    assert "georeference" in joined
+    assert "artifact_state:judge_present" in recs
+    assert "artifact_state:ir_present" in recs
 
 
-def test_recommended_next_prefers_tie_repair_on_centroid_fallback_issue() -> None:
+def test_progress_state_labels_capture_tie_issue_observations() -> None:
     progress = {
         "latest_refs": {"georef_ref": "artifacts/georef/g-001.json", "validate_ref": "artifacts/validate/v-001.json"},
         "map_sanity_excerpt": {
             "validate_top_issues": ["agent_kernel_section_centroid_anchor_fallback"],
         },
     }
-    recs = _recommended_next_moves(progress)
-    joined = " | ".join(recs).lower()
-    assert "tie_to_corner" in joined or "tie" in joined
-    assert "centroid fallback" in joined
+    recs = _progress_state_labels(progress)
+    assert "validate_issue:section_centroid_anchor_fallback" in recs
+    assert "geometry_state:tie_to_corner_unresolved" in recs
+
+
+def test_refusal_helpers_emit_observations_not_next_actions() -> None:
+    dashboard = {
+        "latest_refs": {
+            "compile_ref": {"artifact_path": "artifacts/compile/c-001.json"},
+            "judge_ref": {"artifact_path": "artifacts/judge/j-001.json"},
+            "bundle_ref": {"artifact_path": "artifacts/bundle/b-001.json"},
+            "ir_ref": {"artifact_path": "artifacts/ir/ir-001.json"},
+        },
+        "gap_summary": {"gap_counts_by_kind": {}},
+        "claimability": {"claimable_ready": False, "missing_claimability": ["has_georef"]},
+    }
+
+    inspection_labels = _inspection_thrash_suggested_next_action(dashboard)
+    span_labels = _span_open_thrash_suggested_next_action(dashboard)
+    semantic_labels = _semantic_span_repair_thrash_suggested_next_action(dashboard)
+    redundant_refusal = _redundant_deterministic_step_refusal(
+        action_type=ActionType.COMPILE,
+        dashboard=dashboard,
+    )
+
+    assert all(label.startswith("artifact_state:") or label.startswith("claimability_") for label in inspection_labels)
+    assert all(label.startswith("artifact_state:") for label in span_labels)
+    assert all(label.startswith("artifact_state:") for label in semantic_labels)
+    assert redundant_refusal is not None
+    assert isinstance(redundant_refusal[1], list)
+    assert all(label.startswith("artifact_state:") for label in redundant_refusal[1])
+    assert not any(isinstance(item, ActionType) for item in redundant_refusal[1])
 
 
 def test_build_fix_skeleton_georef_missing_plss_anchor_uses_canonical_plss_anchor_example() -> None:

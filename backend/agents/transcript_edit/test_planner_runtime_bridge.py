@@ -77,7 +77,7 @@ def test_slim_execution_context_stays_bounded_for_planner_payload() -> None:
     slim = slim_execution_context_for_planner(ec if isinstance(ec, dict) else None)
     assert slim is not None
     dumped = json.dumps(slim)
-    assert "investigation_brief" not in slim.get("support_state", {})  # type: ignore[union-attr]
+    assert slim.get("support_state", {}).get("item_context", {}).get("role") == "sticky_note"
     assert len(dumped) < 12000
     msg = build_planner_user_message(
         source_transcript_ref="r",
@@ -88,10 +88,15 @@ def test_slim_execution_context_stays_bounded_for_planner_payload() -> None:
         image_verification={},
         candidate_disagreement_hints={},
         mapping_priority_focus={},
-        investigation_brief=None,
-        working_plan=None,
-        policy_signals={},
+        investigation_brief={"role": "sticky_note", "purpose": "current_case_understanding"},
+        item_context={"role": "sticky_note", "purpose": "current_case_understanding"},
+        continuity_context={"active_item_id": "range"},
+        evidence_context={"source_completeness": "unknown"},
+        item_history=[],
+        unresolved_questions=[],
         execution_context=slim,
     )
     assert isinstance(msg, str)
     assert len(msg) < 50000
+    payload = json.loads(msg)
+    assert "policy_signals" not in payload

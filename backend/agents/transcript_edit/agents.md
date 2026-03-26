@@ -26,9 +26,9 @@
 - Keep focus-key selection/baseline shaping/recommendation helpers in `focus_runtime.py`.
 - Focus is emergent, not fixed: the runtime may promote investigation, orientation, baseline-building, or mapping items into explicit blockers via `propose_blocker_updates`; do not hard-script the focus list.
 - The per-iteration `investigation_brief` is a living sticky note, not canonical trace; keep it additive and editable, and use it to inform focus and planning without turning it into doctrine.
-- The per-iteration `working_plan` is a short-horizon rail, not doctrine; it may be revised as case understanding changes, and it should stay subordinate to durable state.
-- `support_state` should bundle the editable investigation brief and working plan together; neither should be treated as canonical truth.
-- `support_state.policy_signals` are derived posture hints only; they should bias selection/gating, not replace ledger or blocker truth.
+- The shared `support_state` for focus packets should center `item_context`, `continuity_context`, `evidence_context`, `item_history`, and `unresolved_questions`; keep `blocker_posture` observational only.
+- `active_item_id` continuity is the main mechanical rail for focus carry-forward; do not rebuild a deterministic chooser under a softer name.
+- `decision_ledger_focus.py` is compatibility-only; live focus selection now comes from continuity-first runtime plumbing and shared `resolution_state`.
 - Keep resolver move acceptance/gating helpers in `resolver_gates.py`.
 - Keep blocker iteration recap payload shaping/progress emission in `blocker_iteration_reporting.py`.
 - Keep terminal run-result/message/summary composition in `terminalization.py`.
@@ -37,7 +37,7 @@
 - Keep `decision_ledger.py` as the stable public facade for ledger APIs.
 - Keep ledger state/init/update/ticket mutation helpers in `decision_ledger_state.py`.
 - Keep closure derivation/unresolved requirement/materiality helpers in `decision_ledger_closure.py`.
-- Keep focus selection/ranking/reason helpers in `decision_ledger_focus.py`.
+- Keep legacy focus-selection/ranking/reason helpers in `decision_ledger_focus.py` as compatibility-only shims.
 - Keep scope normalization/source-completeness/scope summary helpers in `decision_ledger_scope.py`.
 - Keep transcript-edit -> mapping handoff packet composition/persistence in `handoff_packet.py`.
 - Keep convention detection and convention-situated menu-family inference in `convention_situating.py`.

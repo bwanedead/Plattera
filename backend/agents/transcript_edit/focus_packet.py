@@ -14,10 +14,7 @@ from typing import Any
 from harness.work_board.recent_iteration_lane import build_recent_iteration_lane
 
 from .focus_packet_board_context import build_work_board_focus_context_bundle
-from .focus_runtime import (
-    baseline_residual_from_unresolved,
-    recent_image_evidence_attempt_count,
-)
+from .focus_hydration import build_focus_support_state
 from .decision_ledger_adapter import transcript_edit_unified_and_closure_read_for_native
 from .organized_work_composition import compute_organized_work_composition
 from .transcript_edit_ledger_discovery_prep import DISCOVERY_ITEM_PROVENANCE, DISCOVERY_KEY_PREFIX
@@ -38,7 +35,6 @@ MAX_RECENT_ATTEMPTS = 6
 MAX_ATTEMPT_REASON_CHARS = 120
 MAX_FEEDBACK_VALUE_CHARS = 160
 MAX_FEEDBACK_NOTE_CHARS = 240
-MAX_MEMORY_SUMMARY_CHARS = 420
 MAX_EXTERNAL_CONTEXT_INJECTIONS = 6
 MAX_EXTERNAL_PAYLOAD_CHARS = 320
 
@@ -49,6 +45,7 @@ def build_focus_packet(
     decision_key: str | None,
     focus_source: str | None = None,
     focus_reason_code: str | None = None,
+    last_focus_key: str | None = None,
     loop_iteration: int | None = None,
     active_emergent_blocker: dict[str, Any] | None = None,
     blocker_registry: dict[str, Any] | None = None,
@@ -175,45 +172,45 @@ def build_focus_packet(
             ledger_item=ledger_item or {},
             closure_requirement=closure_requirement,
             external_injections=external_injections,
-    )
+        )
     emergent_focus = dict(active_emergent_blocker) if isinstance(active_emergent_blocker, dict) else {}
     active_work_item = active_work_item_lookup
     parity = ledger_board_parity(key, ledger_row_for_parity, active_work_item)
-    investigation_brief = _investigation_brief(
-        decision_key=key,
-        ledger_item=ledger_item or {},
-        closure_requirement=closure_requirement,
-        recent_attempts=attempts,
-        memory_summary=_memory_summary(attempts),
-        source_completeness=str(read_ledger.get("source_completeness") or "unknown"),
-        board_item=active_work_item,
-    )
-    working_plan = _working_plan(
+    if is_emergent_focus:
+        ft_kind = "harness_emergent"
+    elif is_discovery_focus:
+        ft_kind = "ledger_discovery"
+    else:
+        ft_kind = "ledger_decision"
+    support_state_bundle = build_focus_support_state(
         decision_key=key,
         focus_source=str(focus_source or "legacy_fallback").strip().lower() or "legacy_fallback",
+        focus_target_kind=ft_kind,
+        active_item_id=key or None,
+        last_focus_key=last_focus_key,
+        active_emergent_blocker=emergent_focus if isinstance(emergent_focus, dict) else None,
         ledger_item=ledger_item or {},
         closure_requirement=closure_requirement,
         recent_attempts=attempts,
-        investigation_brief=investigation_brief,
-        active_emergent_blocker=emergent_focus,
         source_completeness=str(read_ledger.get("source_completeness") or "unknown"),
-        board_item=active_work_item,
-    )
-    policy_signals = _derived_policy_signals(
-        decision_key=key,
-        ledger_item=ledger_item or {},
-        closure_requirement=closure_requirement,
-        recent_attempts=attempts,
-        investigation_brief=investigation_brief,
         span_context=bounded_spans,
         image_verification=bounded_image,
         visual_evidence=bounded_visual,
         feedback=bounded_feedback,
-        source_completeness=str(read_ledger.get("source_completeness") or "unknown"),
         evidence_repeat_guard=evidence_repeat_guard or {},
         evidence_signal_counter=evidence_signal_counter,
         board_item=active_work_item,
     )
+    investigation_brief = dict(
+        support_state_bundle.get("item_context")
+        or support_state_bundle.get("investigation_brief")
+        or {}
+    )
+    continuity_context = dict(support_state_bundle.get("continuity_context") or {})
+    evidence_context = dict(support_state_bundle.get("evidence_context") or {})
+    item_history = list(support_state_bundle.get("item_history") or [])
+    unresolved_questions = list(support_state_bundle.get("unresolved_questions") or [])
+    blocker_posture = dict(support_state_bundle.get("blocker_posture") or {})
     _lsu = (
         dict(decision_ledger.get("llm_startup_understanding"))
         if isinstance(decision_ledger, dict) and isinstance(decision_ledger.get("llm_startup_understanding"), dict)
@@ -226,8 +223,12 @@ def build_focus_packet(
     )
     support_state = {
         "investigation_brief": investigation_brief,
-        "working_plan": working_plan,
-        "policy_signals": policy_signals,
+        "item_context": investigation_brief,
+        "continuity_context": continuity_context,
+        "evidence_context": evidence_context,
+        "item_history": item_history,
+        "unresolved_questions": unresolved_questions,
+        "blocker_posture": blocker_posture,
         "llm_startup_understanding": _lsu if _lsu else None,
         "llm_iteration_understanding": _liu if _liu else None,
         "audit_evidence_snapshot": audit_evidence_snapshot if isinstance(audit_evidence_snapshot, dict) else None,
@@ -241,21 +242,7 @@ def build_focus_packet(
         "focus_source": str(focus_source or "legacy_fallback").strip().lower() or "legacy_fallback",
         "focus_reason_code": str(focus_reason_code or "").strip()[:120] or None,
     }
-    blocker_posture = {
-        "active_emergent_blocker_id": str(emergent_focus.get("blocker_id") or "").strip() or None,
-        "understanding_strength": str(policy_signals.get("understanding_strength") or ""),
-        "needs_orientation": bool(policy_signals.get("needs_orientation")),
-        "needs_inventory": bool(policy_signals.get("needs_inventory")),
-        "has_fresh_signal": bool(policy_signals.get("has_fresh_signal")),
-        "cached_context_present": bool(policy_signals.get("cached_context_present")),
-        "repeat_without_signal": bool(policy_signals.get("repeat_without_signal")),
-    }
-    if is_emergent_focus:
-        ft_kind = "harness_emergent"
-    elif is_discovery_focus:
-        ft_kind = "ledger_discovery"
-    else:
-        ft_kind = "ledger_decision"
+    blocker_posture["active_emergent_blocker_id"] = str(emergent_focus.get("blocker_id") or "").strip() or None
     dm0 = (
         ledger_item.get("discovery_meta")
         if isinstance(ledger_item, dict) and isinstance(ledger_item.get("discovery_meta"), dict)
@@ -379,7 +366,7 @@ def build_focus_packet(
         "blocker_registry": blocker_registry_view,
         "focused_blocker_feedback_pair": focused_blocker_pair,
         "recent_attempts": attempts,
-        "memory_summary": _memory_summary(attempts),
+        "memory_summary": investigation_brief.get("memory_summary"),
         # D2 — edit lineage
         "seed_transcript_ref": seed_transcript_ref,
         "working_transcript_ref": source_transcript_ref,
@@ -463,218 +450,9 @@ def _recent_attempts_for_key(
                 "outcome": str(entry.get("outcome") or "").strip()[:MAX_ATTEMPT_REASON_CHARS],
                 "evidence_kind": str(entry.get("evidence_kind") or "").strip()[:40] or None,
                 "state_delta_hint": str(entry.get("state_delta_hint") or "").strip()[:100] or None,
-                "next_open_move_hint": str(entry.get("next_open_move_hint") or "").strip()[:100] or None,
             }
         )
     return matched[-max_items:]
-
-
-def _memory_summary(recent_attempts: list[dict[str, Any]]) -> str:
-    if not recent_attempts:
-        return "No recent attempts recorded for this focus item."
-    latest = recent_attempts[-1]
-    move = str(latest.get("move") or "unknown_move")
-    outcome = str(latest.get("outcome") or "unknown_outcome")
-    summary = f"Recent focus history: last move={move}, outcome={outcome}, total_recent={len(recent_attempts)}."
-    return summary[:MAX_MEMORY_SUMMARY_CHARS]
-
-
-def _investigation_brief(
-    *,
-    decision_key: str,
-    ledger_item: dict[str, Any],
-    closure_requirement: dict[str, Any],
-    recent_attempts: list[dict[str, Any]],
-    memory_summary: str,
-    source_completeness: str,
-    board_item: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    residual = baseline_residual_from_unresolved(ledger_item) if ledger_item else {}
-    open_questions = [
-        str(closure_requirement.get("required_information") or "").strip(),
-        str(closure_requirement.get("minimal_user_action") or "").strip(),
-    ]
-    open_questions = [question for question in open_questions if question]
-    knowns = {
-        "decision_key": decision_key,
-        "state": str(ledger_item.get("state") or "unknown").strip().lower() or "unknown",
-        "blocking": bool(ledger_item.get("blocking")),
-        "mapping_blocking": bool(closure_requirement.get("mapping_blocking")),
-        "scope_status": str(closure_requirement.get("scope_status") or "unknown").strip().lower() or "unknown",
-        "selected_value": str(ledger_item.get("selected_value") or "").strip() or None,
-        "alternatives": [
-            str(value).strip()
-            for value in list(ledger_item.get("alternatives") or [])
-            if str(value).strip()
-        ][:6],
-        "evidence_refs": [
-            str(value).strip()
-            for value in list(ledger_item.get("evidence_refs") or [])
-            if str(value).strip()
-        ][:6],
-    }
-    if residual:
-        knowns["residual"] = residual
-    gwb = generic_knowns_snapshot(board_item) if isinstance(board_item, dict) else None
-    if gwb:
-        knowns["generic_work_board"] = gwb
-    return {
-        "role": "sticky_note",
-        "purpose": "current_case_understanding",
-        "source_completeness": source_completeness,
-        "knowns": knowns,
-        "open_questions": open_questions,
-        "recent_attempts": recent_attempts[-MAX_RECENT_ATTEMPTS:],
-        "memory_summary": memory_summary[:MAX_MEMORY_SUMMARY_CHARS],
-        "editable": True,
-        "canonical": False,
-    }
-
-
-def _working_plan(
-    *,
-    decision_key: str,
-    focus_source: str,
-    ledger_item: dict[str, Any],
-    closure_requirement: dict[str, Any],
-    recent_attempts: list[dict[str, Any]],
-    investigation_brief: dict[str, Any],
-    active_emergent_blocker: dict[str, Any] | None,
-    source_completeness: str,
-    board_item: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    residual = baseline_residual_from_unresolved(ledger_item) if ledger_item else {}
-    mapping_blocking = _canonical_mapping_blocking(ledger_item=ledger_item, closure_requirement=closure_requirement)
-    focus_label = str(ledger_item.get("label") or ledger_item.get("key") or decision_key or "decision").strip()
-    current_goal = (
-        "increase understanding before repair"
-        if mapping_blocking or str(source_completeness).strip().lower() in {"unknown", "partial"}
-        else "apply the safest bounded next step"
-    )
-    advisory_hints: list[str] = []
-    if focus_source == "emergent_blocker" and isinstance(active_emergent_blocker, dict):
-        title = str(active_emergent_blocker.get("title") or focus_label).strip() or focus_label
-        advisory_hints.append(f"Work the emergent blocker explicitly: {title}.")
-    if mapping_blocking:
-        advisory_hints.append("Verify or narrow the mapping-critical uncertainty before any speculative edit.")
-    elif str(closure_requirement.get("scope_status") or "").strip().lower() == "unknown":
-        advisory_hints.append("Keep scope and dependency uncertainty explicit while the case is still being oriented.")
-    if not advisory_hints:
-        advisory_hints.append("Proceed with the current bounded focus item and preserve additive state.")
-    board_notes = None
-    if isinstance(board_item, dict):
-        bm = board_materiality(board_item)
-        bs = board_state(board_item)
-        if bm or bs:
-            board_notes = f"generic board: materiality={bm or 'unknown'}, state={bs or 'unknown'}"
-    return {
-        "role": "working_plan",
-        "purpose": "short_horizon_case_rail",
-        "plan_version": "working_plan_v1",
-        "editable": True,
-        "canonical": False,
-        "status": "working" if recent_attempts or mapping_blocking else "lightweight",
-        "current_focus": {
-            "decision_key": decision_key,
-            "label": focus_label or None,
-            "focus_source": focus_source,
-            "mapping_blocking": mapping_blocking,
-            "scope_status": str(closure_requirement.get("scope_status") or "unknown").strip().lower() or "unknown",
-        },
-        "current_goal": current_goal,
-        "advisory_hints": advisory_hints[:4],
-        "notes": str(investigation_brief.get("memory_summary") or "").strip()[:MAX_MEMORY_SUMMARY_CHARS] or None,
-        "recent_attempts_seen": len(recent_attempts),
-        "generic_board_snapshot": board_notes,
-    }
-
-
-def _derived_policy_signals(
-    *,
-    decision_key: str,
-    ledger_item: dict[str, Any],
-    closure_requirement: dict[str, Any],
-    recent_attempts: list[dict[str, Any]],
-    investigation_brief: dict[str, Any],
-    span_context: list[dict[str, Any]],
-    image_verification: dict[str, Any],
-    visual_evidence: dict[str, Any],
-    feedback: dict[str, Any] | None,
-    source_completeness: str,
-    evidence_repeat_guard: dict[str, dict[str, Any]],
-    evidence_signal_counter: int,
-    board_item: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    residual = baseline_residual_from_unresolved(ledger_item) if ledger_item else {}
-    mapping_blocking = _canonical_mapping_blocking(ledger_item=ledger_item, closure_requirement=closure_requirement)
-    scope_status = str(closure_requirement.get("scope_status") or "unknown").strip().lower() or "unknown"
-    source_state = str(source_completeness or "unknown").strip().lower() or "unknown"
-    recent_image_attempts = recent_image_evidence_attempt_count(
-        continuity_log=recent_attempts,
-        decision_key=decision_key,
-        window=8,
-    )
-    image_results = []
-    if isinstance(image_verification.get("results"), list):
-        image_results = [row for row in image_verification.get("results") if isinstance(row, dict)]
-    image_verified = any(str(row.get("status") or "").strip().lower() in {"match", "confirmed"} for row in image_results)
-    visual_status = str(visual_evidence.get("status") or "").strip().lower() or None
-    cached_context_present = bool(
-        span_context
-        or image_results
-        or image_verified
-        or visual_status in {"located", "verified", "captured"}
-        or isinstance(feedback, dict)
-    )
-    repeat_signature = _policy_repeat_signature(decision_key)
-    repeat_entry = evidence_repeat_guard.get(repeat_signature) if isinstance(evidence_repeat_guard, dict) else {}
-    last_signal_counter = int(repeat_entry.get("last_signal_counter") or 0) if isinstance(repeat_entry, dict) else 0
-    current_signal_counter = max(0, int(evidence_signal_counter or 0))
-    has_fresh_signal = bool(
-        current_signal_counter > last_signal_counter
-        or isinstance(feedback, dict)
-    )
-    has_new_signal = has_fresh_signal
-    if mapping_blocking and source_state in {"unknown", "partial", "partial_truncated", "partial_missing_context"}:
-        understanding_strength = "weak"
-    elif mapping_blocking and (has_fresh_signal or cached_context_present):
-        understanding_strength = "moderate"
-    elif mapping_blocking:
-        understanding_strength = "moderate"
-    else:
-        understanding_strength = "narrow"
-    needs_orientation = understanding_strength == "weak" and not bool(recent_attempts)
-    needs_inventory = understanding_strength == "weak" or (mapping_blocking and not has_fresh_signal)
-    repeat_without_signal = bool(recent_image_attempts >= 2 and not has_fresh_signal)
-    board_maps = board_is_mapping_blocking(board_item) if isinstance(board_item, dict) else None
-    board_mat = board_materiality(board_item) if isinstance(board_item, dict) else None
-    return {
-        "decision_key": decision_key,
-        "understanding_strength": understanding_strength,
-        "needs_orientation": needs_orientation,
-        "needs_inventory": needs_inventory,
-        "has_new_signal": has_new_signal,
-        "has_fresh_signal": has_fresh_signal,
-        "cached_context_present": cached_context_present,
-        "repeat_without_signal": repeat_without_signal,
-        "generic_board_mapping_signal": board_maps,
-        "generic_board_materiality": board_mat,
-        "recent_image_attempts": int(recent_image_attempts),
-        "source_completeness": source_state,
-        "evidence_repeat_budget": int((evidence_repeat_guard.get(_policy_repeat_signature(decision_key)) or {}).get("count") or 0) if isinstance(evidence_repeat_guard, dict) else 0,
-    }
-
-
-def _canonical_mapping_blocking(*, ledger_item: dict[str, Any], closure_requirement: dict[str, Any]) -> bool:
-    if isinstance(closure_requirement, dict) and "mapping_blocking" in closure_requirement:
-        return bool(closure_requirement.get("mapping_blocking"))
-    if isinstance(ledger_item, dict):
-        return bool(ledger_item.get("mapping_blocking"))
-    return False
-
-
-def _policy_repeat_signature(decision_key: str) -> str:
-    return f"{str(decision_key or '').strip().lower()}|repeat"
 
 
 def _bounded_span_context(span_context: list[dict[str, Any]]) -> list[dict[str, Any]]:

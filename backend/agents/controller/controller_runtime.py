@@ -49,6 +49,7 @@ class ControllerRunResult:
     session_id: str | None
     run_artifact_ref: str | None
     iterations: int
+    handoff_posture: dict[str, object] | None = None
 
 
 def run_controller_loop(

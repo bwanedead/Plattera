@@ -845,6 +845,7 @@ def _result(
     latest_refs: dict[str, Any],
     review_required: bool,
     runtime_hitl_state: dict[str, Any] | None = None,
+    handoff_posture: dict[str, Any] | None = None,
 ) -> TranscriptEditAgentRunResult:
     return build_run_result(
         run_artifact_ref=start.run_artifact_ref,
@@ -855,6 +856,7 @@ def _result(
         latest_refs=latest_refs,
         review_required=review_required,
         runtime_hitl_state=runtime_hitl_state,
+        handoff_posture=handoff_posture,
     )
 
 
@@ -876,7 +878,7 @@ def _finalize_result_and_project_run_feed(
     handoff_summary: str | None = None,
 ) -> TranscriptEditAgentRunResult:
     effective_session_id = str(session_id or getattr(start, "session_id", "") or "")
-    result = _result(
+    base_result = _result(
         start=start,
         session_id=effective_session_id,
         iterations=iterations,
@@ -886,12 +888,28 @@ def _finalize_result_and_project_run_feed(
         review_required=review_required,
         runtime_hitl_state=runtime_hitl_state,
     )
-    run_terminal_message = terminal_message(result)
+    run_terminal_message = terminal_message(base_result)
     run_terminal_summary = terminal_summary(
         progress_log,
-        result,
+        base_result,
         critical_events=[],
         runtime_hitl_state=runtime_hitl_state,
+    )
+    handoff_posture = (
+        dict(run_terminal_summary.get("handoff_posture"))
+        if isinstance(run_terminal_summary.get("handoff_posture"), dict)
+        else None
+    )
+    result = build_run_result(
+        run_artifact_ref=base_result.run_artifact_ref,
+        session_id=base_result.session_id,
+        iterations=base_result.iterations,
+        status=base_result.status,
+        reason_code=base_result.reason_code,
+        latest_refs=base_result.latest_refs,
+        review_required=base_result.review_required,
+        runtime_hitl_state=base_result.runtime_hitl_state,
+        handoff_posture=handoff_posture,
     )
     freshness_posture = run_terminal_summary.get("final_freshness_posture")
     freshness_summary = str(run_terminal_summary.get("final_freshness_summary") or "").strip() or None

@@ -1,8 +1,8 @@
-"""Investigation focus selection from the unified **harness decision ledger** envelope.
+"""Compatibility-only focus helpers for transcript-edit.
 
-Pass the unified envelope (``work_board.v1`` / decision-ledger wire shape) as ``work_board``.
-When you have a native ``decision_ledger`` dict, pass it alongside the envelope so composition,
-dormancy, and native ``discovery_meta`` overlays stay accurate — native alone is not the read model.
+Live transcript-edit focus selection now flows through continuity-first runtime plumbing and the
+shared ``mission_state`` / ``resolution_state`` model. This module remains for legacy callers and
+tests that still need advisory ordering, ranking, or audit helpers during the transition.
 """
 from __future__ import annotations
 
@@ -47,7 +47,7 @@ _UNRESOLVED_STATES = {"unknown", "candidate_found", "disputed", "accepted_with_r
 
 
 def resolve_focus_authority_mode(*, mapping_blocking_by_key: dict[str, Any]) -> str:
-    """Derive advisory ordering mode from material mapping-blocking closure keys."""
+    """Compatibility helper for legacy advisory ordering snapshots."""
     return "ledger_absolute_precedence" if mapping_blocking_by_key else "emergent_may_lead"
 
 
@@ -56,7 +56,7 @@ def authority_rank_for_candidate(
     *,
     mapping_blocking_by_key: dict[str, Any],
 ) -> int:
-    """Lower sort ranks surface earlier in bootstrap advisory ordering."""
+    """Compatibility helper for legacy advisory candidate ordering."""
     mode = resolve_focus_authority_mode(mapping_blocking_by_key=mapping_blocking_by_key)
     src = str(candidate.get("_candidate_source") or "")
     key = str(candidate.get("key") or "").strip().lower()
@@ -75,7 +75,7 @@ def focus_authority_audit(
     mapping_blocking_by_key: dict[str, Any],
     winner: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Compact advisory-ordering snapshot for packet/debug surfaces."""
+    """Compatibility-only snapshot for legacy advisory/debug surfaces."""
     mode = resolve_focus_authority_mode(mapping_blocking_by_key=mapping_blocking_by_key)
     n = len(mapping_blocking_by_key)
     note = (
@@ -165,7 +165,7 @@ def choose_investigation_focus(
     *,
     work_board: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
-    """Advisory focus ordering from the **unified harness decision ledger** envelope.
+    """Compatibility-only focus ordering from the unified harness decision ledger envelope.
 
     Transitional call shapes (all equivalent when data is consistent):
 
@@ -174,9 +174,8 @@ def choose_investigation_focus(
     - ``ledger`` = unified envelope (``work_board.v1``): closure rows are reconstructed from ``te:ledger:*`` items.
     - ``work_board`` only: pass ``ledger=None``; closure reconstructed from the envelope.
 
-    The result is advisory context for the pack/runtime. It should not be treated as the sole
-    source of focus truth when continuity, feedback, or emergent blockers already establish the
-    active item.
+    The result is advisory context for legacy surfaces. Live runtime should treat continuity,
+    feedback, and emergent blockers as the active-item truth source instead.
     """
     if work_board is not None:
         unified = work_board

@@ -1,8 +1,8 @@
-"""Transcript-edit decision-ledger **facade**: native mutation helpers + focus selection.
+"""Transcript-edit decision-ledger facade.
 
-Organized-work **truth** for runtime reasoning is the unified harness decision ledger envelope
-(see ``decision_ledger_adapter``). This package aggregates native persistence operations and
-closure helpers that sit beside that envelope — not a second parallel ledger architecture.
+Organized-work truth for runtime reasoning is the shared continuity-first model, with the unified
+harness decision ledger envelope remaining the compatibility read surface. This package aggregates
+native persistence operations and closure helpers beside that envelope.
 """
 from __future__ import annotations
 
@@ -56,7 +56,6 @@ __all__ = [
     "has_unresolved_target_scope_mapping_blocking_closure",
     "is_unresolved_mapping_blocking_decision",
     "is_unresolved_target_scope_mapping_blocking_decision",
-    "choose_investigation_focus",
     "has_blocking_dispute",
     "scope_summaries_from_ledger",
 ]

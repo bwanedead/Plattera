@@ -1,7 +1,8 @@
-"""Harness-owned generic **decision ledger** (single organized-work surface).
+"""Compatibility decision-ledger package.
 
-Lifecycle, emergence, and iteration-lane helpers remain in ``harness.work_board``
-during migration; import them from there or from this package re-exports below.
+Canonical shared-state naming now lives under ``harness.mission_state``.
+This package remains a secondary compatibility surface for the legacy
+organized-work wire shape and helper re-exports.
 """
 from __future__ import annotations
 

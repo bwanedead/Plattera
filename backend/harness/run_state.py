@@ -6,6 +6,15 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from agents.transcript_edit.state_projection import derive_waiting_feedback_projection
 
+from agents.transcript_edit.decision_ledger_adapter import (
+    transcript_edit_unified_and_closure_read_for_native,
+)
+from .mission_state import (
+    MissionState,
+    ResolutionState,
+    new_mission_state,
+    resolution_state_from_legacy_items,
+)
 from .mission_runtime.observability import parse_mission_observation_payload
 from .terminal_taxonomy import (
     TerminalClass,
@@ -109,6 +118,7 @@ class SharedRunStateEnvelope(BaseModel):
     waiting_summary: WaitingSummary
     terminal_summary: NormalizedTerminalSummary
     continuity_summary: ContinuitySummary
+    mission_state: MissionState
     mission_mode_summary: MissionModeSummary = Field(default_factory=MissionModeSummary)
     prompt_observability_summary: PromptObservabilitySummary = Field(default_factory=PromptObservabilitySummary)
     envelope_version: str = Field(min_length=1, max_length=64)
@@ -167,6 +177,13 @@ def build_transcript_edit_run_state(*, run_snapshot: dict[str, Any]) -> SharedRu
         else:
             verification_status = verification_status or "closure_unresolved"
 
+    resolution_state = _build_transcript_edit_resolution_state(
+        run_snapshot=snapshot,
+        runtime_hitl_state=runtime_hitl_state,
+        waiting_projection=waiting_projection,
+        updated_at_epoch_seconds=float(snapshot.get("updated_at_epoch_seconds") or 0.0),
+    )
+
     return SharedRunStateEnvelope(
         run_id=run_id,
         session_id=session_id,
@@ -207,6 +224,47 @@ def build_transcript_edit_run_state(*, run_snapshot: dict[str, Any]) -> SharedRu
             last_phase=_last_phase(progress_log=progress_log, critical_events=critical_events),
             last_reason_code=reason_code,
             has_recent_activity=bool(progress_log or critical_events),
+        ),
+        mission_state=_mission_state_from_components(
+            mission_id=run_id,
+            session_id=session_id,
+            request_id=request_id,
+            loop_family="transcript_edit",
+            objective="transcript_edit_agent",
+            active_mode=_as_str(request.get("mode")),
+            updated_at_epoch_seconds=float(snapshot.get("updated_at_epoch_seconds") or 0.0),
+            latest_refs_summary=_summarize_refs(latest_refs).model_dump(),
+            prompt_observability_summary=_prompt_observability_summary_from_snapshot(snapshot).model_dump(),
+            blocker_summary={
+                "open_count": open_count,
+                "active_blocker_id": _as_str(blocker_registry.get("active_blocker_id")),
+                "waiting_human": bool(waiting_projection.get("waiting_feedback")),
+                "answered_unintegrated_count": answered_unintegrated_count,
+                "source": "derived" if waiting_from_compat_fallback else "registry",
+            },
+            verification_summary={
+                "status": verification_status,
+                "last_verification_kind": _tx_last_verification_kind(progress_log=progress_log, critical_events=critical_events),
+                "mapping_ready": _as_bool(terminal.get("mapping_ready")),
+            },
+            waiting_summary={
+                "waiting": bool(waiting_projection.get("waiting_feedback")),
+                "waiting_kind": "human_feedback" if bool(waiting_projection.get("waiting_feedback")) else None,
+                "resumable": bool(waiting_projection.get("resumable")),
+                "owner_kind": "blocker_registry" if bool(waiting_projection.get("waiting_feedback_owner")) else None,
+            },
+            terminal_summary={
+                "terminal": bool(status in {"completed", "failed", "needs_review", "waiting_feedback"}),
+                "terminal_class": terminal_result.terminal_class,
+                "reason_code": terminal_result.reason_code,
+            },
+            continuity_summary={
+                "iteration": _as_int(snapshot.get("iterations")),
+                "last_phase": _last_phase(progress_log=progress_log, critical_events=critical_events),
+                "last_reason_code": reason_code,
+                "has_recent_activity": bool(progress_log or critical_events),
+            },
+            resolution_state=resolution_state,
         ),
         mission_mode_summary=MissionModeSummary(active_mode=_as_str(request.get("mode"))),
         prompt_observability_summary=_prompt_observability_summary_from_snapshot(snapshot),
@@ -292,6 +350,47 @@ def build_controller_kernel_run_state(
             last_reason_code=_as_str(terminal.get("reason_code")),
             has_recent_activity=bool(transcript_events),
         ),
+            mission_state=_mission_state_from_components(
+            mission_id=run_id,
+            session_id=session_id,
+            request_id=request_id,
+            loop_family="controller_kernel",
+            objective="controller_runtime_loop",
+            active_mode=_as_str(run_header_payload.get("mode")),
+            updated_at_epoch_seconds=0.0,
+            latest_refs_summary=_summarize_refs(latest_refs).model_dump(),
+            prompt_observability_summary=_prompt_observability_summary_from_transcript(transcript_events).model_dump(),
+            blocker_summary={
+                "open_count": None,
+                "active_blocker_id": None,
+                "waiting_human": terminal_result.terminal_class == "waiting_human",
+                "answered_unintegrated_count": None,
+                "source": "sparse",
+            },
+            verification_summary={
+                "status": stop_reason or _as_str(terminal.get("reason_code")),
+                "last_verification_kind": _controller_last_verification_kind(transcript_events),
+                "mapping_ready": True if terminal_result.terminal_class == "completed" else False if terminal_result.terminal_class in {"failed", "blocked"} else None,
+            },
+            waiting_summary={
+                "waiting": waiting,
+                "waiting_kind": waiting_kind,
+                "resumable": waiting,
+                "owner_kind": "terminal_refusal" if waiting else None,
+            },
+            terminal_summary={
+                "terminal": bool(terminal),
+                "terminal_class": terminal_result.terminal_class if terminal else None,
+                "reason_code": terminal_result.reason_code if terminal else None,
+            },
+            continuity_summary={
+                "iteration": _controller_iteration_count(transcript_events, run_artifact),
+                "last_phase": _controller_last_phase(transcript_events),
+                "last_reason_code": _as_str(terminal.get("reason_code")),
+                "has_recent_activity": bool(transcript_events),
+            },
+            resolution_state=_mission_runtime_empty_resolution_state(),
+        ),
         mission_mode_summary=MissionModeSummary(active_mode=_as_str(run_header_payload.get("mode"))),
         prompt_observability_summary=_prompt_observability_summary_from_transcript(transcript_events),
         envelope_version=RUN_STATE_VERSION,
@@ -315,6 +414,7 @@ def build_mission_runtime_run_state(*, mission_runtime_payload: dict[str, Any]) 
     terminal_class = _as_terminal_class(mission_status.get("terminal_class"))
     reason_code = _as_str(mission_status.get("reason_code"))
     high_signal_refs = list(observation.high_signal_artifact_refs)
+    resolution_state = _mission_runtime_resolution_state_from_payload(mission_runtime_payload)
 
     return SharedRunStateEnvelope(
         run_id=mission_id,
@@ -364,6 +464,74 @@ def build_mission_runtime_run_state(*, mission_runtime_payload: dict[str, Any]) 
             last_phase=f"mode:{cycles[-1].executed_mode}" if cycles and cycles[-1].executed_mode else None,
             last_reason_code=reason_code or transition_reason,
             has_recent_activity=bool(cycles or transition_history),
+        ),
+        mission_state=_mission_state_from_components(
+            mission_id=mission_id,
+            session_id=None,
+            request_id=request_id,
+            loop_family="mission_runtime",
+            objective=observation.objective,
+            active_mode=active_mode,
+            updated_at_epoch_seconds=float(observation.updated_at_epoch_seconds or 0.0),
+            latest_refs_summary={
+                "has_refs": bool(high_signal_refs),
+                "total_count": len(high_signal_refs),
+                "ref_keys": high_signal_refs[:16],
+            },
+            high_signal_artifact_refs=high_signal_refs,
+            family_coordination=dict(observation.family_coordination),
+            prompt_observability_summary=_prompt_observability_summary_from_payload(
+                mission_runtime_payload,
+                default_surface=active_mode,
+            ).model_dump(),
+            blocker_summary={
+                "open_count": _as_int(blocker_posture.get("open_blocker_count")),
+                "active_blocker_id": None,
+                "waiting_human": bool(blocker_posture.get("waiting_human")),
+                "answered_unintegrated_count": None,
+                "source": "derived",
+            },
+            verification_summary={
+                "status": _as_str(verification_posture.get("status")),
+                "last_verification_kind": _as_str(verification_posture.get("last_verification_kind")),
+                "mapping_ready": True
+                if terminal_class == "completed"
+                else False
+                if terminal_class in {"failed", "blocked", "exhausted"}
+                else None,
+            },
+            waiting_summary={
+                "waiting": bool(blocker_posture.get("waiting_human")),
+                "waiting_kind": "human_feedback" if bool(blocker_posture.get("waiting_human")) else None,
+                "resumable": bool(resumability.get("resumable")),
+                "owner_kind": "mission_transition" if bool(blocker_posture.get("waiting_human")) else None,
+            },
+            terminal_summary={
+                "terminal": bool(mission_status.get("terminal")),
+                "terminal_class": terminal_class,
+                "reason_code": reason_code,
+            },
+            continuity_summary={
+                "iteration": observation.cycle_index or len(cycles),
+                "last_phase": f"mode:{cycles[-1].executed_mode}" if cycles and cycles[-1].executed_mode else None,
+                "last_reason_code": reason_code or transition_reason,
+                "has_recent_activity": bool(cycles or transition_history),
+            },
+            mission_mode_summary={
+                "active_mode": active_mode,
+                "mode_history": mode_history,
+                "latest_transition_reason": transition_reason,
+                "resume_context_summary": {
+                    "resumable": bool(resumability.get("resumable")),
+                    "resume_reason": _as_str(resumability.get("resume_reason")),
+                    "resume_requirements": _as_str_list(resumability.get("resume_requirements")),
+                    "expected_next_work": latest_transition.expected_next_work if latest_transition else None,
+                    "resume_note_for_prior_mode": (
+                        latest_transition.resume_note_for_prior_mode if latest_transition else None
+                    ),
+                },
+            },
+            resolution_state=resolution_state,
         ),
         mission_mode_summary=MissionModeSummary(
             active_mode=active_mode,
@@ -437,6 +605,263 @@ def _prompt_observability_summary_from_transcript(events: list[dict[str, Any]]) 
         last_prompt_event_id=_as_str(metadata.get("prompt_event_id")),
         last_prompt_event_surface=_as_str(metadata.get("surface")) or _as_str(last_payload.get("surface")),
     )
+
+
+def _mission_state_from_components(
+    *,
+    mission_id: str,
+    session_id: str | None,
+    request_id: str | None,
+    loop_family: str,
+    objective: str | None,
+    active_mode: str | None,
+    updated_at_epoch_seconds: float,
+    latest_refs_summary: dict[str, Any] | None = None,
+    high_signal_artifact_refs: list[str] | None = None,
+    family_coordination: dict[str, Any] | None = None,
+    blocker_summary: dict[str, Any] | None = None,
+    verification_summary: dict[str, Any] | None = None,
+    waiting_summary: dict[str, Any] | None = None,
+    terminal_summary: dict[str, Any] | None = None,
+    continuity_summary: dict[str, Any] | None = None,
+    mission_mode_summary: dict[str, Any] | None = None,
+    prompt_observability_summary: dict[str, Any] | None = None,
+    resolution_state: ResolutionState | dict[str, Any] | None = None,
+) -> MissionState:
+    return new_mission_state(
+        mission_id=mission_id,
+        session_id=session_id,
+        request_id=request_id,
+        loop_family=loop_family,
+        objective=objective,
+        active_mode=active_mode,
+        updated_at_epoch_seconds=updated_at_epoch_seconds,
+        latest_refs_summary=latest_refs_summary,
+        high_signal_artifact_refs=high_signal_artifact_refs,
+        family_coordination=family_coordination,
+        blocker_summary=blocker_summary,
+        verification_summary=verification_summary,
+        waiting_summary=waiting_summary,
+        terminal_summary=terminal_summary,
+        continuity_summary=continuity_summary,
+        mission_mode_summary=mission_mode_summary,
+        prompt_observability_summary=prompt_observability_summary,
+        resolution_state=resolution_state,
+    )
+
+
+def _mission_runtime_empty_resolution_state() -> ResolutionState:
+    return resolution_state_from_legacy_items(items=[], active_item_id=None)
+
+
+def _mission_runtime_resolution_state_from_payload(payload: dict[str, Any]) -> ResolutionState:
+    mission_state_payload = payload.get("mission_state")
+    if isinstance(mission_state_payload, dict):
+        nested_resolution = mission_state_payload.get("resolution_state")
+        if isinstance(nested_resolution, dict):
+            return resolution_state_from_legacy_items(
+                items=nested_resolution.get("items") if isinstance(nested_resolution.get("items"), list) else [],
+                active_item_id=_as_str(nested_resolution.get("active_item_id")),
+                relations=nested_resolution.get("relations") if isinstance(nested_resolution.get("relations"), list) else None,
+                updated_at_epoch_seconds=float(nested_resolution.get("updated_at_epoch_seconds") or 0.0),
+                domain_payload=nested_resolution.get("domain_payload") if isinstance(nested_resolution.get("domain_payload"), dict) else None,
+            )
+    resolution_payload = payload.get("resolution_state")
+    if isinstance(resolution_payload, dict):
+        return resolution_state_from_legacy_items(
+            items=resolution_payload.get("items") if isinstance(resolution_payload.get("items"), list) else [],
+            active_item_id=_as_str(resolution_payload.get("active_item_id")),
+            relations=resolution_payload.get("relations") if isinstance(resolution_payload.get("relations"), list) else None,
+            updated_at_epoch_seconds=float(resolution_payload.get("updated_at_epoch_seconds") or 0.0),
+            domain_payload=resolution_payload.get("domain_payload") if isinstance(resolution_payload.get("domain_payload"), dict) else None,
+        )
+    resolution_items = payload.get("resolution_items")
+    if isinstance(resolution_items, list):
+        return resolution_state_from_legacy_items(
+            items=resolution_items,
+            active_item_id=_as_str(payload.get("active_item_id")),
+            updated_at_epoch_seconds=float(payload.get("updated_at_epoch_seconds") or 0.0),
+        )
+    return resolution_state_from_legacy_items(items=[], active_item_id=_as_str(payload.get("active_item_id")))
+
+
+def _build_transcript_edit_resolution_state(
+    *,
+    run_snapshot: dict[str, Any],
+    runtime_hitl_state: dict[str, Any],
+    waiting_projection: dict[str, Any],
+    updated_at_epoch_seconds: float,
+) -> ResolutionState:
+    native_decision_ledger = _transcript_edit_native_decision_ledger_from_snapshot(run_snapshot)
+    if isinstance(native_decision_ledger, dict):
+        unified, _ = transcript_edit_unified_and_closure_read_for_native(
+            native_decision_ledger=native_decision_ledger,
+        )
+        unified_items = list(unified.get("items") or [])
+        active_item_id = _transcript_edit_active_item_id_from_unified(
+            unified_items=unified_items,
+            waiting_projection=waiting_projection,
+        )
+        return resolution_state_from_legacy_items(
+            items=unified_items,
+            active_item_id=active_item_id,
+            updated_at_epoch_seconds=updated_at_epoch_seconds,
+            domain_payload={
+                "source": "transcript_edit_unified_read",
+                "native_decision_ledger_present": True,
+            },
+        )
+
+    blocker_registry = _as_dict(runtime_hitl_state.get("blocker_registry"))
+    rows = _as_dict_list(blocker_registry.get("rows"))
+    if rows:
+        return _compat_transcript_edit_resolution_state_from_blocker_registry(
+            blocker_registry=blocker_registry,
+            waiting_projection=waiting_projection,
+            updated_at_epoch_seconds=updated_at_epoch_seconds,
+        )
+    return resolution_state_from_legacy_items(
+        items=[],
+        active_item_id=_transcript_edit_compat_active_item_id(waiting_projection=waiting_projection),
+        updated_at_epoch_seconds=updated_at_epoch_seconds,
+        domain_payload={
+            "source": "compat_fallback",
+        },
+    )
+
+
+def _compat_transcript_edit_resolution_state_from_blocker_registry(
+    *,
+    blocker_registry: dict[str, Any],
+    waiting_projection: dict[str, Any],
+    updated_at_epoch_seconds: float,
+) -> ResolutionState:
+    rows = _as_dict_list(blocker_registry.get("rows"))
+    items = [_transcript_edit_resolution_item_from_blocker_row(row) for row in rows]
+    items = [row for row in items if isinstance(row, dict)]
+    if not items and bool(waiting_projection.get("waiting_feedback")):
+        items = [_transcript_edit_compat_waiting_item(waiting_projection=waiting_projection)]
+    return resolution_state_from_legacy_items(
+        items=items,
+        active_item_id=_transcript_edit_compat_active_item_id(waiting_projection=waiting_projection),
+        updated_at_epoch_seconds=updated_at_epoch_seconds,
+        domain_payload={
+            "source": "compat_fallback",
+            "blocker_registry_rows": len(rows),
+        },
+    )
+
+
+def _transcript_edit_resolution_item_from_blocker_row(row: dict[str, Any]) -> dict[str, Any]:
+    blocker_id = _as_str(row.get("blocker_id")) or _as_str(row.get("decision_key")) or "blocker"
+    decision_key = _as_str(row.get("decision_key"))
+    status = _as_str(row.get("state")) or "open"
+    linked_prompt_id = _as_str(row.get("linked_prompt_id"))
+    title = decision_key or blocker_id
+    return {
+        "item_id": blocker_id,
+        "title": title,
+        "kind": "compat_blocker_row",
+        "status": status,
+        "summary": linked_prompt_id or status,
+        "dependencies": [],
+        "evidence_refs": [linked_prompt_id] if linked_prompt_id else [],
+        "notes": linked_prompt_id,
+        "context_notes": [],
+        "history": [
+            {
+                "event_kind": "snapshot",
+                "summary": f"blocker_state={status}",
+                "outcome": status,
+            }
+        ],
+        "materiality": "medium" if status in {"waiting_feedback", "answered_unintegrated"} else "low",
+        "scope": {"decision_key": decision_key} if decision_key else {},
+        "provenance": "run_state.transcript_edit.compat",
+        "domain_payload": {
+            "blocker_id": blocker_id,
+            "decision_key": decision_key,
+            "linked_prompt_id": linked_prompt_id,
+            "source": "compat_fallback",
+        },
+    }
+
+
+def _transcript_edit_compat_waiting_item(*, waiting_projection: dict[str, Any]) -> dict[str, Any]:
+    prompt_id = _as_str(waiting_projection.get("pending_feedback_prompt_id"))
+    decision_key = _as_str(waiting_projection.get("pending_feedback_decision_key"))
+    item_id = prompt_id or decision_key or "pending_feedback"
+    return {
+        "item_id": item_id,
+        "title": decision_key or prompt_id or "pending_feedback",
+        "kind": "compat_waiting_feedback",
+        "status": "waiting_feedback",
+        "summary": "compatibility fallback waiting feedback",
+        "dependencies": [],
+        "evidence_refs": [prompt_id] if prompt_id else [],
+        "notes": "derived from pending feedback compatibility state",
+        "context_notes": [],
+        "history": [
+            {
+                "event_kind": "snapshot",
+                "summary": "pending feedback",
+                "outcome": "waiting_feedback",
+            }
+        ],
+        "materiality": "medium",
+        "scope": {"decision_key": decision_key} if decision_key else {},
+        "provenance": "run_state.transcript_edit.compat",
+        "domain_payload": {
+            "source": "compat_fallback",
+            "pending_feedback_prompt_id": prompt_id,
+            "pending_feedback_decision_key": decision_key,
+        },
+    }
+
+
+def _transcript_edit_active_item_id_from_unified(
+    *,
+    unified_items: list[dict[str, Any]],
+    waiting_projection: dict[str, Any],
+) -> str | None:
+    pending_key = _as_str(waiting_projection.get("pending_feedback_decision_key"))
+    if pending_key:
+        candidate = f"te:ledger:{pending_key}"
+        if any(str(row.get("item_id") or "") == candidate for row in unified_items if isinstance(row, dict)):
+            return candidate
+    if unified_items:
+        first_item_id = _as_str(unified_items[0].get("item_id"))
+        if first_item_id:
+            return first_item_id
+    return _transcript_edit_compat_active_item_id(waiting_projection=waiting_projection)
+
+
+def _transcript_edit_compat_active_item_id(*, waiting_projection: dict[str, Any]) -> str | None:
+    pending_key = _as_str(waiting_projection.get("pending_feedback_decision_key"))
+    if pending_key:
+        return f"te:compat:{pending_key}"
+    pending_prompt = _as_str(waiting_projection.get("pending_feedback_prompt_id"))
+    if pending_prompt:
+        return f"te:compat:{pending_prompt}"
+    return None
+
+
+def _transcript_edit_native_decision_ledger_from_snapshot(snapshot: dict[str, Any]) -> dict[str, Any] | None:
+    direct = snapshot.get("decision_ledger")
+    if isinstance(direct, dict) and isinstance(direct.get("items"), list):
+        return direct
+    terminal = _as_dict(snapshot.get("terminal_summary"))
+    terminal_ledger = terminal.get("decision_ledger")
+    if isinstance(terminal_ledger, dict) and isinstance(terminal_ledger.get("items"), list):
+        return terminal_ledger
+    progress_log = _as_dict_list(snapshot.get("progress_log"))
+    critical_events = _as_dict_list(snapshot.get("critical_events"))
+    for event in reversed(progress_log + critical_events):
+        detail = _as_dict(event.get("detail"))
+        detail_ledger = detail.get("decision_ledger")
+        if isinstance(detail_ledger, dict) and isinstance(detail_ledger.get("items"), list):
+            return detail_ledger
+    return None
 
 
 def _summarize_refs(refs: dict[str, Any]) -> LatestRefsSummary:

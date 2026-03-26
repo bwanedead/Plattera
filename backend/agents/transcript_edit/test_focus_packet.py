@@ -10,6 +10,8 @@ from backend.agents.transcript_edit.blocker_registry import (
     apply_proposed_emergent_blocker_updates,
     initialize_blocker_registry,
 )
+from backend.agents.transcript_edit.iteration_repair_moves import _append_continuity_step
+from backend.agents.transcript_edit.loop_state import TranscriptEditLoopState
 
 
 def test_focus_packet_caps_spans_image_results_and_feedback() -> None:
@@ -89,37 +91,66 @@ def test_focus_packet_filters_recent_attempts_to_focus_key() -> None:
         feedback=None,
         continuity_log=[
             {"decision_key": "section", "move": "m1", "outcome": "o1"},
-            {"decision_key": "range", "move": "m2", "outcome": "o2"},
+            {
+                "decision_key": "range",
+                "move": "m2",
+                "outcome": "o2",
+                "state_delta_hint": "move=range; carry_edit_plan",
+                "next_open_move_hint": "re_evaluate_resolver_after_evidence_step",
+            },
             {"decision_key": "range", "move": "m3", "outcome": "o3"},
         ],
     )
     attempts = packet["recent_attempts"]
     assert len(attempts) == 2
     assert all(str(row.get("decision_key") or "") == "range" for row in attempts)
+    assert all("next_open_move_hint" not in row for row in attempts)
     support_state = packet.get("support_state")
     assert isinstance(support_state, dict)
+    item_history = support_state.get("item_history")
+    assert isinstance(item_history, list)
+    assert all("next_open_move_hint" not in row for row in item_history if isinstance(row, dict))
     assert packet.get("investigation_brief") is None
-    assert packet.get("working_plan") is None
-    assert packet.get("policy_signals") is None
-    brief = support_state.get("investigation_brief")
+    brief = support_state.get("item_context")
     assert isinstance(brief, dict)
     assert str(brief.get("role") or "") == "sticky_note"
     assert str(brief.get("purpose") or "") == "current_case_understanding"
     assert "next_recommended_action" not in brief
-    working_plan = support_state.get("working_plan")
-    assert isinstance(working_plan, dict)
-    assert str(working_plan.get("role") or "") == "working_plan"
-    assert str(working_plan.get("purpose") or "") == "short_horizon_case_rail"
+    continuity = support_state.get("continuity_context")
+    assert isinstance(continuity, dict)
+    assert str(continuity.get("active_item_id") or "") == "range"
+    assert str(continuity.get("purpose") or "") == "active_item_continuity"
+    evidence = support_state.get("evidence_context")
+    assert isinstance(evidence, dict)
+    assert str(evidence.get("role") or "") == "evidence_context"
     focus_selection = packet.get("focus_selection")
     if isinstance(focus_selection, dict):
         assert "why_active_now" not in focus_selection
-    assert isinstance(support_state.get("investigation_brief"), dict)
-    assert isinstance(support_state.get("working_plan"), dict)
-    assert isinstance(support_state.get("policy_signals"), dict)
-    signals = support_state.get("policy_signals") if isinstance(support_state.get("policy_signals"), dict) else {}
-    assert str(signals.get("understanding_strength") or "") in {"weak", "moderate", "narrow"}
-    assert "needs_orientation" in signals
-    assert "needs_inventory" in signals
+    posture = support_state.get("blocker_posture") if isinstance(support_state.get("blocker_posture"), dict) else {}
+    assert str(posture.get("understanding_strength") or "") in {"weak", "moderate", "narrow"}
+    assert "needs_orientation" in posture
+    assert "needs_inventory" in posture
+
+
+def test_continuity_step_logging_omits_next_move_hint() -> None:
+    state = TranscriptEditLoopState(continuity_log=[])
+    _append_continuity_step(
+        state,
+        focus_key="range",
+        move="gather_more_evidence",
+        resolver_reason="evidence still open",
+        iterations=7,
+        focus_source="test",
+        state_before_summary={"understanding_strength": "moderate"},
+        evidence_kind="image_evidence:select_region",
+        state_delta_hint="move=gather_more_evidence; carry_evidence_request",
+    )
+    assert len(state.continuity_log) == 1
+    row = state.continuity_log[0]
+    assert str(row.get("decision_key") or "") == "range"
+    assert str(row.get("move") or "") == "gather_more_evidence"
+    assert str(row.get("state_delta_hint") or "").startswith("move=gather_more_evidence")
+    assert "next_open_move_hint" not in row
 
 
 def test_focus_packet_materiality_comes_from_closure_requirement() -> None:
@@ -142,10 +173,10 @@ def test_focus_packet_materiality_comes_from_closure_requirement() -> None:
         feedback=None,
         continuity_log=[],
     )
-    signals = (packet.get("support_state") or {}).get("policy_signals") if isinstance(packet.get("support_state"), dict) else {}
-    assert isinstance(signals, dict)
-    assert signals.get("needs_inventory") is True
-    assert signals.get("needs_orientation") is True
+    posture = (packet.get("support_state") or {}).get("blocker_posture") if isinstance(packet.get("support_state"), dict) else {}
+    assert isinstance(posture, dict)
+    assert posture.get("needs_inventory") is True
+    assert posture.get("needs_orientation") is True
 
 
 def test_focus_packet_flags_repeated_no_signal_evidence_attempts() -> None:
@@ -179,11 +210,11 @@ def test_focus_packet_flags_repeated_no_signal_evidence_attempts() -> None:
         evidence_repeat_guard={"range|repeat": {"count": 2, "last_signal_counter": 2}},
         evidence_signal_counter=2,
     )
-    signals = (packet.get("support_state") or {}).get("policy_signals") if isinstance(packet.get("support_state"), dict) else {}
-    assert isinstance(signals, dict)
-    assert signals.get("cached_context_present") is True
-    assert signals.get("has_new_signal") is False
-    assert signals.get("repeat_without_signal") is True
+    posture = (packet.get("support_state") or {}).get("blocker_posture") if isinstance(packet.get("support_state"), dict) else {}
+    assert isinstance(posture, dict)
+    assert posture.get("cached_context_present") is True
+    assert posture.get("has_new_signal") is False
+    assert posture.get("repeat_without_signal") is True
 
 
 def test_focus_packet_marks_fresh_signal_when_iteration_produces_new_context() -> None:
@@ -214,12 +245,12 @@ def test_focus_packet_marks_fresh_signal_when_iteration_produces_new_context() -
         evidence_repeat_guard={"range|repeat": {"count": 0, "last_signal_counter": 0}},
         evidence_signal_counter=1,
     )
-    signals = (packet.get("support_state") or {}).get("policy_signals") if isinstance(packet.get("support_state"), dict) else {}
-    assert isinstance(signals, dict)
-    assert signals.get("has_new_signal") is True
-    assert signals.get("has_fresh_signal") is True
-    assert signals.get("cached_context_present") is True
-    assert signals.get("repeat_without_signal") is False
+    posture = (packet.get("support_state") or {}).get("blocker_posture") if isinstance(packet.get("support_state"), dict) else {}
+    assert isinstance(posture, dict)
+    assert posture.get("has_new_signal") is True
+    assert posture.get("has_fresh_signal") is True
+    assert posture.get("cached_context_present") is True
+    assert posture.get("repeat_without_signal") is False
 
 
 def test_focus_packet_injects_answered_unintegrated_human_resolution_ticket() -> None:
@@ -268,12 +299,12 @@ def test_focus_packet_injects_answered_unintegrated_human_resolution_ticket() ->
     }
     support_state = packet.get("support_state")
     assert isinstance(support_state, dict)
-    brief = support_state.get("investigation_brief")
+    brief = support_state.get("item_context")
     assert isinstance(brief, dict)
     assert isinstance(brief.get("knowns"), dict)
     assert isinstance(brief.get("open_questions"), list)
-    assert str((support_state.get("working_plan") or {}).get("role") or "") == "working_plan"
-    assert isinstance((support_state.get("policy_signals") or {}), dict)
+    assert str((support_state.get("continuity_context") or {}).get("role") or "") == "continuity_context"
+    assert isinstance((support_state.get("blocker_posture") or {}), dict)
 
 
 def test_focus_packet_preserves_unknown_scope_as_none_for_in_target_flag() -> None:
@@ -469,7 +500,6 @@ def test_focus_packet_execution_context_parity_and_generic_knowns() -> None:
                 "outcome": "ok",
                 "iteration": 2,
                 "state_delta_hint": "gather_more_evidence; status=ok",
-                "next_open_move_hint": "re_evaluate_resolver_after_evidence_step",
             }
         ],
     )

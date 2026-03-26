@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import asdict
 import sys
 from pathlib import Path
 from typing import Any
@@ -17,6 +18,8 @@ from agent_kernel.models import (
     TerminalOutcomeKind,
 )
 from agents.controller.controller_runtime import ControllerRunResult
+from agents.deed_to_ir import build_deed_to_ir_domain_pack_bundle
+from agents.deed_to_ir.handoff import build_deed_to_ir_handoff_posture
 from harness.mission_runtime.contracts import MissionRuntimeRequest
 from harness.mission_runtime.modes.deed_to_ir import (
     DEED_TO_IR_MODE_NAME,
@@ -28,12 +31,13 @@ from harness.mission_runtime.registry import MissionModeAdapterRegistry
 from harness.mission_runtime.runtime import MissionRuntime
 
 
-def _make_request() -> MissionRuntimeRequest:
+def _make_request(*, metadata: dict[str, Any] | None = None) -> MissionRuntimeRequest:
     return MissionRuntimeRequest(
         mission_id="mission-deed-1",
         objective="deed-to-ir integration smoke",
         initial_mode=DEED_TO_IR_MODE_NAME,
         request_id="request-deed-1",
+        metadata=metadata or {},
     )
 
 
@@ -43,6 +47,7 @@ def _controller_result(
     stop_reason: StopReason = StopReason.COMPLETED,
     success: bool = True,
     reason_code: str | None = "done_verified",
+    handoff_posture: dict[str, Any] | None = None,
 ) -> ControllerRunResult:
     return ControllerRunResult(
         terminal=TerminalOutcome(
@@ -61,6 +66,7 @@ def _controller_result(
         session_id="request-deed-1::run-1",
         run_artifact_ref="artifact://run/1",
         iterations=4,
+        handoff_posture=handoff_posture,
     )
 
 
@@ -182,3 +188,57 @@ def test_deed_to_ir_phase_b_keeps_cycle_linear_without_transition_or_tx_state() 
     assert all("transcript_edit" not in mode for mode in result.ledger.mode_history)
     assert "mode" in result.interpretation.details
     assert result.interpretation.details["mode"] == DEED_TO_IR_MODE_NAME
+
+
+def test_deed_to_ir_bundle_helper_binds_manifest_and_prompt_branch_reference() -> None:
+    class _PackStub:
+        def __init__(self) -> None:
+            self.domain_pack_bundle = None
+            self.domain_manifest = None
+
+        def bind_domain_bundle(self, bundle: object) -> None:
+            self.domain_pack_bundle = bundle
+            self.domain_manifest = getattr(bundle, "manifest", None)
+
+    stub = _PackStub()
+    bundle = build_deed_to_ir_domain_pack_bundle(stub)  # type: ignore[arg-type]
+
+    assert stub.domain_pack_bundle is bundle
+    assert bundle.manifest.domain_id == "deed_to_ir"
+    assert bundle.manifest.family_id == "mapping"
+    assert bundle.prompt_branch_source_ref == "agents.deed_to_ir.prompt_sources"
+
+
+def test_deed_to_ir_mode_projects_handoff_posture_without_collapsing_transition() -> None:
+    posture = asdict(
+        build_deed_to_ir_handoff_posture(
+            failure_classification={"stop_reason": "completed", "reason_code": "done_verified"},
+            claimability={"claimable_ready": True, "missing_claimability": []},
+        )
+    )
+    request = _make_request(
+        metadata={
+            "phase_e_enable_linear_transitions": True,
+            "deed_to_ir_transition_to_transcript_edit": True,
+        }
+    )
+    runtime = MissionRuntime(
+        adapter_registry=MissionModeAdapterRegistry(
+            [
+                DeedToIRModeAdapter(
+                    runner=lambda _request, _ledger: _controller_result(handoff_posture=posture),
+                )
+            ]
+        ),
+        now_fn=lambda: 100.0,
+    )
+
+    result = runtime.run_cycle(request=request)
+
+    assert result.mode_run_envelope.domain_payload["handoff_posture"]["posture"] == "ready_for_downstream_domain"
+    assert result.mode_run_envelope.family_coordination is not None
+    assert result.mode_run_envelope.family_coordination.posture == "ready_for_downstream_domain"
+    assert result.mode_run_envelope.family_coordination.transition_recommendation is not None
+    assert result.mode_run_envelope.transition is not None
+    assert result.mode_run_envelope.transition.next_mode == "transcript_edit"
+    assert result.mode_run_envelope.transition.reason == "deed_to_ir_output_requires_transcript_edit_review"

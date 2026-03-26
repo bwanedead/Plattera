@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from agents.transcript_edit.handoff import build_transcript_edit_handoff_posture
 from agents.transcript_edit.terminalization import build_run_result, terminal_message, terminal_summary
 
 
@@ -28,6 +29,115 @@ def test_build_run_result_and_terminal_message_completed_promoted() -> None:
     assert summary["unresolved_closure_requirements"] == []
     assert summary["unresolved_optional_items"] == []
     assert isinstance(summary["closure_history"], list)
+
+
+def test_transcript_edit_handoff_posture_derivation_and_projection() -> None:
+    ready_result = build_run_result(
+        run_artifact_ref="ref://run",
+        session_id="ready",
+        iterations=3,
+        status="completed",
+        reason_code="tx_agent_clean_promoted",
+        latest_refs={},
+        review_required=False,
+    )
+    ready_summary = {
+        "mapping_ready": True,
+        "human_feedback_pending": False,
+        "closure_state": "achieved",
+        "readiness_blocker": None,
+        "terminal_classification": "mapping_ready",
+    }
+    ready_posture = build_transcript_edit_handoff_posture(result=ready_result, terminal_summary=ready_summary)
+    assert ready_posture.posture == "ready_for_downstream_domain"
+    assert ready_posture.target_domain_id == "deed_to_ir"
+    assert ready_posture.domain_payload["mapping_ready"] is True
+
+    waiting_result = build_run_result(
+        run_artifact_ref="ref://run",
+        session_id="waiting",
+        iterations=1,
+        status="waiting_feedback",
+        reason_code="tx_agent_waiting_feedback",
+        latest_refs={},
+        review_required=True,
+    )
+    waiting_summary = {
+        "mapping_ready": False,
+        "human_feedback_pending": True,
+        "closure_state": "blocked",
+        "readiness_blocker": None,
+        "terminal_classification": "blocked_human_feedback_needed",
+    }
+    waiting_posture = build_transcript_edit_handoff_posture(result=waiting_result, terminal_summary=waiting_summary)
+    assert waiting_posture.posture == "waiting_on_human"
+    assert waiting_posture.target_family_id == "mapping"
+
+    blocked_result = build_run_result(
+        run_artifact_ref="ref://run",
+        session_id="blocked",
+        iterations=2,
+        status="needs_review",
+        reason_code="tx_agent_closure_requirements_unresolved",
+        latest_refs={},
+        review_required=True,
+    )
+    blocked_summary = {
+        "mapping_ready": False,
+        "human_feedback_pending": False,
+        "readiness_blocker": "mapping_critical_dependency_unresolved",
+        "closure_state": "blocked",
+        "terminal_classification": "blocked_dependency_evidence_missing",
+    }
+    blocked_posture = build_transcript_edit_handoff_posture(result=blocked_result, terminal_summary=blocked_summary)
+    assert blocked_posture.posture == "blocked_pending_dependency"
+    assert blocked_posture.reason_code == "mapping_critical_dependency_unresolved"
+
+    non_dependency_blocked_result = build_run_result(
+        run_artifact_ref="ref://run",
+        session_id="blocked-review",
+        iterations=2,
+        status="needs_review",
+        reason_code="tx_agent_no_safe_plan_for_findings",
+        latest_refs={},
+        review_required=True,
+    )
+    non_dependency_blocked_summary = {
+        "mapping_ready": False,
+        "human_feedback_pending": False,
+        "closure_state": "blocked",
+        "readiness_blocker": None,
+        "terminal_classification": "blocked_no_safe_autonomous_move",
+    }
+    non_dependency_blocked_posture = build_transcript_edit_handoff_posture(
+        result=non_dependency_blocked_result,
+        terminal_summary=non_dependency_blocked_summary,
+    )
+    assert non_dependency_blocked_posture.posture == "no_handoff"
+
+    idle_result = build_run_result(
+        run_artifact_ref="ref://run",
+        session_id="idle",
+        iterations=1,
+        status="completed",
+        reason_code="tx_agent_clean_no_promote",
+        latest_refs={},
+        review_required=False,
+    )
+    idle_summary = {
+        "mapping_ready": False,
+        "human_feedback_pending": False,
+        "closure_state": "achieved",
+        "readiness_blocker": None,
+        "terminal_classification": "optional_quality_remaining_only",
+    }
+    idle_posture = build_transcript_edit_handoff_posture(result=idle_result, terminal_summary=idle_summary)
+    assert idle_posture.posture == "no_handoff"
+
+    summary = terminal_summary([], ready_result)
+    assert summary["handoff_posture"]["posture"] == "ready_for_downstream_domain"
+    assert summary["handoff_posture"]["target_domain_id"] == "deed_to_ir"
+    assert summary["handoff_posture"]["domain_payload"]["mapping_ready"] is True
 
 
 def test_terminal_summary_collects_audit_apply_and_feedback_flags() -> None:

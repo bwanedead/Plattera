@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from .contracts import MissionLedger, MissionRuntimeCycleResult, MissionRuntimeRequest, ModeTransition
@@ -42,6 +42,7 @@ class MissionObservation:
     mission_status: dict[str, Any]
     blocker_posture_summary: dict[str, Any]
     verification_posture_summary: dict[str, Any]
+    family_coordination: dict[str, Any]
     created_at_epoch_seconds: int
     updated_at_epoch_seconds: int
     cycle_index: int
@@ -61,6 +62,7 @@ class MissionObservation:
                 "mission_status": dict(self.mission_status),
                 "blocker_posture_summary": dict(self.blocker_posture_summary),
                 "verification_posture_summary": dict(self.verification_posture_summary),
+                "family_coordination": dict(self.family_coordination),
                 "created_at_epoch_seconds": self.created_at_epoch_seconds,
                 "updated_at_epoch_seconds": self.updated_at_epoch_seconds,
                 "cycle_index": self.cycle_index,
@@ -90,6 +92,7 @@ def build_mission_observation_from_runtime(
     ledger: MissionLedger,
     cycle_results: list[MissionRuntimeCycleResult],
 ) -> MissionObservation:
+    family_coordination = _family_coordination_from_runtime(cycle_results)
     return MissionObservation(
         mission_id=ledger.mission_id,
         objective=request.objective,
@@ -121,6 +124,7 @@ def build_mission_observation_from_runtime(
             "status": ledger.verification_posture_summary.status,
             "last_verification_kind": ledger.verification_posture_summary.last_verification_kind,
         },
+        family_coordination=family_coordination,
         created_at_epoch_seconds=int(ledger.created_at_epoch_seconds),
         updated_at_epoch_seconds=int(ledger.updated_at_epoch_seconds),
         cycle_index=ledger.cycle_index,
@@ -144,6 +148,7 @@ def parse_mission_observation_payload(payload: dict[str, Any]) -> MissionObserva
         mission_status=_as_dict(root.get("mission_status")),
         blocker_posture_summary=_as_dict(root.get("blocker_posture_summary")),
         verification_posture_summary=_as_dict(root.get("verification_posture_summary")),
+        family_coordination=_as_dict(root.get("family_coordination")),
         created_at_epoch_seconds=_as_int(root.get("created_at_epoch_seconds")) or 0,
         updated_at_epoch_seconds=_as_int(root.get("updated_at_epoch_seconds")) or 0,
         cycle_index=_as_int(root.get("cycle_index")) or len(cycles),
@@ -198,6 +203,15 @@ def _transition_payload(item: MissionTransitionObservation) -> dict[str, Any]:
         "expected_next_work": item.expected_next_work,
         "resume_note_for_prior_mode": item.resume_note_for_prior_mode,
     }
+
+
+def _family_coordination_from_runtime(cycle_results: list[MissionRuntimeCycleResult]) -> dict[str, Any]:
+    for item in reversed(cycle_results):
+        envelope = item.mode_run_envelope
+        if envelope is None or envelope.family_coordination is None:
+            continue
+        return asdict(envelope.family_coordination)
+    return {}
 
 
 def _cycle_from_runtime(

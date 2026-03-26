@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import asdict
 from typing import Any
 
 from .contracts import TranscriptEditAgentRunResult
@@ -31,6 +32,7 @@ from .terminal_history import (
 from .terminal_hitl import _post_feedback_ticket_seam
 from .terminal_summary import _final_decision_rationale
 from .state_projection import derive_waiting_feedback_projection
+from .handoff import build_transcript_edit_handoff_posture
 
 def build_run_result(
     *,
@@ -42,6 +44,7 @@ def build_run_result(
     latest_refs: dict[str, Any],
     review_required: bool,
     runtime_hitl_state: dict[str, Any] | None = None,
+    handoff_posture: dict[str, Any] | None = None,
 ) -> TranscriptEditAgentRunResult:
     return TranscriptEditAgentRunResult(
         run_artifact_ref=run_artifact_ref,
@@ -52,6 +55,7 @@ def build_run_result(
         latest_refs=latest_refs,
         review_required=review_required,
         runtime_hitl_state=runtime_hitl_state if isinstance(runtime_hitl_state, dict) else None,
+        handoff_posture=handoff_posture if isinstance(handoff_posture, dict) else None,
     )
 
 def terminal_message(result: Any) -> str:
@@ -470,5 +474,14 @@ def terminal_summary(
             dict((runtime_hitl_state or {}).get("board_run_posture_compact"))
             if isinstance((runtime_hitl_state or {}).get("board_run_posture_compact"), dict)
             else None
+        ),
+        "handoff_posture": asdict(
+            build_transcript_edit_handoff_posture(result=result, terminal_summary={
+                "mapping_ready": mapping_ready,
+                "human_feedback_pending": human_feedback_pending,
+                "closure_state": closure_state,
+                "readiness_blocker": readiness_blocker,
+                "terminal_classification": terminal_classification,
+            })
         ),
     }

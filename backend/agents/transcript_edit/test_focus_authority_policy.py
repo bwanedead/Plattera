@@ -1,3 +1,5 @@
+"""Compatibility-only regression coverage for legacy focus-authority helpers."""
+
 from __future__ import annotations
 
 import sys

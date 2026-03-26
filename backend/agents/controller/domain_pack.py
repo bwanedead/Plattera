@@ -21,9 +21,12 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+from dataclasses import asdict
 from typing import Any, Callable
 
 from agents.common.identity_composer import CONSTITUTION_VERSION
+from agents.common.domain_pack_contracts import DomainManifest, DomainPackBundle
+from agents.deed_to_ir.handoff import build_deed_to_ir_handoff_posture
 from agent_kernel.models import (
     ActionType,
     KernelRefusal,
@@ -45,6 +48,7 @@ from harness.orchestration_kernel.contracts import (
 from harness.orchestration_kernel.run_progress_frame import build_run_progress_frame
 from harness.terminal_taxonomy import classify_controller_terminal
 
+from agents.deed_to_ir.bundle import build_deed_to_ir_domain_pack_bundle
 from .controller_bootstrap import _bootstrap_deed_span_index_from_transcript_seeds, _build_bootstrap_context
 from .controller_context import _build_context_packet, _compact_gap_summary
 from .controller_guardrails import (
@@ -100,12 +104,17 @@ class DeedToIRDomainPack:
         model: str,
         llm_client: Any,  # NextStepLLMClient Protocol
         request_id_prefix: str,
+        domain_pack_bundle: DomainPackBundle | None = None,
     ) -> None:
         self._start_request = start_request
         self._started = started  # mutable — dashboard updated after each step
         self._model = model
         self._llm_client = llm_client
         self._request_id_prefix = request_id_prefix
+        self.domain_pack_bundle: DomainPackBundle | None = domain_pack_bundle
+        self.domain_manifest: DomainManifest | None = (
+            domain_pack_bundle.manifest if domain_pack_bundle is not None else None
+        )
 
         # Bootstrap context — populated in orient.
         self._bootstrap_context: dict[str, Any] = {}
@@ -154,6 +163,12 @@ class DeedToIRDomainPack:
 
         # D4: identity trace callback wired by kernel after tracer creation.
         self._identity_trace_cb: Callable[[dict[str, Any]], None] | None = None
+
+    def bind_domain_bundle(self, domain_pack_bundle: DomainPackBundle) -> None:
+        """Attach the explicit shared bundle for this pack instance."""
+
+        self.domain_pack_bundle = domain_pack_bundle
+        self.domain_manifest = domain_pack_bundle.manifest
 
     def wire_identity_trace_cb(self, cb: Callable[[dict[str, Any]], None] | None) -> None:
         """Wire kernel tracer callback for LLM contact telemetry (D4 universality)."""
@@ -777,11 +792,16 @@ class DeedToIRDomainPack:
     def build_domain_runtime_state(self) -> dict[str, Any]:
         """Return opaque domain state dict for the mission-runtime result adapter."""
         snapshot = self._started.dashboard.model_dump(mode="json") if self._started.dashboard else {}
+        handoff_posture = build_deed_to_ir_handoff_posture(
+            failure_classification=snapshot.get("failure_classification"),
+            claimability=snapshot.get("claimability"),
+        )
         return {
             "deed_phase_hint": self._phase_hint,
             "latest_refs": self._latest_refs,
             "failure_classification": snapshot.get("failure_classification"),
             "claimability": snapshot.get("claimability"),
+            "handoff_posture": asdict(handoff_posture),
         }
 
     # -------------------------------------------------------------------------

@@ -14,7 +14,6 @@ from transcript_edit.persistence import TranscriptionEditPersistenceService
 
 from .contracts import TranscriptEditAgentRunRequest
 from .decision_ledger import (
-    choose_investigation_focus,
     has_unresolved_target_scope_mapping_blocking_closure,
     is_unresolved_mapping_blocking_decision,
     is_unresolved_target_scope_mapping_blocking_decision,
@@ -219,12 +218,12 @@ def _focus_packet_support_state(focus_packet: dict[str, Any] | None) -> dict[str
     if isinstance(support_state, dict):
         return dict(support_state)
     out: dict[str, Any] = {}
-    if isinstance(focus_packet.get("investigation_brief"), dict):
-        out["investigation_brief"] = focus_packet.get("investigation_brief")
-    if isinstance(focus_packet.get("working_plan"), dict):
-        out["working_plan"] = focus_packet.get("working_plan")
-    if isinstance(focus_packet.get("policy_signals"), dict):
-        out["policy_signals"] = focus_packet.get("policy_signals")
+    for key in ("investigation_brief", "item_context", "continuity_context", "evidence_context", "item_history", "unresolved_questions", "blocker_posture"):
+        value = focus_packet.get(key)
+        if key in {"item_history", "unresolved_questions"} and isinstance(value, list):
+            out[key] = list(value)
+        elif isinstance(value, dict):
+            out[key] = dict(value)
     return out
 
 
@@ -248,8 +247,15 @@ def run_standalone_edit_planner_for_focus_packet(
     """
     execution_context = focus_packet.get("execution_context") if isinstance(focus_packet.get("execution_context"), dict) else None
     support_state = _focus_packet_support_state(focus_packet)
-    investigation_brief = support_state.get("investigation_brief") if isinstance(support_state.get("investigation_brief"), dict) else None
-    working_plan = support_state.get("working_plan") if isinstance(support_state.get("working_plan"), dict) else None
+    investigation_brief = (
+        support_state.get("item_context")
+        if isinstance(support_state.get("item_context"), dict)
+        else (
+            support_state.get("investigation_brief")
+            if isinstance(support_state.get("investigation_brief"), dict)
+            else None
+        )
+    )
     span_trim = [dict(x) for x in span_context if isinstance(x, dict)][:32]
     findings_trim = [dict(x) for x in top_findings if isinstance(x, dict)][:12]
     return planner_client.propose_plan(
@@ -264,7 +270,6 @@ def run_standalone_edit_planner_for_focus_packet(
         mapping_priority_focus=mapping_priority_focus if isinstance(mapping_priority_focus, dict) else {},
         max_attempts=max_attempts,
         investigation_brief=investigation_brief,
-        working_plan=working_plan,
         run_link_id=run_link_id,
         mission_objective=mission_objective,
         execution_context=execution_context,
@@ -948,17 +953,6 @@ def handle_repair_iteration(
     focus_source = str((focus_target or {}).get("focus_source") or "legacy_fallback").strip().lower() or "legacy_fallback"
     focus_reason_code = str((focus_target or {}).get("focus_reason_code") or "fallback_focus").strip() or "fallback_focus"
     focus_target_kind_selected = str((focus_target or {}).get("focus_target_kind") or "").strip() or None
-    focus_authority_snapshot = (
-        dict((focus_target or {})["focus_authority"])
-        if isinstance((focus_target or {}).get("focus_authority"), dict)
-        else None
-    )
-    if focus_authority_snapshot is None and isinstance(ledger_focus_fallback, dict):
-        fk_fb = str(ledger_focus_fallback.get("decision_key") or "").strip().lower()
-        if fk_fb and fk_fb == str(focus_key or "").strip().lower():
-            fa_fb = ledger_focus_fallback.get("focus_authority")
-            if isinstance(fa_fb, dict):
-                focus_authority_snapshot = dict(fa_fb)
     active_emergent_blocker = (
         dict((focus_target or {}).get("active_blocker"))
         if isinstance((focus_target or {}).get("active_blocker"), dict)
@@ -1010,6 +1004,7 @@ def handle_repair_iteration(
         decision_key=focus_key or None,
         focus_source=focus_source,
         focus_reason_code=focus_reason_code,
+        last_focus_key=state.last_focus_key,
         loop_iteration=iterations,
         active_emergent_blocker=active_emergent_blocker,
         source_transcript_ref=state.current_transcript_ref,
@@ -1038,7 +1033,17 @@ def handle_repair_iteration(
             run_link_id=str(viewer_run_id or ""),
             mission_objective=request.mission_objective or "",
         )
-    focus_policy_signals = _focus_packet_support_state(focus_packet).get("policy_signals") or {}
+    focus_support_state = _focus_packet_support_state(focus_packet)
+    focus_blocker_posture = (
+        focus_support_state.get("blocker_posture")
+        if isinstance(focus_support_state.get("blocker_posture"), dict)
+        else {}
+    )
+    focus_continuity_context = (
+        focus_support_state.get("continuity_context")
+        if isinstance(focus_support_state.get("continuity_context"), dict)
+        else {}
+    )
     if (
         focus_source == "legacy_fallback"
         and not str((fallback_focus or {}).get("decision_key") or "").strip()
@@ -1063,10 +1068,12 @@ def handle_repair_iteration(
                         "trigger": "legacy_focus_fallback",
                         "state_before_summary": {
                             "focus_stagnation_streak": int(state.focus_stagnation_streak),
-                            "understanding_strength": str((focus_policy_signals or {}).get("understanding_strength") or "unknown").strip().lower() or "unknown",
-                            "has_fresh_signal": bool((focus_policy_signals or {}).get("has_fresh_signal")),
-                            "cached_context_present": bool((focus_policy_signals or {}).get("cached_context_present")),
-                            "repeat_without_signal": bool((focus_policy_signals or {}).get("repeat_without_signal")),
+                            "focus_source": focus_source,
+                            "continuity_active_item_id": str((focus_continuity_context or {}).get("active_item_id") or "").strip().lower() or None,
+                            "blocker_understanding_strength": str((focus_blocker_posture or {}).get("understanding_strength") or "unknown").strip().lower() or "unknown",
+                            "blocker_has_fresh_signal": bool((focus_blocker_posture or {}).get("has_fresh_signal")),
+                            "blocker_cached_context_present": bool((focus_blocker_posture or {}).get("cached_context_present")),
+                            "blocker_repeat_without_signal": bool((focus_blocker_posture or {}).get("repeat_without_signal")),
                         },
                         "outcome_class": "fallback",
                         "next_step_rationale": "Continue from the selected focus item rather than rediscovering the entire case.",
@@ -1104,18 +1111,18 @@ def handle_repair_iteration(
                     "state_before_summary": {
                         "previous_focus_decision_key": prior_focus_key or None,
                         "focus_stagnation_streak": int(state.focus_stagnation_streak),
-                        "understanding_strength": str((focus_policy_signals or {}).get("understanding_strength") or "unknown").strip().lower() or "unknown",
-                        "has_fresh_signal": bool((focus_policy_signals or {}).get("has_fresh_signal")),
-                        "cached_context_present": bool((focus_policy_signals or {}).get("cached_context_present")),
-                        "repeat_without_signal": bool((focus_policy_signals or {}).get("repeat_without_signal")),
+                        "focus_source": focus_source,
+                        "continuity_active_item_id": str((focus_continuity_context or {}).get("active_item_id") or "").strip().lower() or None,
+                        "blocker_understanding_strength": str((focus_blocker_posture or {}).get("understanding_strength") or "unknown").strip().lower() or "unknown",
+                        "blocker_has_fresh_signal": bool((focus_blocker_posture or {}).get("has_fresh_signal")),
+                        "blocker_cached_context_present": bool((focus_blocker_posture or {}).get("cached_context_present")),
+                        "blocker_repeat_without_signal": bool((focus_blocker_posture or {}).get("repeat_without_signal")),
                     },
                     "state_delta": {
                         "focus_decision_key": normalized_focus_key or None,
                         "focus_advanced": bool(focus_advanced),
                         "focus_target_kind": focus_target_kind_selected,
-                        "board_authority_mode": (
-                            (focus_authority_snapshot or {}).get("mode") if isinstance(focus_authority_snapshot, dict) else None
-                        ),
+                        "continuity_active_item_id": str((focus_continuity_context or {}).get("active_item_id") or "").strip().lower() or None,
                     },
                     "outcome_class": "advanced" if focus_advanced else "steady",
                     "next_step_rationale": "Use the selected focus to gather evidence, update support state, or promote blockers if the posture still needs narrowing.",
@@ -1143,10 +1150,12 @@ def handle_repair_iteration(
                 "trigger": "resolve_focus_move",
                 "state_before_summary": {
                     "focus_key": focus_key or None,
-                    "understanding_strength": str((focus_policy_signals or {}).get("understanding_strength") or "unknown").strip().lower() or "unknown",
-                    "has_fresh_signal": bool((focus_policy_signals or {}).get("has_fresh_signal")),
-                    "cached_context_present": bool((focus_policy_signals or {}).get("cached_context_present")),
-                    "repeat_without_signal": bool((focus_policy_signals or {}).get("repeat_without_signal")),
+                    "focus_source": focus_source,
+                    "continuity_active_item_id": str((focus_continuity_context or {}).get("active_item_id") or "").strip().lower() or None,
+                    "blocker_understanding_strength": str((focus_blocker_posture or {}).get("understanding_strength") or "unknown").strip().lower() or "unknown",
+                    "blocker_has_fresh_signal": bool((focus_blocker_posture or {}).get("has_fresh_signal")),
+                    "blocker_cached_context_present": bool((focus_blocker_posture or {}).get("cached_context_present")),
+                    "blocker_repeat_without_signal": bool((focus_blocker_posture or {}).get("repeat_without_signal")),
                 },
                 "next_step_rationale": "Read the resolver outcome and gate it against runtime policy with freshness posture in view.",
             },
@@ -1203,10 +1212,10 @@ def handle_repair_iteration(
                 "state_before_summary": {
                     "focus_key": focus_key or None,
                     "resolver_attempt_number": resolver_attempt_number,
-                    "understanding_strength": str((focus_policy_signals or {}).get("understanding_strength") or "unknown").strip().lower() or "unknown",
-                    "has_fresh_signal": bool((focus_policy_signals or {}).get("has_fresh_signal")),
-                    "cached_context_present": bool((focus_policy_signals or {}).get("cached_context_present")),
-                    "repeat_without_signal": bool((focus_policy_signals or {}).get("repeat_without_signal")),
+                    "understanding_strength": str((focus_blocker_posture or {}).get("understanding_strength") or "unknown").strip().lower() or "unknown",
+                    "has_fresh_signal": bool((focus_blocker_posture or {}).get("has_fresh_signal")),
+                    "cached_context_present": bool((focus_blocker_posture or {}).get("cached_context_present")),
+                    "repeat_without_signal": bool((focus_blocker_posture or {}).get("repeat_without_signal")),
                 },
                 "state_delta": {
                     "move": move or None,
@@ -1407,7 +1416,7 @@ def handle_repair_iteration(
         image_verification=image_verification,
         evidence_attempts_counts=evidence_attempts_counts,
         raw_output_excerpt=raw_output_excerpt,
-        policy_signals=_focus_packet_support_state(focus_packet).get("policy_signals") or {},
+        blocker_posture=focus_blocker_posture,
         emit_progress_fn=emit_progress,
         progress_cb=progress_cb,
         append_blocker_iteration_recap_fn=append_blocker_iteration_recap_fn,

@@ -6,7 +6,6 @@ from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
-from backend.agents.transcript_edit.decision_ledger_focus import choose_investigation_focus
 from backend.agents.transcript_edit.contracts import TranscriptEditAgentRunRequest
 from backend.agents.transcript_edit.domain_pack import TranscriptEditDomainPack
 from backend.agents.transcript_edit.domain_pack_focus_wiring import (
@@ -27,6 +26,7 @@ def test_composite_and_fallback_match_inline_assembly() -> None:
         decision_ledger=ledger,
         harness_emergent_board_items=[],
         harness_board_context_notes={},
+        last_focus_key="range",
     )
     inline = transcript_edit_composite_work_board(
         decision_ledger=ledger,
@@ -34,9 +34,9 @@ def test_composite_and_fallback_match_inline_assembly() -> None:
         harness_board_context_notes={},
     )
     assert composite_work_board_from_loop_state(st) == inline
-    a = choose_investigation_focus(ledger, work_board=inline) or {}
     b = choose_investigation_fallback_focus_from_state(st)
-    assert a == b
+    assert b["decision_key"] == "range"
+    assert b["focus_source"] == "continuity"
 
 
 def test_domain_pack_project_keeps_last_focus_continuity_over_advisory_ranking() -> None:
@@ -89,7 +89,7 @@ def test_domain_pack_project_keeps_last_focus_continuity_over_advisory_ranking()
 
     assert projection.selected_focus_key == "range"
     assert projection.ranked_work_item_list
-    assert projection.ranked_work_item_list[0]["focus_key"] == "section"
+    assert projection.ranked_work_item_list[0]["focus_key"] == "range"
 
 
 def test_domain_pack_project_leaves_selected_focus_empty_without_continuity_or_startup_authorship() -> None:

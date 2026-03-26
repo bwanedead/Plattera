@@ -1,9 +1,9 @@
-"""Transitional harness **decision ledger** shim over work-board contracts.
+"""Compatibility harness **decision ledger** shim over the legacy work-board wire shape.
 
-This module remains as compatibility surface during the work-board migration.
-Canonical implementation lives in ``backend/harness/work_board/contracts.py``.
-Use ``kind`` and ``domain_payload`` for domain-specific payloads; do not treat
-this file as the source of new shared-harness doctrine.
+New shared-state doctrine lives in ``harness.mission_state``. This package is
+kept as a secondary compatibility surface for existing call sites and wire
+shapes; it should not become the place where the canonical mission-state model
+is redefined.
 """
 from __future__ import annotations
 

@@ -9,6 +9,7 @@ if str(_BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(_BACKEND_ROOT))
 
 from agents.transcript_edit.contracts import TranscriptEditAgentRunRequest, TranscriptEditAgentRunResult
+from agents.transcript_edit.domain_pack import build_transcript_edit_domain_pack_bundle
 from harness.mission_runtime.contracts import MissionRuntimeRequest
 from harness.mission_runtime.modes.transcript_edit import (
     TRANSCRIPT_EDIT_MODE_NAME,
@@ -19,12 +20,13 @@ from harness.mission_runtime.registry import MissionModeAdapterRegistry
 from harness.mission_runtime.runtime import MissionRuntime
 
 
-def _request() -> MissionRuntimeRequest:
+def _request(*, metadata: dict[str, Any] | None = None) -> MissionRuntimeRequest:
     return MissionRuntimeRequest(
         mission_id="mission-transcript-1",
         objective="transcript-edit integration smoke",
         initial_mode=TRANSCRIPT_EDIT_MODE_NAME,
         request_id="request-transcript-1",
+        metadata=metadata or {},
     )
 
 
@@ -34,6 +36,7 @@ def _result(
     reason_code: str = "tx_agent_clean_complete",
     mission_runtime_summary: dict[str, Any] | None = None,
     latest_refs: dict[str, Any] | None = None,
+    handoff_posture: dict[str, Any] | None = None,
 ) -> TranscriptEditAgentRunResult:
     return TranscriptEditAgentRunResult(
         run_artifact_ref="artifact://tx/run/1",
@@ -61,6 +64,7 @@ def _result(
             "pending_feedback_prompt_id": None,
             "pending_feedback_decision_key": None,
         },
+        handoff_posture=handoff_posture,
     )
 
 
@@ -69,22 +73,45 @@ def test_transcript_edit_mode_adapter_registers_and_runs_through_mission_runtime
 
     def _runner(_request: MissionRuntimeRequest, _ledger: Any) -> TranscriptEditAgentRunResult:
         calls["count"] += 1
-        return _result()
+        return _result(
+            handoff_posture={
+                "posture": "ready_for_downstream_domain",
+                "target_domain_id": "deed_to_ir",
+                "target_family_id": "mapping",
+                "reason_code": "tx_agent_clean_complete",
+                "summary": "Transcript-edit can hand off validated artifacts downstream.",
+            }
+        )
 
     runtime = MissionRuntime(
         adapter_registry=MissionModeAdapterRegistry([TranscriptEditModeAdapter(runner=_runner)]),
         now_fn=lambda: 100.0,
     )
-    result = runtime.run_cycle(request=_request())
+    result = runtime.run_cycle(
+        request=_request(
+            metadata={
+                "phase_e_enable_linear_transitions": True,
+                "transcript_edit_transition_to_deed_to_ir": True,
+            }
+        )
+    )
 
     assert calls["count"] == 1
-    assert result.transition is None
+    assert result.transition is not None
+    assert result.transition.next_mode == "deed_to_ir"
     assert result.active_mode == TRANSCRIPT_EDIT_MODE_NAME
     assert result.ledger.active_mode == TRANSCRIPT_EDIT_MODE_NAME
     assert result.ledger.mode_history == [TRANSCRIPT_EDIT_MODE_NAME]
     assert result.terminal_handoff is not None
     assert result.terminal_handoff.terminal_class == "completed"
     assert result.interpretation.details["mode"] == TRANSCRIPT_EDIT_MODE_NAME
+    assert result.mode_run_envelope is not None
+    assert result.mode_run_envelope.domain_payload["status"] == "completed"
+    assert result.mode_run_envelope.domain_payload["handoff_posture"]["posture"] == "ready_for_downstream_domain"
+    assert result.mode_run_envelope.family_coordination is not None
+    assert result.mode_run_envelope.family_coordination.posture == "ready_for_downstream_domain"
+    assert result.mode_run_envelope.family_coordination.transition_recommendation is not None
+    assert result.mode_run_envelope.family_coordination.transition_recommendation.next_mode == "deed_to_ir"
 
 
 def test_transcript_edit_closure_summary_is_ledger_backed() -> None:
@@ -194,3 +221,22 @@ def test_transcript_edit_builder_wraps_kernel_runner_signature(monkeypatch: Any)
     assert observed.get("request") is tx_request
     assert cycle.terminal_handoff is not None
     assert cycle.terminal_handoff.terminal is True
+
+
+def test_transcript_edit_bundle_helper_binds_manifest_and_prompt_branch_reference() -> None:
+    class _PackStub:
+        def __init__(self) -> None:
+            self.domain_pack_bundle = None
+            self.domain_manifest = None
+
+        def bind_domain_bundle(self, bundle: object) -> None:
+            self.domain_pack_bundle = bundle
+            self.domain_manifest = getattr(bundle, "manifest", None)
+
+    stub = _PackStub()
+    bundle = build_transcript_edit_domain_pack_bundle(stub)  # type: ignore[arg-type]
+
+    assert stub.domain_pack_bundle is bundle
+    assert bundle.manifest.domain_id == "transcript_edit"
+    assert bundle.manifest.family_id == "mapping"
+    assert bundle.prompt_branch_source_ref == "agents.transcript_edit.prompt_sources"

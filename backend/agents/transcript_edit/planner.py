@@ -155,12 +155,6 @@ class TranscriptEditPlanPlanner:
             except Exception:
                 pass
         system_msg = identity.header_text + build_planner_system_message()
-        policy_signals = _planner_policy_signals(
-            findings_summary=findings_summary,
-            investigation_brief=investigation_brief,
-            mapping_priority_focus=mapping_priority_focus,
-            top_findings=top_findings,
-        )
         user_msg = build_planner_user_message(
             source_transcript_ref=source_transcript_ref,
             source_transcript_hash=source_transcript_hash,
@@ -172,7 +166,27 @@ class TranscriptEditPlanPlanner:
             mapping_priority_focus=mapping_priority_focus or {},
             investigation_brief=investigation_brief,
             working_plan=working_plan,
-            policy_signals=policy_signals,
+            item_context=investigation_brief,
+            continuity_context=(
+                execution_context.get("support_state", {}).get("continuity_context")
+                if isinstance(execution_context, dict) and isinstance(execution_context.get("support_state"), dict)
+                else None
+            ),
+            evidence_context=(
+                execution_context.get("support_state", {}).get("evidence_context")
+                if isinstance(execution_context, dict) and isinstance(execution_context.get("support_state"), dict)
+                else None
+            ),
+            item_history=(
+                list((execution_context.get("support_state", {}) or {}).get("item_history") or [])
+                if isinstance(execution_context, dict)
+                else None
+            ),
+            unresolved_questions=(
+                list((execution_context.get("support_state", {}) or {}).get("unresolved_questions") or [])
+                if isinstance(execution_context, dict)
+                else None
+            ),
             execution_context=execution_context if isinstance(execution_context, dict) else None,
         )
         prompt_inputs = {
@@ -186,7 +200,6 @@ class TranscriptEditPlanPlanner:
             "mapping_priority_focus": mapping_priority_focus or {},
             "investigation_brief": investigation_brief,
             "working_plan": working_plan,
-            "policy_signals": policy_signals,
             "execution_context": execution_context if isinstance(execution_context, dict) else None,
         }
         raw_content = ""
@@ -534,36 +547,6 @@ def _resolver_injection_context(*, focus_packet: dict[str, Any], decision_key: s
         "normalized_answer_summary": str(payload.get("normalized_answer_summary") or "").strip() or None,
         "selected_choice": str(payload.get("selected_choice") or "").strip() or None,
     }
-
-
-def _planner_policy_signals(
-    *,
-    findings_summary: dict[str, Any],
-    investigation_brief: dict[str, Any] | None,
-    mapping_priority_focus: dict[str, Any] | None,
-    top_findings: list[dict[str, Any]],
-) -> dict[str, Any]:
-    brief = investigation_brief if isinstance(investigation_brief, dict) else {}
-    open_questions = [
-        str(item).strip()
-        for item in list(brief.get("open_questions") or [])
-        if str(item).strip()
-    ]
-    finding_count = int(findings_summary.get("finding_count") or len(top_findings) or 0)
-    understands_narrowly = bool(finding_count > 0 and not open_questions)
-    understanding_strength = "narrow" if understands_narrowly else "weak" if open_questions else "moderate"
-    return {
-        "understanding_strength": understanding_strength,
-        "needs_orientation": bool(open_questions) and not bool(top_findings),
-        "needs_inventory": bool(open_questions) or finding_count == 0,
-        "has_new_signal": bool(top_findings) or finding_count > 0,
-        "repeat_without_signal": False,
-        "repair_eligible": bool(understanding_strength == "narrow"),
-        "escalation_eligible": bool(understanding_strength == "narrow" and finding_count > 0),
-        "focus_is_material": bool((mapping_priority_focus or {}).get("decision_key") or open_questions),
-        "source_completeness": str(brief.get("source_completeness") or findings_summary.get("source_completeness") or "unknown").strip().lower() or "unknown",
-    }
-
 
 def _post_feedback_invalid_apply_fallback(
     *,

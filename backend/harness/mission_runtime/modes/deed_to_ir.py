@@ -17,6 +17,7 @@ from agents.controller.controller_runtime import (
     NextStepLLMClient,
 )
 from agents.controller.domain_pack import DeedToIRDomainPack
+from agents.deed_to_ir import build_deed_to_ir_domain_pack_bundle
 from harness.orchestration_kernel import run_orchestration_kernel_loop, KernelLoopResult
 from harness.tracing.kernel_trace_persistence import persist_kernel_trace, persist_rationale_strip
 
@@ -32,9 +33,9 @@ from ..contracts import (
     ModeInterpretation,
     MissionModeAdapter,
     ModeRecommendation,
-    ModeTransitionRecommendation,
     TerminalRecommendation,
 )
+from ..mapping_family import build_mapping_family_coordination
 
 DEED_TO_IR_MODE_NAME = "deed_to_ir"
 
@@ -72,10 +73,15 @@ class DeedToIRModeAdapter(MissionModeAdapter):
     ) -> MissionModeRunEnvelope:
         result = _require_controller_result(context)
         interpretation, recommendation = adapt_controller_run_result(result)
-        transition = _recommend_transition_to_transcript_edit(
-            request=request,
-            recommendation=recommendation,
-            result=result,
+        coordination = build_mapping_family_coordination(
+            current_mode=DEED_TO_IR_MODE_NAME,
+            handoff_posture=result.handoff_posture,
+            terminal=recommendation.terminal,
+            transition_allowed=_metadata_flag(request.metadata, "phase_e_enable_linear_transitions")
+            and _metadata_flag(request.metadata, "deed_to_ir_transition_to_transcript_edit"),
+            handed_forward_artifact_refs=_curate_deed_to_tx_handoff_refs(result, recommendation),
+            expected_next_work="run transcript-edit pass over latest deed output and verify closure posture",
+            resume_note_for_prior_mode="resume deed_to_ir after transcript-edit returns reconciled artifacts",
         )
         return MissionModeRunEnvelope(
             summary=interpretation.summary,
@@ -84,7 +90,8 @@ class DeedToIRModeAdapter(MissionModeAdapter):
             verification_posture=recommendation.verification_posture,
             resumability=recommendation.resumability,
             terminal=recommendation.terminal,
-            transition=transition,
+            transition=coordination.transition_recommendation,
+            family_coordination=coordination,
             domain_payload={
                 "mode": DEED_TO_IR_MODE_NAME,
                 "terminal_outcome": result.terminal.terminal_outcome.value,
@@ -95,6 +102,11 @@ class DeedToIRModeAdapter(MissionModeAdapter):
                 "run_artifact_ref": result.run_artifact_ref,
                 "transcript_artifact_ref": result.transcript_artifact_ref,
                 "latest_refs": dict(result.last_dashboard.get("latest_refs") or {}),
+                **(
+                    {"handoff_posture": dict(result.handoff_posture)}
+                    if isinstance(result.handoff_posture, dict)
+                    else {}
+                ),
             },
         )
 
@@ -222,6 +234,7 @@ def run_orchestration_kernel_deed_loop(
         llm_client=llm_client,
         request_id_prefix=prefix,
     )
+    build_deed_to_ir_domain_pack_bundle(domain_pack)
 
     max_no_progress = max(3, max_iterations // 4)
     kernel_result = run_orchestration_kernel_loop(
@@ -334,6 +347,7 @@ def _adapt_kernel_loop_result_to_controller(
         "claimability": _domain_state.get("claimability"),
         "failure_classification": _domain_state.get("failure_classification"),
     }
+    handoff_posture = _domain_state.get("handoff_posture")
     return ControllerRunResult(
         terminal=terminal,
         last_dashboard=last_dashboard,
@@ -341,6 +355,7 @@ def _adapt_kernel_loop_result_to_controller(
         session_id=result.session_id,
         run_artifact_ref=result.run_artifact_ref,
         iterations=result.iterations,
+        handoff_posture=handoff_posture if isinstance(handoff_posture, dict) else None,
     )
 
 
@@ -421,28 +436,6 @@ def _collect_high_signal_refs(result: ControllerRunResult) -> list[str]:
         if value not in deduped:
             deduped.append(value)
     return deduped
-
-
-def _recommend_transition_to_transcript_edit(
-    *,
-    request: MissionRuntimeRequest,
-    recommendation: ModeRecommendation,
-    result: ControllerRunResult,
-) -> ModeTransitionRecommendation | None:
-    if not _metadata_flag(request.metadata, "phase_e_enable_linear_transitions"):
-        return None
-    if not _metadata_flag(request.metadata, "deed_to_ir_transition_to_transcript_edit"):
-        return None
-    terminal_class = recommendation.terminal.terminal_class if recommendation.terminal is not None else None
-    if terminal_class != "completed":
-        return None
-    return ModeTransitionRecommendation(
-        next_mode="transcript_edit",
-        reason="deed_to_ir_output_requires_transcript_edit_review",
-        handed_forward_artifact_refs=_curate_deed_to_tx_handoff_refs(result, recommendation),
-        expected_next_work="run transcript-edit pass over latest deed output and verify closure posture",
-        resume_note_for_prior_mode="resume deed_to_ir after transcript-edit returns reconciled artifacts",
-    )
 
 
 def _curate_deed_to_tx_handoff_refs(

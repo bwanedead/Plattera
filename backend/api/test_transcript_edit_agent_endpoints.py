@@ -199,10 +199,12 @@ def test_execute_run_emits_terminal_handoff_fields(monkeypatch) -> None:
         assert isinstance(latest_feed, dict)
         assert isinstance(recent_feed, dict)
         assert latest_feed["request_id"] == "r1"
+        assert latest_feed["terminal_summary"]["handoff_posture"]["posture"] == "ready_for_downstream_domain"
         assert latest_feed["final_freshness_summary"] is None or isinstance(latest_feed["final_freshness_summary"], str)
         assert "support_state" not in latest_feed
         run = asyncio.run(transcript_edit_agent.get_run("r1"))
         assert run["snapshot"]["terminal_summary"]["handoff_packet_ref"] == "in-memory://handoff.json"
+        assert run["snapshot"]["terminal_summary"]["handoff_posture"]["posture"] == "ready_for_downstream_domain"
 
 
 def test_execute_run_preserves_critical_hitl_events_when_progress_log_is_truncated(monkeypatch) -> None:

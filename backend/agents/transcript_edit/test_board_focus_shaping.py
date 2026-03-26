@@ -1,3 +1,5 @@
+"""Compatibility-only board-focus shaping coverage for legacy focus helpers."""
+
 from __future__ import annotations
 
 import sys

@@ -90,6 +90,19 @@ class ModeRecommendation:
 
 
 @dataclass(frozen=True)
+class MappingFamilyCoordination:
+    family_id: str = "mapping"
+    current_mode: str = ""
+    posture: str = "no_handoff"
+    target_domain_id: str | None = None
+    target_family_id: str | None = None
+    reason_code: str | None = None
+    coordination_state: str = "no_handoff"
+    summary: str = ""
+    transition_recommendation: ModeTransitionRecommendation | None = None
+
+
+@dataclass(frozen=True)
 class MissionModeRunEnvelope:
     """Generic mission-mode run summary consumed at the runtime seam."""
 
@@ -100,6 +113,7 @@ class MissionModeRunEnvelope:
     resumability: MissionResumabilitySummary | None = None
     terminal: TerminalRecommendation | None = None
     transition: ModeTransitionRecommendation | None = None
+    family_coordination: MappingFamilyCoordination | None = None
     domain_payload: Mapping[str, Any] = field(default_factory=dict)
 
 

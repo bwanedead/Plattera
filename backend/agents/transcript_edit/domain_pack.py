@@ -16,7 +16,6 @@ These are used by hook 7 to supply ProgressMetrics.
 """
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
 import os
@@ -36,6 +35,7 @@ from .execution_action_ids import (
     TX_VERIFY_TRANSCRIPT_WITH_IMAGE,
 )
 from agents.common.identity_composer import CONSTITUTION_VERSION
+from agents.common.domain_pack_contracts import DomainManifest, DomainPackBundle
 from config.paths import agent_kernel_artifacts_root
 
 from harness.orchestration_kernel.contracts import (
@@ -104,7 +104,9 @@ from .llm_startup_understanding import (
     fallback_decision_key_for_startup_merge,
     select_startup_focus_key,
 )
-from .decision_ledger_focus import choose_investigation_focus
+from .execution_translation import compile_transcript_edit_move
+from .feedback import integrate_transcript_edit_feedback
+from .manifest import build_transcript_edit_domain_pack_bundle as _build_transcript_edit_domain_pack_bundle
 from .state_projection import (
     derive_waiting_feedback_projection,
     sync_pending_feedback_cache_from_registry,
@@ -140,12 +142,17 @@ class TranscriptEditDomainPack:
         loop_model: str = "gpt-5.2",
         initial_state: TranscriptEditLoopState | None = None,
         identity_trace_cb: Callable[[dict[str, Any]], None] | None = None,
+        domain_pack_bundle: DomainPackBundle | None = None,
     ) -> None:
         self._request = request
         self._session_id = session_id
         self._request_id_prefix = request_id_prefix
         self._mission_objective: str = str(request.mission_objective or "").strip()
         self._identity_trace_cb = identity_trace_cb
+        self.domain_pack_bundle: DomainPackBundle | None = domain_pack_bundle
+        self.domain_manifest: DomainManifest | None = (
+            domain_pack_bundle.manifest if domain_pack_bundle is not None else None
+        )
         self._planner = planner or TranscriptEditPlanPlanner(
             identity_trace_cb=identity_trace_cb,
         )
@@ -178,6 +185,12 @@ class TranscriptEditDomainPack:
         self._orient_baseline_failure_reason: str | None = None
         # Phase 22: force audit/orient inputs to use this path when tools echo a different tx_source ref.
         self._working_transcript_override: str | None = None
+
+    def bind_domain_bundle(self, domain_pack_bundle: DomainPackBundle) -> None:
+        """Attach the explicit shared bundle for this pack instance."""
+
+        self.domain_pack_bundle = domain_pack_bundle
+        self.domain_manifest = domain_pack_bundle.manifest
 
     def wire_identity_trace_cb(self, cb: Callable[[dict[str, Any]], None] | None) -> None:
         """Inject kernel tracer callback after loop construction (D3 trace observability).
@@ -761,43 +774,52 @@ class TranscriptEditDomainPack:
             "closure_clear": mapping_blocking == 0,
         }
 
-        # Ranked work-item list — ephemeral context for continuity only.
-        # The shared kernel reads only selected_focus_key; this list is advisory.
-        ranked: list[dict[str, Any]] = []
-        bootstrap_focus: dict[str, Any] = {}
-        if work_item_collection:
-            bootstrap_focus = choose_investigation_focus(state.decision_ledger, work_board=unified) or {}
-            seed_candidate = (
-                dict(bootstrap_focus.get("seed_candidate"))
-                if isinstance(bootstrap_focus.get("seed_candidate"), dict)
-                else {}
+        selected_focus_key = (
+            str(state.last_focus_key or "").strip().lower()
+            or select_startup_focus_key(
+                last_focus_key=state.last_focus_key,
+                startup=(
+                    dict(state.llm_startup_understanding)
+                    if isinstance(state.llm_startup_understanding, dict)
+                    else None
+                ),
             )
-            bootstrap_key = str(
-                seed_candidate.get("decision_key")
-                or bootstrap_focus.get("decision_key")
-                or ""
-            ).strip().lower()
-            if bootstrap_key:
-                ranked.append({
-                    "focus_key": bootstrap_key,
+        )
+        selected_focus_source = "continuity" if str(state.last_focus_key or "").strip() else "startup_understanding"
+
+        # Ranked work-item list remains contextual only.
+        ranked: list[dict[str, Any]] = []
+        selected_index: int | None = None
+        if selected_focus_key:
+            for idx, item in enumerate(work_item_collection):
+                key = str(item.get("focus_key") or "").strip().lower()
+                if key and key == selected_focus_key:
+                    selected_index = idx
+                    break
+            selected_item = (
+                dict(work_item_collection[selected_index])
+                if selected_index is not None
+                else {
+                    "focus_key": selected_focus_key,
                     "state": "unresolved",
+                    "mapping_blocking": False,
+                }
+            )
+            ranked.append(
+                {
+                    **selected_item,
                     "priority": 0,
-                    "focus_source": seed_candidate.get("focus_target_kind") or bootstrap_focus.get("focus_source", "advisory"),
-                })
-            # Add remaining unresolved items after the primary.
+                    "focus_source": selected_focus_source,
+                }
+            )
             for item in work_item_collection:
                 key = str(item.get("focus_key") or "").strip().lower()
-                if key and key != bootstrap_key:
+                if key and key != selected_focus_key:
                     ranked.append({**item, "priority": len(ranked)})
+        else:
+            for item in work_item_collection:
+                ranked.append({**item, "priority": len(ranked)})
 
-        selected_focus_key = select_startup_focus_key(
-            last_focus_key=state.last_focus_key,
-            startup=(
-                dict(state.llm_startup_understanding)
-                if isinstance(state.llm_startup_understanding, dict)
-                else None
-            ),
-        )
         return WorkStateProjection(
             work_item_collection=work_item_collection,
             blocker_surface=blocker_surface,
@@ -846,6 +868,7 @@ class TranscriptEditDomainPack:
             decision_key=focus_key,
             focus_source=focus_source,
             focus_reason_code=focus_reason_code,
+            last_focus_key=state.last_focus_key,
             loop_iteration=context.loop_memory.iterations,
             active_emergent_blocker=emergent_from_target or active_blocker,
             blocker_registry=state.blocker_registry,
@@ -937,229 +960,7 @@ class TranscriptEditDomainPack:
 
     def compile_move(self, context: OrchestratorContext, move_decision: MoveDecision) -> MoveExecutionPlan:
         """Phase 5c — Compile move decision to a kernel-executable plan."""
-        request = self._request
-        payload = move_decision.domain_move_payload
-        focus_key = move_decision.focus_key or ""
-        iterations = context.loop_memory.iterations
-        # Scoped to this orchestration invocation (``_request_id_prefix``); new prefix ⇒ fresh idempotency space.
-        idempotency_prefix = f"{self._request_id_prefix}:{focus_key}:{iterations}"
-
-        if move_decision.move_type == "apply_edit_plan":
-            edit_plan = payload.get("edit_plan") if isinstance(payload.get("edit_plan"), dict) else {}
-            inputs: dict[str, Any] = {
-                "dossier_id": request.dossier_id,
-                "edit_plan": edit_plan,
-                "decision_key": focus_key,
-            }
-            if self._state.current_transcript_ref:
-                inputs["source_transcript_ref"] = self._state.current_transcript_ref
-            # Baselines for hook-7 progress (post-apply grace) — captured from pre-execute audit state.
-            # pending_reaudit_after_apply and lineage are set only after refresh confirms a new edited artifact.
-            self._pre_apply_blocking_count = self._iter_blocking_count
-            self._pre_apply_blocking_signature = self._iter_blocking_signature
-            self._awaiting_apply_outcome = True
-            self._pending_lineage_meta = {
-                "iteration": iterations,
-                "focus_key": focus_key,
-                "summary": str(payload.get("reason") or "")[:120],
-            }
-            if not context.loop_memory.pending_refresh:
-                self._state.apply_reaudit_baseline_blocking_count = self._iter_blocking_count
-                self._state.apply_reaudit_baseline_blocking_signature = self._iter_blocking_signature
-            return MoveExecutionPlan(
-                action_type=TX_APPLY_EDIT_PLAN,
-                action_inputs=inputs,
-                idempotency_key=_make_idempotency_key(idempotency_prefix, iterations, inputs),
-            )
-
-        if move_decision.move_type == "gather_more_evidence":
-            evidence_request = (
-                payload.get("evidence_request")
-                if isinstance(payload.get("evidence_request"), dict)
-                else None
-            )
-            evidence_kind = str((evidence_request or {}).get("kind") or "open_spans").strip().lower()
-
-            # D3-B: cap image-evidence attempts per focus key at N=2 to prevent oscillation.
-            _IMAGE_EVIDENCE_KINDS = {"image_evidence", "image_verify"}
-            if evidence_kind in _IMAGE_EVIDENCE_KINDS:
-                _recent_img_count = recent_image_evidence_attempt_count(
-                    continuity_log=list(self._state.continuity_log or []),
-                    decision_key=focus_key,
-                )
-                if _recent_img_count >= 2:
-                    # Exceeded cap — escalate to HITL instead.
-                    _LOG.info(
-                        "TX_DOMAIN_PACK image_evidence_cap_hit ► request_id=%s focus_key=%s recent=%d",
-                        self._request_id_prefix,
-                        focus_key,
-                        _recent_img_count,
-                    )
-                    _prompt_id = _make_prompt_id(focus_key, iterations)
-                    self._state.pending_feedback_prompt_id = _prompt_id
-                    self._state.pending_feedback_decision_key = focus_key
-                    self._state.pending_feedback_prompt = {
-                        "prompt_id": _prompt_id,
-                        "line1": f"Image evidence cap reached for {focus_key!r} ({_recent_img_count} attempts). Human resolution required.",
-                        "line2": "Please confirm the correct value for this field.",
-                    }
-                    return MoveExecutionPlan(
-                        action_type=TX_AUDIT_TRANSCRIPT,
-                        action_inputs={"feedback_prompt_id": _prompt_id},
-                        idempotency_key=_make_idempotency_key(idempotency_prefix, iterations, {}),
-                        hitl_intent_flag=True,
-                    )
-
-            # B — Execute image evidence inline when kind is image_evidence/image_verify.
-            if evidence_kind in _IMAGE_EVIDENCE_KINDS:
-                normalized_req, norm_reason = normalize_evidence_request(
-                    evidence_request=evidence_request,
-                    decision_key=focus_key,
-                )
-                if normalized_req is not None:
-                    _req_id = self._request_id_prefix
-
-                    def _kernel_step_fn(
-                        *,
-                        session_manager,
-                        session_id,
-                        prefix,
-                        iteration,
-                        action_type,
-                        inputs,
-                        _req_id=_req_id,
-                    ):
-                        return session_manager.step(
-                            KernelStepRequest(
-                                session_id=session_id,
-                                action_type=action_type,
-                                inputs=inputs,
-                                idempotency_key=_make_idempotency_key(
-                                    f"{_req_id}:{prefix}", iteration, inputs
-                                ),
-                            )
-                        )
-
-                    img_result = run_image_evidence_mode(
-                        normalized_request=normalized_req,
-                        session_manager=context.session_manager,
-                        session_id=context.session_id,
-                        iteration=iterations,
-                        dossier_id=request.dossier_id,
-                        source_transcript_ref=self._state.current_transcript_ref or "",
-                        source_image_refs=list(request.source_image_refs or []),
-                        model=self._loop_model,
-                        focus_decision_key=focus_key,
-                        top_findings=self._iter_planning_findings,
-                        llm_call_seq_start=self._state.llm_call_seq,
-                        progress_cb=self._progress_cb,
-                        latest_visual_evidence=self._state.visual_evidence_by_decision_key.get(focus_key),
-                        step_fn=_kernel_step_fn,
-                        read_step_outputs_inline_fn=read_step_outputs_inline,
-                    )
-                    _src_hash = self._iter_source_hash
-                    _src_ref = self._state.current_transcript_ref
-                    if img_result.get("status") == "executed":
-                        _visual = img_result.get("image_evidence") or {}
-                        if _visual:
-                            cache_visual_evidence_for_key(
-                                state=self._state,
-                                decision_key=focus_key,
-                                visual_evidence=_visual,
-                                source_transcript_ref=_src_ref,
-                                source_transcript_hash=_src_hash,
-                            )
-                            self._state.evidence_signal_counter += 1
-                        _img_verify = img_result.get("image_verification") or {}
-                        if _img_verify:
-                            cache_image_verification_for_key(
-                                state=self._state,
-                                decision_key=focus_key,
-                                image_verification=_img_verify,
-                                source_transcript_ref=_src_ref,
-                                source_transcript_hash=_src_hash,
-                            )
-                        if isinstance(img_result.get("latest_refs"), dict):
-                            self._state.latest_refs = img_result["latest_refs"]
-                        _seq_before = self._state.llm_call_seq
-                        self._state.llm_call_seq = int(
-                            img_result.get("llm_call_seq_end") or _seq_before
-                        )
-                        # D4: count image locator/verifier LLM contacts via seq delta.
-                        _img_llm_contacts = max(0, self._state.llm_call_seq - _seq_before)
-                        for _ in range(_img_llm_contacts):
-                            context.loop_memory.register_llm_contact()
-                    _LOG.info(
-                        "TX_DOMAIN_PACK image_evidence_executed ► request_id=%s focus_key=%s status=%s",
-                        self._request_id_prefix,
-                        focus_key,
-                        img_result.get("status"),
-                    )
-                    return MoveExecutionPlan(
-                        action_type=TX_VERIFY_TRANSCRIPT_WITH_IMAGE,
-                        action_inputs={},
-                        idempotency_key=_make_idempotency_key(idempotency_prefix, iterations, {}),
-                        skip_execution=True,
-                    )
-                else:
-                    _LOG.warning(
-                        "TX_DOMAIN_PACK image_evidence_norm_fail ► request_id=%s focus_key=%s reason=%s",
-                        self._request_id_prefix,
-                        focus_key,
-                        norm_reason,
-                    )
-                    # Fall through to default audit on normalization failure.
-
-            if evidence_kind == "open_spans":
-                inputs = {
-                    "dossier_id": request.dossier_id,
-                    "decision_key": focus_key,
-                }
-                if self._state.current_transcript_ref:
-                    inputs["source_transcript_ref"] = self._state.current_transcript_ref
-                target = (evidence_request or {}).get("target") if isinstance((evidence_request or {}).get("target"), dict) else {}
-                span_ids = [str(v) for v in list((target or {}).get("span_ids") or []) if str(v).strip()][:8]
-                if span_ids:
-                    inputs["span_ids"] = span_ids
-                return MoveExecutionPlan(
-                    action_type=TX_OPEN_TRANSCRIPT_SPANS,
-                    action_inputs=inputs,
-                    idempotency_key=_make_idempotency_key(idempotency_prefix, iterations, inputs),
-                )
-            # Default: re-audit as a fallback investigation step.
-            inputs = {"dossier_id": request.dossier_id}
-            if self._state.current_transcript_ref:
-                inputs["source_transcript_ref"] = self._state.current_transcript_ref
-            return MoveExecutionPlan(
-                action_type=TX_AUDIT_TRANSCRIPT,
-                action_inputs=inputs,
-                idempotency_key=_make_idempotency_key(idempotency_prefix, iterations, inputs),
-            )
-
-        if move_decision.move_type == "request_human_feedback":
-            feedback_prompt = payload.get("feedback_prompt") if isinstance(payload.get("feedback_prompt"), dict) else {}
-            prompt_id = str(feedback_prompt.get("prompt_id") or _make_prompt_id(focus_key, iterations)).strip()
-            # The domain pack stores the pending prompt for resume; kernel handles HitlState.
-            # Do NOT call sync_pending_feedback_cache_from_registry here — when the registry
-            # has rows but none in waiting_feedback state, the sync would clear the prompt_id
-            # we just set (projection ignores fallback when has_registry_rows=True).
-            self._state.pending_feedback_prompt_id = prompt_id
-            self._state.pending_feedback_decision_key = focus_key
-            self._state.pending_feedback_prompt = dict(feedback_prompt)
-            return MoveExecutionPlan(
-                action_type=TX_AUDIT_TRANSCRIPT,  # placeholder; not executed
-                action_inputs={"feedback_prompt_id": prompt_id},
-                idempotency_key=_make_idempotency_key(idempotency_prefix, iterations, {}),
-                hitl_intent_flag=True,
-            )
-
-        # mark_resolved_no_edit, mark_blocked, skip_no_action: skip execution.
-        return MoveExecutionPlan(
-            action_type=TX_AUDIT_TRANSCRIPT,  # placeholder; not executed
-            action_inputs={},
-            idempotency_key=_make_idempotency_key(idempotency_prefix, iterations, {}),
-            skip_execution=True,
-        )
+        return compile_transcript_edit_move(self, context, move_decision)
 
     # -------------------------------------------------------------------------
     # Hook 7 — supply_progress_metrics
@@ -1346,58 +1147,7 @@ class TranscriptEditDomainPack:
         Kernel advances HitlState to "consumed" on IntegrationResult.integrated=True.
         Domain must not write HitlState directly.
         """
-        if not isinstance(feedback_response, dict):
-            return IntegrationResult(integrated=False, integration_summary="invalid_feedback_response")
-
-        decision_key = str(
-            feedback_response.get("decision_key") or self._state.pending_feedback_decision_key or ""
-        ).strip().lower()
-        prompt_id = str(
-            feedback_response.get("prompt_id") or self._state.pending_feedback_prompt_id or ""
-        ).strip() or None
-        feedback_value = str(feedback_response.get("selected_value") or "").strip() or None
-        feedback_note = str(feedback_response.get("note") or "").strip() or None
-
-        # Update blocker registry — marks the blocker as having received feedback.
-        if decision_key:
-            self._state.blocker_registry = mark_feedback_received(
-                registry=self._state.blocker_registry,
-                decision_key=decision_key,
-                prompt_id=prompt_id or "",
-                feedback_value=feedback_value,
-                feedback_note=feedback_note,
-                reason="hook9_feedback_integration",
-            )
-
-        # Update decision ledger — marks the ticket as integrated.
-        if prompt_id and decision_key:
-            self._state.decision_ledger = mark_human_resolution_ticket_state(
-                ledger=self._state.decision_ledger,
-                ticket_id=prompt_id,
-                decision_key=decision_key,
-                lifecycle_state="integrated",
-                relevance="active",
-            )
-
-        self._state.latest_feedback = feedback_response
-        # Increment domain signal counter — hook 7 will detect this as new_evidence_signal.
-        self._state.evidence_signal_counter += 1
-        self._state.used_human_feedback = True
-        # Clear pending feedback state.
-        self._state.pending_feedback_prompt_id = None
-        self._state.pending_feedback_decision_key = None
-        sync_pending_feedback_cache_from_registry(state=self._state)
-        # NOTE: do NOT reset no_progress_streak here — that is kernel-owned in loop_memory.
-        # NOTE: do NOT increment loop_memory.evidence_signal_counter — kernel pre-phase does that.
-
-        feedback_summary = str(feedback_response.get("summary") or "").strip()
-        _LOG.info(
-            "TX_DOMAIN_PACK integrate_feedback ► request_id=%s decision_key=%s summary=%s",
-            self._request_id_prefix,
-            decision_key or "(none)",
-            feedback_summary[:80] if feedback_summary else "(no summary)",
-        )
-        return IntegrationResult(integrated=True, integration_summary=feedback_summary or "feedback_integrated")
+        return integrate_transcript_edit_feedback(self, context, feedback_response)
 
     # -------------------------------------------------------------------------
     # Domain state inspection (for result building)
@@ -1451,7 +1201,9 @@ class TranscriptEditDomainPack:
 # ---------------------------------------------------------------------------
 
 
-def _make_prompt_id(focus_key: str, iteration: int) -> str:
-    """Deterministic HITL prompt ID from focus key and iteration."""
-    raw = f"hitl:{focus_key}:{iteration}"
-    return "prompt_" + hashlib.sha1(raw.encode()).hexdigest()[:12]
+def build_transcript_edit_domain_pack_bundle(
+    domain_pack: TranscriptEditDomainPack,
+) -> DomainPackBundle:
+    """Build and bind the explicit shared bundle for transcript-edit composition."""
+    return _build_transcript_edit_domain_pack_bundle(domain_pack)
+

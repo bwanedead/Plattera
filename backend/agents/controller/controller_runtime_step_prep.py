@@ -13,20 +13,17 @@ from agent_kernel.models import (
     KernelStepRequest,
 )
 
-from .contracts import KernelStepProposal, action_how_to_guide, validate_action_args
+from .contracts import KernelStepProposal, validate_action_args
 from .controller_context import _compact_gap_summary
 from .controller_guardrails import (
     _compute_controller_idempotency_key,
     _inspection_thrash_refusal,
-    _inspection_thrash_suggested_next_action,
     _open_text_spans_signature,
     _read_str,
-    _recommended_next_moves,
+    _progress_state_labels,
     _redundant_deterministic_step_refusal,
     _semantic_span_repair_thrash_refusal,
-    _semantic_span_repair_thrash_suggested_next_action,
     _span_open_thrash_refusal,
-    _span_open_thrash_suggested_next_action,
     _update_refusal_streak,
 )
 from .controller_proposals import (
@@ -133,8 +130,6 @@ def _prepare_step_request(
         refusal: KernelRefusal,
         args_for_log: Mapping[str, Any],
         args_for_streak: Mapping[str, Any] | None = None,
-        fix_action_type_raw: str | None = None,
-        how_to_action: ActionType | None = None,
         payload_extra: dict[str, object] | None = None,
         update_streak: bool = False,
         allow_repair_request: bool = False,
@@ -154,13 +149,8 @@ def _prepare_step_request(
             "refusal": refusal.model_dump(mode="json"),
             "fix": _build_fix_skeleton(
                 reason_code=refusal.reason_code,
-                action_type_raw=(fix_action_type_raw or action_type.value),
+                action_type_raw=action_type.value,
                 bootstrap_context=bootstrap_context,
-            ),
-            "how_to": action_how_to_guide(
-                action_type=(how_to_action or action_type),
-                reason_code=refusal.reason_code,
-                context_inputs=context_packet.get("inputs", {}) if isinstance(context_packet, dict) else {},
             ),
         }
         if payload_extra:
@@ -318,7 +308,6 @@ def _prepare_step_request(
         repeated_inspection_ref = repeat_ref
         repeated_inspection_count = (repeated_inspection_count + 1) if repeat_ref else 0
         dashboard_json = started.dashboard.model_dump(mode="json")
-        next_action = _inspection_thrash_suggested_next_action(dashboard_json)
         progress_payload = {
             "latest_refs": _latest_refs_summary(dashboard_json),
             "gap_summary": _compact_gap_summary(dashboard_json.get("gap_summary")),
@@ -327,11 +316,9 @@ def _prepare_step_request(
         return _handle_controller_refusal(
             refusal=refusal,
             args_for_log=step_inputs,
-            fix_action_type_raw=(next_action or action_type).value,
-            how_to_action=(next_action or action_type),
             payload_extra={
                 "inspection_ref": repeat_ref,
-                "next_actions": _recommended_next_moves(progress_payload),
+                "observed_state_labels": _progress_state_labels(progress_payload),
             },
         )
     span_open_refusal = _span_open_thrash_refusal(
@@ -350,13 +337,10 @@ def _prepare_step_request(
             "gap_summary": _compact_gap_summary(dashboard_json.get("gap_summary")),
             "claimability": dashboard_json.get("claimability", {}),
         }
-        next_action = _span_open_thrash_suggested_next_action(dashboard_json)
         return _handle_controller_refusal(
             refusal=refusal,
             args_for_log=step_inputs,
-            fix_action_type_raw=(next_action or ActionType.DRAFT_IR).value,
-            how_to_action=(next_action or ActionType.DRAFT_IR),
-            payload_extra={"next_actions": _recommended_next_moves(progress_payload)},
+            payload_extra={"observed_state_labels": _progress_state_labels(progress_payload)},
         )
     semantic_span_refusal = _semantic_span_repair_thrash_refusal(
         action_type=action_type,
@@ -374,13 +358,10 @@ def _prepare_step_request(
             "gap_summary": _compact_gap_summary(dashboard_json.get("gap_summary")),
             "claimability": dashboard_json.get("claimability", {}),
         }
-        next_action = _semantic_span_repair_thrash_suggested_next_action(dashboard_json)
         return _handle_controller_refusal(
             refusal=refusal,
             args_for_log=step_inputs,
-            fix_action_type_raw=(next_action or ActionType.DRAFT_IR).value,
-            how_to_action=(next_action or ActionType.DRAFT_IR),
-            payload_extra={"next_actions": _recommended_next_moves(progress_payload)},
+            payload_extra={"observed_state_labels": _progress_state_labels(progress_payload)},
         )
     dashboard_json = started.dashboard.model_dump(mode="json")
     redundant_step_refusal = _redundant_deterministic_step_refusal(
@@ -388,7 +369,7 @@ def _prepare_step_request(
         dashboard=dashboard_json,
     )
     if redundant_step_refusal is not None:
-        refusal, suggested_action = redundant_step_refusal
+        refusal, observed_labels = redundant_step_refusal
         progress_payload = {
             "latest_refs": _latest_refs_summary(dashboard_json),
             "gap_summary": _compact_gap_summary(dashboard_json.get("gap_summary")),
@@ -397,9 +378,10 @@ def _prepare_step_request(
         return _handle_controller_refusal(
             refusal=refusal,
             args_for_log=step_inputs,
-            fix_action_type_raw=(suggested_action or action_type).value,
-            how_to_action=(suggested_action or action_type),
-            payload_extra={"next_actions": _recommended_next_moves(progress_payload)},
+            payload_extra={
+                "observed_state_labels": _progress_state_labels(progress_payload),
+                "redundant_refusal_labels": observed_labels,
+            },
         )
     if action_type == ActionType.RETRIEVE_EVIDENCE and proposal.retrieval_intent is not None:
         query = str(step_inputs.get("query", "")).strip()

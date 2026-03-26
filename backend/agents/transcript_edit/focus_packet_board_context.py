@@ -5,8 +5,6 @@ from typing import Any
 
 from .decision_ledger_closure import unresolved_mapping_blocking_requirements
 from .decision_ledger_scope import _ensure_ledger_shape
-from .decision_ledger_focus import focus_authority_audit
-
 MAX_FOCUS_NOTE_BODY = 200
 MAX_LINKED_HINTS = 2
 MAX_NOTES_ON_FOCUS = 3
@@ -123,8 +121,7 @@ def build_work_board_focus_context_bundle(
             newly_promoted = max(0, ts - cr) <= _NEW_PROMO_SECONDS
 
     mbk = _mapping_blocking_by_key(decision_ledger if isinstance(decision_ledger, dict) else None)
-    auth = focus_authority_audit(mapping_blocking_by_key=mbk, winner=None)
-    board_authority_mode = str(auth.get("mode") or "")
+    board_mapping_blocking_count = len(mbk)
 
     ltr = str(life.get("last_transition_reason") or "").strip()
     lifecycle_transition_summary = None
@@ -135,8 +132,7 @@ def build_work_board_focus_context_bundle(
         "schema_version": "work_board_focus_context.v1",
         "focus_target_kind": str(focus_target_kind or "").strip() or "ledger_decision",
         "board_item_id": key or None,
-        "board_authority_mode": board_authority_mode or None,
-        "board_authority": auth,
+        "board_mapping_blocking_count": board_mapping_blocking_count,
         "newly_promoted": bool(newly_promoted),
         "recently_touched": bool(recently_touched),
         "lifecycle_transition_summary": lifecycle_transition_summary,

@@ -26,6 +26,23 @@ def _tx_snapshot_waiting() -> dict:
             "reason_code": "tx_agent_closure_requirements_unresolved",
             "iterations": 3,
             "session_id": "tx-session-1",
+            "decision_ledger": {
+                "items": [
+                    {
+                        "key": "range",
+                        "label": "Range",
+                        "state": "disputed",
+                        "blocking": True,
+                        "operational_impact": "mapping_blocking",
+                        "closure_requirement": {
+                            "mapping_blocking": True,
+                            "operational_impact": "mapping_blocking",
+                            "required_information": "Confirm the correct range token.",
+                            "resolution_options": ["Range 75 West", "Range 74 West"],
+                        },
+                    }
+                ]
+            },
             "latest_refs": {f"ref_{idx}": {"artifact_path": f"artifact://{idx}"} for idx in range(20)},
             "progress_log": [
                 {
@@ -129,6 +146,10 @@ def test_transcript_edit_builder_uses_registry_waiting_and_ledger_unresolved() -
     assert envelope.waiting_summary.owner_kind == "blocker_registry"
     assert envelope.verification_summary.status == "needs_human_feedback"
     assert envelope.mission_mode_summary.active_mode == "audit_then_repair"
+    assert envelope.mission_state.loop_family == "transcript_edit"
+    assert envelope.mission_state.resolution_state.active_item_id == "te:ledger:range"
+    assert envelope.mission_state.resolution_state.items[0].item_id == "te:ledger:range"
+    assert envelope.mission_state.resolution_state.items[0].kind == "transcript_edit.decision_item"
     assert envelope.latest_refs_summary.total_count == 20
     assert len(envelope.latest_refs_summary.ref_keys) == 16
     assert envelope.envelope_version == RUN_STATE_VERSION
@@ -144,6 +165,7 @@ def test_controller_builder_is_sparse_and_does_not_invent_blocker_authority() ->
     assert envelope.blocker_summary.source == "sparse"
     assert envelope.blocker_summary.open_count is None
     assert envelope.blocker_summary.active_blocker_id is None
+    assert envelope.mission_state.loop_family == "controller_kernel"
     assert envelope.waiting_summary.waiting is False
     assert envelope.terminal_summary.terminal is True
     assert envelope.terminal_summary.terminal_class == "completed"
@@ -241,6 +263,18 @@ def test_mission_runtime_builder_adds_mission_mode_awareness_without_ledger_mirr
         "blocker_posture_summary": {"waiting_human": False, "open_blocker_count": 0},
         "verification_posture_summary": {"status": "closure_clear", "last_verification_kind": "tx_ledger"},
         "cycle_index": 2,
+        "resolution_state": {
+            "active_item_id": "item:mission-active",
+            "items": [
+                {
+                    "item_id": "item:mission-active",
+                    "title": "Active mission work item",
+                    "kind": "work_item",
+                    "status": "open",
+                    "summary": "Keep iterating the current item",
+                }
+            ],
+        },
         "cycles": [{"executed_mode": "transcript_edit"}],
     }
     envelope = build_mission_runtime_run_state(mission_runtime_payload=payload)
@@ -250,5 +284,50 @@ def test_mission_runtime_builder_adds_mission_mode_awareness_without_ledger_mirr
     assert envelope.mission_mode_summary.active_mode == "deed_to_ir"
     assert envelope.mission_mode_summary.mode_history == ["deed_to_ir", "transcript_edit", "deed_to_ir"]
     assert envelope.mission_mode_summary.latest_transition_reason == "handoff_to_review"
+    assert envelope.mission_state.loop_family == "mission_runtime"
+    assert envelope.mission_state.resolution_state.active_item_id == "item:mission-active"
+    assert envelope.mission_state.resolution_state.items[0].title == "Active mission work item"
     assert envelope.mission_mode_summary.resume_context_summary["resumable"] is True
     assert envelope.latest_refs_summary.total_count == 2
+
+
+def test_mission_runtime_builder_prefers_nested_mission_state_resolution_state() -> None:
+    payload = {
+        "mission_id": "mission-run-state-2",
+        "objective": "nested mission state",
+        "request_id": "request-run-state-2",
+        "active_mode": "deed_to_ir",
+        "mode_history": ["deed_to_ir"],
+        "transition_history": [],
+        "high_signal_artifact_refs": [],
+        "resumability_summary": {"resumable": False},
+        "mission_status": {"terminal": False, "terminal_class": "in_progress", "reason_code": None},
+        "blocker_posture_summary": {"waiting_human": False, "open_blocker_count": 0},
+        "verification_posture_summary": {"status": "closure_clear", "last_verification_kind": "tx_ledger"},
+        "cycle_index": 1,
+        "mission_state": {
+            "schema_version": "mission_state.v1",
+            "mission_id": "mission-run-state-2",
+            "loop_family": "mission_runtime",
+            "objective": "nested mission state",
+            "active_mode": "deed_to_ir",
+            "updated_at_epoch_seconds": 123.0,
+            "resolution_state": {
+                "schema_version": "resolution_state.v1",
+                "active_item_id": "item:nested",
+                "items": [
+                    {
+                        "item_id": "item:nested",
+                        "title": "Nested active item",
+                        "kind": "work_item",
+                        "status": "open",
+                        "summary": "Nested resolution state should win",
+                    }
+                ],
+            },
+        },
+    }
+    envelope = build_mission_runtime_run_state(mission_runtime_payload=payload)
+    assert envelope.mission_state.loop_family == "mission_runtime"
+    assert envelope.mission_state.resolution_state.active_item_id == "item:nested"
+    assert envelope.mission_state.resolution_state.items[0].title == "Nested active item"

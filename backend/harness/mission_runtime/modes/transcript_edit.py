@@ -9,7 +9,10 @@ _LOG = logging.getLogger(__name__)
 from agent_kernel.models import KernelBudgets, KernelGoal, KernelSessionStartRequest
 from agent_kernel.session import KernelSessionManager
 from agents.transcript_edit.contracts import TranscriptEditAgentRunRequest, TranscriptEditAgentRunResult
-from agents.transcript_edit.domain_pack import TranscriptEditDomainPack
+from agents.transcript_edit.domain_pack import (
+    TranscriptEditDomainPack,
+    build_transcript_edit_domain_pack_bundle,
+)
 from agents.transcript_edit.run_feed_persistence import write_transcript_edit_run_snapshot
 from agents.transcript_edit.terminalization import terminal_message, terminal_summary
 from harness.orchestration_kernel import KernelLoopResult, run_orchestration_kernel_loop
@@ -27,9 +30,9 @@ from ..contracts import (
     ModeInterpretation,
     MissionModeAdapter,
     ModeRecommendation,
-    ModeTransitionRecommendation,
     TerminalRecommendation,
 )
+from ..mapping_family import build_mapping_family_coordination
 
 TRANSCRIPT_EDIT_MODE_NAME = "transcript_edit"
 
@@ -76,11 +79,27 @@ class TranscriptEditModeAdapter(MissionModeAdapter):
     ) -> MissionModeRunEnvelope:
         result = _require_transcript_result(context)
         interpretation, recommendation = adapt_transcript_edit_run_result(result)
-        transition = _recommend_transition_back_to_deed_to_ir(
-            request=request,
-            recommendation=recommendation,
-            result=result,
+        coordination = build_mapping_family_coordination(
+            current_mode=TRANSCRIPT_EDIT_MODE_NAME,
+            handoff_posture=result.handoff_posture,
+            terminal=recommendation.terminal,
+            transition_allowed=_metadata_flag(request.metadata, "phase_e_enable_linear_transitions")
+            and _metadata_flag(request.metadata, "transcript_edit_transition_to_deed_to_ir"),
+            handed_forward_artifact_refs=_curate_tx_to_deed_handoff_refs(result, recommendation),
+            expected_next_work="resume deed_to_ir with transcript-edit validated artifacts",
+            resume_note_for_prior_mode="return to transcript_edit only if new closure blockers emerge",
         )
+        domain_payload: dict[str, Any] = {
+            "mode": TRANSCRIPT_EDIT_MODE_NAME,
+            "status": result.status,
+            "reason_code": result.reason_code,
+            "iterations": result.iterations,
+            "session_id": result.session_id,
+            "run_artifact_ref": result.run_artifact_ref,
+            "latest_refs": dict(result.latest_refs),
+        }
+        if isinstance(result.handoff_posture, dict):
+            domain_payload["handoff_posture"] = dict(result.handoff_posture)
         return MissionModeRunEnvelope(
             summary=interpretation.summary,
             high_signal_artifact_refs=tuple(recommendation.high_signal_artifact_refs),
@@ -88,16 +107,9 @@ class TranscriptEditModeAdapter(MissionModeAdapter):
             verification_posture=recommendation.verification_posture,
             resumability=recommendation.resumability,
             terminal=recommendation.terminal,
-            transition=transition,
-            domain_payload={
-                "mode": TRANSCRIPT_EDIT_MODE_NAME,
-                "status": result.status,
-                "reason_code": result.reason_code,
-                "iterations": result.iterations,
-                "session_id": result.session_id,
-                "run_artifact_ref": result.run_artifact_ref,
-                "latest_refs": dict(result.latest_refs),
-            },
+            transition=coordination.transition_recommendation,
+            family_coordination=coordination,
+            domain_payload=domain_payload,
         )
 
     def interpret(
@@ -245,6 +257,7 @@ def run_orchestration_kernel_transcript_loop(
         planner=planner,
         progress_cb=_wrapped_progress_cb,
     )
+    build_transcript_edit_domain_pack_bundle(domain_pack)
     kernel_result = run_orchestration_kernel_loop(
         domain_pack=domain_pack,
         session_manager=session_manager,
@@ -529,31 +542,6 @@ def _normalize_verification_status(
     if unresolved_closure_count > 0:
         return "closure_partial"
     return "closure_clear"
-
-
-def _recommend_transition_back_to_deed_to_ir(
-    *,
-    request: MissionRuntimeRequest,
-    recommendation: ModeRecommendation,
-    result: TranscriptEditAgentRunResult,
-) -> ModeTransitionRecommendation | None:
-    if not _metadata_flag(request.metadata, "phase_e_enable_linear_transitions"):
-        return None
-    if not _metadata_flag(request.metadata, "transcript_edit_transition_to_deed_to_ir"):
-        return None
-    verification_status = recommendation.verification_posture.status if recommendation.verification_posture else None
-    waiting_human = recommendation.blocker_posture.waiting_human if recommendation.blocker_posture else False
-    if waiting_human:
-        return None
-    if verification_status != "closure_clear":
-        return None
-    return ModeTransitionRecommendation(
-        next_mode="deed_to_ir",
-        reason="transcript_edit_review_ready_for_deed_resume",
-        handed_forward_artifact_refs=_curate_tx_to_deed_handoff_refs(result, recommendation),
-        expected_next_work="resume deed_to_ir with transcript-edit validated artifacts",
-        resume_note_for_prior_mode="return to transcript_edit only if new closure blockers emerge",
-    )
 
 
 def _curate_tx_to_deed_handoff_refs(
