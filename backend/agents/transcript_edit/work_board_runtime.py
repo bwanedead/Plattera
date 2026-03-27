@@ -1,9 +1,9 @@
-"""Apply resolver-emitted work-board changes to transcript-edit loop state."""
+"""Apply resolver-emitted resolution-item changes to transcript-edit loop state."""
 from __future__ import annotations
 
 from typing import Any
 
-from harness.work_board.emergence import apply_work_board_changes
+from harness.mission_state import apply_resolution_changes
 
 from .loop_state import TranscriptEditLoopState
 from .work_board_projection import project_decision_ledger_to_work_board
@@ -17,7 +17,7 @@ def apply_work_board_changes_from_resolver(
 ) -> dict[str, Any]:
     projected = project_decision_ledger_to_work_board(decision_ledger)
     ledger_rows = [dict(x) for x in projected.get("items") or [] if isinstance(x, dict)]
-    result = apply_work_board_changes(
+    result = apply_resolution_changes(
         work_board_changes,
         decision_ledger=decision_ledger,
         emergent_items=list(state.harness_emergent_board_items or []),

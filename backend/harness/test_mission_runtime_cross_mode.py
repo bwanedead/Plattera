@@ -50,6 +50,12 @@ def _deed_result() -> ControllerRunResult:
         session_id="request-cross-1::deed-run-1",
         run_artifact_ref="artifact://deed/run/1",
         iterations=3,
+        handoff_posture={
+            "posture": "ready_for_downstream_domain",
+            "target_domain_id": TRANSCRIPT_EDIT_MODE_NAME,
+            "target_family_id": "mapping",
+            "reason_code": "deed_to_ir_output_requires_transcript_edit_review",
+        },
     )
 
 
@@ -76,6 +82,12 @@ def _transcript_result() -> TranscriptEditAgentRunResult:
                 "verification_kind": "transcript_edit_closure_ledger",
                 "terminal_classification": "mapping_ready",
             }
+        },
+        handoff_posture={
+            "posture": "ready_for_downstream_domain",
+            "target_domain_id": DEED_TO_IR_MODE_NAME,
+            "target_family_id": "mapping",
+            "reason_code": "transcript_edit_review_ready_for_deed_resume",
         },
     )
 
@@ -120,7 +132,7 @@ def test_linear_round_trip_transitions_preserve_one_mission_continuity_chain() -
     assert cycle1.transition.prior_mode == DEED_TO_IR_MODE_NAME
     assert cycle1.transition.next_mode == TRANSCRIPT_EDIT_MODE_NAME
     assert cycle1.transition.reason == "deed_to_ir_output_requires_transcript_edit_review"
-    assert cycle1.transition.expected_next_work is not None
+    assert not hasattr(cycle1.transition, "expected_next_work")
     assert cycle1.transition.resume_note_for_prior_mode is not None
     assert len(cycle1.transition.handed_forward_artifact_refs) > 0
     assert cycle1.active_mode == TRANSCRIPT_EDIT_MODE_NAME
@@ -132,7 +144,7 @@ def test_linear_round_trip_transitions_preserve_one_mission_continuity_chain() -
     assert cycle2.transition.prior_mode == TRANSCRIPT_EDIT_MODE_NAME
     assert cycle2.transition.next_mode == DEED_TO_IR_MODE_NAME
     assert cycle2.transition.reason == "transcript_edit_review_ready_for_deed_resume"
-    assert cycle2.transition.expected_next_work is not None
+    assert not hasattr(cycle2.transition, "expected_next_work")
     assert cycle2.transition.resume_note_for_prior_mode is not None
     assert len(cycle2.transition.handed_forward_artifact_refs) > 0
     assert cycle2.active_mode == DEED_TO_IR_MODE_NAME

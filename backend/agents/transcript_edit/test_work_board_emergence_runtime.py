@@ -12,7 +12,11 @@ from backend.agents.transcript_edit.loop_state import TranscriptEditLoopState
 from backend.agents.transcript_edit.planner import _coerce_focus_move
 from backend.agents.transcript_edit.work_board_runtime import apply_work_board_changes_from_resolver
 from backend.agents.transcript_edit.decision_ledger_focus import choose_investigation_focus
-from backend.harness.work_board.contracts import WORK_BOARD_VERSION, new_work_board, work_board_item_dict
+from backend.harness.mission_state import (
+    LEGACY_WORK_BOARD_ENVELOPE_VERSION,
+    new_resolution_envelope,
+    resolution_item_row_dict,
+)
 
 
 def test_coerce_propose_work_board_changes() -> None:
@@ -96,7 +100,7 @@ def test_runtime_apply_visible_in_focus_packet_and_composite_board() -> None:
     )
     wb = packet.get("work_board")
     assert isinstance(wb, dict)
-    assert wb.get("schema_version") == WORK_BOARD_VERSION
+    assert wb.get("schema_version") == LEGACY_WORK_BOARD_ENVELOPE_VERSION
     ids = {str(r.get("item_id")) for r in wb.get("items") or [] if isinstance(r, dict)}
     assert any(x.startswith("harness:emergent:") for x in ids)
 
@@ -136,7 +140,7 @@ def test_choose_investigation_focus_selects_emergent_when_no_unresolved_ledger_c
         "scope_summaries": {},
         "source_completeness": "complete",
     }
-    row = work_board_item_dict(
+    row = resolution_item_row_dict(
         item_id="harness:emergent:beefcafe0001",
         title="Dedicated scan integrity closure branch for the mapping pipeline",
         kind="transcript_edit.scan_integrity",
@@ -146,17 +150,17 @@ def test_choose_investigation_focus_selects_emergent_when_no_unresolved_ledger_c
         resolution_condition="Confirm edge",
         evidence_refs=["e1"],
     )
-    wb = new_work_board(domain_projection="decision_ledger", items=[row])
+    wb = new_resolution_envelope(domain_projection="decision_ledger", items=[row])
     focus = choose_investigation_focus(ledger, work_board=wb)
     assert focus is not None
     assert focus.get("focus_target_kind") == "harness_emergent"
     assert str(focus.get("decision_key") or "").startswith("harness:emergent:")
 
 
-def test_harness_emergence_has_no_transcript_edit_imports() -> None:
+def test_harness_resolution_updates_have_no_transcript_edit_imports() -> None:
     from pathlib import Path as P
 
-    text = (P(__file__).resolve().parents[3] / "backend" / "harness" / "work_board" / "emergence.py").read_text(
+    text = (P(__file__).resolve().parents[3] / "backend" / "harness" / "mission_state" / "resolution_updates.py").read_text(
         encoding="utf-8"
     )
     assert "transcript_edit" not in text

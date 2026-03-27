@@ -165,7 +165,6 @@ def _mission_runtime_payload() -> dict:
                 "status": "applied",
                 "order_anchor": 1,
                 "timestamp_epoch_seconds": 101,
-                "expected_next_work": "review transcript",
                 "resume_note_for_prior_mode": "resume after reconciliation",
                 "handed_forward_artifact_refs": ["artifact://handoff/1"],
             },

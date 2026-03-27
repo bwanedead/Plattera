@@ -1,18 +1,11 @@
-"""Generic harness rules for emergent work-board row lifecycle (not domain truth).
-
-Ledger-backed projection rows are owned by domain projection; this module applies
-to durable harness-emergent rows (``harness:emergent:*``) only.
-"""
+"""Mechanical lifecycle transport for harness-emergent resolution items."""
 from __future__ import annotations
 
 import time
 from typing import Any
 
-# Terminal / low-motion states for focus progression (focus layer filters these out).
-TERMINAL_STATES = frozenset({"resolved", "superseded"})
-
-# Stable prefix for harness-owned emergent rows (matches transcript_edit projection).
-EMERGENT_ITEM_ID_PREFIX = "harness:emergent:"
+TERMINAL_RESOLUTION_ITEM_STATES = frozenset({"resolved", "superseded"})
+EMERGENT_RESOLUTION_ITEM_PREFIX = "harness:emergent:"
 
 _VALID_STATES = frozenset(
     {
@@ -29,9 +22,9 @@ _VALID_STATES = frozenset(
 )
 
 
-def normalize_board_state(raw: str | None) -> str:
-    s = str(raw or "open").strip().lower()[:64]
-    return s if s in _VALID_STATES else "open"
+def normalize_resolution_item_state(raw: str | None) -> str:
+    state = str(raw or "open").strip().lower()[:64]
+    return state if state in _VALID_STATES else "open"
 
 
 def count_tail_resolver_moves(
@@ -41,21 +34,20 @@ def count_tail_resolver_moves(
     move: str,
     max_scan: int = 24,
 ) -> int:
-    """Count trailing continuity rows for ``decision_key`` with the same ``move`` (most recent first)."""
     key = str(decision_key or "").strip().lower()
-    m = str(move or "").strip().lower()
-    if not key or not m:
+    normalized_move = str(move or "").strip().lower()
+    if not key or not normalized_move:
         return 0
-    n = 0
+    count = 0
     for row in reversed(list(continuity_log or [])[-max_scan:]):
         if not isinstance(row, dict):
             continue
         if str(row.get("decision_key") or "").strip().lower() != key:
             break
-        if str(row.get("move") or "").strip().lower() != m:
+        if str(row.get("move") or "").strip().lower() != normalized_move:
             break
-        n += 1
-    return n
+        count += 1
+    return count
 
 
 def edit_plan_has_ops(resolver_outcome: dict[str, Any] | None) -> bool:
@@ -76,10 +68,11 @@ def compute_emergent_state_after_resolver_move(
     consecutive_gather_tail: int,
     edit_plan_has_ops_flag: bool,
 ) -> str | None:
-    """Return a new board state for an emergent row, or None to leave unchanged."""
-    cur = normalize_board_state(current_state)
+    current = normalize_resolution_item_state(current_state)
     move = str(resolver_move or "").strip().lower()
-    if cur in TERMINAL_STATES:
+    _ = repeat_without_signal
+    _ = consecutive_gather_tail
+    if current in TERMINAL_RESOLUTION_ITEM_STATES:
         return None
 
     if move == "mark_resolved_no_edit":
@@ -87,28 +80,22 @@ def compute_emergent_state_after_resolver_move(
     if move == "mark_blocked":
         return "blocked"
     if move == "request_human_feedback":
-        return "waiting_human" if cur != "waiting_human" else None
-
+        return "waiting_human" if current != "waiting_human" else None
     if move == "gather_more_evidence":
-        if cur == "open":
+        if current == "open":
             return "investigating"
-        if cur == "investigating" and repeat_without_signal and consecutive_gather_tail >= 2:
-            return "blocked"
         return None
-
     if move == "apply_edit_plan":
-        if edit_plan_has_ops_flag and cur not in TERMINAL_STATES:
+        if edit_plan_has_ops_flag and current not in TERMINAL_RESOLUTION_ITEM_STATES:
             return "narrowed"
         return None
-
     return None
 
 
 def is_allowed_manual_emergent_transition(old_state: str, new_state: str) -> bool:
-    """Validate resolver-proposed ``update_item_state`` jumps (conservative)."""
-    old = normalize_board_state(old_state)
-    new = normalize_board_state(new_state)
-    if old in TERMINAL_STATES:
+    old = normalize_resolution_item_state(old_state)
+    new = normalize_resolution_item_state(new_state)
+    if old in TERMINAL_RESOLUTION_ITEM_STATES:
         return False
     if new == old:
         return True
@@ -130,20 +117,18 @@ def stamp_harness_lifecycle_domain(
     reason_code: str,
     now_epoch: int | None = None,
 ) -> dict[str, Any]:
-    """Merge lifecycle stamps into ``domain_payload`` (copy)."""
-    ts = int(now_epoch if now_epoch is not None else time.time())
+    timestamp = int(now_epoch if now_epoch is not None else time.time())
     base = dict(domain_payload) if isinstance(domain_payload, dict) else {}
-    prev = dict(base.get("harness_lifecycle")) if isinstance(base.get("harness_lifecycle"), dict) else {}
-    created = int(prev.get("created_at_epoch") or ts)
-    out = {
-        **prev,
+    previous = dict(base.get("harness_lifecycle")) if isinstance(base.get("harness_lifecycle"), dict) else {}
+    created = int(previous.get("created_at_epoch") or timestamp)
+    base["harness_lifecycle"] = {
+        **previous,
         "created_at_epoch": created,
-        "last_event_at_epoch": ts,
-        "last_transition_at_epoch": ts,
+        "last_event_at_epoch": timestamp,
+        "last_transition_at_epoch": timestamp,
         "last_transition_reason": str(reason_code or "").strip()[:120] or "lifecycle",
-        "board_state": normalize_board_state(new_state),
+        "board_state": normalize_resolution_item_state(new_state),
     }
-    base["harness_lifecycle"] = out
     return base
 
 
@@ -154,14 +139,18 @@ def emergent_recency_rank(
     recent_seconds: int = 900,
     stale_seconds: int = 86400,
 ) -> int:
-    """Lower is more salient (recently created or touched). Uses ``harness_lifecycle`` stamps."""
-    ts = int(now_epoch if now_epoch is not None else time.time())
-    dp = row.get("domain_payload") if isinstance(row.get("domain_payload"), dict) else {}
-    life = dp.get("harness_lifecycle") if isinstance(dp.get("harness_lifecycle"), dict) else {}
-    last_ev = int(life.get("last_event_at_epoch") or life.get("last_transition_at_epoch") or life.get("created_at_epoch") or 0)
-    if not last_ev:
+    timestamp = int(now_epoch if now_epoch is not None else time.time())
+    domain_payload = row.get("domain_payload") if isinstance(row.get("domain_payload"), dict) else {}
+    lifecycle = domain_payload.get("harness_lifecycle") if isinstance(domain_payload.get("harness_lifecycle"), dict) else {}
+    last_event = int(
+        lifecycle.get("last_event_at_epoch")
+        or lifecycle.get("last_transition_at_epoch")
+        or lifecycle.get("created_at_epoch")
+        or 0
+    )
+    if not last_event:
         return 2
-    age = max(0, ts - last_ev)
+    age = max(0, timestamp - last_event)
     if age <= recent_seconds:
         return 0
     if age <= stale_seconds:

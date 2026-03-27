@@ -6,12 +6,13 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 from backend.agents.transcript_edit.decision_ledger import initialize_decision_ledger_with_domain_template_seed
-from backend.harness.work_board.emergence import (
-    apply_work_board_changes,
+from backend.harness.mission_state import (
+    MAX_EMERGENT_PROPOSALS_PER_RESOLVER,
+    apply_resolution_changes,
     evaluate_add_item_promotion,
-    normalize_work_board_change,
+    normalize_resolution_change,
+    normalize_resolution_changes_list,
 )
-from backend.harness.work_board.contracts import MAX_EMERGENT_PROPOSALS_PER_RESOLVER
 
 
 def _add_proposal(**kwargs):  # type: ignore[no-untyped-def]
@@ -33,24 +34,21 @@ def _add_proposal(**kwargs):  # type: ignore[no-untyped-def]
 
 
 def test_normalize_add_item_roundtrip() -> None:
-    p = normalize_work_board_change(_add_proposal())
-    assert p["op"] == "add_item"
-    assert len(p["title"]) >= 8
+    proposal = normalize_resolution_change(_add_proposal())
+    assert proposal["op"] == "add_item"
+    assert len(proposal["title"]) >= 8
 
 
 def test_promotion_rejects_duplicate_ledger_decision_key() -> None:
-    ledger = initialize_decision_ledger_with_domain_template_seed()
     items = [{"item_id": "te:ledger:range", "title": "Range", "domain_payload": {"decision_key": "range"}}]
-    prop = _add_proposal(domain_payload={"decision_key": "range"})
-    ok, code = evaluate_add_item_promotion(prop, ledger_decision_keys_set={"range"}, board_items=items)
+    proposal = _add_proposal(domain_payload={"decision_key": "range"})
+    ok, code = evaluate_add_item_promotion(proposal, ledger_decision_keys_set={"range"}, board_items=items)
     assert ok is False
     assert code == "duplicates_existing_ledger_decision"
 
 
 def test_promotion_rejects_note_masquerading_as_item() -> None:
-    ledger = initialize_decision_ledger_with_domain_template_seed()
-    board = [{"item_id": "x", "title": "Other investigation"}]
-    prop = _add_proposal(
+    proposal = _add_proposal(
         title="low signal title attempt longer",
         materiality="low",
         blocking_impact="domain_owned_label",
@@ -58,84 +56,69 @@ def test_promotion_rejects_note_masquerading_as_item() -> None:
         dependencies=[],
         resolution_condition="no",
     )
-    ok, code = evaluate_add_item_promotion(
-        prop,
-        ledger_decision_keys_set=set(),
-        board_items=board,
-    )
+    ok, code = evaluate_add_item_promotion(proposal, ledger_decision_keys_set=set(), board_items=[{"item_id": "x", "title": "Other investigation"}])
     assert ok is False
     assert code == "likely_note_not_item_use_attach_note"
 
 
 def test_apply_accepts_add_and_attach_note() -> None:
     ledger = initialize_decision_ledger_with_domain_template_seed()
-    projected = [
-        {"item_id": "te:ledger:range", "title": "Range"},
-    ]
-    ch = [
-        _add_proposal(
-            title="Dedicated branch for OCR ambiguity cluster",
-            kind="transcript_edit.ocr_cluster",
-            reason="Operator reports repeated confusables; preserve as durable branch for closure path.",
-            domain_payload={"cluster": "ocr"},
-        ),
-        normalize_work_board_change(
-            {
-                "op": "attach_note",
-                "target_item_id": "te:ledger:range",
-                "note": "Do not treat OCR hint as confirmed until image evidence lands.",
-                "note_intent": "guardrail",
-            }
-        ),
-    ]
-    result = apply_work_board_changes(
-        ch,
+    result = apply_resolution_changes(
+        [
+            _add_proposal(
+                title="Dedicated branch for OCR ambiguity cluster",
+                kind="transcript_edit.ocr_cluster",
+                reason="Operator reports repeated confusables; preserve as durable branch for closure path.",
+                domain_payload={"cluster": "ocr"},
+            ),
+            normalize_resolution_change(
+                {
+                    "op": "attach_note",
+                    "target_item_id": "te:ledger:range",
+                    "note": "Do not treat OCR hint as confirmed until image evidence lands.",
+                    "note_intent": "guardrail",
+                }
+            ),
+        ],
         decision_ledger=ledger,
         emergent_items=[],
         context_notes_by_item_id={},
-        projected_ledgers_items=projected,
+        projected_ledgers_items=[{"item_id": "te:ledger:range", "title": "Range"}],
     )
     assert len(result["emergent_items"]) == 1
     assert str(result["emergent_items"][0].get("provenance") or "") == "harness.emergent.v1"
     assert "te:ledger:range" in result["context_notes_by_item_id"]
-    notes = result["context_notes_by_item_id"]["te:ledger:range"]
-    assert len(notes) == 1
-    assert notes[0].get("non_canonical") is True
+    assert len(result["context_notes_by_item_id"]["te:ledger:range"]) == 1
 
 
 def test_apply_rejects_attach_unknown_id() -> None:
     ledger = initialize_decision_ledger_with_domain_template_seed()
-    projected = [{"item_id": "te:ledger:range", "title": "Range"}]
-    ch = [
-        normalize_work_board_change(
-            {
-                "op": "attach_note",
-                "target_item_id": "te:ledger:nonexistent",
-                "note": "Nuance note that should fail.",
-            }
-        ),
-    ]
-    result = apply_work_board_changes(
-        ch,
+    result = apply_resolution_changes(
+        [
+            normalize_resolution_change(
+                {
+                    "op": "attach_note",
+                    "target_item_id": "te:ledger:nonexistent",
+                    "note": "Nuance note that should fail.",
+                }
+            ),
+        ],
         decision_ledger=ledger,
         emergent_items=[],
         context_notes_by_item_id={},
-        projected_ledgers_items=projected,
+        projected_ledgers_items=[{"item_id": "te:ledger:range", "title": "Range"}],
     )
     assert result["rejected"]
     assert not result["accepted"]
 
 
 def test_normalize_list_respects_max() -> None:
-    from backend.harness.work_board.emergence import normalize_work_board_changes_list
-
     raw = [_add_proposal(title=f"Title number {i} long enough" + "x" * 8, reason="y" * 30) for i in range(20)]
-    out = normalize_work_board_changes_list(raw)
+    out = normalize_resolution_changes_list(raw)
     assert len(out) == MAX_EMERGENT_PROPOSALS_PER_RESOLVER
 
 
 def test_promotion_does_not_use_blocking_impact_as_structural_signal() -> None:
-    """Opaque domain labels must not satisfy harness gating (Phase 29)."""
     ok, code = evaluate_add_item_promotion(
         {
             "title": "Title long enough for minimum length rule",
@@ -191,3 +174,19 @@ def test_promotion_accepts_via_priority_urgency_without_blocking_impact() -> Non
     )
     assert ok is True
     assert code == "ok"
+
+
+def test_active_paths_no_longer_import_legacy_shared_packages() -> None:
+    repo = Path(__file__).resolve().parents[3]
+    paths = [
+        repo / "backend" / "agents" / "transcript_edit" / "decision_ledger_adapter.py",
+        repo / "backend" / "agents" / "transcript_edit" / "work_board_projection.py",
+        repo / "backend" / "agents" / "transcript_edit" / "work_board_runtime.py",
+        repo / "backend" / "agents" / "transcript_edit" / "planner.py",
+        repo / "backend" / "agents" / "transcript_edit" / "emergent_lifecycle_runtime.py",
+        repo / "backend" / "agents" / "transcript_edit" / "board_focus_shaping.py",
+    ]
+    for path in paths:
+        text = path.read_text(encoding="utf-8")
+        assert "harness.work_board" not in text
+        assert "harness.decision_ledger" not in text

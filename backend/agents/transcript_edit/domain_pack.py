@@ -6,7 +6,7 @@ It is NOT a replacement for the legacy controller loop; both coexist behind a fe
 Hook ownership:
 - Domain pack owns: decision_ledger, blocker_registry, evidence assembly, move resolution,
   move compilation, progress metric derivation, closure evaluation, feedback integration.
-- Kernel owns: active_focus_key, focus_stagnation_streak, HitlState, no_progress_streak,
+- Kernel owns: active_item_id, focus_stagnation_streak, HitlState, no_progress_streak,
   evidence_signal_counter (loop_memory), invalid_plan_strikes, TerminalDecision.
 
 Per-iteration ephemeral state (reset in hook 2):
@@ -47,8 +47,9 @@ from harness.orchestration_kernel.contracts import (
     OrchestratorContext,
     ProgressMetrics,
     RefreshResult,
-    WorkStateProjection,
+    SharedStateProjection,
 )
+from harness.mission_state import new_mission_state, new_resolution_state
 from harness.orchestration_kernel.run_progress_frame import build_run_progress_frame
 
 from .blocker_registry import (
@@ -721,28 +722,31 @@ class TranscriptEditDomainPack:
     # Hook 3 — project
     # -------------------------------------------------------------------------
 
-    def project(self, context: OrchestratorContext) -> WorkStateProjection:
-        """Phase 3 — Project decision_ledger + blocker_registry into shared Work-State.
-
-        Three persisted sub-surfaces: work_item_collection, blocker_surface,
-        closure_posture_summary.
-        The authored focus key is surfaced separately as selected_focus_key.
-        ranked_work_item_list remains contextual only.
-
-        Focus continuity state (active_focus_key, focus_stagnation_streak) is
-        kernel-owned and NOT part of this projection.
-        """
+    def project(self, context: OrchestratorContext) -> SharedStateProjection:
+        """Phase 3 — Project decision_ledger + blocker_registry into native shared state."""
         state = self._state
         unified, read_ledger = transcript_edit_unified_and_closure_read_from_loop_state(state)
         registry = state.blocker_registry
 
-        # Work-item collection: mapping-blocking unresolved items (closure read model).
+        # Resolution items: mapping-blocking unresolved items (closure read model).
         unresolved = unresolved_mapping_blocking_requirements(read_ledger)
-        work_item_collection = [
+        resolution_items = [
             {
-                "focus_key": str(item.get("key") or "").strip().lower(),
-                "state": str(item.get("state") or "unknown").strip().lower(),
-                "mapping_blocking": bool(item.get("mapping_blocking")),
+                "item_id": str(item.get("key") or "").strip().lower(),
+                "title": str(item.get("title") or item.get("key") or "").strip().lower(),
+                "kind": "mapping_requirement",
+                "status": str(item.get("state") or "unknown").strip().lower(),
+                "summary": str(item.get("summary") or item.get("reason") or "").strip() or None,
+                "materiality": "high" if bool(item.get("mapping_blocking")) else "medium",
+                "domain_payload": {
+                    "mapping_blocking": bool(item.get("mapping_blocking")),
+                    "scope_status": item.get("scope_status"),
+                    "closure_requirement": (
+                        dict(item.get("closure_requirement"))
+                        if isinstance(item.get("closure_requirement"), dict)
+                        else {}
+                    ),
+                },
             }
             for item in unresolved
             if isinstance(item, dict) and str(item.get("key") or "").strip()
@@ -759,7 +763,7 @@ class TranscriptEditDomainPack:
             for row in list((registry.get("emergent") or {}).get("rows") or [])
             if isinstance(row, dict)
         ][:6]
-        blocker_surface = blocker_rows + emergent_rows
+        blocking_items_summary = blocker_rows + emergent_rows
 
         # Closure posture summary.
         all_unresolved = _unresolved_closure_requirements(read_ledger)
@@ -767,14 +771,14 @@ class TranscriptEditDomainPack:
             1 for item in all_unresolved
             if isinstance(item, dict) and bool(item.get("mapping_blocking"))
         )
-        closure_posture_summary = {
+        closure_summary = {
             "unresolved_count": len(all_unresolved),
             "mapping_blocking_count": mapping_blocking,
             "has_mapping_blocking_closure": mapping_blocking > 0,
             "closure_clear": mapping_blocking == 0,
         }
 
-        selected_focus_key = (
+        active_item_id = (
             str(state.last_focus_key or "").strip().lower()
             or select_startup_focus_key(
                 last_focus_key=state.last_focus_key,
@@ -785,47 +789,102 @@ class TranscriptEditDomainPack:
                 ),
             )
         )
-        selected_focus_source = "continuity" if str(state.last_focus_key or "").strip() else "startup_understanding"
+        active_item_source = "continuity" if str(state.last_focus_key or "").strip() else "startup_understanding"
 
-        # Ranked work-item list remains contextual only.
-        ranked: list[dict[str, Any]] = []
+        advisory_active_items: list[dict[str, Any]] = []
         selected_index: int | None = None
-        if selected_focus_key:
-            for idx, item in enumerate(work_item_collection):
-                key = str(item.get("focus_key") or "").strip().lower()
-                if key and key == selected_focus_key:
+        if active_item_id:
+            for idx, item in enumerate(resolution_items):
+                key = str(item.get("item_id") or "").strip().lower()
+                if key and key == active_item_id:
                     selected_index = idx
                     break
             selected_item = (
-                dict(work_item_collection[selected_index])
+                dict(resolution_items[selected_index])
                 if selected_index is not None
                 else {
-                    "focus_key": selected_focus_key,
-                    "state": "unresolved",
-                    "mapping_blocking": False,
+                    "item_id": active_item_id,
+                    "status": "unresolved",
                 }
             )
-            ranked.append(
+            advisory_active_items.append(
                 {
-                    **selected_item,
+                    "item_id": str(selected_item.get("item_id") or active_item_id).strip().lower(),
+                    "status": str(selected_item.get("status") or "unresolved").strip().lower(),
                     "priority": 0,
-                    "focus_source": selected_focus_source,
+                    "focus_source": active_item_source,
                 }
             )
-            for item in work_item_collection:
-                key = str(item.get("focus_key") or "").strip().lower()
-                if key and key != selected_focus_key:
-                    ranked.append({**item, "priority": len(ranked)})
+            for item in resolution_items:
+                key = str(item.get("item_id") or "").strip().lower()
+                if key and key != active_item_id:
+                    advisory_active_items.append(
+                        {
+                            "item_id": key,
+                            "status": str(item.get("status") or "unknown").strip().lower(),
+                            "priority": len(advisory_active_items),
+                        }
+                    )
         else:
-            for item in work_item_collection:
-                ranked.append({**item, "priority": len(ranked)})
+            for item in resolution_items:
+                advisory_active_items.append(
+                    {
+                        "item_id": str(item.get("item_id") or "").strip().lower(),
+                        "status": str(item.get("status") or "unknown").strip().lower(),
+                        "priority": len(advisory_active_items),
+                    }
+                )
 
-        return WorkStateProjection(
-            work_item_collection=work_item_collection,
-            blocker_surface=blocker_surface,
-            closure_posture_summary=closure_posture_summary,
-            selected_focus_key=selected_focus_key,
-            ranked_work_item_list=ranked,
+        waiting_projection = derive_waiting_feedback_projection(
+            blocker_registry=state.blocker_registry,
+            fallback_prompt_id=state.pending_feedback_prompt_id,
+            fallback_decision_key=state.pending_feedback_decision_key,
+        )
+        resolution_state = new_resolution_state(
+            active_item_id=active_item_id,
+            items=resolution_items,
+            updated_at_epoch_seconds=float(context.loop_memory.iterations),
+            domain_payload={
+                "source": "transcript_edit_domain_pack",
+                "unified_item_count": len(list(unified.get("items") or [])),
+            },
+        )
+        mission_state = new_mission_state(
+            mission_id=self._request_id_prefix,
+            session_id=context.session_id,
+            request_id=context.request_id_prefix,
+            loop_family="transcript_edit",
+            objective=self._mission_objective or "transcript edit loop",
+            active_mode=self._request.mode or None,
+            updated_at_epoch_seconds=float(context.loop_memory.iterations),
+            latest_refs_summary=dict(state.latest_refs),
+            blocker_summary={
+                "open_count": len(blocking_items_summary),
+                "waiting_human": bool(waiting_projection.get("waiting_feedback")),
+                "active_blocker_id": str(state.blocker_registry.get("active_blocker_id") or "").strip() or None,
+            },
+            verification_summary={
+                "status": "closure_clear" if mapping_blocking == 0 else "closure_blocked",
+                "mapping_blocking_count": mapping_blocking,
+            },
+            waiting_summary={
+                "waiting": bool(waiting_projection.get("waiting_feedback")),
+                "waiting_kind": "human_feedback" if bool(waiting_projection.get("waiting_feedback")) else None,
+                "resumable": bool(waiting_projection.get("resumable")),
+            },
+            continuity_summary={
+                "last_active_item_id": active_item_id,
+                "has_recent_activity": bool(state.continuity_log),
+            },
+            resolution_state=resolution_state,
+            domain_payload={"source_transcript_ref": state.current_transcript_ref},
+        )
+        return SharedStateProjection(
+            mission_state=mission_state,
+            resolution_state=resolution_state,
+            blocking_items_summary=blocking_items_summary,
+            closure_summary=closure_summary,
+            advisory_active_items=advisory_active_items,
         )
 
     # -------------------------------------------------------------------------

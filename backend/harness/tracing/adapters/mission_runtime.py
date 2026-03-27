@@ -116,7 +116,6 @@ def build_mission_runtime_trace(
                         "reason": transition.reason,
                         "status": transition.status,
                         "order_anchor": transition.order_anchor,
-                        "expected_next_work": transition.expected_next_work,
                         "resume_note_for_prior_mode": transition.resume_note_for_prior_mode,
                     },
                     source_origin={
@@ -217,7 +216,6 @@ def _transition_event_dict(item: MissionTransitionObservation) -> dict[str, Any]
         "status": item.status,
         "order_anchor": item.order_anchor,
         "timestamp_epoch_seconds": item.timestamp_epoch_seconds,
-        "expected_next_work": item.expected_next_work,
         "resume_note_for_prior_mode": item.resume_note_for_prior_mode,
         "handed_forward_artifact_refs": list(item.handed_forward_artifact_refs)[:24],
     }

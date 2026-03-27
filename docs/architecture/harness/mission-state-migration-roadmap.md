@@ -9,6 +9,7 @@ Related:
 - `docs/architecture/harness/harness-constitution.md`
 - `docs/architecture/harness/mission-state-and-resolution-state-architecture.md`
 - `docs/architecture/harness/domain-pack-architecture.md`
+- `docs/architecture/harness/generic-harness-native-core-guardrails.md`
 - `docs/architecture/harness/generic-harness-native-core-target.md`
 - `docs/architecture/harness/generic-harness-native-core-roadmap.md`
 - `docs/architecture/harness/generic-work-board.md`
@@ -58,6 +59,11 @@ That trunk-first path is now captured in:
 
 - `docs/architecture/harness/generic-harness-native-core-target.md`
 - `docs/architecture/harness/generic-harness-native-core-roadmap.md`
+- `docs/architecture/harness/generic-harness-native-core-guardrails.md`
+
+Under that trunk-first path, compatibility retention is not the goal.
+
+The goal is to move useful behavior into the native core model and delete the legacy shared-core surfaces that no longer belong.
 
 ---
 

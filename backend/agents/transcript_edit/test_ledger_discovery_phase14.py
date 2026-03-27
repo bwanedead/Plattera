@@ -21,7 +21,7 @@ from backend.agents.transcript_edit.focus_packet import build_focus_packet
 from backend.agents.transcript_edit.organized_work_composition import compute_organized_work_composition
 from backend.agents.transcript_edit.transcript_edit_default_checklist_seed import SEED_WAKE_AT_INIT_KEYS
 from backend.agents.transcript_edit.transcript_edit_ledger_discovery_prep import DISCOVERY_KEY_PREFIX, merge_discovery_from_audit_findings
-from backend.harness.decision_ledger import contracts as dl_contracts
+from backend.harness import mission_state
 
 
 def _long_contra() -> str:
@@ -179,4 +179,4 @@ def test_closure_read_overlays_seed_dormant() -> None:
 
 
 def test_harness_contract_stays_domain_agnostic() -> None:
-    assert not hasattr(dl_contracts, "SEED_WAKE_AT_INIT_KEYS")
+    assert not hasattr(mission_state, "SEED_WAKE_AT_INIT_KEYS")

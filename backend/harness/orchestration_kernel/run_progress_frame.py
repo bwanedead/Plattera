@@ -10,13 +10,12 @@ Shape:
                     call-surface identity is owned exclusively by the developer/header
                     message assembled by compose_identity_header().
     run_posture   — kernel-owned counters / flags that signal how the run is going
-    work_summary  — top blocking items from loop_memory.blocker_surface (shallow, max 5)
-                    + closure posture summary
+    work_summary  — top blocking items from loop_memory.blocking_items_summary
+                    (shallow, max 5) + closure summary
 
-``blocking_items_top`` is strictly blockers-only: drawn from loop_memory.blocker_surface
-(domain pack writes this via WorkStateProjection.blocker_surface in hook 3).  Ranked
-work items are intentionally excluded — they are ephemeral phase-4 inputs and not
-appropriate for long-term carry-forward context.
+``blocking_items_top`` is strictly blockers-only: drawn from loop_memory.blocking_items_summary.
+Advisory active-item candidates are intentionally excluded; they are ephemeral phase-4
+inputs and not appropriate for long-term carry-forward context.
 """
 from __future__ import annotations
 
@@ -106,9 +105,9 @@ def build_run_progress_frame(
         compose_identity_header().
     """
     lm = context.loop_memory
-    blocking_items = list(lm.blocker_surface or [])[:_MAX_BLOCKING_ITEMS]
+    blocking_items = list(lm.blocking_items_summary or [])[:_MAX_BLOCKING_ITEMS]
     shallow_blockers = [_shallow_blocker(b) for b in blocking_items if isinstance(b, dict)]
-    blocking_count = len(list(lm.blocker_surface or []))
+    blocking_count = len(list(lm.blocking_items_summary or []))
 
     run_stage = _derive_run_stage(
         hitl_state=lm.hitl_state,
@@ -139,7 +138,7 @@ def build_run_progress_frame(
         },
         "work_summary": {
             "blocking_items_top": shallow_blockers,
-            "closure_posture_summary": dict(lm.closure_posture_summary or {}),
+            "closure_summary": dict(lm.closure_summary or {}),
         },
     }
 

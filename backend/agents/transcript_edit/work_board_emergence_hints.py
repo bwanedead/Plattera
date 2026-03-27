@@ -4,7 +4,7 @@ These strings are injected into resolver/planner prompts as domain guidance only
 """
 from __future__ import annotations
 
-# Mission-specific examples; generic promotion rules live in harness.work_board.emergence.
+# Mission-specific examples; generic promotion rules live in harness.mission_state.
 TRANSCRIPT_EDIT_EMERGENT_ITEM_HINTS: list[str] = [
     "A newly discovered mapping-critical dependency that is not yet a ledger decision row.",
     "Image-verification ambiguity where preserving an explicit investigation branch improves continuity.",

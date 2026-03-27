@@ -103,12 +103,12 @@ def test_ontology_block_present_in_light_trunk() -> None:
 
 def _make_tx_context(
     *,
-    blocker_surface: list[dict[str, Any]] | None = None,
+    blocking_items_summary: list[dict[str, Any]] | None = None,
     strip: list[dict[str, Any]] | None = None,
     no_progress_streak: int = 0,
 ) -> OrchestratorContext:
     lm = LoopMemoryState()
-    lm.blocker_surface = blocker_surface or []
+    lm.blocking_items_summary = blocking_items_summary or []
     lm.no_progress_streak = no_progress_streak
     ctx = OrchestratorContext(
         session_manager=None,
@@ -153,7 +153,7 @@ def _make_tx_domain_pack(
 def test_run_progress_frame_present_in_tx_focus_packet() -> None:
     """build_focus_packet() must inject run_progress_frame into domain_packet."""
     blocker = {"focus_key": "span_range", "state": "open", "reason_code": "missing_value"}
-    ctx = _make_tx_context(blocker_surface=[blocker], no_progress_streak=1)
+    ctx = _make_tx_context(blocking_items_summary=[blocker], no_progress_streak=1)
     pack = _make_tx_domain_pack()
 
     fp = pack.build_focus_packet(ctx, "span_range")
@@ -187,6 +187,8 @@ def test_run_progress_frame_present_in_tx_focus_packet() -> None:
     assert isinstance(posture["llm_contact_count"], int) and posture["llm_contact_count"] >= 0
 
     work = frame["work_summary"]
+    assert "closure_summary" in work
+    assert "closure_posture_summary" not in work
     top = work["blocking_items_top"]
     assert len(top) == 1
     # v1 shallow keys only — must not contain disallowed keys
@@ -202,12 +204,12 @@ def test_run_progress_frame_present_in_tx_focus_packet() -> None:
 
 
 def test_run_progress_frame_cap_at_five_blockers() -> None:
-    """blocking_items_top must never exceed 5 items regardless of blocker_surface size."""
+    """blocking_items_top must never exceed 5 items regardless of summary size."""
     blockers = [
         {"focus_key": f"k{i}", "state": "open", "reason_code": "x", "extra_noise": "GONE"}
         for i in range(9)
     ]
-    ctx = _make_tx_context(blocker_surface=blockers)
+    ctx = _make_tx_context(blocking_items_summary=blockers)
     pack = _make_tx_domain_pack()
     fp = pack.build_focus_packet(ctx, "k0")
     top = fp.domain_packet["run_progress_frame"]["work_summary"]["blocking_items_top"]
@@ -395,7 +397,7 @@ def test_run_stage_initial_recon_on_first_iteration() -> None:
 
 def test_run_stage_near_terminal_with_zero_blockers() -> None:
     """run_stage == 'near_terminal' when iterations > 1 and blocking_count <= 1."""
-    ctx = _make_tx_context(blocker_surface=[])
+    ctx = _make_tx_context(blocking_items_summary=[])
     ctx.loop_memory.iterations = 3
     pack = _make_tx_domain_pack()
     fp = pack.build_focus_packet(ctx, "range")
@@ -406,7 +408,7 @@ def test_run_stage_near_terminal_with_zero_blockers() -> None:
 def test_run_stage_closure_active_default() -> None:
     """run_stage == 'closure_active' in normal working conditions."""
     blockers = [{"focus_key": "range", "state": "open"}, {"focus_key": "acreage", "state": "open"}]
-    ctx = _make_tx_context(blocker_surface=blockers)
+    ctx = _make_tx_context(blocking_items_summary=blockers)
     ctx.loop_memory.iterations = 2
     pack = _make_tx_domain_pack()
     fp = pack.build_focus_packet(ctx, "range")

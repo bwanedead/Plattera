@@ -16,7 +16,7 @@ from backend.agents.transcript_edit.decision_ledger_state import reconcile_ledge
 from backend.agents.transcript_edit.llm_startup_understanding import native_rows_from_llm_initial_ledger_items
 from backend.agents.transcript_edit.organized_work_composition import compute_organized_work_composition
 from backend.agents.transcript_edit.transcript_edit_ledger_discovery_prep import DISCOVERY_KEY_PREFIX, merge_discovery_from_audit_findings
-from backend.harness.decision_ledger import contracts as dl_contracts
+from backend.harness import mission_state
 
 
 def _long_contra() -> str:
@@ -115,5 +115,5 @@ def test_awake_seed_still_respected_when_closure_authority_requires() -> None:
 
 
 def test_harness_decision_ledger_contract_stays_domain_agnostic() -> None:
-    assert not hasattr(dl_contracts, "SEED_WAKE_AT_INIT_KEYS")
-    assert not hasattr(dl_contracts, "seed_materialization_mode")
+    assert not hasattr(mission_state, "SEED_WAKE_AT_INIT_KEYS")
+    assert not hasattr(mission_state, "seed_materialization_mode")

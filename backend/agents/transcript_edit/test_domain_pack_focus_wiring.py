@@ -80,16 +80,16 @@ def test_domain_pack_project_keeps_last_focus_continuity_over_advisory_ranking()
     context = OrchestratorContext(
         session_manager=SimpleNamespace(),
         session_id="session:test",
-        loop_memory=LoopMemoryState(active_focus_key="range"),
+        loop_memory=LoopMemoryState(active_item_id="range"),
         request_id_prefix="req:test",
         dossier_id=None,
     )
 
     projection = pack.project(context)
 
-    assert projection.selected_focus_key == "range"
-    assert projection.ranked_work_item_list
-    assert projection.ranked_work_item_list[0]["focus_key"] == "range"
+    assert projection.resolution_state.active_item_id == "range"
+    assert projection.advisory_active_items
+    assert projection.advisory_active_items[0]["item_id"] == "range"
 
 
 def test_domain_pack_project_leaves_selected_focus_empty_without_continuity_or_startup_authorship() -> None:
@@ -124,15 +124,15 @@ def test_domain_pack_project_leaves_selected_focus_empty_without_continuity_or_s
     context = OrchestratorContext(
         session_manager=SimpleNamespace(),
         session_id="session:test",
-        loop_memory=LoopMemoryState(active_focus_key=None),
+        loop_memory=LoopMemoryState(active_item_id=None),
         request_id_prefix="req:test",
         dossier_id=None,
     )
 
     projection = pack.project(context)
 
-    assert projection.selected_focus_key is None
-    assert projection.ranked_work_item_list
+    assert projection.resolution_state.active_item_id is None
+    assert projection.advisory_active_items
 
 
 def test_domain_pack_project_uses_startup_understanding_for_first_focus_when_continuity_absent() -> None:
@@ -165,15 +165,15 @@ def test_domain_pack_project_uses_startup_understanding_for_first_focus_when_con
     context = OrchestratorContext(
         session_manager=SimpleNamespace(),
         session_id="session:test",
-        loop_memory=LoopMemoryState(active_focus_key=None),
+        loop_memory=LoopMemoryState(active_item_id=None),
         request_id_prefix="req:test",
         dossier_id=None,
     )
 
     projection = pack.project(context)
 
-    assert projection.selected_focus_key == "startup_choice"
-    assert projection.ranked_work_item_list
+    assert projection.resolution_state.active_item_id == "startup_choice"
+    assert projection.advisory_active_items
 
 
 def test_domain_pack_project_keeps_continuity_over_startup_understanding() -> None:
@@ -197,11 +197,11 @@ def test_domain_pack_project_keeps_continuity_over_startup_understanding() -> No
     context = OrchestratorContext(
         session_manager=SimpleNamespace(),
         session_id="session:test",
-        loop_memory=LoopMemoryState(active_focus_key="range"),
+        loop_memory=LoopMemoryState(active_item_id="range"),
         request_id_prefix="req:test",
         dossier_id=None,
     )
 
     projection = pack.project(context)
 
-    assert projection.selected_focus_key == "range"
+    assert projection.resolution_state.active_item_id == "range"

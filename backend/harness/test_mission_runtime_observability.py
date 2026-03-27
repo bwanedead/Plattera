@@ -48,6 +48,12 @@ def _deed_result() -> ControllerRunResult:
         session_id="request-observe-1::deed-run-1",
         run_artifact_ref="artifact://deed/run/1",
         iterations=2,
+        handoff_posture={
+            "posture": "ready_for_downstream_domain",
+            "target_domain_id": TRANSCRIPT_EDIT_MODE_NAME,
+            "target_family_id": "mapping",
+            "reason_code": "deed_to_ir_output_requires_transcript_edit_review",
+        },
     )
 
 
@@ -71,6 +77,12 @@ def _tx_result() -> TranscriptEditAgentRunResult:
                 "verification_kind": "transcript_edit_closure_ledger",
                 "terminal_classification": "mapping_ready",
             }
+        },
+        handoff_posture={
+            "posture": "ready_for_downstream_domain",
+            "target_domain_id": DEED_TO_IR_MODE_NAME,
+            "target_family_id": "mapping",
+            "reason_code": "transcript_edit_review_ready_for_deed_resume",
         },
     )
 
@@ -109,6 +121,7 @@ def test_multi_mode_mission_observability_is_one_continuous_story() -> None:
     assert trace.mission_id == "mission-observe-1"
     assert trace.mode_history == [DEED_TO_IR_MODE_NAME, TRANSCRIPT_EDIT_MODE_NAME, DEED_TO_IR_MODE_NAME]
     assert len(trace.transition_events) == 2
+    assert "expected_next_work" not in trace.transition_events[0].model_dump(mode="json")
     assert any(event.event_kind == "mission_transition" for event in trace.events)
 
     mode_segments = [event for event in trace.events if event.event_kind == "mode_segment"]

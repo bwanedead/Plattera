@@ -119,7 +119,7 @@ def test_planner_user_message_includes_slim_execution_context_with_recent_lane()
         "parity": {"code": "ok", "identity_aligned": True, "posture_aligned": True},
         "focus_selection": {"decision_key": "range"},
         "active_work_item": {"item_id": "te:ledger:range", "state": "blocked"},
-        "recent_iterations": {"schema_version": "recent_iteration_lane.v1", "rich_capsules": [{"iteration": 2}]},
+        "recent_iterations": {"schema_version": "recent_activity.v1", "rich_capsules": [{"iteration": 2}]},
         "blocker_posture": {
             "understanding_strength": "moderate",
             "needs_orientation": False,

@@ -10,6 +10,7 @@ Related:
 - `docs/architecture/harness/domain-pack-constitution.md`
 - `docs/architecture/harness/native-harness-core-and-domain-pack-architecture-v1.md`
 - `docs/architecture/harness/mission-state-and-resolution-state-architecture.md`
+- `docs/architecture/harness/generic-harness-native-core-guardrails.md`
 - `docs/architecture/harness/generic-harness-native-core-roadmap.md`
 
 ---
@@ -73,6 +74,7 @@ It does **not** mean:
 - a new reporting layer projects `mission_state` while the kernel still runs on older internal work-state concepts
 - the old packages remain load-bearing but are called “compatibility”
 - the new system is just a thin narrative veneer over the old contracts
+- the repo carries a public native path and a shadow legacy path for the same shared responsibility
 
 ---
 
@@ -161,6 +163,8 @@ The following should be treated as retirement targets, not permanent architectur
 - `work_board.v1` as the lasting wire identity
 - kernel-native `WorkStateProjection` as the final shared work contract
 - continuity helpers that still preserve next-step hint slots or board-centric terminology
+- shared continuity helpers that still expose legacy board/ledger vocabulary where native generic names now exist
+- shared observability or trace surfaces that still speak the legacy model as if it were canonical
 
 Transcript-edit-specific retirement targets are separate and can be handled later or by rebuild.
 
@@ -204,9 +208,43 @@ The generic harness should become more mechanical and more generic as it becomes
 
 Not more “helpful.”
 
+This implementation-facing discipline is expanded in:
+
+- `docs/architecture/harness/generic-harness-native-core-guardrails.md`
+
 ---
 
-## 10. Relationship To Domains
+## 10. Deletion And Slimming Rule
+
+This target assumes the refactor is **subtractive** as well as corrective.
+
+That means:
+
+- if a shared legacy surface has no place in the native model, it should be deleted
+- compatibility wrappers should be temporary and explicitly bounded
+- the harness should get smaller and more direct as it becomes more native
+
+The target is not:
+
+- more adapters
+- more compatibility shells
+- more side-by-side old and new shared packages
+
+The target is:
+
+- fewer metaphors
+- fewer helper layers
+- fewer legacy modules
+- more direct shared contracts
+- one canonical shared-core path per responsibility
+
+Every successful replacement slice should leave behind something that is now deletable.
+
+If the new trunk keeps growing while the old trunk remains intact, the migration is failing even if the target contracts look better.
+
+---
+
+## 11. Relationship To Domains
 
 This target explicitly allows the shared trunk to move ahead of older domains.
 
@@ -225,7 +263,7 @@ Domains consume that law.
 
 ---
 
-## 11. Definition Of “Shiny End-To-End Harness”
+## 12. Definition Of “Shiny End-To-End Harness”
 
 The generic harness can be considered clean only when all of the following are true:
 
@@ -234,11 +272,13 @@ The generic harness can be considered clean only when all of the following are t
 - `work_board` and `decision_ledger` are gone from shared core packages and primary contracts
 - continuity helpers carry history and posture only, not next-step hint residue
 - the runtime and observation layers can speak the native model directly
+- old shared-core files that no longer own unique behavior have been removed, not merely deprecated in place
+- there is no permanent shadow legacy substrate still carrying the same organized-work responsibility behind the native API
 - at least one rebuilt or cleanly adapted domain can run against the new trunk without reintroducing the old metaphors
 
 ---
 
-## 12. Summary
+## 13. Summary
 
 The goal is not:
 

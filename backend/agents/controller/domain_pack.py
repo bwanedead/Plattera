@@ -7,7 +7,7 @@ controller loop is retired (guarded by PLATTERA_ENABLE_LEGACY_CONTROLLERS).
 Hook ownership:
 - Domain pack owns: bootstrap_context, transcript, proposal state, refusal/autofill,
   phase_hint inference, context packet assembly, LLM proposal, argument validation.
-- Kernel owns: active_focus_key, focus_stagnation_streak, HitlState, no_progress_streak,
+- Kernel owns: active_item_id, focus_stagnation_streak, HitlState, no_progress_streak,
   evidence_signal_counter (loop_memory), invalid_plan_strikes, TerminalDecision.
 
 Per-iteration ephemeral cross-hook state:
@@ -43,8 +43,9 @@ from harness.orchestration_kernel.contracts import (
     OrchestratorContext,
     ProgressMetrics,
     RefreshResult,
-    WorkStateProjection,
+    SharedStateProjection,
 )
+from harness.mission_state import new_mission_state, new_resolution_state
 from harness.orchestration_kernel.run_progress_frame import build_run_progress_frame
 from harness.terminal_taxonomy import classify_controller_terminal
 
@@ -276,14 +277,14 @@ class DeedToIRDomainPack:
     # Hook 3 — project
     # -------------------------------------------------------------------------
 
-    def project(self, context: OrchestratorContext) -> WorkStateProjection:
-        """Phase 3 — Project deed authority into Work-State sub-surfaces.
+    def project(self, context: OrchestratorContext) -> SharedStateProjection:
+        """Phase 3 — Project deed authority into native shared state.
 
         Produces one work item per gap kind (derived from gap_summary.top_gap_kinds)
         plus a finalize item when claimability is ready, and a phase-fallback item
-        when no gaps exist. All items use ``focus_key`` (required by kernel's
-        _select_focus). Gap items use stable keys so focus-stagnation tracking works
-        across iterations.
+        when no gaps exist. The temporary deed pack exposes these as resolution items
+        and advisory candidates, but it does not author ``active_item_id``. The kernel
+        may carry prior continuity mechanically if one already exists.
         """
         snapshot = self._current_dashboard_snapshot(context)
         claimability = snapshot.get("claimability") or {}
@@ -328,15 +329,59 @@ class DeedToIRDomainPack:
             work_items.append(fallback)
             ranked.append(fallback)
 
-        return WorkStateProjection(
-            work_item_collection=work_items,
-            blocker_surface=[],
-            closure_posture_summary={
+        resolution_items = [
+            {
+                "item_id": str(item.get("focus_key") or "").strip(),
+                "title": str(item.get("focus_key") or "").strip() or "deed_item",
+                "kind": "deed_controller_item",
+                "status": str(item.get("status") or "open").strip().lower() or "open",
+                "summary": str(item.get("phase_hint") or "").strip() or None,
+                "domain_payload": dict(item),
+            }
+            for item in work_items
+            if isinstance(item, dict) and str(item.get("focus_key") or "").strip()
+        ]
+        resolution_state = new_resolution_state(
+            active_item_id=None,
+            items=resolution_items,
+            updated_at_epoch_seconds=float(context.loop_memory.iterations),
+        )
+        mission_state = new_mission_state(
+            mission_id=self._request_id_prefix,
+            session_id=context.session_id,
+            request_id=context.request_id_prefix,
+            loop_family="controller_kernel",
+            objective=str(getattr(self._start_request, "objective", "") or "").strip() or None,
+            active_mode=self._phase_hint,
+            updated_at_epoch_seconds=float(context.loop_memory.iterations),
+            latest_refs_summary=dict(self._latest_refs),
+            verification_summary={
+                "claimable_ready": claimable_ready,
+                "gap_count": len(top_gap_kinds),
+            },
+            continuity_summary={"phase_hint": self._phase_hint},
+            mission_mode_summary={"phase_hint": self._phase_hint},
+            resolution_state=resolution_state,
+        )
+        return SharedStateProjection(
+            mission_state=mission_state,
+            resolution_state=resolution_state,
+            blocking_items_summary=[],
+            closure_summary={
                 "phase_hint": self._phase_hint,
                 "claimable_ready": claimable_ready,
                 "gap_count": len(top_gap_kinds),
             },
-            ranked_work_item_list=ranked,
+            advisory_active_items=[
+                {
+                    "item_id": str(item.get("focus_key") or "").strip(),
+                    "status": str(item.get("status") or "open").strip().lower() or "open",
+                    "priority": item.get("priority"),
+                    "phase_hint": item.get("phase_hint"),
+                }
+                for item in ranked
+                if isinstance(item, dict) and str(item.get("focus_key") or "").strip()
+            ],
         )
 
     # -------------------------------------------------------------------------

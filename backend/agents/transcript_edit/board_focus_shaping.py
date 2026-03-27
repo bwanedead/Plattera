@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from harness.work_board.lifecycle import emergent_recency_rank
+from harness.mission_state import emergent_recency_rank
 
 from .work_board_read import board_materiality, board_state, ledger_board_parity
 

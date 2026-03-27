@@ -7,6 +7,7 @@ from agent_kernel.session import KernelSessionManager
 from agent_kernel.models import ActionType, KernelStepRequest, StepExecutionState
 
 from ..terminal_taxonomy import TerminalClass
+from ..mission_state import MissionState, ResolutionState
 from .contracts import (
     ClosureEvaluation,
     DomainPack,
@@ -45,12 +46,12 @@ def run_orchestration_kernel_loop(
 
     The kernel owns the fixed rails: orient, refresh, project, execute, progress,
     closure, and terminal handling. The domain pack fills the hooks with content:
-    focus selection, evidence assembly, move resolution, compilation, progress
-    metrics, and closure rules.
+    active-item selection, evidence assembly, move resolution, compilation,
+    progress metrics, and closure rules.
 
     If ``hitl_state == "answered_unintegrated"``, the pre-phase integrates feedback
-    before the next refresh. Focus continuity is kernel-carried; if continuity is
-    absent, the domain pack authors the next selected focus.
+    before the next refresh. Active-item continuity is kernel-carried; if continuity is
+    absent, the domain pack authors the next active item through `resolution_state`.
     """
     loop_memory = LoopMemoryState()
     # P3: pre-seed HITL state so the first iteration's pre-phase fires integrate_feedback.
@@ -164,29 +165,37 @@ def run_orchestration_kernel_loop(
         else:
             _LOG.info("TX_KERNEL hook2_refresh_skipped ► iter=%s no_pending_refresh", iterations)
 
-        # Phase 3: Project — kernel writes work-state atomically.
+        # Phase 3: Project — kernel writes native shared state atomically.
         _LOG.info("TX_KERNEL hook3_project ► iter=%s", iterations)
         projection = domain_pack.project(context)
-        loop_memory.work_item_collection = list(projection.work_item_collection)
-        loop_memory.blocker_surface = list(projection.blocker_surface)
-        loop_memory.closure_posture_summary = dict(projection.closure_posture_summary)
-        ranked_list = list(projection.ranked_work_item_list)
+        loop_memory.resolution_state = projection.resolution_state
+        loop_memory.blocking_items_summary = list(projection.blocking_items_summary)
+        loop_memory.closure_summary = dict(projection.closure_summary)
+        advisory_items = list(projection.advisory_active_items)
 
-        # Carry focus continuity only; selection is authored by the domain pack.
-        prev_focus_key = loop_memory.active_focus_key
-        selected_focus_key = projection.selected_focus_key or loop_memory.active_focus_key
-        if selected_focus_key != prev_focus_key:
-            loop_memory.active_focus_key = selected_focus_key
+        # Carry active-item continuity only; authored selection comes from resolution_state.
+        prev_active_item_id = loop_memory.active_item_id
+        selected_active_item_id = projection.resolution_state.active_item_id or loop_memory.active_item_id
+        if selected_active_item_id != prev_active_item_id:
+            loop_memory.active_item_id = selected_active_item_id
             loop_memory.focus_stagnation_streak = 0
+        loop_memory.resolution_state = _with_active_item_id(
+            loop_memory.resolution_state,
+            selected_active_item_id,
+        )
+        loop_memory.mission_state = _sync_projected_mission_state(
+            projection.mission_state,
+            loop_memory.resolution_state,
+        )
         tracer.emit_focus_selected(
             iteration=iterations,
-            focus_key=selected_focus_key,
-            candidates=ranked_list,
+            focus_key=selected_active_item_id,
+            candidates=advisory_items,
             stagnation_streak=loop_memory.focus_stagnation_streak,
         )
 
         # If no actionable focus: go straight to decide without executing.
-        if selected_focus_key is None:
+        if selected_active_item_id is None:
             _LOG.info("TX_KERNEL no_actionable_focus ► iter=%s going_to_decide", iterations)
             # No-focus iteration increments warning counters only; hard stops remain mechanical.
             loop_memory.no_progress_streak += 1
@@ -211,11 +220,19 @@ def run_orchestration_kernel_loop(
         context.rationale_strip_snapshot = build_rationale_continuity_strip(
             tracer.build_raw_events()
         )
-        _LOG.info("TX_KERNEL hook4_build_focus_packet ► iter=%s focus=%s", iterations, selected_focus_key)
-        focus_packet = domain_pack.build_focus_packet(context, selected_focus_key)
+        _LOG.info(
+            "TX_KERNEL hook4_build_focus_packet ► iter=%s focus=%s",
+            iterations,
+            selected_active_item_id,
+        )
+        focus_packet = domain_pack.build_focus_packet(context, selected_active_item_id)
 
         # Phase 5b: Resolve move.
-        _LOG.info("TX_KERNEL hook5_resolve_move ► iter=%s focus=%s", iterations, selected_focus_key)
+        _LOG.info(
+            "TX_KERNEL hook5_resolve_move ► iter=%s focus=%s",
+            iterations,
+            selected_active_item_id,
+        )
         move_decision = domain_pack.resolve_move(context, focus_packet)
         _move_payload = move_decision.domain_move_payload or {}
         _evidence_req = _move_payload.get("evidence_request") if isinstance(_move_payload.get("evidence_request"), dict) else None
@@ -592,6 +609,25 @@ def _make_result(
             "evidence_signal_counter": loop_memory.evidence_signal_counter,
             "apply_refusal_same_focus_streak": loop_memory.apply_refusal_same_focus_streak,
             "last_apply_refusal_focus_key": loop_memory.last_apply_refusal_focus_key,
+            "active_item_id": loop_memory.active_item_id,
         },
         trace_events=tracer.build_raw_events(),
     )
+
+
+def _with_active_item_id(
+    resolution_state: ResolutionState,
+    active_item_id: str | None,
+) -> ResolutionState:
+    if resolution_state.active_item_id == active_item_id:
+        return resolution_state
+    return resolution_state.model_copy(update={"active_item_id": active_item_id})
+
+
+def _sync_projected_mission_state(
+    mission_state: MissionState,
+    resolution_state: ResolutionState,
+) -> MissionState:
+    if mission_state.resolution_state == resolution_state:
+        return mission_state
+    return mission_state.model_copy(update={"resolution_state": resolution_state})

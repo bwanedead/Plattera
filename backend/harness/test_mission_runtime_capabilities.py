@@ -83,7 +83,7 @@ def test_runtime_executes_typed_mode_context_before_policy_interpretation() -> N
             context: ModeCycleContext,
             interpretation: ModeInterpretation,
         ) -> ModeRecommendation:
-            return ModeRecommendation(next_step_hint="continue")
+            return ModeRecommendation()
 
     runtime = MissionRuntime(adapter_registry=MissionModeAdapterRegistry([AdapterPolicy()]), now_fn=lambda: 100.0)
     result = runtime.run_cycle(

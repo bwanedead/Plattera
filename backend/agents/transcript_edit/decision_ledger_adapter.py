@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from harness.work_board.contracts import MAX_BOARD_CONTEXT_NOTES_PER_ITEM, new_work_board
+from harness.mission_state import MAX_CONTEXT_NOTES_PER_ITEM, new_resolution_envelope
 
 # Loop state is referenced as a duck-typed object to avoid importing ``loop_state`` here.
 
@@ -68,7 +68,7 @@ def build_transcript_edit_unified_decision_ledger(
         if isinstance(extra, list) and extra:
             existing = [dict(x) for x in (r.get("context_notes") or []) if isinstance(x, dict)]
             merged = existing + [dict(x) for x in extra if isinstance(x, dict)]
-            r["context_notes"] = merged[-MAX_BOARD_CONTEXT_NOTES_PER_ITEM:]
+            r["context_notes"] = merged[-MAX_CONTEXT_NOTES_PER_ITEM:]
         elif "context_notes" not in r:
             r["context_notes"] = []
         return r
@@ -79,7 +79,7 @@ def build_transcript_edit_unified_decision_ledger(
     for em in harness_emergent_board_items or []:
         if isinstance(em, dict):
             items_out.append(merge_notes(dict(em)))
-    return new_work_board(domain_projection=domain, items=items_out)
+    return new_resolution_envelope(domain_projection=domain, items=items_out)
 
 
 def legacy_decision_ledger_items_from_unified(unified: dict[str, Any]) -> list[dict[str, Any]]:

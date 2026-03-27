@@ -7,7 +7,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 from backend.agents.transcript_edit.decision_ledger_focus import choose_investigation_focus
 from backend.agents.transcript_edit.decision_ledger_focus import authority_rank_for_candidate
-from backend.harness.work_board.contracts import new_work_board, work_board_item_dict
+from backend.harness.mission_state import new_resolution_envelope, resolution_item_row_dict
 
 
 def _ledger_with_material_mapping_blocker() -> dict:
@@ -38,7 +38,7 @@ def _ledger_with_material_mapping_blocker() -> dict:
 
 def test_ledger_mapping_authority_wins_over_emergent() -> None:
     ledger = _ledger_with_material_mapping_blocker()
-    em = work_board_item_dict(
+    em = resolution_item_row_dict(
         item_id="harness:emergent:111111111111",
         title="Emergent high materiality closure branch for mapping",
         kind="transcript_edit.scan_integrity",
@@ -49,7 +49,7 @@ def test_ledger_mapping_authority_wins_over_emergent() -> None:
         evidence_refs=["x"],
         domain_payload={"harness_lifecycle": {"created_at_epoch": 999999, "last_event_at_epoch": 999999}},
     )
-    wb = new_work_board(domain_projection="decision_ledger", items=[em])
+    wb = new_resolution_envelope(domain_projection="decision_ledger", items=[em])
     focus = choose_investigation_focus(ledger, work_board=wb)
     assert focus is not None
     assert focus.get("decision_key") == "range"
@@ -78,7 +78,7 @@ def test_emergent_preferred_when_no_material_mapping_blocker_in_closure() -> Non
         "scope_summaries": {},
         "source_completeness": "complete",
     }
-    em = work_board_item_dict(
+    em = resolution_item_row_dict(
         item_id="harness:emergent:222222222222",
         title="Dedicated orientation branch for tie-bearing preservation work",
         kind="transcript_edit.orientation",
@@ -88,7 +88,7 @@ def test_emergent_preferred_when_no_material_mapping_blocker_in_closure() -> Non
         resolution_condition="Document contradiction",
         evidence_refs=["f"],
     )
-    wb = new_work_board(domain_projection="decision_ledger", items=[em])
+    wb = new_resolution_envelope(domain_projection="decision_ledger", items=[em])
     focus = choose_investigation_focus(ledger, work_board=wb)
     assert focus is not None
     assert str(focus.get("decision_key") or "").startswith("harness:emergent:")
@@ -102,7 +102,7 @@ def test_emergent_preferred_when_no_material_mapping_blocker_in_closure() -> Non
 def test_authority_policy_ranks_align_with_choose_winner() -> None:
     """Emergent defer rank is strictly after material ledger mapping blocker when mode is ledger_absolute."""
     ledger = _ledger_with_material_mapping_blocker()
-    row = work_board_item_dict(
+    row = resolution_item_row_dict(
         item_id="harness:emergent:999999999999",
         title="Emergent competitor for authority rank check",
         kind="transcript_edit.scan_integrity",
@@ -112,7 +112,7 @@ def test_authority_policy_ranks_align_with_choose_winner() -> None:
         resolution_condition="x",
         evidence_refs=["e"],
     )
-    wb = new_work_board(domain_projection="decision_ledger", items=[row])
+    wb = new_resolution_envelope(domain_projection="decision_ledger", items=[row])
     focus = choose_investigation_focus(ledger, work_board=wb)
     assert focus and focus.get("decision_key") == "range"
     from backend.agents.transcript_edit.decision_ledger_closure import unresolved_mapping_blocking_requirements

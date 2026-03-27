@@ -11,14 +11,17 @@ from backend.agents.transcript_edit.work_board_projection import (
     active_work_board_item_for_key,
     project_decision_ledger_to_work_board,
 )
-from backend.harness.work_board.contracts import new_work_board, work_board_item_dict
-from backend.harness.work_board.contracts import WORK_BOARD_VERSION
+from backend.harness.mission_state import (
+    LEGACY_WORK_BOARD_ENVELOPE_VERSION,
+    new_resolution_envelope,
+    resolution_item_row_dict,
+)
 
 
 def test_project_ledger_preserves_item_count_and_ids() -> None:
     ledger = initialize_decision_ledger_with_domain_template_seed()
     board = project_decision_ledger_to_work_board(ledger)
-    assert board["schema_version"] == WORK_BOARD_VERSION
+    assert board["schema_version"] == LEGACY_WORK_BOARD_ENVELOPE_VERSION
     assert board["domain_projection"] == "transcript_edit.decision_ledger"
     assert len(board["items"]) == len(ledger["items"])
     keys = {str(i["key"]) for i in ledger["items"]}
@@ -36,7 +39,7 @@ def test_active_item_lookup() -> None:
 
 
 def test_active_work_board_item_for_focus_resolves_emergent_id() -> None:
-    row = work_board_item_dict(
+    row = resolution_item_row_dict(
         item_id="harness:emergent:deadbeef0001",
         title="Emergent row",
         kind="t",
@@ -45,7 +48,7 @@ def test_active_work_board_item_for_focus_resolves_emergent_id() -> None:
         blocking_impact="mapping_blocking",
         provenance="harness.emergent.v1",
     )
-    board = new_work_board(domain_projection="test", items=[row])
+    board = new_resolution_envelope(domain_projection="test", items=[row])
     got = active_work_board_item_for_focus(board, "harness:emergent:deadbeef0001")
     assert got is not None
     assert got.get("item_id") == "harness:emergent:deadbeef0001"

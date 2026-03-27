@@ -85,7 +85,6 @@ class MissionTransitionEvent(BaseModel):
     status: str = Field(min_length=1, max_length=32)
     order_anchor: int = Field(ge=0)
     timestamp_epoch_seconds: int = Field(ge=0)
-    expected_next_work: str | None = Field(default=None, max_length=256)
     resume_note_for_prior_mode: str | None = Field(default=None, max_length=256)
     handed_forward_artifact_refs: list[str] = Field(default_factory=list, max_length=24)
 

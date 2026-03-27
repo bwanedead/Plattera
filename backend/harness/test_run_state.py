@@ -249,7 +249,6 @@ def test_mission_runtime_builder_adds_mission_mode_awareness_without_ledger_mirr
                 "prior_mode": "deed_to_ir",
                 "next_mode": "transcript_edit",
                 "reason": "handoff_to_review",
-                "expected_next_work": "run transcript review",
                 "resume_note_for_prior_mode": "resume with repaired refs",
             }
         ],
@@ -288,6 +287,8 @@ def test_mission_runtime_builder_adds_mission_mode_awareness_without_ledger_mirr
     assert envelope.mission_state.resolution_state.active_item_id == "item:mission-active"
     assert envelope.mission_state.resolution_state.items[0].title == "Active mission work item"
     assert envelope.mission_mode_summary.resume_context_summary["resumable"] is True
+    assert envelope.mission_mode_summary.resume_context_summary["latest_transition_target_mode"] == "transcript_edit"
+    assert "expected_next_work" not in envelope.mission_mode_summary.resume_context_summary
     assert envelope.latest_refs_summary.total_count == 2
 
 

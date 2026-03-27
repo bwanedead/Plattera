@@ -1,19 +1,19 @@
-"""Apply harness emergent work-board lifecycle updates after a resolver iteration (transcript_edit)."""
+"""Apply harness emergent-item lifecycle updates after a resolver iteration (transcript_edit)."""
 from __future__ import annotations
 
 from typing import Any
 
-from harness.work_board.lifecycle import (
+from harness.mission_state import (
     compute_emergent_state_after_resolver_move,
     count_tail_resolver_moves,
     edit_plan_has_ops,
+    EMERGENT_RESOLUTION_ITEM_PREFIX,
     emergent_recency_rank,
-    normalize_board_state,
+    normalize_resolution_item_state,
     stamp_harness_lifecycle_domain,
 )
 
 from .loop_state import TranscriptEditLoopState
-from .work_board_projection import HARNESS_EMERGENT_ITEM_PREFIX
 
 
 def sync_focused_emergent_item_from_resolver_outcome(
@@ -27,7 +27,7 @@ def sync_focused_emergent_item_from_resolver_outcome(
 ) -> dict[str, Any] | None:
     """Update focused emergent row; return compact observability dict if state changed."""
     fk = str(focus_key or "").strip().lower()
-    if not fk.startswith(HARNESS_EMERGENT_ITEM_PREFIX):
+    if not fk.startswith(EMERGENT_RESOLUTION_ITEM_PREFIX):
         return None
     sig = policy_signals if isinstance(policy_signals, dict) else {}
     repeat = bool(sig.get("repeat_without_signal"))
@@ -48,7 +48,7 @@ def sync_focused_emergent_item_from_resolver_outcome(
         if str(row.get("item_id") or "").strip().lower() != fk:
             new_items.append(dict(row))
             continue
-        cur_before = normalize_board_state(str(row.get("state") or "open"))
+        cur_before = normalize_resolution_item_state(str(row.get("state") or "open"))
         board_before = cur_before
         nxt = compute_emergent_state_after_resolver_move(
             cur_before,
@@ -59,7 +59,7 @@ def sync_focused_emergent_item_from_resolver_outcome(
         )
         r2 = dict(row)
         if nxt is not None:
-            r2["state"] = normalize_board_state(nxt)
+            r2["state"] = normalize_resolution_item_state(nxt)
             reason_code = f"resolver_move:{str(move or '').strip().lower()[:40]}"
             r2["domain_payload"] = stamp_harness_lifecycle_domain(
                 r2.get("domain_payload") if isinstance(r2.get("domain_payload"), dict) else {},
@@ -94,6 +94,8 @@ def sync_focused_emergent_item_from_resolver_outcome(
         "board_state_after": board_after,
         "board_transition_reason": transition_reason[:200],
         "board_recency_rank": rec_rank,
+        "repeat_without_signal_observed": repeat,
+        "consecutive_gather_tail": tail,
         "harness_lifecycle_last_reason": str(life.get("last_transition_reason") or "")[:120] or None,
         "newly_promoted": False,
         "recently_touched": bool(rec_rank is not None and rec_rank == 0),

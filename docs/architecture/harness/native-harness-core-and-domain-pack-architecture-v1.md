@@ -11,6 +11,7 @@ Related:
 - `docs/architecture/agent-kernel/domain-pack-interface-v1.md`
 - `docs/architecture/agent-kernel/orchestration-kernel-contracts-v1.md`
 - `docs/architecture/harness/generic-harness-native-core-target.md`
+- `docs/architecture/harness/generic-harness-native-core-guardrails.md`
 - `docs/architecture/harness/generic-harness-native-core-roadmap.md`
 
 ## Purpose
@@ -62,6 +63,10 @@ The domain pack owns:
 Short form:
 
 **The harness owns process. The domain pack owns meaning.**
+
+The agent still owns motion.
+
+Shared deterministic code must not reclaim that authorship under the excuse of convenience, compatibility, or refactor cleanup.
 
 This is the primary architectural rule.
 
@@ -592,3 +597,9 @@ Its job is not to preserve the assumptions of any existing mission family.
 
 Concrete domains come later as packs.
 They do not define the native shape of the core.
+
+That migration should be subtractive as well as additive:
+
+- useful behavior gets re-homed into the native core
+- legacy shared-core containers get removed once replaced
+- the final trunk should be smaller, cleaner, and more direct than the transitional stack it replaces

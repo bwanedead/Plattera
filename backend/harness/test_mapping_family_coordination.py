@@ -24,7 +24,6 @@ def test_mapping_family_ready_posture_recommends_expected_next_mode() -> None:
         terminal=TerminalRecommendation(terminal=True, terminal_class="completed", reason_code="tx_agent_clean_complete"),
         transition_allowed=True,
         handed_forward_artifact_refs=["artifact://tx/run/1"],
-        expected_next_work="resume deed_to_ir with transcript-edit validated artifacts",
         resume_note_for_prior_mode="return to transcript_edit only if new closure blockers emerge",
     )
 
@@ -34,6 +33,7 @@ def test_mapping_family_ready_posture_recommends_expected_next_mode() -> None:
     assert coordination.coordination_state == "transition_recommended"
     assert coordination.transition_recommendation is not None
     assert coordination.transition_recommendation.next_mode == "deed_to_ir"
+    assert not hasattr(coordination.transition_recommendation, "expected_next_work")
 
 
 def test_mapping_family_blocked_and_waiting_postures_do_not_recommend_transitions() -> None:

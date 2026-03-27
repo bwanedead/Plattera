@@ -15,7 +15,6 @@ class MissionTransitionObservation:
     order_anchor: int
     timestamp_epoch_seconds: int
     handed_forward_artifact_refs: tuple[str, ...] = ()
-    expected_next_work: str | None = None
     resume_note_for_prior_mode: str | None = None
 
 
@@ -110,10 +109,6 @@ def build_mission_observation_from_runtime(
             "terminal": ledger.mission_status.terminal,
             "terminal_class": ledger.mission_status.terminal_class,
             "reason_code": ledger.mission_status.reason_code,
-            # Synthetic convenience field: non-null only when the mission is
-            # mid-roundtrip (not terminal) and the most recent transition was applied.
-            # Transition detail is authoritative in transition_history / cycles[*].transition;
-            # this field exists for operator ergonomics when scanning the top-level status.
             "transitioning_to": _last_applied_next_mode(ledger),
         },
         blocker_posture_summary={
@@ -172,7 +167,6 @@ def _transition_from_runtime(item: ModeTransition) -> MissionTransitionObservati
         order_anchor=item.order_anchor,
         timestamp_epoch_seconds=int(item.timestamp_epoch_seconds),
         handed_forward_artifact_refs=tuple(_as_str_list(item.handed_forward_artifact_refs, dedupe=True)),
-        expected_next_work=item.expected_next_work,
         resume_note_for_prior_mode=item.resume_note_for_prior_mode,
     )
 
@@ -186,7 +180,6 @@ def _transition_from_payload(item: dict[str, Any]) -> MissionTransitionObservati
         order_anchor=_as_int(item.get("order_anchor")) or 0,
         timestamp_epoch_seconds=_as_int(item.get("timestamp_epoch_seconds")) or 0,
         handed_forward_artifact_refs=tuple(_as_str_list(item.get("handed_forward_artifact_refs"), dedupe=True)),
-        expected_next_work=_as_str(item.get("expected_next_work")),
         resume_note_for_prior_mode=_as_str(item.get("resume_note_for_prior_mode")),
     )
 
@@ -200,7 +193,6 @@ def _transition_payload(item: MissionTransitionObservation) -> dict[str, Any]:
         "order_anchor": item.order_anchor,
         "timestamp_epoch_seconds": item.timestamp_epoch_seconds,
         "handed_forward_artifact_refs": list(item.handed_forward_artifact_refs),
-        "expected_next_work": item.expected_next_work,
         "resume_note_for_prior_mode": item.resume_note_for_prior_mode,
     }
 

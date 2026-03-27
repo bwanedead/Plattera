@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from ..mission_state import MissionState, ResolutionState, new_mission_state, new_resolution_state
 from .contracts import HitlState
 
 
@@ -14,13 +15,13 @@ class LoopMemoryState:
     but must not write kernel-owned fields directly.
 
     Kernel-owned fields (domain packs must not write):
-    - active_focus_key, focus_stagnation_streak  (focus state)
+    - active_item_id, focus_stagnation_streak  (continuity state)
     - hitl_state, pending_feedback_prompt_id, pending_feedback_response  (HITL state machine)
     - no_progress_streak, last_progress_reason, evidence_signal_counter  (progress memory)
     - invalid_plan_strikes  (loop brake)
 
     Domain packs may read any field for decision-making but must only surface
-    updates via hook return values (WorkStateProjection, ProgressMetrics, etc.).
+    updates via hook return values (SharedStateProjection, ProgressMetrics, etc.).
     """
 
     # --- Continuity memory ---
@@ -30,14 +31,20 @@ class LoopMemoryState:
     # Kernel-side trigger; domain pack must not write.
     pending_refresh: bool = False
 
-    # --- Work-State memory (written atomically from WorkStateProjection) ---
-    # Focus state is kernel-owned and NOT part of WorkStateProjection.
-    work_item_collection: list[dict[str, Any]] = field(default_factory=list)
-    blocker_surface: list[dict[str, Any]] = field(default_factory=list)
-    closure_posture_summary: dict[str, Any] = field(default_factory=dict)
+    # --- Native shared-state memory (written atomically from SharedStateProjection) ---
+    mission_state: MissionState = field(
+        default_factory=lambda: new_mission_state(
+            mission_id="unknown_mission",
+            loop_family="orchestration_kernel",
+            resolution_state=new_resolution_state(),
+        )
+    )
+    resolution_state: ResolutionState = field(default_factory=new_resolution_state)
+    blocking_items_summary: list[dict[str, Any]] = field(default_factory=list)
+    closure_summary: dict[str, Any] = field(default_factory=dict)
 
-    # Focus state (kernel-owned; NOT projected by domain pack)
-    active_focus_key: str | None = None
+    # Active-item continuity (kernel-owned; carried across iterations)
+    active_item_id: str | None = None
     focus_stagnation_streak: int = 0
 
     # --- Progress memory (kernel-owned) ---

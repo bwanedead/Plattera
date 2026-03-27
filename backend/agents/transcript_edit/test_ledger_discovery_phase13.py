@@ -19,6 +19,7 @@ from backend.agents.transcript_edit.transcript_edit_ledger_discovery_prep import
     merge_discovered_native_items,
     refresh_discovery_posture_fields,
 )
+from backend.harness import mission_state
 
 
 def _append_llm_discovery_row(ledger: dict, *, title: str, summary: str) -> None:
@@ -27,7 +28,6 @@ def _append_llm_discovery_row(ledger: dict, *, title: str, summary: str) -> None
     )
     ledger["items"].extend(rows)
     reconcile_ledger_derived_fields(ledger)
-from backend.harness.decision_ledger import contracts as dl_contracts
 
 
 def _long_contra(msg: str = "") -> str:
@@ -180,6 +180,6 @@ def test_discovery_more_salient_after_repeated_evidence_merges() -> None:
 
 
 def test_harness_decision_ledger_contract_has_no_transcript_edit_ontology() -> None:
-    assert not hasattr(dl_contracts, "DISCOVERY_KEY_PREFIX")
-    assert not hasattr(dl_contracts, "TRANSCRIPT_EDIT_SLOT_PRIORITY")
+    assert not hasattr(mission_state, "DISCOVERY_KEY_PREFIX")
+    assert not hasattr(mission_state, "TRANSCRIPT_EDIT_SLOT_PRIORITY")
 

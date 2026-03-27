@@ -13,7 +13,6 @@ def build_mapping_family_coordination(
     terminal: TerminalRecommendation | None,
     transition_allowed: bool,
     handed_forward_artifact_refs: list[str] | None = None,
-    expected_next_work: str | None = None,
     resume_note_for_prior_mode: str | None = None,
 ) -> MappingFamilyCoordination:
     """Interpret a domain handoff posture at the mapping-family runtime layer."""
@@ -37,7 +36,6 @@ def build_mapping_family_coordination(
                 next_mode=target_domain_id,
                 reason=reason_code or f"{current_mode}_handoff_ready_for_{target_domain_id}",
                 handed_forward_artifact_refs=refs,
-                expected_next_work=expected_next_work,
                 resume_note_for_prior_mode=resume_note_for_prior_mode,
             )
             coordination_state = "transition_recommended"

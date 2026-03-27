@@ -25,7 +25,7 @@ from backend.agents.transcript_edit.transcript_edit_ledger_bootstrap_policy impo
     transcript_edit_bootstrap_policy_snapshot,
 )
 from backend.agents.transcript_edit.transcript_edit_ledger_discovery_prep import DISCOVERY_KEY_PREFIX, merge_discovery_from_audit_findings
-from backend.harness.decision_ledger import contracts as dl_contracts
+from backend.harness import mission_state
 
 
 def _long_contra() -> str:
@@ -176,8 +176,8 @@ def test_discovery_cooling_deprioritized_in_focus() -> None:
 
 
 def test_harness_contract_domain_agnostic() -> None:
-    assert not hasattr(dl_contracts, "DEFAULT_ORGANIZED_WORK_MODE")
-    assert not hasattr(dl_contracts, "transcript_edit_bootstrap_policy_snapshot")
+    assert not hasattr(mission_state, "DEFAULT_ORGANIZED_WORK_MODE")
+    assert not hasattr(mission_state, "transcript_edit_bootstrap_policy_snapshot")
 
 
 def test_bootstrap_policy_is_optional_domain_framing_not_harness() -> None:

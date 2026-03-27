@@ -80,7 +80,6 @@ class DeedToIRModeAdapter(MissionModeAdapter):
             transition_allowed=_metadata_flag(request.metadata, "phase_e_enable_linear_transitions")
             and _metadata_flag(request.metadata, "deed_to_ir_transition_to_transcript_edit"),
             handed_forward_artifact_refs=_curate_deed_to_tx_handoff_refs(result, recommendation),
-            expected_next_work="run transcript-edit pass over latest deed output and verify closure posture",
             resume_note_for_prior_mode="resume deed_to_ir after transcript-edit returns reconciled artifacts",
         )
         return MissionModeRunEnvelope(
@@ -133,7 +132,6 @@ class DeedToIRModeAdapter(MissionModeAdapter):
     ) -> ModeRecommendation:
         envelope = _require_controller_run_envelope(context)
         recommendation = ModeRecommendation(
-            next_step_hint=None,
             terminal=envelope.terminal,
             high_signal_artifact_refs=list(envelope.high_signal_artifact_refs),
             blocker_posture=envelope.blocker_posture,
@@ -143,7 +141,6 @@ class DeedToIRModeAdapter(MissionModeAdapter):
         if envelope.transition is None:
             return recommendation
         return ModeRecommendation(
-            next_step_hint="handoff_to_transcript_edit",
             transition=envelope.transition,
             terminal=recommendation.terminal,
             high_signal_artifact_refs=list(recommendation.high_signal_artifact_refs),
@@ -396,7 +393,6 @@ def recommend_controller_run_result(result: ControllerRunResult) -> ModeRecommen
     )
     waiting = terminal_result.terminal_class in {"waiting_human", "waiting_evidence"}
     return ModeRecommendation(
-        next_step_hint=None,
         terminal=TerminalRecommendation(
             terminal=True,
             terminal_class=terminal_result.terminal_class,

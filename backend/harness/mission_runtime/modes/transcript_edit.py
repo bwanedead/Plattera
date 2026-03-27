@@ -86,7 +86,6 @@ class TranscriptEditModeAdapter(MissionModeAdapter):
             transition_allowed=_metadata_flag(request.metadata, "phase_e_enable_linear_transitions")
             and _metadata_flag(request.metadata, "transcript_edit_transition_to_deed_to_ir"),
             handed_forward_artifact_refs=_curate_tx_to_deed_handoff_refs(result, recommendation),
-            expected_next_work="resume deed_to_ir with transcript-edit validated artifacts",
             resume_note_for_prior_mode="return to transcript_edit only if new closure blockers emerge",
         )
         domain_payload: dict[str, Any] = {
@@ -135,7 +134,6 @@ class TranscriptEditModeAdapter(MissionModeAdapter):
     ) -> ModeRecommendation:
         envelope = _require_transcript_run_envelope(context)
         recommendation = ModeRecommendation(
-            next_step_hint=None,
             terminal=envelope.terminal,
             high_signal_artifact_refs=list(envelope.high_signal_artifact_refs),
             blocker_posture=envelope.blocker_posture,
@@ -145,7 +143,6 @@ class TranscriptEditModeAdapter(MissionModeAdapter):
         if envelope.transition is None:
             return recommendation
         return ModeRecommendation(
-            next_step_hint="handoff_back_to_deed_to_ir",
             transition=envelope.transition,
             terminal=recommendation.terminal,
             high_signal_artifact_refs=list(recommendation.high_signal_artifact_refs),
@@ -452,7 +449,6 @@ def recommend_transcript_edit_run_result(result: TranscriptEditAgentRunResult) -
         human_feedback_pending=authority.waiting_feedback,
     )
     return ModeRecommendation(
-        next_step_hint=None,
         terminal=TerminalRecommendation(
             terminal=True,
             terminal_class=terminal_result.terminal_class,

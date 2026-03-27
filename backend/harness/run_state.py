@@ -525,7 +525,7 @@ def build_mission_runtime_run_state(*, mission_runtime_payload: dict[str, Any]) 
                     "resumable": bool(resumability.get("resumable")),
                     "resume_reason": _as_str(resumability.get("resume_reason")),
                     "resume_requirements": _as_str_list(resumability.get("resume_requirements")),
-                    "expected_next_work": latest_transition.expected_next_work if latest_transition else None,
+                    "latest_transition_target_mode": latest_transition.next_mode if latest_transition else None,
                     "resume_note_for_prior_mode": (
                         latest_transition.resume_note_for_prior_mode if latest_transition else None
                     ),
@@ -538,15 +538,15 @@ def build_mission_runtime_run_state(*, mission_runtime_payload: dict[str, Any]) 
             mode_history=mode_history,
             latest_transition_reason=transition_reason,
             resume_context_summary={
-                    "resumable": bool(resumability.get("resumable")),
-                    "resume_reason": _as_str(resumability.get("resume_reason")),
-                    "resume_requirements": _as_str_list(resumability.get("resume_requirements")),
-                    "expected_next_work": latest_transition.expected_next_work if latest_transition else None,
-                    "resume_note_for_prior_mode": (
-                        latest_transition.resume_note_for_prior_mode if latest_transition else None
-                    ),
-                },
-            ),
+                "resumable": bool(resumability.get("resumable")),
+                "resume_reason": _as_str(resumability.get("resume_reason")),
+                "resume_requirements": _as_str_list(resumability.get("resume_requirements")),
+                "latest_transition_target_mode": latest_transition.next_mode if latest_transition else None,
+                "resume_note_for_prior_mode": (
+                    latest_transition.resume_note_for_prior_mode if latest_transition else None
+                ),
+            },
+        ),
         prompt_observability_summary=_prompt_observability_summary_from_payload(mission_runtime_payload, default_surface=active_mode),
         envelope_version=RUN_STATE_VERSION,
     )
@@ -692,10 +692,10 @@ def _build_transcript_edit_resolution_state(
     waiting_projection: dict[str, Any],
     updated_at_epoch_seconds: float,
 ) -> ResolutionState:
-    native_decision_ledger = _transcript_edit_native_decision_ledger_from_snapshot(run_snapshot)
-    if isinstance(native_decision_ledger, dict):
+    native_resolution_source = _transcript_edit_native_resolution_source_from_snapshot(run_snapshot)
+    if isinstance(native_resolution_source, dict):
         unified, _ = transcript_edit_unified_and_closure_read_for_native(
-            native_decision_ledger=native_decision_ledger,
+            native_decision_ledger=native_resolution_source,
         )
         unified_items = list(unified.get("items") or [])
         active_item_id = _transcript_edit_active_item_id_from_unified(
@@ -707,8 +707,8 @@ def _build_transcript_edit_resolution_state(
             active_item_id=active_item_id,
             updated_at_epoch_seconds=updated_at_epoch_seconds,
             domain_payload={
-                "source": "transcript_edit_unified_read",
-                "native_decision_ledger_present": True,
+                "source": "transcript_edit_resolution_read",
+                "native_resolution_source_present": True,
             },
         )
 
@@ -846,7 +846,7 @@ def _transcript_edit_compat_active_item_id(*, waiting_projection: dict[str, Any]
     return None
 
 
-def _transcript_edit_native_decision_ledger_from_snapshot(snapshot: dict[str, Any]) -> dict[str, Any] | None:
+def _transcript_edit_native_resolution_source_from_snapshot(snapshot: dict[str, Any]) -> dict[str, Any] | None:
     direct = snapshot.get("decision_ledger")
     if isinstance(direct, dict) and isinstance(direct.get("items"), list):
         return direct

@@ -11,7 +11,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from harness.work_board.recent_iteration_lane import build_recent_iteration_lane
+from harness.mission_state import build_recent_activity_lane
 
 from .focus_packet_board_context import build_work_board_focus_context_bundle
 from .focus_hydration import build_focus_support_state
@@ -233,7 +233,7 @@ def build_focus_packet(
         "llm_iteration_understanding": _liu if _liu else None,
         "audit_evidence_snapshot": audit_evidence_snapshot if isinstance(audit_evidence_snapshot, dict) else None,
     }
-    recent_iteration_lane = build_recent_iteration_lane(
+    recent_iteration_lane = build_recent_activity_lane(
         continuity_log or [],
         current_iteration=loop_iteration,
     )

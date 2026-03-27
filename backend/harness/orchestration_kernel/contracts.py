@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Protocol, TYPE_CHECKING
 
+from ..mission_state import MissionState, ResolutionState
 from ..terminal_taxonomy import TerminalClass
 
 if TYPE_CHECKING:
@@ -16,26 +17,24 @@ HitlState = str  # Literal: "no_prompt" | "waiting" | "answered_unintegrated" | 
 
 
 @dataclass(frozen=True)
-class WorkStateProjection:
+class SharedStateProjection:
     """Domain pack's hook 3 output.
 
-    Three sub-surfaces are persisted atomically into Work-State memory by the kernel.
-    The selected_focus_key is authored by the domain pack and carried forward by the kernel.
-    The ranked_work_item_list is context only: it is not treated as kernel-authored focus
-    authority and is not written back as work-state truth.
+    The shared kernel now projects native `mission_state` / `resolution_state` containers.
+    `resolution_state.active_item_id` is the authored active-item signal for this iteration;
+    the kernel may preserve prior continuity when the domain leaves that field empty.
+    Domain packs must not derive this field from advisory ranking or deterministic next-work
+    selection inside hook 3.
 
-    Focus continuity state (active_focus_key, focus_stagnation_streak) is kernel-owned and is not
-    part of this projection.
+    `advisory_active_items` remains secondary packet/trace context only. It must not become
+    kernel-authored focus truth and is never written back as canonical shared state.
     """
 
-    # Persisted sub-surfaces (written to Work-State memory atomically):
-    work_item_collection: list[dict[str, Any]]
-    blocker_surface: list[dict[str, Any]]
-    closure_posture_summary: dict[str, Any]
-    # Authoritative focus key for the next iteration; kernel preserves continuity only.
-    selected_focus_key: str | None = None
-    # Context-only candidate list for telemetry / packet assembly.
-    ranked_work_item_list: list[dict[str, Any]] = field(default_factory=list)
+    mission_state: MissionState
+    resolution_state: ResolutionState
+    blocking_items_summary: list[dict[str, Any]] = field(default_factory=list)
+    closure_summary: dict[str, Any] = field(default_factory=dict)
+    advisory_active_items: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -195,7 +194,7 @@ class OrchestratorContext:
     between hook calls; domain packs read it but must not write kernel-owned fields.
 
     Kernel-owned fields in loop_memory (must not be written by domain pack):
-    - active_focus_key, focus_stagnation_streak
+    - active_item_id, focus_stagnation_streak
     - hitl_state, pending_feedback_prompt_id
     - no_progress_streak, evidence_signal_counter
     - invalid_plan_strikes
@@ -254,13 +253,13 @@ class DomainPack(Protocol):
         """
         ...
 
-    def project(self, context: OrchestratorContext) -> WorkStateProjection:
-        """Project domain authority into shared Work-State sub-surfaces.
+    def project(self, context: OrchestratorContext) -> SharedStateProjection:
+        """Project domain authority into native shared-state containers.
 
-        Domain projects from its authoritative sources (e.g. decision_ledger,
-        blocker_registry) into the shared three-surface projection. The kernel
-        writes these atomically. selected_focus_key is authored by the domain pack
-        and carried forward by the kernel; ranked_work_item_list is advisory context only.
+        Domain projects from its authoritative sources into canonical shared
+        `mission_state` / `resolution_state` containers. `resolution_state.active_item_id`
+        is the authored active-item signal when the domain wants to override continuity.
+        `advisory_active_items` is secondary packet/trace context only.
         """
         ...
 

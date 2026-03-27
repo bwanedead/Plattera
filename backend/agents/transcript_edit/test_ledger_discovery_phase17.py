@@ -17,7 +17,7 @@ from backend.agents.transcript_edit.decision_ledger_state import reconcile_ledge
 from backend.agents.transcript_edit.llm_startup_understanding import native_rows_from_llm_initial_ledger_items
 from backend.agents.transcript_edit.organized_work_composition import compute_organized_work_composition
 from backend.agents.transcript_edit.transcript_edit_ledger_discovery_prep import DISCOVERY_KEY_PREFIX, merge_discovery_from_audit_findings
-from backend.harness.decision_ledger import contracts as dl_contracts
+from backend.harness import mission_state
 
 
 def _long_contra() -> str:
@@ -93,4 +93,4 @@ def test_placeholder_hook_removed_is_unreferenced() -> None:
 
 
 def test_harness_still_domain_agnostic() -> None:
-    assert not hasattr(dl_contracts, "ledger_establishment_mode")
+    assert not hasattr(mission_state, "ledger_establishment_mode")

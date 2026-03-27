@@ -50,7 +50,7 @@ def test_sync_open_to_investigating_on_gather() -> None:
     assert obs.get("event") == "lifecycle_transition"
 
 
-def test_sync_to_blocked_after_repeated_gather_with_signal() -> None:
+def test_sync_keeps_repeat_gather_observational_without_auto_blocked() -> None:
     st = TranscriptEditLoopState(
         harness_emergent_board_items=[{**_one_emergent(), "state": "investigating"}],
         continuity_log=[
@@ -58,14 +58,36 @@ def test_sync_to_blocked_after_repeated_gather_with_signal() -> None:
             {"decision_key": "harness:emergent:abc123def456", "move": "gather_more_evidence"},
         ],
     )
-    sync_focused_emergent_item_from_resolver_outcome(
+    obs = sync_focused_emergent_item_from_resolver_outcome(
         st,
         focus_key="harness:emergent:abc123def456",
         move="gather_more_evidence",
         resolver_outcome=None,
         policy_signals={"repeat_without_signal": True},
     )
+    assert st.harness_emergent_board_items[0]["state"] == "investigating"
+    assert obs is None
+
+
+def test_explicit_mark_blocked_still_transitions_and_reports_observations() -> None:
+    st = TranscriptEditLoopState(
+        harness_emergent_board_items=[{**_one_emergent(), "state": "investigating"}],
+        continuity_log=[
+            {"decision_key": "harness:emergent:abc123def456", "move": "gather_more_evidence"},
+            {"decision_key": "harness:emergent:abc123def456", "move": "gather_more_evidence"},
+        ],
+    )
+    obs = sync_focused_emergent_item_from_resolver_outcome(
+        st,
+        focus_key="harness:emergent:abc123def456",
+        move="mark_blocked",
+        resolver_outcome=None,
+        policy_signals={"repeat_without_signal": True},
+    )
     assert st.harness_emergent_board_items[0]["state"] == "blocked"
+    assert isinstance(obs, dict)
+    assert obs.get("repeat_without_signal_observed") is True
+    assert obs.get("consecutive_gather_tail") == 2
 
 
 def test_ignores_non_emergent_focus_key() -> None:

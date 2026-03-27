@@ -18,9 +18,7 @@ from backend.agents.transcript_edit.decision_ledger_state import reconcile_ledge
 from backend.agents.transcript_edit.focus_packet import build_focus_packet
 from backend.agents.transcript_edit.llm_startup_understanding import native_rows_from_llm_initial_ledger_items
 from backend.agents.transcript_edit.transcript_edit_ledger_discovery_prep import merge_discovery_from_audit_findings
-from backend.harness.decision_ledger import contracts as dl_contracts
-from backend.harness.decision_ledger.contracts import DECISION_LEDGER_ENVELOPE_VERSION
-from backend.harness.work_board.contracts import WORK_BOARD_VERSION
+from backend.harness.mission_state import LEGACY_WORK_BOARD_ENVELOPE_VERSION
 
 
 def _long_contra() -> str:
@@ -29,9 +27,9 @@ def _long_contra() -> str:
     )
 
 
-def test_decision_ledger_envelope_version_matches_work_board_wire() -> None:
-    """Single organized-work envelope: canonical decision ledger re-exports work_board.v1 wire id."""
-    assert DECISION_LEDGER_ENVELOPE_VERSION == WORK_BOARD_VERSION == "work_board.v1"
+def test_resolution_envelope_version_matches_legacy_wire_value() -> None:
+    """Single organized-work envelope keeps the legacy wire id only as compatibility state."""
+    assert LEGACY_WORK_BOARD_ENVELOPE_VERSION == "work_board.v1"
 
 
 def test_unified_and_closure_read_center_envelope_not_raw_native_items() -> None:
@@ -39,7 +37,7 @@ def test_unified_and_closure_read_center_envelope_not_raw_native_items() -> None
     native = initialize_decision_ledger()
     assert native.get("items") == []
     unified, read_ledger = transcript_edit_unified_and_closure_read_for_native(native_decision_ledger=native)
-    assert str(unified.get("schema_version") or "") == WORK_BOARD_VERSION
+    assert str(unified.get("schema_version") or "") == LEGACY_WORK_BOARD_ENVELOPE_VERSION
     assert isinstance(read_ledger.get("items"), list)
 
 
@@ -105,11 +103,13 @@ def test_focus_packet_exposes_unified_envelope_on_work_board_key() -> None:
     )
     wb = packet.get("work_board")
     assert isinstance(wb, dict)
-    assert str(wb.get("schema_version") or "") == WORK_BOARD_VERSION
+    assert str(wb.get("schema_version") or "") == LEGACY_WORK_BOARD_ENVELOPE_VERSION
 
 
-def test_harness_decision_ledger_contracts_remain_domain_agnostic() -> None:
-    names = {n for n in dir(dl_contracts) if not n.startswith("_")}
+def test_mission_state_exports_remain_domain_agnostic() -> None:
+    from backend.harness import mission_state
+
+    names = {n for n in dir(mission_state) if not n.startswith("_")}
     assert not any("transcript" in n.lower() or "plss" in n.lower() or "deed" in n.lower() for n in names)
 
 

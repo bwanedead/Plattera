@@ -6,7 +6,9 @@ Scope: Shared harness trunk migration toward the native `mission_state` / `resol
 
 Related:
 
+- `docs/architecture/harness/generic-harness-native-core-layer-1-inventory.md`
 - `docs/architecture/harness/generic-harness-native-core-target.md`
+- `docs/architecture/harness/generic-harness-native-core-guardrails.md`
 - `docs/architecture/harness/native-harness-core-and-domain-pack-architecture-v1.md`
 - `docs/architecture/harness/mission-state-and-resolution-state-architecture.md`
 - `docs/architecture/harness/harness-constitution.md`
@@ -51,6 +53,8 @@ This roadmap succeeds only if it produces all of the following:
 - active-item continuity becomes the only deterministic focus rail that matters
 - shared continuity lanes and packet helpers stop preserving next-step hint residue
 - old domain compatibility does not dictate trunk architecture
+- the migration deletes retired shared-core files instead of accumulating dead compatibility residue
+- every major slice leaves behind a smaller or more isolated legacy footprint than before
 
 ---
 
@@ -78,6 +82,21 @@ Outputs:
   - temporary shims
   - delete-on-cutover surfaces
 
+The initial replacement-map anchor now lives in:
+
+- `docs/architecture/harness/generic-harness-native-core-layer-1-inventory.md`
+
+Every temporary shim should also record:
+
+- replacement owner
+- retirement trigger
+- expected deletion slice
+
+Every legacy shared-core surface should also record:
+
+- whether it is still teaching live architecture
+- whether it can be deleted immediately once a given slice lands
+
 ---
 
 ## 4.2 Phase 2: Native Kernel Contract Cutover
@@ -98,6 +117,12 @@ Actions:
 - remove `WorkStateProjection` as the lasting shared work contract
 - replace `work_item_collection`, `blocker_surface`, and `closure_posture_summary` as the practical center of shared work memory
 - align focus continuity to `active_item_id` and native generic work summaries
+
+Expected retirement pressure:
+
+- old kernel-era organized-work contract types
+- old ranked-focus companion surfaces
+- old continuity helpers whose only job is translating legacy kernel state
 
 Important:
 
@@ -127,6 +152,13 @@ Important:
 
 - preserve generic lifecycle and continuity utilities only if they remain generic
 - remove any helper shape that assumes board/ledger metaphors as the final model
+- prefer deletion over compatibility retention once the native helper exists
+
+Expected retirement pressure:
+
+- `backend/harness/work_board/`
+- `backend/harness/decision_ledger/`
+- public exports whose only purpose is preserving those metaphors
 
 ---
 
@@ -148,6 +180,12 @@ Actions:
 - rename board/ledger-shaped continuity fields to native generic names
 - keep continuity history useful without making it prescriptive
 
+Expected retirement pressure:
+
+- old board/ledger continuity slots
+- legacy helper fields that imply future-motion guidance
+- lane helpers that only exist to preserve the old organized-work grammar
+
 ---
 
 ## 4.5 Phase 5: Runtime / Observability / Trace Native Projection
@@ -168,6 +206,17 @@ Actions:
 - make `mission_state` / `resolution_state` the primary outward shared-state model
 - delete or isolate legacy payload readers
 - stop emitting old shared-core vocabulary from shared observation layers
+
+Important:
+
+- old observation/reporting fields should not linger indefinitely as “just in case” ballast
+- if a surface is shared-core-facing and the new model can express it directly, prefer cutover and delete
+
+Expected retirement pressure:
+
+- old payload readers with no active callers
+- trace/reporting helpers that only translate legacy vocabulary
+- observation fields that still teach old shared-core metaphors
 
 ---
 
@@ -198,10 +247,27 @@ Use these rules through the entire roadmap:
 - if a legacy surface carries useful mechanics, re-home them into native shared helpers before deletion
 - do not keep adapter stacks as the final design
 - do not let runtime reporting become the only place where the new model is “real”
+- if a slice cannot identify what old surface becomes deletable, scrutinize whether it is actually slimming the trunk
+- every slice should be reviewed against `docs/architecture/harness/generic-harness-native-core-guardrails.md`
+- if a slice adds more files or helpers than it retires, that expansion must be explicitly justified
 
 ---
 
-## 6. Determinism Watchpoints
+## 6. Phase Exit Accounting
+
+No phase should be treated as complete until it can answer all of the following:
+
+1. What native shared-core surface is now canonical?
+2. What old shared-core surface stopped being canonical?
+3. What files, exports, or helpers are now deletable?
+4. What temporary shim remains, if any, and when does it get deleted?
+5. Did the phase reduce semantic-authoring risk from deterministic code?
+
+If a phase cannot answer those questions, it is probably adding structure faster than it is removing it.
+
+---
+
+## 7. Determinism Watchpoints
 
 The shared-core migration should be reviewed against these specific risks:
 
@@ -210,11 +276,15 @@ The shared-core migration should be reviewed against these specific risks:
 - shared generic helpers inventing blocker meaning
 - compatibility shims quietly becoming the real source of semantic work state
 
+This review discipline is expanded in:
+
+- `docs/architecture/harness/generic-harness-native-core-guardrails.md`
+
 The trunk should become more generic and more mechanical as it gets cleaner.
 
 ---
 
-## 7. Effort Shape
+## 8. Effort Shape
 
 This is not a cosmetic rename pass.
 
@@ -231,9 +301,13 @@ The hardest part is the kernel contract cutover.
 
 That is the real center of gravity.
 
+The second hardest part is staying subtractive while doing it.
+
+If the migration only adds layers and never deletes old ones, it is failing even if the new contracts look better on paper.
+
 ---
 
-## 8. Completion Standard
+## 9. Completion Standard
 
 This roadmap is complete when:
 
@@ -245,7 +319,7 @@ This roadmap is complete when:
 
 ---
 
-## 9. Summary
+## 10. Summary
 
 The clean sequence is:
 

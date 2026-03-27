@@ -37,7 +37,7 @@ class FakeModeAdapter:
     ) -> None:
         self.mode_name = mode_name
         self._interpretation_summary = interpretation_summary
-        self._recommendation = recommendation or ModeRecommendation(next_step_hint="continue")
+        self._recommendation = recommendation or ModeRecommendation()
         self.context_calls = 0
         self.interpret_calls = 0
         self.recommend_calls = 0
@@ -164,13 +164,12 @@ def test_transition_recommendation_is_validated_and_applied_structurally() -> No
     alpha = FakeModeAdapter(
         mode_name="mode.alpha",
         recommendation=ModeRecommendation(
-            transition=ModeTransitionRecommendation(
-                next_mode="mode.beta",
-                reason="needs transcript repair",
-                handed_forward_artifact_refs=["artifact://handoff/1"],
-                expected_next_work="resolve mismatch spans",
-                resume_note_for_prior_mode="return with repaired spans",
-            ),
+                transition=ModeTransitionRecommendation(
+                    next_mode="mode.beta",
+                    reason="needs transcript repair",
+                    handed_forward_artifact_refs=["artifact://handoff/1"],
+                    resume_note_for_prior_mode="return with repaired spans",
+                ),
             high_signal_artifact_refs=["artifact://source/1"],
         ),
     )
@@ -224,7 +223,6 @@ def test_runtime_carries_mission_identity_through_cycle() -> None:
     alpha = FakeModeAdapter(
         mode_name="mode.alpha",
         recommendation=ModeRecommendation(
-            next_step_hint="continue",
             blocker_posture=MissionBlockerPostureSummary(waiting_human=True, open_blocker_count=2),
             verification_posture=MissionVerificationPostureSummary(
                 status="verification_pending",

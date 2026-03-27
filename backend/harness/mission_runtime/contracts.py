@@ -40,7 +40,6 @@ class ModeTransition:
     next_mode: str
     reason: str
     handed_forward_artifact_refs: list[str] = field(default_factory=list)
-    expected_next_work: str | None = None
     resume_note_for_prior_mode: str | None = None
     status: TransitionStatus = "rejected"
     status_reason: str | None = None
@@ -53,7 +52,6 @@ class ModeTransitionRecommendation:
     next_mode: str
     reason: str
     handed_forward_artifact_refs: list[str] = field(default_factory=list)
-    expected_next_work: str | None = None
     resume_note_for_prior_mode: str | None = None
 
 
@@ -80,7 +78,6 @@ class ModeCycleContext:
 
 @dataclass(frozen=True)
 class ModeRecommendation:
-    next_step_hint: str | None = None
     transition: ModeTransitionRecommendation | None = None
     terminal: TerminalRecommendation | None = None
     high_signal_artifact_refs: list[str] = field(default_factory=list)
@@ -175,7 +172,6 @@ class ModeTransitionView:
     next_mode: str
     reason: str
     handed_forward_artifact_refs: tuple[str, ...]
-    expected_next_work: str | None
     resume_note_for_prior_mode: str | None
     status: TransitionStatus
     status_reason: str | None
@@ -212,7 +208,6 @@ def _build_transition_view(item: ModeTransition) -> ModeTransitionView:
         next_mode=item.next_mode,
         reason=item.reason,
         handed_forward_artifact_refs=tuple(item.handed_forward_artifact_refs),
-        expected_next_work=item.expected_next_work,
         resume_note_for_prior_mode=item.resume_note_for_prior_mode,
         status=item.status,
         status_reason=item.status_reason,

@@ -1,12 +1,15 @@
-"""Bounded recent-iteration carry-forward lane (dense tail, no raw full history)."""
+"""Bounded recent-activity lane for continuity carry-forward.
+
+This helper is observational only. It summarizes what happened recently without
+predicting what should happen next.
+"""
 from __future__ import annotations
 
 from typing import Any
 
 
-RECENT_ITERATION_LANE_VERSION = "recent_iteration_lane.v1"
+RECENT_ACTIVITY_LANE_VERSION = "recent_activity.v1"
 
-# Defaults per harness brief: 2 rich + up to 5 summary slots (we emit at most 3 summaries here).
 _DEFAULT_RICH_TAIL = 2
 _DEFAULT_SUMMARY_TAIL = 5
 
@@ -30,31 +33,25 @@ def _compact_board_progress_for_lane(raw: Any) -> dict[str, Any] | None:
     }
 
 
-def build_recent_iteration_lane(
+def build_recent_activity_lane(
     continuity_log: list[dict[str, Any]] | None,
     *,
     current_iteration: int | None = None,
     rich_tail: int = _DEFAULT_RICH_TAIL,
     summary_tail: int = _DEFAULT_SUMMARY_TAIL,
 ) -> dict[str, Any]:
-    """Build a recent-skewed iteration window from continuity log entries.
-
-    Expects optional per-step fields (additive on legacy rows):
-    ``iteration``, ``focus_source``, ``gate_posture``, ``evidence_kind``,
-    ``why_no_closure``, ``state_delta_hint``, ``next_open_move_hint``.
-    """
+    """Build a recent-skewed iteration window from continuity log entries."""
     log = [row for row in (continuity_log or []) if isinstance(row, dict)]
     groups = _iteration_groups_from_log(log)
     if not groups:
         return {
-            "schema_version": RECENT_ITERATION_LANE_VERSION,
+            "schema_version": RECENT_ACTIVITY_LANE_VERSION,
             "rich_capsules": [],
             "summary_capsules": [],
             "legacy_flat_tail": [],
             "bounded_note": "No continuity steps yet.",
         }
 
-    # ``groups`` are newest-first (latest loop iteration first).
     rt = max(1, int(rich_tail))
     st = max(0, int(summary_tail))
     rich_cap = [_rich_capsule_from_block(g) for g in groups[:rt]]
@@ -64,7 +61,7 @@ def build_recent_iteration_lane(
     legacy_flat = _legacy_flat_tail(log, max_entries=4) if has_numeric_iteration else []
 
     return {
-        "schema_version": RECENT_ITERATION_LANE_VERSION,
+        "schema_version": RECENT_ACTIVITY_LANE_VERSION,
         "current_iteration": current_iteration,
         "rich_capsules": rich_cap,
         "summary_capsules": summary_cap,
@@ -83,7 +80,6 @@ def _coerce_iteration(value: Any) -> int | None:
 
 
 def _iteration_groups_from_log(log: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Return iteration blocks newest-first."""
     if not log:
         return []
     if not any(_coerce_iteration(e.get("iteration")) is not None for e in log):
@@ -144,9 +140,6 @@ def _rich_capsule_from_block(block: dict[str, Any]) -> dict[str, Any]:
                 ),
                 "state_changes_hint": (
                     str(s.get("state_delta_hint") or "").strip()[:_MAX_STEP_FIELDS_CHARS] or None
-                ),
-                "next_move_more_likely": (
-                    str(s.get("next_open_move_hint") or "").strip()[:_MAX_STEP_FIELDS_CHARS] or None
                 ),
                 "board_progress_compact": _compact_board_progress_for_lane(s.get("board_progress")),
             }

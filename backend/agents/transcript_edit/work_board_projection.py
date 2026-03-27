@@ -1,13 +1,12 @@
-"""Project transcript-edit decision ledger onto the generic harness work board."""
+"""Project transcript-edit decision ledger onto the generic harness resolution envelope."""
 from __future__ import annotations
 
 from typing import Any
 
-from harness.work_board.contracts import new_work_board, work_board_item_dict
-from harness.work_board.lifecycle import EMERGENT_ITEM_ID_PREFIX
+from harness.mission_state import EMERGENT_RESOLUTION_ITEM_PREFIX, new_resolution_envelope, resolution_item_row_dict
 
 _PROJECTION_ID = "transcript_edit.decision_ledger"
-HARNESS_EMERGENT_ITEM_PREFIX = EMERGENT_ITEM_ID_PREFIX
+HARNESS_EMERGENT_ITEM_PREFIX = EMERGENT_RESOLUTION_ITEM_PREFIX
 
 _LEDGER_TO_BOARD_STATE: dict[str, str] = {
     "unknown": "open",
@@ -90,7 +89,7 @@ def project_decision_ledger_to_work_board(ledger: dict[str, Any] | None) -> dict
     items_raw = normalized.get("items")
     items_out: list[dict[str, Any]] = []
     if not isinstance(items_raw, list):
-        return new_work_board(domain_projection=_PROJECTION_ID, items=[])
+        return new_resolution_envelope(domain_projection=_PROJECTION_ID, items=[])
 
     for raw in items_raw:
         if not isinstance(raw, dict):
@@ -111,7 +110,7 @@ def project_decision_ledger_to_work_board(ledger: dict[str, Any] | None) -> dict
                 if str(x).strip()
             ][:8]
         items_out.append(
-            work_board_item_dict(
+            resolution_item_row_dict(
                 item_id=item_id,
                 title=str(raw.get("label") or key).strip()[:240] or key,
                 kind="transcript_edit.decision_item",
@@ -139,7 +138,7 @@ def project_decision_ledger_to_work_board(ledger: dict[str, Any] | None) -> dict
             )
         )
 
-    return new_work_board(domain_projection=_PROJECTION_ID, items=items_out)
+    return new_resolution_envelope(domain_projection=_PROJECTION_ID, items=items_out)
 
 
 def active_work_board_item_for_key(work_board: dict[str, Any], decision_key: str) -> dict[str, Any] | None:

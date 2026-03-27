@@ -34,7 +34,6 @@ def evaluate_mode_transition(
         next_mode=next_mode,
         reason=reason or "unspecified",
         handed_forward_artifact_refs=list(recommendation.handed_forward_artifact_refs),
-        expected_next_work=recommendation.expected_next_work,
         resume_note_for_prior_mode=recommendation.resume_note_for_prior_mode,
         status=status,
         status_reason=status_reason,

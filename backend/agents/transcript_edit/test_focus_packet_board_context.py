@@ -7,12 +7,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 from backend.agents.transcript_edit.focus_packet import build_focus_packet
 from backend.agents.transcript_edit.focus_packet_board_context import build_work_board_focus_context_bundle
-from backend.harness.work_board.contracts import new_work_board, work_board_item_dict
+from backend.harness.mission_state import new_resolution_envelope, resolution_item_row_dict
 
 
 def test_bounded_notes_and_linked_hints_only() -> None:
     dep_id = "harness:emergent:bbbbbbbbbbbb"
-    focused = work_board_item_dict(
+    focused = resolution_item_row_dict(
         item_id="harness:emergent:aaaaaaaaaaaa",
         title="Focused item with notes",
         kind="k",
@@ -28,7 +28,7 @@ def test_bounded_notes_and_linked_hints_only() -> None:
         ],
         domain_payload={"harness_lifecycle": {"created_at_epoch": 100, "last_event_at_epoch": 100}},
     )
-    other = work_board_item_dict(
+    other = resolution_item_row_dict(
         item_id=dep_id,
         title="Dependency row",
         kind="k",
@@ -39,7 +39,7 @@ def test_bounded_notes_and_linked_hints_only() -> None:
         resolution_condition=None,
         context_notes=[{"body": "linked only", "non_canonical": True}],
     )
-    noise = work_board_item_dict(
+    noise = resolution_item_row_dict(
         item_id="harness:emergent:cccccccccccc",
         title="Unrelated",
         kind="k",
@@ -49,7 +49,7 @@ def test_bounded_notes_and_linked_hints_only() -> None:
         evidence_refs=[],
         context_notes=[{"body": "should not appear", "non_canonical": True}],
     )
-    wb = new_work_board(domain_projection="t", items=[focused, other, noise])
+    wb = new_resolution_envelope(domain_projection="t", items=[focused, other, noise])
     ctx = build_work_board_focus_context_bundle(
         decision_key="harness:emergent:aaaaaaaaaaaa",
         focus_target_kind="harness_emergent",
@@ -65,7 +65,7 @@ def test_bounded_notes_and_linked_hints_only() -> None:
 
 
 def test_focus_packet_execution_context_has_work_board_focus_context() -> None:
-    row = work_board_item_dict(
+    row = resolution_item_row_dict(
         item_id="harness:emergent:dddddddddddd",
         title="Packet lifecycle visibility",
         kind="k",
