@@ -1,7 +1,7 @@
 """Shared kernel-direct trace persistence utility (Phase 12 D2 / D4).
 
-Provides best-effort helpers used by all orchestration-kernel mode adapters
-(deed-to-IR, transcript-edit) to persist forensic artifacts after a run:
+Provides best-effort helpers used by orchestration-kernel runtime adapters
+to persist forensic artifacts after a run:
 
   persist_kernel_trace        — canonical trace record (CanonicalTraceRecord JSON)
   persist_rationale_strip     — sidecar rationale-continuity strip (D4)

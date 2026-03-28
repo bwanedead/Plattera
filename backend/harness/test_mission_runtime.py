@@ -97,7 +97,7 @@ class FakeModeAdapter:
 def _request(initial_mode: str = "mode.alpha") -> MissionRuntimeRequest:
     return MissionRuntimeRequest(
         mission_id="mission-1",
-        objective="phase-a-shell-smoke",
+        objective="generic-mission-runtime-smoke",
         initial_mode=initial_mode,
         request_id="request-1",
     )
@@ -166,9 +166,9 @@ def test_transition_recommendation_is_validated_and_applied_structurally() -> No
         recommendation=ModeRecommendation(
                 transition=ModeTransitionRecommendation(
                     next_mode="mode.beta",
-                    reason="needs transcript repair",
+                    reason="needs downstream follow_up",
                     handed_forward_artifact_refs=["artifact://handoff/1"],
-                    resume_note_for_prior_mode="return with repaired spans",
+                    resume_note_for_prior_mode="return after follow_up completes",
                 ),
             high_signal_artifact_refs=["artifact://source/1"],
         ),
@@ -185,7 +185,7 @@ def test_transition_recommendation_is_validated_and_applied_structurally() -> No
     assert result.transition.status == "applied"
     assert result.transition.prior_mode == "mode.alpha"
     assert result.transition.next_mode == "mode.beta"
-    assert result.transition.reason == "needs transcript repair"
+    assert result.transition.reason == "needs downstream follow_up"
     assert result.transition.order_anchor == 1
     assert result.ledger.active_mode == "mode.beta"
     assert result.ledger.mode_history == ["mode.alpha", "mode.beta"]

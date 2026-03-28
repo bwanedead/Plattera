@@ -31,7 +31,7 @@ def _happy_transcript() -> dict:
                     "budgets": {"max_steps": 20},
                     "dossier_id": "dossier-1",
                     "source_entry_ref": "entry-1",
-                    "bootstrap_context": {"deed_text_artifact_ref": "artifact://deed-text"},
+                    "bootstrap_context": {"source_artifact_ref": "artifact://source-input"},
                 },
             },
             {
@@ -41,16 +41,16 @@ def _happy_transcript() -> dict:
                 "payload": {
                     "iteration": 1,
                     "action_type": "retrieve_evidence",
-                    "args": {"query": "grantor chain"},
+                    "args": {"query": "source record chain"},
                     "proposal_source": "model",
-                    "why": "Need evidence",
+                    "why": "Need more evidence",
                 },
             },
             {
                 "event_type": "retrieval_degradation",
                 "detail": "fallback_to_keyword",
                 "timestamp_epoch_seconds": 102,
-                "payload": {"reason_code": "retrieval_sparse_context", "fallback": "open_text_spans"},
+                "payload": {"reason_code": "retrieval_sparse_context", "fallback": "open_source_segments"},
             },
             {
                 "event_type": "kernel_step_result",
@@ -104,7 +104,7 @@ def _happy_run_artifact() -> dict:
             {
                 "step_id": "step-001",
                 "action": "retrieve_evidence",
-                "inputs": {"query": "grantor chain"},
+                "inputs": {"query": "source record chain"},
                 "outputs": {"retrieval_artifact_ref": {"artifact_path": "artifact://retrieval-1"}},
                 "reason_codes": ["retrieval_executed"],
             },

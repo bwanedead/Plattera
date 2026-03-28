@@ -178,7 +178,7 @@ class KernelLoopResult:
     run_artifact_ref: str | None
     latest_refs: dict[str, Any]
     # Opaque domain-specific terminal context for mission-runtime adapters.
-    # E.g. for transcript-edit: waiting_feedback, pending_feedback_prompt_id, blocker state, etc.
+    # Carries any mode-owned waiting/closure state the generic shell must pass through.
     domain_runtime_state: dict[str, Any]
     # Phase 11 D1: serialised RawTraceEvent dicts emitted live by the kernel.
     # Populated by KernelTraceCollector; empty list when tracing is disabled.
