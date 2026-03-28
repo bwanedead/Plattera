@@ -21,10 +21,10 @@ from backend.agents.transcript_edit.decision_ledger_state import (
     initialize_decision_ledger,
     initialize_decision_ledger_with_domain_template_seed,
 )
-from backend.harness.mission_state import (
-    EMERGENT_RESOLUTION_ITEM_PREFIX,
-    LEGACY_WORK_BOARD_ENVELOPE_VERSION,
-    new_resolution_envelope,
+from backend.harness.mission_state.resolution_lifecycle import EMERGENT_RESOLUTION_ITEM_PREFIX
+from backend.harness.mission_state.resolution_projection import (
+    RESOLUTION_PROJECTION_VERSION,
+    new_resolution_projection,
     resolution_item_row_dict,
 )
 
@@ -110,9 +110,9 @@ def test_closure_read_ledger_pulls_top_level_fields_from_native() -> None:
 
 def test_envelope_detection_distinguishes_native_ledger_from_unified() -> None:
     ledger = initialize_decision_ledger_with_domain_template_seed()
-    assert str(ledger.get("schema_version") or "") != LEGACY_WORK_BOARD_ENVELOPE_VERSION
-    unified = new_resolution_envelope(domain_projection="t", items=[])
-    assert str(unified.get("schema_version") or "") == LEGACY_WORK_BOARD_ENVELOPE_VERSION
+    assert str(ledger.get("schema_version") or "") != RESOLUTION_PROJECTION_VERSION
+    unified = new_resolution_projection(domain_projection="t", items=[])
+    assert str(unified.get("schema_version") or "") == RESOLUTION_PROJECTION_VERSION
 
 
 def test_unified_closure_read_from_loop_state_matches_for_native() -> None:
@@ -195,6 +195,6 @@ def test_minimal_native_ledger_closure_read_without_full_bootstrap_rows() -> Non
 
 def test_mission_state_helpers_do_not_import_default_checklist_seed() -> None:
     """Bootstrap seed must stay out of generic mission-state helper modules."""
-    contracts_path = Path(__file__).resolve().parents[2] / "harness" / "mission_state" / "resolution_envelope.py"
+    contracts_path = Path(__file__).resolve().parents[2] / "harness" / "mission_state" / "resolution_projection.py"
     text = contracts_path.read_text(encoding="utf-8", errors="replace")
     assert "transcript_edit_default_checklist_seed" not in text

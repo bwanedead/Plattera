@@ -6,7 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 TRACE_VERSION = "trace.v1"
 
-LoopFamily = Literal["controller_kernel", "transcript_edit", "mission_runtime"]
+LoopFamily = str
 CompletenessStatus = Literal["complete", "partial"]
 EventKind = Literal[
     "request_start",

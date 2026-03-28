@@ -11,7 +11,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from harness.mission_state import build_recent_activity_lane
+from harness.mission_state.recent_activity import build_recent_activity_lane
 
 from .focus_packet_board_context import build_work_board_focus_context_bundle
 from .focus_hydration import build_focus_support_state

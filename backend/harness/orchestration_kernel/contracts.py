@@ -97,9 +97,9 @@ class MoveExecutionPlan:
 class ProgressMetrics:
     """Domain-supplied generic progress inputs for the shared evaluator.
 
-    The domain pack derives these from its authoritative state (e.g. decision_ledger
-    + blocker_registry for transcript-edit). The shared evaluator uses only these
-    generic fields; no domain-specific field names enter the evaluator.
+    The domain pack derives these from its own authoritative state and evidence posture.
+    The shared evaluator uses only these generic fields; no domain-specific field names
+    enter the evaluator.
     """
 
     previous_finding_signature: str | None

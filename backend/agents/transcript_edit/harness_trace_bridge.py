@@ -5,13 +5,14 @@ import json
 from pathlib import Path
 from typing import Any
 
-from ...terminal_taxonomy import classify_transcript_edit_terminal
-from ..builder import build_canonical_trace
-from ..schema import CanonicalTraceRecord, RawTraceEvent, TerminalSnapshot
-from .transcript_edit_helpers import (
+from harness.tracing.registry import register_trace_family
+from harness.tracing.builder import build_canonical_trace
+from harness.tracing.schema import CanonicalTraceRecord, RawTraceEvent, TerminalSnapshot
+
+from .terminal_taxonomy import classify_transcript_edit_terminal
+from .trace_normalization import (
     as_dict,
     as_dict_list,
-    closure_payload,
     event_actor,
     event_kind,
     event_reason_code,
@@ -30,10 +31,10 @@ _CRITICAL_EVENT_LIMIT = 200
 
 _SOURCE_KIND_PROGRESS = "tx_progress_log"
 _SOURCE_KIND_CRITICAL = "tx_critical_events"
-_SOURCE_KIND_BLOCKER_HISTORY = "tx_blocker_registry_history"
-_SOURCE_KIND_BLOCKER_ROWS = "tx_blocker_registry_rows"
 _SOURCE_KIND_HITL_STATE = "tx_runtime_hitl_state"
 _SOURCE_KIND_TERMINAL = "tx_terminal_summary"
+_TRANSCRIPT_EDIT_SIGNAL_KEYS = {"snapshot", "progress_log", "critical_events", "terminal_summary"}
+_TRANSCRIPT_EDIT_REQUIRED_ANY = {"run_id", "status", "progress_log", "critical_events", "terminal_summary"}
 
 
 def build_transcript_edit_trace(
@@ -49,8 +50,8 @@ def build_transcript_edit_trace(
     progress_log = as_dict_list(snapshot.get("progress_log"))
     critical_events = as_dict_list(snapshot.get("critical_events"))
     runtime_hitl_state = as_dict(snapshot.get("runtime_hitl_state"))
+    runtime_summary = as_dict(runtime_hitl_state.get("mission_runtime_summary"))
     terminal_summary = as_dict(snapshot.get("terminal_summary"))
-    blocker_registry = as_dict(runtime_hitl_state.get("blocker_registry"))
     trace_identifier = trace_id or _default_trace_id(
         run_id=run_id,
         snapshot_ref=snapshot_ref,
@@ -70,14 +71,10 @@ def build_transcript_edit_trace(
     if not terminal_summary:
         missing_components.append("tx_terminal_summary")
         warnings.append("tx_terminal_summary_missing")
-    if not blocker_registry:
-        missing_components.append("tx_blocker_registry_lifecycle")
-        warnings.append("tx_blocker_registry_missing")
-
-    ledger_snapshot = _extract_ledger_snapshot(progress_log=progress_log, critical_events=critical_events, terminal_summary=terminal_summary)
-    if not ledger_snapshot:
-        missing_components.append("decision_ledger_closure_source")
-        warnings.append("decision_ledger_missing_for_closure_truth")
+    terminal_closure = _extract_terminal_closure(runtime_summary=runtime_summary)
+    if not terminal_closure:
+        missing_components.append("native_terminal_closure_source")
+        warnings.append("native_terminal_closure_missing")
 
     raw_events = _map_stream_events(
         events=progress_log,
@@ -101,13 +98,6 @@ def build_transcript_edit_trace(
         )
     )
     raw_events.extend(
-        _map_blocker_registry_events(
-            blocker_registry=blocker_registry,
-            source_ref_value=source_ref(primary=snapshot_ref, default=f"run:{run_id}"),
-            start_sequence=len(progress_log) + len(critical_events),
-        )
-    )
-    raw_events.extend(
         _map_hitl_state_events(
             runtime_hitl_state=runtime_hitl_state,
             source_ref_value=source_ref(primary=snapshot_ref, default=f"run:{run_id}"),
@@ -119,13 +109,13 @@ def build_transcript_edit_trace(
         status=as_str(snapshot.get("status")) or as_str(run_entry.get("status")),
         reason_code=as_str(snapshot.get("reason_code")),
         terminal_summary=terminal_summary,
-        ledger_snapshot=ledger_snapshot,
+        terminal_closure=terminal_closure,
     )
     terminal_payload = {
         "status": as_str(snapshot.get("status")) or as_str(run_entry.get("status")),
         "reason_code": as_str(snapshot.get("reason_code")),
         "terminal_classification": as_str(terminal_summary.get("terminal_classification")),
-        "closure": closure_payload(ledger_snapshot) if ledger_snapshot else None,
+        "closure": terminal_closure if terminal_closure else None,
     }
     raw_events.append(
         RawTraceEvent(
@@ -184,36 +174,68 @@ def build_transcript_edit_trace_from_path(
     )
 
 
+def transcript_edit_trace_detector(payload: dict[str, Any]) -> bool:
+    if isinstance(payload.get("snapshot"), dict):
+        snapshot = payload["snapshot"]
+        return bool(_TRANSCRIPT_EDIT_REQUIRED_ANY.intersection(snapshot.keys()))
+    return "run_id" in payload and bool(_TRANSCRIPT_EDIT_SIGNAL_KEYS.intersection(payload.keys()))
+
+
+def validate_transcript_edit_trace_payload(payload: dict[str, Any]) -> None:
+    if isinstance(payload.get("snapshot"), dict):
+        snapshot = payload["snapshot"]
+        if not _TRANSCRIPT_EDIT_REQUIRED_ANY.intersection(snapshot.keys()):
+            raise ValueError(
+                "invalid transcript_edit payload: 'snapshot' object is missing required transcript-edit signals"
+            )
+        return
+    if "run_id" not in payload or not _TRANSCRIPT_EDIT_SIGNAL_KEYS.intersection(payload.keys()):
+        raise ValueError(
+            "invalid transcript_edit payload: expected run snapshot with 'run_id' and one of"
+            " {'snapshot','progress_log','critical_events','terminal_summary'}"
+        )
+
+
+def register_transcript_edit_trace_family() -> None:
+    register_trace_family(
+        loop_family="transcript_edit",
+        builder=lambda **kwargs: build_transcript_edit_trace(
+            run_snapshot=kwargs["payload"],
+            snapshot_ref=kwargs.get("snapshot_ref"),
+            trace_id=kwargs.get("trace_id"),
+        ),
+        detector=transcript_edit_trace_detector,
+        validator=validate_transcript_edit_trace_payload,
+    )
+
+
 def _resolve_run_payload(run_snapshot: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
     if isinstance(run_snapshot.get("snapshot"), dict):
         return run_snapshot, as_dict(run_snapshot.get("snapshot"))
     return {}, run_snapshot
 
 
-def _extract_ledger_snapshot(
-    *,
-    progress_log: list[dict[str, Any]],
-    critical_events: list[dict[str, Any]],
-    terminal_summary: dict[str, Any],
-) -> dict[str, Any]:
-    terminal_ledger = as_dict(terminal_summary.get("decision_ledger"))
-    if terminal_ledger:
-        return terminal_ledger
-    for event in reversed(progress_log):
-        ledger = _ledger_from_event(event)
-        if ledger:
-            return ledger
-    for event in reversed(critical_events):
-        ledger = _ledger_from_event(event)
-        if ledger:
-            return ledger
-    return {}
+def _extract_terminal_closure(*, runtime_summary: dict[str, Any]) -> dict[str, Any]:
+    return _closure_from_runtime_summary(runtime_summary)
 
 
-def _ledger_from_event(event: dict[str, Any]) -> dict[str, Any]:
-    detail = as_dict(event.get("detail"))
-    ledger = as_dict(detail.get("decision_ledger"))
-    return ledger if ledger else {}
+def _closure_from_runtime_summary(runtime_summary: dict[str, Any]) -> dict[str, Any]:
+    if not runtime_summary:
+        return {}
+    unresolved_count = as_int(runtime_summary.get("unresolved_closure_count"))
+    closure_blocking = runtime_summary.get("closure_blocking")
+    verification_status = as_str(runtime_summary.get("verification_status"))
+    verification_kind = as_str(runtime_summary.get("verification_kind"))
+    if unresolved_count is None and closure_blocking is None and not verification_status and not verification_kind:
+        return {}
+    out = {
+        "source": "mission_runtime_summary",
+        "unresolved_count": unresolved_count,
+        "closure_blocking": closure_blocking if isinstance(closure_blocking, bool) else None,
+        "verification_status": verification_status,
+        "verification_kind": verification_kind,
+    }
+    return {k: v for k, v in out.items() if v not in (None, "", {}, [])}
 
 
 def _map_stream_events(
@@ -251,80 +273,6 @@ def _map_stream_events(
     return out
 
 
-def _map_blocker_registry_events(
-    *,
-    blocker_registry: dict[str, Any],
-    source_ref_value: str,
-    start_sequence: int,
-) -> list[RawTraceEvent]:
-    if not blocker_registry:
-        return []
-    out: list[RawTraceEvent] = []
-    history = as_dict_list(blocker_registry.get("history"))
-    for idx, row in enumerate(history):
-        blocker_id = as_str(row.get("active_blocker_id"))
-        out.append(
-            RawTraceEvent(
-                timestamp_epoch_seconds=as_int(row.get("timestamp_epoch_seconds")) or as_int(blocker_registry.get("updated_at")),
-                event_kind="blocker_transition",
-                phase="blocker_registry_history",
-                iteration_index=as_int(row.get("iteration")),
-                actor="harness",
-                status="running",
-                reason_code=as_str(row.get("reason")),
-                refs_delta={},
-                payload={
-                    "blocker_id": blocker_id,
-                    "prior_state": as_str(row.get("prior_state")),
-                    "new_state": as_str(row.get("new_state")),
-                    "action_attempted": as_str(row.get("action_attempted")),
-                    "result": as_str(row.get("result")),
-                    "source": "blocker_registry_history",
-                },
-                source_origin={
-                    "kind": _SOURCE_KIND_BLOCKER_HISTORY,
-                    "ref": source_ref_value,
-                    "local_id": first_non_empty(blocker_id, f"history:{idx}"),
-                    "sequence_index": start_sequence + idx,
-                },
-            )
-        )
-    rows = as_dict_list(blocker_registry.get("rows"))
-    for idx, row in enumerate(rows):
-        blocker_id = as_str(row.get("blocker_id"))
-        if not blocker_id:
-            continue
-        out.append(
-            RawTraceEvent(
-                timestamp_epoch_seconds=as_int(row.get("updated_at")) or as_int(blocker_registry.get("updated_at")),
-                event_kind="blocker_transition",
-                phase="blocker_registry_row",
-                iteration_index=None,
-                actor="harness",
-                status="running",
-                reason_code=as_str(row.get("last_transition_reason")),
-                refs_delta={},
-                payload={
-                    "blocker_id": blocker_id,
-                    "decision_key": as_str(row.get("decision_key")),
-                    "state": as_str(row.get("state")),
-                    "feedback_status": as_str(row.get("feedback_status")),
-                    "linked_prompt_id": as_str(row.get("linked_prompt_id")),
-                    "linked_ticket_id": as_str(row.get("linked_ticket_id")),
-                    "scope_status": as_str(row.get("scope_status")),
-                    "source": "blocker_registry_row",
-                },
-                source_origin={
-                    "kind": _SOURCE_KIND_BLOCKER_ROWS,
-                    "ref": source_ref_value,
-                    "local_id": blocker_id,
-                    "sequence_index": start_sequence + len(history) + idx,
-                },
-            )
-        )
-    return out
-
-
 def _map_hitl_state_events(
     *,
     runtime_hitl_state: dict[str, Any],
@@ -338,6 +286,14 @@ def _map_hitl_state_events(
     for idx, row in enumerate(lifecycle):
         prompt_id = as_str(row.get("prompt_id"))
         ticket_id = as_str(row.get("ticket_id"))
+        lifecycle_state = as_str(row.get("lifecycle_state"))
+        blocker_payload = {
+            "prompt_id": prompt_id,
+            "ticket_id": ticket_id,
+            "decision_key": as_str(row.get("decision_key")),
+            "lifecycle_state": lifecycle_state,
+            "source": "runtime_hitl_state",
+        }
         out.append(
             RawTraceEvent(
                 timestamp_epoch_seconds=as_int(row.get("timestamp_epoch_seconds")),
@@ -348,13 +304,7 @@ def _map_hitl_state_events(
                 status="running",
                 reason_code=as_str(row.get("reason")),
                 refs_delta={},
-                payload={
-                    "prompt_id": prompt_id,
-                    "ticket_id": ticket_id,
-                    "decision_key": as_str(row.get("decision_key")),
-                    "lifecycle_state": as_str(row.get("lifecycle_state")),
-                    "source": "runtime_hitl_state",
-                },
+                payload=blocker_payload,
                 source_origin={
                     "kind": _SOURCE_KIND_HITL_STATE,
                     "ref": source_ref_value,
@@ -363,6 +313,26 @@ def _map_hitl_state_events(
                 },
             )
         )
+        if lifecycle_state:
+            out.append(
+                RawTraceEvent(
+                    timestamp_epoch_seconds=as_int(row.get("timestamp_epoch_seconds")),
+                    event_kind="blocker_transition",
+                    phase=as_str(row.get("phase")) or "hitl_lifecycle",
+                    iteration_index=as_int(row.get("iteration")),
+                    actor="harness",
+                    status="running",
+                    reason_code=as_str(row.get("reason")),
+                    refs_delta={},
+                    payload=blocker_payload,
+                    source_origin={
+                        "kind": _SOURCE_KIND_HITL_STATE,
+                        "ref": source_ref_value,
+                        "local_id": first_non_empty(prompt_id, ticket_id, f"hitl-blocker:{idx}"),
+                        "sequence_index": start_sequence + len(lifecycle) + idx,
+                    },
+                )
+            )
     return out
 
 
@@ -371,7 +341,7 @@ def _map_terminal_snapshot(
     status: str | None,
     reason_code: str | None,
     terminal_summary: dict[str, Any],
-    ledger_snapshot: dict[str, Any],
+    terminal_closure: dict[str, Any],
 ) -> TerminalSnapshot:
     classification = as_str(terminal_summary.get("terminal_classification"))
     human_feedback_pending = bool(terminal_summary.get("human_feedback_pending"))
@@ -387,9 +357,8 @@ def _map_terminal_snapshot(
         "terminal_classification": as_str(classification),
         "review_required": terminal_summary.get("review_required"),
     }
-    closure = closure_payload(ledger_snapshot)
-    if closure:
-        metadata["closure"] = closure
+    if terminal_closure:
+        metadata["closure"] = terminal_closure
     return TerminalSnapshot(
         terminal_class=classification_result.terminal_class,
         terminal_reason_code=classification_result.reason_code,
@@ -426,70 +395,21 @@ def _start_context_summary(
         "snapshot_ref": snapshot_ref,
         "progress_events_count": progress_count,
         "critical_events_count": critical_count,
-        "waiting_feedback": snapshot.get("waiting_feedback"),
-        "resumable": snapshot.get("resumable"),
+        "latest_ref_keys": sorted(as_dict(snapshot.get("latest_refs")).keys())[:16],
     }
-    return {k: v for k, v in out.items() if v not in (None, "", {})}
-
-
-def _synth_iteration_events(
-    *,
-    progress_log: list[dict[str, Any]],
-    source_ref_value: str,
-    start_sequence: int,
-) -> list[RawTraceEvent]:
-    out: list[RawTraceEvent] = []
-    seen: set[int] = set()
-    for event in progress_log:
-        iteration = as_int(event.get("iteration"))
-        if iteration is None or iteration in seen:
-            continue
-        seen.add(iteration)
-        timestamp = as_int(event.get("timestamp_epoch_seconds"))
-        out.append(
-            RawTraceEvent(
-                timestamp_epoch_seconds=timestamp,
-                event_kind="iteration",
-                phase="iteration_checkpoint",
-                iteration_index=iteration,
-                actor="harness",
-                status="running",
-                reason_code=None,
-                refs_delta={},
-                payload={"source": "progress_iteration_checkpoint", "synthesized": True},
-                source_origin={
-                    "kind": _SOURCE_KIND_PROGRESS,
-                    "ref": source_ref_value,
-                    "local_id": f"iteration:{iteration}",
-                    "sequence_index": start_sequence + iteration,
-                },
-            )
-        )
-    return out
+    return {k: v for k, v in out.items() if v not in (None, "", [], {})}
 
 
 def _first_event_timestamp(progress_log: list[dict[str, Any]], critical_events: list[dict[str, Any]]) -> int | None:
-    for event in progress_log:
-        value = as_int(event.get("timestamp_epoch_seconds"))
-        if value is not None:
-            return value
-    for event in critical_events:
-        value = as_int(event.get("timestamp_epoch_seconds"))
-        if value is not None:
-            return value
-    return None
+    timestamps = [as_int(event.get("timestamp_epoch_seconds")) for event in progress_log + critical_events]
+    values = [value for value in timestamps if isinstance(value, int)]
+    return min(values) if values else None
 
 
 def _last_event_timestamp(progress_log: list[dict[str, Any]], critical_events: list[dict[str, Any]]) -> int | None:
-    for event in reversed(progress_log):
-        value = as_int(event.get("timestamp_epoch_seconds"))
-        if value is not None:
-            return value
-    for event in reversed(critical_events):
-        value = as_int(event.get("timestamp_epoch_seconds"))
-        if value is not None:
-            return value
-    return None
+    timestamps = [as_int(event.get("timestamp_epoch_seconds")) for event in progress_log + critical_events]
+    values = [value for value in timestamps if isinstance(value, int)]
+    return max(values) if values else None
 
 
 def _default_trace_id(
@@ -499,13 +419,53 @@ def _default_trace_id(
     progress_log: list[dict[str, Any]],
     critical_events: list[dict[str, Any]],
 ) -> str:
-    seed = "|".join(
-        [
-            run_id,
-            snapshot_ref or "",
-            str(len(progress_log)),
-            str(len(critical_events)),
-        ]
+    digest_source = json.dumps(
+        {
+            "run_id": run_id,
+            "snapshot_ref": snapshot_ref,
+            "progress_count": len(progress_log),
+            "critical_count": len(critical_events),
+            "last_progress_ts": _last_event_timestamp(progress_log, critical_events),
+        },
+        sort_keys=True,
     )
-    digest = hashlib.sha1(seed.encode("utf-8")).hexdigest()[:10]
-    return f"trace:transcript_edit:{run_id}:{digest}"
+    digest = hashlib.sha1(digest_source.encode("utf-8")).hexdigest()[:12]
+    return f"txtrace:{run_id}:{digest}"
+
+
+def _synth_iteration_events(
+    *,
+    progress_log: list[dict[str, Any]],
+    source_ref_value: str,
+    start_sequence: int,
+) -> list[RawTraceEvent]:
+    seen: set[int] = set()
+    out: list[RawTraceEvent] = []
+    for idx, row in enumerate(progress_log):
+        iteration = as_int(row.get("iteration"))
+        if iteration is None or iteration in seen:
+            continue
+        seen.add(iteration)
+        out.append(
+            RawTraceEvent(
+                timestamp_epoch_seconds=as_int(row.get("timestamp_epoch_seconds")),
+                event_kind="iteration",
+                phase="iteration",
+                iteration_index=iteration,
+                actor="harness",
+                status="running",
+                reason_code=None,
+                refs_delta={},
+                payload={"iteration": iteration},
+                source_origin={
+                    "kind": _SOURCE_KIND_PROGRESS,
+                    "ref": source_ref_value,
+                    "local_id": f"iteration:{iteration}",
+                    "sequence_index": start_sequence + idx,
+                },
+            )
+        )
+    return out
+
+
+register_transcript_edit_trace_family()

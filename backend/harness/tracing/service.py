@@ -5,12 +5,15 @@ from typing import Any
 from .adapters.controller_kernel import build_controller_kernel_trace
 from .adapters.kernel_direct import build_kernel_direct_trace
 from .adapters.mission_runtime import build_mission_runtime_trace
-from .adapters.transcript_edit import build_transcript_edit_trace
+from .registry import (
+    TraceFamilyLookupError,
+    iter_trace_families,
+    register_trace_family,
+    require_trace_family,
+)
 from .schema import CanonicalTraceRecord, LoopFamily
 
 _CONTROLLER_DISPATCH_KEYS = {"controller_transcript", "run_artifact"}
-_TRANSCRIPT_EDIT_SIGNAL_KEYS = {"snapshot", "progress_log", "critical_events", "terminal_summary"}
-_TRANSCRIPT_EDIT_REQUIRED_ANY = {"run_id", "status", "progress_log", "critical_events", "terminal_summary"}
 _MISSION_RUNTIME_KEYS = {"mission_id", "active_mode", "mode_history", "cycles"}
 
 
@@ -50,19 +53,6 @@ def build_kernel_direct_canonical_trace(
     )
 
 
-def build_transcript_edit_canonical_trace(
-    *,
-    run_snapshot: dict[str, Any],
-    snapshot_ref: str | None = None,
-    trace_id: str | None = None,
-) -> CanonicalTraceRecord:
-    return build_transcript_edit_trace(
-        run_snapshot=run_snapshot,
-        snapshot_ref=snapshot_ref,
-        trace_id=trace_id,
-    )
-
-
 def build_mission_runtime_canonical_trace(
     *,
     mission_runtime_payload: dict[str, Any],
@@ -97,10 +87,15 @@ def build_canonical_trace_from_payload(
             trace_id=trace_id,
         )
 
-    if family == "transcript_edit":
-        _validate_transcript_edit_payload(payload)
-        return build_transcript_edit_canonical_trace(
-            run_snapshot=payload,
+    if family not in {"controller_kernel", "mission_runtime"}:
+        try:
+            registration = require_trace_family(family)
+        except TraceFamilyLookupError as exc:
+            raise ValueError(f"unsupported loop_family: {family}") from exc
+        if registration.validator is not None:
+            registration.validator(payload)
+        return registration.builder(
+            payload=payload,
             snapshot_ref=_optional_str(payload.get("snapshot_ref")),
             trace_id=trace_id,
         )
@@ -117,10 +112,14 @@ def build_canonical_trace_from_payload(
 
 def _detect_loop_family(payload: dict[str, Any]) -> LoopFamily:
     looks_controller = _CONTROLLER_DISPATCH_KEYS.issubset(payload.keys())
-    looks_transcript_edit = _looks_like_transcript_edit_payload(payload)
     looks_mission_runtime = _looks_like_mission_runtime_payload(payload)
+    registered_hits = [
+        registration.loop_family
+        for registration in iter_trace_families()
+        if registration.loop_family not in {"controller_kernel", "mission_runtime"} and registration.detector(payload)
+    ]
 
-    shape_hits = int(looks_controller) + int(looks_transcript_edit) + int(looks_mission_runtime)
+    shape_hits = int(looks_controller) + int(looks_mission_runtime) + len(registered_hits)
     if shape_hits > 1:
         raise ValueError(
             "ambiguous canonical trace payload: matches multiple canonical payload shapes;"
@@ -128,37 +127,15 @@ def _detect_loop_family(payload: dict[str, Any]) -> LoopFamily:
         )
     if looks_controller:
         return "controller_kernel"
-    if looks_transcript_edit:
-        return "transcript_edit"
     if looks_mission_runtime:
         return "mission_runtime"
+    if len(registered_hits) == 1:
+        return registered_hits[0]  # type: ignore[return-value]
     raise ValueError(
         "unsupported canonical trace payload shape: expected controller payload with"
-        " {'controller_transcript','run_artifact'}, a transcript-edit run snapshot payload,"
+        " {'controller_transcript','run_artifact'}, a registered domain trace payload,"
         " or mission-runtime payload under 'mission_runtime'"
     )
-
-
-def _looks_like_transcript_edit_payload(payload: dict[str, Any]) -> bool:
-    if isinstance(payload.get("snapshot"), dict):
-        snapshot = payload["snapshot"]
-        return bool(_TRANSCRIPT_EDIT_REQUIRED_ANY.intersection(snapshot.keys()))
-    return "run_id" in payload and bool(_TRANSCRIPT_EDIT_SIGNAL_KEYS.intersection(payload.keys()))
-
-
-def _validate_transcript_edit_payload(payload: dict[str, Any]) -> None:
-    if isinstance(payload.get("snapshot"), dict):
-        snapshot = payload["snapshot"]
-        if not _TRANSCRIPT_EDIT_REQUIRED_ANY.intersection(snapshot.keys()):
-            raise ValueError(
-                "invalid transcript_edit payload: 'snapshot' object is missing required transcript-edit signals"
-            )
-        return
-    if "run_id" not in payload or not _TRANSCRIPT_EDIT_SIGNAL_KEYS.intersection(payload.keys()):
-        raise ValueError(
-            "invalid transcript_edit payload: expected run snapshot with 'run_id' and one of"
-            " {'snapshot','progress_log','critical_events','terminal_summary'}"
-        )
 
 
 def _looks_like_mission_runtime_payload(payload: dict[str, Any]) -> bool:
@@ -191,3 +168,26 @@ def _dict_field(payload: dict[str, Any], *, key: str) -> dict[str, Any]:
 
 def _optional_str(value: Any) -> str | None:
     return value if isinstance(value, str) and value.strip() else None
+
+
+register_trace_family(
+    loop_family="controller_kernel",
+    builder=lambda **kwargs: build_controller_kernel_canonical_trace(
+        controller_transcript=kwargs["payload"]["controller_transcript"],
+        run_artifact=kwargs["payload"]["run_artifact"],
+        transcript_ref=_optional_str(kwargs["payload"].get("controller_transcript_ref")),
+        run_artifact_ref=_optional_str(kwargs["payload"].get("run_artifact_ref")),
+        trace_id=kwargs.get("trace_id"),
+    ),
+    detector=lambda payload: _CONTROLLER_DISPATCH_KEYS.issubset(payload.keys()),
+)
+register_trace_family(
+    loop_family="mission_runtime",
+    builder=lambda **kwargs: build_mission_runtime_canonical_trace(
+        mission_runtime_payload=_mission_runtime_payload(kwargs["payload"]),
+        payload_ref=_optional_str(kwargs["payload"].get("mission_runtime_ref"))
+        or _optional_str(kwargs["payload"].get("snapshot_ref")),
+        trace_id=kwargs.get("trace_id"),
+    ),
+    detector=_looks_like_mission_runtime_payload,
+)

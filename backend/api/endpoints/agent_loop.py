@@ -18,7 +18,7 @@ from pydantic import BaseModel, Field
 from agent_kernel.models import KernelBudgets, KernelGoal, KernelSessionStartRequest
 from agent_kernel.tooling import CorpusArtifactOpener
 from agents.controller.openai_client import OpenAINextStepClient
-from harness.mission_runtime.modes.deed_to_ir import run_orchestration_kernel_deed_loop
+from agents.deed_to_ir.mission_runtime_bridge import run_orchestration_kernel_deed_loop
 from agents.controller.bootstrap import (
     hydrate_and_persist_finalized_dossier_text,
     persist_deed_text_artifact,

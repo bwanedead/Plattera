@@ -5,17 +5,16 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
-from backend.harness.mission_state import (
-    apply_resolution_changes,
+from backend.harness.mission_state.resolution_lifecycle import (
     compute_emergent_state_after_resolver_move,
     count_tail_resolver_moves,
     edit_plan_has_ops,
     emergent_recency_rank,
     is_allowed_manual_emergent_transition,
-    normalize_resolution_change,
-    resolution_item_row_dict,
     stamp_harness_lifecycle_domain,
 )
+from backend.harness.mission_state.resolution_projection import resolution_item_row_dict
+from backend.harness.mission_state.resolution_updates import apply_resolution_changes, normalize_resolution_change
 
 
 def test_gather_opens_then_investigating_without_auto_blocked_repeat_transition() -> None:
@@ -141,7 +140,7 @@ def test_apply_update_item_state_on_emergent() -> None:
                 }
             )
         ],
-        decision_ledger={"items": []},
+        source_ledger={"items": []},
         emergent_items=[
             resolution_item_row_dict(
                 item_id="harness:emergent:abc123",
@@ -156,7 +155,7 @@ def test_apply_update_item_state_on_emergent() -> None:
             )
         ],
         context_notes_by_item_id={},
-        projected_ledgers_items=[],
+        projected_source_items=[],
     )
     assert any(str(x.get("op")) == "update_item_state" for x in out.get("accepted") or [])
     assert (out["emergent_items"] or [])[0].get("state") == "superseded"

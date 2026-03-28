@@ -4,7 +4,7 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-from .resolution_envelope import (
+from .resolution_projection import (
     MAX_CONTEXT_NOTE_BODY_CHARS,
     MAX_CONTEXT_NOTE_INTENT_CHARS,
     MAX_CONTEXT_NOTES_PER_ITEM,
@@ -29,11 +29,11 @@ def _normalize_reason(reason: Any) -> str:
     return str(reason or "").strip()[:MAX_EMERGENT_REASON_CHARS]
 
 
-def ledger_decision_keys(ledger: dict[str, Any] | None) -> set[str]:
-    if not isinstance(ledger, dict):
+def source_item_keys(source_ledger: dict[str, Any] | None) -> set[str]:
+    if not isinstance(source_ledger, dict):
         return set()
     out: set[str] = set()
-    for row in list(ledger.get("items") or []):
+    for row in list(source_ledger.get("items") or []):
         if not isinstance(row, dict):
             continue
         key = str(row.get("key") or "").strip().lower()
@@ -42,7 +42,7 @@ def ledger_decision_keys(ledger: dict[str, Any] | None) -> set[str]:
     return out
 
 
-def board_title_fingerprints(items: list[dict[str, Any]]) -> set[str]:
+def item_title_fingerprints(items: list[dict[str, Any]]) -> set[str]:
     out: set[str] = set()
     for row in items:
         if not isinstance(row, dict):
@@ -64,8 +64,8 @@ def known_item_ids(items: list[dict[str, Any]]) -> set[str]:
 def evaluate_add_item_promotion(
     proposal: dict[str, Any],
     *,
-    ledger_decision_keys_set: set[str],
-    board_items: list[dict[str, Any]],
+    source_item_keys_set: set[str],
+    existing_items: list[dict[str, Any]],
 ) -> tuple[bool, str]:
     title = _normalize_title(proposal.get("title"))
     if len(title) < 8:
@@ -74,13 +74,13 @@ def evaluate_add_item_promotion(
     if len(reason) < 24:
         return False, "reason_insufficient_substance"
 
-    if title.casefold() in board_title_fingerprints(board_items):
+    if title.casefold() in item_title_fingerprints(existing_items):
         return False, "duplicate_title"
 
     domain_payload = proposal.get("domain_payload") if isinstance(proposal.get("domain_payload"), dict) else {}
     decision_key = str(domain_payload.get("decision_key") or "").strip().lower()
-    if decision_key and decision_key in ledger_decision_keys_set:
-        return False, "duplicates_existing_ledger_decision"
+    if decision_key and decision_key in source_item_keys_set:
+        return False, "duplicates_existing_source_item"
 
     materiality = str(proposal.get("materiality") or "medium").strip().lower()
     resolution_condition = str(proposal.get("resolution_condition") or "").strip()
@@ -107,12 +107,12 @@ def evaluate_add_item_promotion(
 
 def normalize_resolution_change(raw: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(raw, dict):
-        raise ValueError("work_board_change_not_object")
+        raise ValueError("resolution_change_not_object")
     op = str(raw.get("op") or raw.get("operation") or "").strip().lower()
     if op == "add":
         op = "add_item"
     if op not in {"add_item", "attach_note", "update_item_state"}:
-        raise ValueError("invalid_work_board_change_op")
+        raise ValueError("invalid_resolution_change_op")
     if op == "add_item":
         materiality = str(raw.get("materiality") or "medium").strip().lower()
         if materiality not in {"low", "medium", "high"}:
@@ -168,13 +168,13 @@ def normalize_resolution_change(raw: dict[str, Any]) -> dict[str, Any]:
 
 def normalize_resolution_changes_list(raw: list[Any]) -> list[dict[str, Any]]:
     if not isinstance(raw, list) or not raw:
-        raise ValueError("missing_work_board_changes")
+        raise ValueError("missing_resolution_changes")
     out: list[dict[str, Any]] = []
     for row in raw[:MAX_EMERGENT_PROPOSALS_PER_RESOLVER]:
         if isinstance(row, dict):
             out.append(normalize_resolution_change(row))
     if not out:
-        raise ValueError("empty_work_board_changes")
+        raise ValueError("empty_resolution_changes")
     return out
 
 
@@ -220,13 +220,13 @@ def new_emergent_item_id() -> str:
 def apply_resolution_changes(
     changes: list[dict[str, Any]],
     *,
-    decision_ledger: dict[str, Any],
+    source_ledger: dict[str, Any],
     emergent_items: list[dict[str, Any]],
     context_notes_by_item_id: dict[str, list[dict[str, Any]]],
-    projected_ledgers_items: list[dict[str, Any]],
+    projected_source_items: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    ledger_keys = ledger_decision_keys(decision_ledger)
-    board_snapshot = [dict(x) for x in projected_ledgers_items if isinstance(x, dict)] + [
+    source_keys = source_item_keys(source_ledger)
+    projected_items = [dict(x) for x in projected_source_items if isinstance(x, dict)] + [
         dict(x) for x in emergent_items if isinstance(x, dict)
     ]
     new_emergent = [dict(x) for x in emergent_items if isinstance(x, dict)]
@@ -243,8 +243,8 @@ def apply_resolution_changes(
         if op == "add_item":
             ok, code = evaluate_add_item_promotion(
                 change,
-                ledger_decision_keys_set=ledger_keys,
-                board_items=board_snapshot,
+                source_item_keys_set=source_keys,
+                existing_items=projected_items,
             )
             if not ok:
                 rejected.append({"op": "add_item", "code": code, "title": change.get("title")})
@@ -252,12 +252,12 @@ def apply_resolution_changes(
             item_id = new_emergent_item_id()
             row = build_emergent_item_row(change, item_id=item_id)
             new_emergent.append(row)
-            board_snapshot.append(dict(row))
+            projected_items.append(dict(row))
             accepted.append({"op": "add_item", "item_id": item_id, "title": row.get("title")})
             continue
         if op == "attach_note":
             target_item_id = str(change.get("target_item_id") or "")
-            if target_item_id not in known_item_ids(board_snapshot):
+            if target_item_id not in known_item_ids(projected_items):
                 rejected.append({"op": "attach_note", "code": "unknown_target_item_id", "target_item_id": target_item_id})
                 continue
             entry = {

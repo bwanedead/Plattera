@@ -1,11 +1,10 @@
 """Kernel-direct trace adapter — Phase 11 D3.
 
 Builds a ``CanonicalTraceRecord`` from live ``KernelTraceCollector`` events and a
-run artifact, without requiring a legacy controller transcript.
+run artifact, without requiring transcript-derived replay input.
 
-This is the canonical trace builder for orchestration-kernel runs.  It replaces
-``build_controller_kernel_trace()`` on the kernel path; the legacy adapter is kept
-for backward compatibility with existing controller-transcript-based runs.
+This is the canonical trace builder for orchestration-kernel runs. It is the
+native path for live kernel-emitted traces.
 """
 from __future__ import annotations
 
@@ -140,8 +139,8 @@ def _build_request_metadata(*, run_artifact: dict[str, Any]) -> dict[str, Any]:
         "request_id": as_str(run_artifact.get("request_id")),
         "dossier_id": as_str(run_artifact.get("dossier_id")),
         "source_entry_ref": as_str(run_artifact.get("source_entry_ref")),
-        # D3: discriminator flag — lets analytics separate kernel-live traces from
-        # legacy controller-transcript-derived traces without touching loop_family.
+        # D3: discriminator flag — lets analytics separate native kernel-live traces
+        # from other emission paths without touching loop_family.
         # Existing consumers only read known fields; this key is additive.
         "emission_source": "kernel_live",
     }

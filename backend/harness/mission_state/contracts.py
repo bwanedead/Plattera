@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 MISSION_STATE_VERSION = "mission_state.v1"
 RESOLUTION_STATE_VERSION = "resolution_state.v1"
@@ -161,90 +161,28 @@ def new_mission_state(
     )
 
 
-def resolution_state_from_legacy_items(
-    *,
-    items: list[Mapping[str, Any]] | None,
-    active_item_id: str | None = None,
-    relations: list[ResolutionRelation | dict[str, Any]] | None = None,
-    updated_at_epoch_seconds: float = 0.0,
-    domain_payload: Mapping[str, Any] | None = None,
-) -> ResolutionState:
-    items_out: list[ResolutionItem] = []
-    for row in items or []:
-        item = resolution_item_from_legacy_row(row)
-        if item is not None:
-            items_out.append(item)
-    return new_resolution_state(
-        active_item_id=active_item_id,
-        items=items_out,
-        relations=relations,
-        updated_at_epoch_seconds=updated_at_epoch_seconds,
-        domain_payload=domain_payload,
-    )
-
-
-def resolution_item_from_legacy_row(row: Mapping[str, Any] | ResolutionItem | dict[str, Any]) -> ResolutionItem | None:
+def _coerce_resolution_item(row: ResolutionItem | dict[str, Any]) -> ResolutionItem | None:
     if isinstance(row, ResolutionItem):
         return row
-    if not isinstance(row, Mapping):
+    if not isinstance(row, dict):
         return None
-    item_id = _clean_text(row.get("item_id"), limit=128)
-    title = _clean_text(row.get("title"), limit=240)
-    kind = _clean_text(row.get("kind"), limit=128)
-    status = _clean_text(row.get("status"), limit=64) or _clean_text(row.get("state"), limit=64)
-    if not item_id or not title or not kind or not status:
+    try:
+        return ResolutionItem.model_validate(row)
+    except ValidationError:
         return None
-    return ResolutionItem(
-        item_id=item_id,
-        title=title,
-        kind=kind,
-        status=status,
-        summary=_clean_text(row.get("summary"), limit=500),
-        dependencies=_clean_str_list(row.get("dependencies"), limit=16),
-        evidence_refs=_clean_str_list(row.get("evidence_refs"), limit=24),
-        notes=_clean_text(row.get("notes"), limit=500),
-        context_notes=_clean_dict_list(row.get("context_notes"), limit=3),
-        history=[
-            entry
-            for entry in (_coerce_resolution_history_entry(item) for item in _maybe_iterable(row.get("history")))
-            if entry is not None
-        ],
-        materiality=_clean_text(row.get("materiality"), limit=32),
-        scope=dict(row.get("scope")) if isinstance(row.get("scope"), Mapping) else {},
-        provenance=_clean_text(row.get("provenance"), limit=128),
-        domain_payload=dict(row.get("domain_payload")) if isinstance(row.get("domain_payload"), Mapping) else {},
-    )
-
-
-def resolution_relation_from_legacy_row(
-    row: Mapping[str, Any] | ResolutionRelation | dict[str, Any],
-) -> ResolutionRelation | None:
-    if isinstance(row, ResolutionRelation):
-        return row
-    if not isinstance(row, Mapping):
-        return None
-    source_item_id = _clean_text(row.get("source_item_id"), limit=128)
-    target_item_id = _clean_text(row.get("target_item_id"), limit=128)
-    relation_type = _clean_text(row.get("relation_type"), limit=64)
-    if not source_item_id or not target_item_id or not relation_type:
-        return None
-    return ResolutionRelation(
-        source_item_id=source_item_id,
-        target_item_id=target_item_id,
-        relation_type=relation_type,
-        summary=_clean_text(row.get("summary"), limit=240),
-        domain_payload=dict(row.get("domain_payload")) if isinstance(row.get("domain_payload"), Mapping) else {},
-    )
-
-
-def _coerce_resolution_item(row: ResolutionItem | dict[str, Any]) -> ResolutionItem | None:
-    return resolution_item_from_legacy_row(row)
 
 
 def _coerce_resolution_relation(
     row: ResolutionRelation | dict[str, Any],
 ) -> ResolutionRelation | None:
-    return resolution_relation_from_legacy_row(row)
+    if isinstance(row, ResolutionRelation):
+        return row
+    if not isinstance(row, dict):
+        return None
+    try:
+        return ResolutionRelation.model_validate(row)
+    except ValidationError:
+        return None
 
 
 def _coerce_resolution_history_entry(
@@ -288,30 +226,9 @@ def _clean_str_list(values: Any, *, limit: int) -> list[str]:
         if len(out) >= limit:
             break
     return out
-
-
-def _clean_dict_list(values: Any, *, limit: int) -> list[dict[str, Any]]:
-    if not isinstance(values, list):
-        return []
-    out: list[dict[str, Any]] = []
-    for value in values:
-        if not isinstance(value, Mapping):
-            continue
-        out.append(dict(value))
-        if len(out) >= limit:
-            break
-    return out
-
-
 def _coerce_float(value: Any) -> float | None:
     if isinstance(value, bool):
         return None
     if isinstance(value, (int, float)):
         return float(value)
     return None
-
-
-def _maybe_iterable(value: Any) -> list[dict[str, Any]]:
-    if not isinstance(value, list):
-        return []
-    return [row for row in value if isinstance(row, Mapping)]

@@ -94,7 +94,7 @@ def build_run_progress_frame(
         context: kernel orchestrator context (read-only access to loop_memory).
         run_link_id: canonical mission-level linkage string (= request_id_prefix).
         mission_objective: human-readable mission purpose string.
-        domain: domain identifier string (e.g. "transcript_edit", "deed_to_ir").
+        domain: active family identifier carried through the domain-pack seam.
         constitution_version: identity constitution version tag.
 
     Returns:

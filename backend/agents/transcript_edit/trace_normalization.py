@@ -147,19 +147,6 @@ def source_local_id(*, event: dict[str, Any], fallback: str) -> str:
     ) or fallback
 
 
-def closure_payload(ledger: dict[str, Any]) -> dict[str, Any]:
-    if not ledger:
-        return {}
-    summary = as_dict(ledger.get("summary"))
-    out = {
-        "source": "decision_ledger",
-        "unresolved_count": summary.get("unresolved_count"),
-        "mapping_blocking_unresolved_count": summary.get("mapping_blocking_unresolved_count"),
-        "source_completeness": as_str(ledger.get("source_completeness")),
-    }
-    return {k: v for k, v in out.items() if v not in (None, "", {})}
-
-
 def payload_for_stream_event(*, event: dict[str, Any]) -> dict[str, Any]:
     phase = as_str(event.get("phase"))
     event_type_value = as_str(event.get("event_type"))
@@ -174,10 +161,6 @@ def payload_for_stream_event(*, event: dict[str, Any]) -> dict[str, Any]:
             payload[key] = value
     detail = as_dict(event.get("detail"))
     if detail:
-        if "decision_ledger" in detail:
-            closure = closure_payload(as_dict(detail.get("decision_ledger")))
-            if closure:
-                payload["closure"] = closure
         evidence_attempts = as_dict(detail.get("evidence_attempts"))
         if evidence_attempts:
             payload["evidence_attempts"] = {

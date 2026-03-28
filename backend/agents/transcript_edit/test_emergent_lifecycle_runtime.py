@@ -45,8 +45,8 @@ def test_sync_open_to_investigating_on_gather() -> None:
     )
     assert st.harness_emergent_board_items[0]["state"] == "investigating"
     assert isinstance(obs, dict)
-    assert obs.get("board_state_before") == "open"
-    assert obs.get("board_state_after") == "investigating"
+    assert obs.get("state_before") == "open"
+    assert obs.get("state_after") == "investigating"
     assert obs.get("event") == "lifecycle_transition"
 
 

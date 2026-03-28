@@ -2,7 +2,7 @@
 
 This package implements the shared phase grammar and loop governance for all domain families.
 The execution kernel (backend/agent_kernel/) handles action dispatch and budgets.
-Domain packs (e.g. backend/agents/transcript_edit/domain_pack.py) supply domain content and policy.
+Domain packs supply domain content and policy through the harness-defined seam.
 
 Public surface:
 - run_orchestration_kernel_loop — the phase grammar runner

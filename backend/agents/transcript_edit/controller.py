@@ -82,6 +82,7 @@ from .result_policy import (
     max_iterations_decision,
 )
 from .runtime_summary import derive_mission_runtime_summary
+from harness.mission_state import new_resolution_state
 from .state_projection import (
     derive_waiting_feedback_projection,
     sync_pending_feedback_cache_from_registry,
@@ -956,10 +957,9 @@ def _runtime_hitl_state(state: TranscriptEditLoopState) -> dict[str, Any]:
     from .board_observability import compact_emergent_board_run_posture
 
     _, hitl_read_ledger = transcript_edit_unified_and_closure_read_from_loop_state(state)
-    projection = derive_waiting_feedback_projection(
-        blocker_registry=state.blocker_registry,
-        fallback_prompt_id=state.pending_feedback_prompt_id,
-        fallback_decision_key=state.pending_feedback_decision_key,
+    resolution_state = _runtime_resolution_state_from_ledger(
+        decision_ledger=hitl_read_ledger,
+        updated_at_epoch_seconds=float(state.iterations or 0.0),
     )
     tickets = list_external_context_injections(
         hitl_read_ledger,
@@ -967,8 +967,6 @@ def _runtime_hitl_state(state: TranscriptEditLoopState) -> dict[str, Any]:
     )
     mission_runtime_summary = derive_mission_runtime_summary(
         decision_ledger=hitl_read_ledger,
-        blocker_registry=state.blocker_registry,
-        waiting_projection=projection,
     )
     return {
         "used_human_feedback": bool(state.used_human_feedback),
@@ -977,8 +975,7 @@ def _runtime_hitl_state(state: TranscriptEditLoopState) -> dict[str, Any]:
         "feedback_stale_count": int(state.feedback_stale_count),
         "feedback_superseded_count": int(state.feedback_superseded_count),
         "mission_runtime_summary": mission_runtime_summary,
-        "pending_feedback_prompt_id": projection.get("pending_feedback_prompt_id"),
-        "pending_feedback_decision_key": projection.get("pending_feedback_decision_key"),
+        "resolution_state": resolution_state.model_dump(mode="json"),
         "superseded_prompt_ids": sorted(list(state.superseded_feedback_prompt_ids)),
         "hitl_lifecycle_log": list(state.hitl_lifecycle_log),
         "human_resolution_tickets": tickets,
@@ -991,14 +988,32 @@ def _runtime_hitl_state(state: TranscriptEditLoopState) -> dict[str, Any]:
         ][:12],
         "scope_summaries": dict(hitl_read_ledger.get("scope_summaries") or {}),
         "convention_context": dict(state.convention_context or {}),
-        "blocker_registry": registry_snapshot_for_payload(state.blocker_registry),
-        "active_blocker": select_primary_blocker(state.blocker_registry),
-        "blocker_health": blocker_health_snapshot(registry=state.blocker_registry, decision_ledger=hitl_read_ledger),
         "board_run_posture_compact": compact_emergent_board_run_posture(
             list(state.harness_emergent_board_items or []),
             last_focus_key=state.last_focus_key,
         ),
     }
+
+
+def _runtime_resolution_state_from_ledger(
+    *,
+    decision_ledger: dict[str, Any],
+    updated_at_epoch_seconds: float,
+):
+    unified, _ = transcript_edit_unified_and_closure_read_for_native(
+        native_decision_ledger=decision_ledger,
+    )
+    unified_items = list(unified.get("items") or [])
+    active_item_id = str(unified_items[0].get("item_id") or "").strip() if unified_items else None
+    return new_resolution_state(
+        items=unified_items,
+        active_item_id=active_item_id or None,
+        updated_at_epoch_seconds=updated_at_epoch_seconds,
+        domain_payload={
+            "source": "transcript_edit_runtime_summary",
+            "native_resolution_source_present": True,
+        },
+    )
 def _normalized_mode(raw: str | None) -> str:
     return normalized_mode(
         raw,

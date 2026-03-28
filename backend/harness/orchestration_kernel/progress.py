@@ -7,9 +7,8 @@ def evaluate_progress(metrics: ProgressMetrics) -> ProgressDelta:
     """Shared mechanical warning-rail evaluator.
 
     Generic parameter types — no domain-specific field names.
-    Promoted from classify_iteration_progress in
-    backend/agents/transcript_edit/progress_evaluation.py with generic
-    parameter naming so any domain can supply metric inputs via hook 7.
+    Promoted from an earlier domain-local evaluator and rewritten with
+    generic parameter naming so any domain can supply metric inputs via hook 7.
 
     ``ProgressDelta.made_progress`` is a mechanical loop-control flag, not semantic mission truth.
     The kernel owns no_progress_streak and evidence_signal_counter.

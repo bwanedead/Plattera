@@ -696,7 +696,7 @@ def _coerce_focus_move(
             normalized_updates.append(proposal.model_dump(mode="json", exclude_none=True))
         out["blocker_updates"] = normalized_updates
     if move == "propose_work_board_changes":
-        from harness.mission_state import normalize_resolution_changes_list
+        from harness.mission_state.resolution_updates import normalize_resolution_changes_list
 
         raw_wb = parsed.get("work_board_changes")
         out["work_board_changes"] = normalize_resolution_changes_list(raw_wb if isinstance(raw_wb, list) else [])

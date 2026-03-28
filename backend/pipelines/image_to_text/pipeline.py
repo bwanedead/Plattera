@@ -89,9 +89,9 @@ from pydantic import BaseModel, Field, ValidationError
 from pipelines.image_to_text.image_processor import enhance_for_character_recognition
 from pipelines.image_to_text.redundancy import RedundancyProcessor
 from agent_kernel.session import build_kernel_session_manager
-from harness.mission_runtime.modes.transcript_edit import run_orchestration_kernel_transcript_loop
 from agents.transcript_edit.contracts import TranscriptEditAgentRunRequest
 from agents.transcript_edit.decision_ledger import unresolved_closure_requirements
+from agents.transcript_edit.mission_runtime_bridge import run_orchestration_kernel_transcript_loop
 from services.agent_kernel.run_artifact_persistence_service import RunArtifactPersistenceService
 from feature_graph.kernel_executor_composition import build_plattera_default_action_executor
 from transcript_edit.contracts import (

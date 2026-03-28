@@ -16,19 +16,23 @@ _DEFAULT_SUMMARY_TAIL = 5
 _MAX_STEP_FIELDS_CHARS = 280
 _MAX_CAPSULE_STEPS = 8
 _MAX_SUMMARY_CHAIN = 6
-_MAX_BOARD_COMPACT_CHARS = 200
+_MAX_TRANSITION_REASON_CHARS = 200
 
 
-def _compact_board_progress_for_lane(raw: Any) -> dict[str, Any] | None:
+def _compact_resolution_progress_for_lane(raw: Any) -> dict[str, Any] | None:
     if not isinstance(raw, dict):
         return None
+    item_id = str(raw.get("item_id") or "").strip()[:96] or None
+    state_before = str(raw.get("state_before") or "").strip()[:32] or None
+    state_after = str(raw.get("state_after") or "").strip()[:32] or None
+    transition_reason = str(raw.get("transition_reason") or "").strip()[:_MAX_TRANSITION_REASON_CHARS] or None
     return {
         "event": str(raw.get("event") or "").strip()[:48] or None,
-        "board_item_id": str(raw.get("board_item_id") or "").strip()[:96] or None,
-        "before": str(raw.get("board_state_before") or "").strip()[:32] or None,
-        "after": str(raw.get("board_state_after") or "").strip()[:32] or None,
-        "reason": str(raw.get("board_transition_reason") or "").strip()[:_MAX_BOARD_COMPACT_CHARS] or None,
-        "recency_rank": raw.get("board_recency_rank"),
+        "item_id": item_id,
+        "state_before": state_before,
+        "state_after": state_after,
+        "transition_reason": transition_reason,
+        "recency_rank": raw.get("recency_rank"),
         "newly_promoted": raw.get("newly_promoted"),
     }
 
@@ -48,7 +52,7 @@ def build_recent_activity_lane(
             "schema_version": RECENT_ACTIVITY_LANE_VERSION,
             "rich_capsules": [],
             "summary_capsules": [],
-            "legacy_flat_tail": [],
+            "ungrouped_tail": [],
             "bounded_note": "No continuity steps yet.",
         }
 
@@ -58,14 +62,14 @@ def build_recent_activity_lane(
     summary_cap = [_summary_capsule_from_block(g) for g in groups[rt : rt + min(3, st)]]
 
     has_numeric_iteration = any(_coerce_iteration(e.get("iteration")) is not None for e in log)
-    legacy_flat = _legacy_flat_tail(log, max_entries=4) if has_numeric_iteration else []
+    ungrouped_tail = _ungrouped_tail(log, max_entries=4) if has_numeric_iteration else []
 
     return {
         "schema_version": RECENT_ACTIVITY_LANE_VERSION,
         "current_iteration": current_iteration,
         "rich_capsules": rich_cap,
         "summary_capsules": summary_cap,
-        "legacy_flat_tail": legacy_flat,
+        "ungrouped_tail": ungrouped_tail,
         "bounded_note": "Recent path only; full event history is not injected here.",
     }
 
@@ -141,7 +145,7 @@ def _rich_capsule_from_block(block: dict[str, Any]) -> dict[str, Any]:
                 "state_changes_hint": (
                     str(s.get("state_delta_hint") or "").strip()[:_MAX_STEP_FIELDS_CHARS] or None
                 ),
-                "board_progress_compact": _compact_board_progress_for_lane(s.get("board_progress")),
+                "resolution_progress_compact": _compact_resolution_progress_for_lane(s.get("resolution_progress")),
             }
         )
     last_step = steps_in[-1] if steps_in else {}
@@ -169,7 +173,7 @@ def _summary_capsule_from_block(block: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _legacy_flat_tail(log: list[dict[str, Any]], *, max_entries: int) -> list[dict[str, Any]]:
+def _ungrouped_tail(log: list[dict[str, Any]], *, max_entries: int) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     for s in log[-max_entries:]:
         if not isinstance(s, dict):

@@ -17,7 +17,7 @@ Usage pattern for agent testing:
   python -m harness.mission_runtime.hitl_watch --run-id mission-myrun-tx --done-file /tmp/done_myrun.json
 
   # 3a. If event=hitl: inject feedback, then re-watch
-  python -m harness.mission_runtime.hitl_inject --run-id mission-myrun-tx --prompt-id <id> --choice "75"
+  python -m harness.mission_runtime.hitl_inject --loop-kind mission_runtime_cli --run-id mission-myrun-tx --prompt-id <id> --choice "75"
   python -m harness.mission_runtime.hitl_watch --run-id mission-myrun-tx --done-file /tmp/done_myrun.json
 
   # 3b. If event=loop_done: read /tmp/result_myrun.json

@@ -14,9 +14,9 @@ from typing import Any
 
 from ..run_state import (
     SharedRunStateEnvelope,
+    build_registered_run_state,
     build_controller_kernel_run_state,
     build_mission_runtime_run_state,
-    build_transcript_edit_run_state,
 )
 from ..tracing.schema import CanonicalTraceRecord
 from ..tracing.service import build_canonical_trace_from_payload
@@ -180,8 +180,6 @@ def _assemble_run_review(
 def _build_trace(*, payload: dict[str, Any], loop_family: str | None) -> CanonicalTraceRecord:
     if loop_family is None:
         return build_canonical_trace_from_payload(payload=payload)
-    if loop_family not in {"controller_kernel", "transcript_edit", "mission_runtime"}:
-        raise ValueError(f"unsupported loop_family: {loop_family}")
     return build_canonical_trace_from_payload(payload=payload, loop_family=loop_family)
 
 
@@ -198,8 +196,6 @@ def _build_run_state(*, payload: dict[str, Any], loop_family: str) -> SharedRunS
             controller_transcript=controller_transcript,
             run_artifact=run_artifact,
         )
-    if loop_family == "transcript_edit":
-        return build_transcript_edit_run_state(run_snapshot=payload)
     if loop_family == "mission_runtime":
         mission_runtime_payload = payload.get("mission_runtime")
         if not isinstance(mission_runtime_payload, dict):
@@ -207,7 +203,7 @@ def _build_run_state(*, payload: dict[str, Any], loop_family: str) -> SharedRunS
         if not isinstance(mission_runtime_payload, dict):
             raise ValueError("invalid mission_runtime payload for run-state build")
         return build_mission_runtime_run_state(mission_runtime_payload=mission_runtime_payload)
-    raise ValueError(f"unsupported loop_family: {loop_family}")
+    return build_registered_run_state(loop_family=loop_family, payload=payload)
 
 
 def _review_artifact(

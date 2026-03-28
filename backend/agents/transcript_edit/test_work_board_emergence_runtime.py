@@ -12,9 +12,9 @@ from backend.agents.transcript_edit.loop_state import TranscriptEditLoopState
 from backend.agents.transcript_edit.planner import _coerce_focus_move
 from backend.agents.transcript_edit.work_board_runtime import apply_work_board_changes_from_resolver
 from backend.agents.transcript_edit.decision_ledger_focus import choose_investigation_focus
-from backend.harness.mission_state import (
-    LEGACY_WORK_BOARD_ENVELOPE_VERSION,
-    new_resolution_envelope,
+from backend.harness.mission_state.resolution_projection import (
+    RESOLUTION_PROJECTION_VERSION,
+    new_resolution_projection,
     resolution_item_row_dict,
 )
 
@@ -100,7 +100,7 @@ def test_runtime_apply_visible_in_focus_packet_and_composite_board() -> None:
     )
     wb = packet.get("work_board")
     assert isinstance(wb, dict)
-    assert wb.get("schema_version") == LEGACY_WORK_BOARD_ENVELOPE_VERSION
+    assert wb.get("schema_version") == RESOLUTION_PROJECTION_VERSION
     ids = {str(r.get("item_id")) for r in wb.get("items") or [] if isinstance(r, dict)}
     assert any(x.startswith("harness:emergent:") for x in ids)
 
@@ -150,7 +150,7 @@ def test_choose_investigation_focus_selects_emergent_when_no_unresolved_ledger_c
         resolution_condition="Confirm edge",
         evidence_refs=["e1"],
     )
-    wb = new_resolution_envelope(domain_projection="decision_ledger", items=[row])
+    wb = new_resolution_projection(domain_projection="decision_ledger", items=[row])
     focus = choose_investigation_focus(ledger, work_board=wb)
     assert focus is not None
     assert focus.get("focus_target_kind") == "harness_emergent"

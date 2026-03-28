@@ -495,12 +495,12 @@ def handle_repair_move_outcome(
         state.last_board_observability = dict(board_sync)
         prev_hint = str((state.continuity_log[-1] or {}).get("state_delta_hint") or "").strip()
         step_hint = (
-            f"board_lifecycle:{board_sync.get('board_state_before')}→{board_sync.get('board_state_after')}"
+            f"resolution_lifecycle:{board_sync.get('state_before')}→{board_sync.get('state_after')}"
         )[:260]
         _merge_last_continuity_row(
             state,
             {
-                "board_progress": dict(board_sync),
+                "resolution_progress": dict(board_sync),
                 "state_delta_hint": f"{prev_hint}; {step_hint}".strip("; ")
                 if prev_hint
                 else step_hint,
@@ -645,20 +645,20 @@ def handle_repair_move_outcome(
                 bp: dict[str, Any] = {
                     "event": "emergent_promoted",
                     "focus_target_kind": "harness_emergent",
-                    "board_item_id": tid,
-                    "board_state_before": None,
-                    "board_state_after": "open",
-                    "board_transition_reason": "promoted_from_resolver_work_board_changes",
+                    "item_id": tid,
+                    "state_before": None,
+                    "state_after": "open",
+                    "transition_reason": "promoted_from_resolver_work_board_changes",
                     "newly_promoted": True,
                     "recently_touched": True,
-                    "board_recency_rank": 0,
+                    "recency_rank": 0,
                 }
                 state.last_board_observability = bp
                 _merge_last_continuity_row(
                     state,
                     {
-                        "board_progress": bp,
-                        "state_delta_hint": f"board_promoted:{tid[:64]}",
+                        "resolution_progress": bp,
+                        "state_delta_hint": f"resolution_promoted:{tid[:64]}",
                     },
                 )
             elif isinstance(attach, dict) and str(attach.get("target_item_id") or "").strip():
@@ -668,16 +668,16 @@ def handle_repair_move_outcome(
                     "focus_target_kind": (
                         "harness_emergent" if tid.startswith(HARNESS_EMERGENT_ITEM_PREFIX) else "ledger_decision"
                     ),
-                    "board_item_id": tid,
-                    "board_transition_reason": "attach_note_from_resolver_work_board_changes",
+                    "item_id": tid,
+                    "transition_reason": "attach_note_from_resolver_work_board_changes",
                     "recently_touched": True,
                 }
                 state.last_board_observability = bp2
                 _merge_last_continuity_row(
                     state,
                     {
-                        "board_progress": bp2,
-                        "state_delta_hint": f"board_note_attached:{tid[:64]}",
+                        "resolution_progress": bp2,
+                        "state_delta_hint": f"resolution_note_attached:{tid[:64]}",
                     },
                 )
             state.evidence_signal_counter += 1

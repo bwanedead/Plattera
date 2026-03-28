@@ -7,7 +7,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 from backend.agents.transcript_edit.focus_packet import build_focus_packet
 from backend.agents.transcript_edit.focus_packet_board_context import build_work_board_focus_context_bundle
-from backend.harness.mission_state import new_resolution_envelope, resolution_item_row_dict
+from backend.harness.mission_state.resolution_projection import new_resolution_projection, resolution_item_row_dict
 
 
 def test_bounded_notes_and_linked_hints_only() -> None:
@@ -49,7 +49,7 @@ def test_bounded_notes_and_linked_hints_only() -> None:
         evidence_refs=[],
         context_notes=[{"body": "should not appear", "non_canonical": True}],
     )
-    wb = new_resolution_envelope(domain_projection="t", items=[focused, other, noise])
+    wb = new_resolution_projection(domain_projection="t", items=[focused, other, noise])
     ctx = build_work_board_focus_context_bundle(
         decision_key="harness:emergent:aaaaaaaaaaaa",
         focus_target_kind="harness_emergent",

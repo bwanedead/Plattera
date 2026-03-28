@@ -26,7 +26,7 @@ def test_recent_activity_groups_by_iteration_newest_first() -> None:
     assert rich[0]["steps"][0]["move_chosen"] == "d"
 
 
-def test_recent_activity_keeps_board_progress_but_not_future_motion_hint() -> None:
+def test_recent_activity_keeps_resolution_progress_but_not_future_motion_hint() -> None:
     log = [
         {
             "iteration": 1,
@@ -35,19 +35,20 @@ def test_recent_activity_keeps_board_progress_but_not_future_motion_hint() -> No
             "outcome": "ok",
             "state_delta_hint": "move=gather_more_evidence; widened evidence",
             "next_open_move_hint": "should_not_surface",
-            "board_progress": {
+            "resolution_progress": {
                 "event": "lifecycle_transition",
-                "board_item_id": "harness:emergent:abc123def456",
-                "board_state_before": "open",
-                "board_state_after": "investigating",
-                "board_transition_reason": "resolver_move:gather_more_evidence",
-                "board_recency_rank": 0,
+                "item_id": "harness:emergent:abc123def456",
+                "state_before": "open",
+                "state_after": "investigating",
+                "transition_reason": "resolver_move:gather_more_evidence",
+                "recency_rank": 0,
             },
         }
-    ]
+        ]
     lane = build_recent_activity_lane(log, current_iteration=1)
     step = lane["rich_capsules"][0]["steps"][0]
-    compact = step["board_progress_compact"]
+    compact = step["resolution_progress_compact"]
     assert isinstance(compact, dict)
-    assert compact["after"] == "investigating"
+    assert compact["item_id"] == "harness:emergent:abc123def456"
+    assert compact["state_after"] == "investigating"
     assert "next_move_more_likely" not in step

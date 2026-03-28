@@ -7,7 +7,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 from backend.agents.transcript_edit.decision_ledger_focus import choose_investigation_focus
 from backend.agents.transcript_edit.decision_ledger_focus import authority_rank_for_candidate
-from backend.harness.mission_state import new_resolution_envelope, resolution_item_row_dict
+from backend.harness.mission_state.resolution_projection import new_resolution_projection, resolution_item_row_dict
 
 
 def _ledger_with_material_mapping_blocker() -> dict:
@@ -49,7 +49,7 @@ def test_ledger_mapping_authority_wins_over_emergent() -> None:
         evidence_refs=["x"],
         domain_payload={"harness_lifecycle": {"created_at_epoch": 999999, "last_event_at_epoch": 999999}},
     )
-    wb = new_resolution_envelope(domain_projection="decision_ledger", items=[em])
+    wb = new_resolution_projection(domain_projection="decision_ledger", items=[em])
     focus = choose_investigation_focus(ledger, work_board=wb)
     assert focus is not None
     assert focus.get("decision_key") == "range"
@@ -88,7 +88,7 @@ def test_emergent_preferred_when_no_material_mapping_blocker_in_closure() -> Non
         resolution_condition="Document contradiction",
         evidence_refs=["f"],
     )
-    wb = new_resolution_envelope(domain_projection="decision_ledger", items=[em])
+    wb = new_resolution_projection(domain_projection="decision_ledger", items=[em])
     focus = choose_investigation_focus(ledger, work_board=wb)
     assert focus is not None
     assert str(focus.get("decision_key") or "").startswith("harness:emergent:")
@@ -112,7 +112,7 @@ def test_authority_policy_ranks_align_with_choose_winner() -> None:
         resolution_condition="x",
         evidence_refs=["e"],
     )
-    wb = new_resolution_envelope(domain_projection="decision_ledger", items=[row])
+    wb = new_resolution_projection(domain_projection="decision_ledger", items=[row])
     focus = choose_investigation_focus(ledger, work_board=wb)
     assert focus and focus.get("decision_key") == "range"
     from backend.agents.transcript_edit.decision_ledger_closure import unresolved_mapping_blocking_requirements

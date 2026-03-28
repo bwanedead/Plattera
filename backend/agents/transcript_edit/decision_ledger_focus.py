@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from harness.mission_state import envelope_is_legacy_work_board_envelope
+from harness.mission_state.resolution_projection import is_resolution_projection
 
 from .board_focus_shaping import (
     board_focus_sort_suffix,
@@ -184,7 +184,7 @@ def choose_investigation_focus(
             closure_source = ledger
         else:
             closure_source = legacy_decision_ledger_shape_from_unified(unified)
-    elif ledger is not None and envelope_is_legacy_work_board_envelope(ledger):
+    elif ledger is not None and is_resolution_projection(ledger):
         unified = ledger
         closure_source = legacy_decision_ledger_shape_from_unified(unified)
     elif ledger is not None:
