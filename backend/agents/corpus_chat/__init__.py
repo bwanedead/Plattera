@@ -1,8 +1,0 @@
-"""
-Corpus chat agent (placeholder).
-"""
-
-
-
-
-

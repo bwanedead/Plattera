@@ -20,7 +20,7 @@ class KernelEvent(str, Enum):
     PACKAGE_COMMITTED = "package_committed"
     FINISH = "finish"
 
-    # Transitional aliases for compatibility with older workflow-oriented call sites.
+    # Transitional aliases for compatibility with older callers.
     IR_READY = SOURCE_READY
     COMPILE_COMPLETED = ANALYSIS_COMPLETED
     JUDGE_COMPLETED = REVIEW_COMPLETED

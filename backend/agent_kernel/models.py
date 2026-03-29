@@ -146,7 +146,7 @@ class KernelLatestRefs(BaseModel):
 
 
 class KernelGapSummary(BaseModel):
-    """Compact gap summary for controller-side planning."""
+    """Compact gap summary for shared kernel planning."""
 
     top_gap_kinds: list[str] = Field(default_factory=list)
     gap_counts_by_kind: dict[str, int] = Field(default_factory=dict)
@@ -219,7 +219,7 @@ class KernelSessionStartResult(BaseModel):
 
 
 class KernelStepRequest(BaseModel):
-    """One-step action request chosen by a controller.
+    """One-step action request chosen by the orchestration shell.
 
     ``action_type`` is an opaque action id. Built-in harness ids and provider-registered ids share
     this single field.

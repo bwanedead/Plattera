@@ -25,7 +25,7 @@ def _fake_domain_ping(_inputs: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def test_fake_pack_action_registers_and_executes_with_generic_envelope() -> None:
-    """Non-transcript provider id dispatches through provider_actions with artifact ref output."""
+    """Non-core provider id dispatches through provider_actions with artifact ref output."""
     action_id = "fake_pack__ping"
     deps = ActionExecutorDeps(
         provider_actions={
@@ -45,12 +45,3 @@ def test_fake_pack_action_registers_and_executes_with_generic_envelope() -> None
         artifact_path="artifacts/fake_pack/ping-001.json"
     ).model_dump(mode="json")
     assert "fake_ping_completed" in step.reason_codes
-
-
-def test_agent_kernel_actions_has_no_transcript_built_in_import() -> None:
-    """Smoke: loading execution actions must not require transcript_edit (or other domain pack)."""
-    import backend.agent_kernel.actions as ak_actions  # noqa: PLC0415 — import-after-path fix
-
-    assert hasattr(ak_actions, "RegisteredProviderAction")
-    assert hasattr(ak_actions, "ActionExecutorDeps")
-    assert "transcript_edit" not in ak_actions.__file__.replace("\\", "/")

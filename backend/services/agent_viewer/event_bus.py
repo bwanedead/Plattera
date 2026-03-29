@@ -21,18 +21,9 @@ class AgentViewerEventBus:
         q: asyncio.Queue = asyncio.Queue()
         loop = asyncio.get_running_loop()
         history_items: list[str]
-        subscriber_count = 0
         with self._lock:
             self._subscribers[stream_key].append((loop, q))
-            subscriber_count = len(self._subscribers.get(stream_key, []))
             history_items = list(self._history.get(stream_key, ()))
-        if stream_key.startswith("transcript_edit:"):
-            logger.info(
-                "AGENT_VIEWER_TIMING ► bus_subscribe stream_key=%s history_count=%s subscribers=%s",
-                stream_key,
-                len(history_items),
-                subscriber_count,
-            )
         for data in history_items:
             try:
                 q.put_nowait(data)
@@ -54,29 +45,6 @@ class AgentViewerEventBus:
 
     def publish_sync(self, stream_key: str, event: dict[str, Any]) -> None:
         data = json.dumps(event)
-        should_log = False
-        phase = ""
-        event_type = ""
-        if stream_key.startswith("transcript_edit:") and isinstance(event, dict):
-            event_type = str(event.get("event_type") or "")
-            payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
-            phase = str(payload.get("phase") or "")
-            should_log = event_type in {"done", "human_feedback_needed", "human_feedback"} or phase in {
-                "starting",
-                "orient",
-                "audit",
-                "audit_result",
-                "human_feedback_needed",
-                "investigate",
-            }
-        if should_log:
-            logger.info(
-                "AGENT_VIEWER_TIMING ► bus_publish stream_key=%s event_type=%s phase=%s seq=%s",
-                stream_key,
-                event_type or "status",
-                phase or "n/a",
-                str(event.get("seq") if isinstance(event, dict) else "n/a"),
-            )
         with self._lock:
             self._history[stream_key].append(data)
             targets = list(self._subscribers.get(stream_key, []))

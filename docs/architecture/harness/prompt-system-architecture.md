@@ -246,7 +246,7 @@ Examples:
 
 - imperative strategy
 - deterministic next-step authorship
-- hidden planner logic
+- hidden next-step logic
 - semantic truth claims that should remain agent-authored
 
 Structured State is **not** another doctrine layer.
@@ -445,7 +445,7 @@ clean end state.
 
 ### 9.2 Surface doctrine sprawl
 
-[backend/agents/transcript_edit/prompting.py](/C:/projects/Plattera/backend/agents/transcript_edit/prompting.py) still carries surface-local doctrine and packet/task assembly.
+Legacy surface-local doctrine files still carry some packet/task assembly.
 
 This is now more clearly assembly than source ownership, but some prompt text
 still lives here until later surface cleanup.
@@ -480,7 +480,7 @@ This avoids prompt bloat and stacked steering even when no explicit contradictio
 
 ### 10.4 Structured state must remain descriptive
 
-If a payload field starts to read like advice, tactic, or planner logic, it should be scrutinized as possible semantic overreach.
+If a payload field starts to read like advice, tactic, or next-step logic, it should be scrutinized as possible semantic overreach.
 
 ### 10.5 Source text must remain inspectable
 

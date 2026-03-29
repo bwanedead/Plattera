@@ -8,8 +8,6 @@ from api.endpoints import assets as assets_endpoints
 from api.endpoints import config as config_endpoints
 from api.endpoints import image_to_text_jobs, index_maintenance, retrieval
 from api.endpoints import feature_graph
-from api.endpoints import agent_viewer
-from api.endpoints import transcript_edit_agent
 from api import logs as logs_router
 from api.endpoints.plss import container_router
 from api.endpoints.dossier import management_router, association_router, navigation_router, views_router, dossier_image_processing_router, runs_router
@@ -73,8 +71,6 @@ api_router.include_router(retrieval.router, prefix="/api", tags=["retrieval"])
 
 # Feature Graph endpoints (parallel to legacy pipelines)
 api_router.include_router(feature_graph.router, prefix="/api/feature-graph", tags=["feature-graph"])
-api_router.include_router(agent_viewer.router, prefix="/api/agent-viewer", tags=["agent-viewer"])
-api_router.include_router(transcript_edit_agent.router, prefix="/api/transcript-edit-agent", tags=["transcript-edit-agent"])
 
 # Config endpoints (no additional prefix; router has /config)
 api_router.include_router(config_endpoints.router)

@@ -63,7 +63,7 @@ class KernelTraceCollector:
         max_iterations: int,
         run_artifact_ref: str | None,
     ) -> None:
-        """Emitted once at loop start (before Phase 1 orient)."""
+        """Emitted once at loop start, before the first iteration."""
         self._append(
             RawTraceEvent(
                 timestamp_epoch_seconds=self._now(),
@@ -85,7 +85,7 @@ class KernelTraceCollector:
         )
 
     def emit_iteration_start(self, *, iteration: int, hitl_state: str) -> None:
-        """Emitted at the top of each iteration before Phase 2 refresh."""
+        """Emitted at the top of each iteration before sync/evaluate/action."""
         self._append(
             RawTraceEvent(
                 timestamp_epoch_seconds=self._now(),

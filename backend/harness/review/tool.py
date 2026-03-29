@@ -15,7 +15,6 @@ from typing import Any
 from ..run_state import (
     SharedRunStateEnvelope,
     build_registered_run_state,
-    build_controller_kernel_run_state,
     build_mission_runtime_run_state,
 )
 from ..tracing.schema import CanonicalTraceRecord
@@ -184,18 +183,6 @@ def _build_trace(*, payload: dict[str, Any], loop_family: str | None) -> Canonic
 
 
 def _build_run_state(*, payload: dict[str, Any], loop_family: str) -> SharedRunStateEnvelope:
-    if loop_family == "controller_kernel":
-        controller_transcript = payload.get("controller_transcript")
-        run_artifact = payload.get("run_artifact")
-        if not isinstance(controller_transcript, dict) or not isinstance(run_artifact, dict):
-            raise ValueError(
-                "invalid controller_kernel payload for run-state build: expected object fields "
-                "'controller_transcript' and 'run_artifact'"
-            )
-        return build_controller_kernel_run_state(
-            controller_transcript=controller_transcript,
-            run_artifact=run_artifact,
-        )
     if loop_family == "mission_runtime":
         mission_runtime_payload = payload.get("mission_runtime")
         if not isinstance(mission_runtime_payload, dict):
@@ -291,7 +278,7 @@ def _build_review_bundle(
 
 def _infer_input_refs(*, trace: CanonicalTraceRecord) -> list[str]:
     refs: list[str] = []
-    for key in ("controller_transcript_ref", "run_artifact_ref", "snapshot_ref"):
+    for key in ("run_artifact_ref", "snapshot_ref", "trace_ref"):
         value = trace.start_context_summary.get(key)
         if isinstance(value, str) and value.strip():
             refs.append(value.strip())

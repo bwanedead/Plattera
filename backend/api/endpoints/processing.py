@@ -81,10 +81,10 @@ from utils.file_handler import save_uploaded_file, cleanup_temp_file, is_valid_i
 from typing import Optional, Dict, Any
 import logging
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 from pathlib import Path
 
-from config.paths import dossiers_views_root, dossiers_artifacts_root
+from config.paths import dossiers_views_root
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -731,119 +731,13 @@ async def get_processing_types():
                     "description": "Extract text from images using LLM or OCR",
                     "supported_files": ["jpg", "jpeg", "png", "gif", "bmp", "tiff", "webp"],
                     "extraction_modes": {
-                        "legal_document_json_relaxed": {"name": "Legal Document JSON (Relaxed)", "description": "JSON object mode with local validation/repair"},
+                        "legal_document_json_relaxed": {"name": "Legal Document JSON (Relaxed)", "description": "JSON object mode with local validation"},
                         "generic_document_json": {"name": "Generic Document JSON", "description": "Verbatim mainText + sideTexts"}
                     }
                 }
             }
         }
 
-
-@router.get("/process/metrics/relaxed-json")
-async def get_relaxed_json_metrics(
-    days: int = 7,
-    model: Optional[str] = None,
-):
-    """
-    Rollup metrics for relaxed JSON extraction outcomes.
-
-    Metrics source:
-    - transcription_edit/json_extraction_metric_*.json artifacts
-    """
-    try:
-        days = max(1, min(365, int(days)))
-    except Exception:
-        days = 7
-    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
-    root = dossiers_artifacts_root() / "transcription_edit"
-    metric_files = list(root.rglob("json_extraction_metric_*.json")) if root.exists() else []
-    rows: list[dict] = []
-    for path in metric_files:
-        try:
-            payload = json.loads(path.read_text(encoding="utf-8"))
-        except Exception:
-            continue
-        if not isinstance(payload, dict):
-            continue
-        mode = str(payload.get("mode") or "").lower()
-        if mode != "relaxed":
-            continue
-        created_at = _metric_timestamp(path=path, payload=payload)
-        if created_at is None or created_at < cutoff:
-            continue
-        metric_model = str(payload.get("model") or "")
-        if model and metric_model != model:
-            continue
-        rows.append(
-            {
-                "mode": mode,
-                "model": metric_model,
-                "validation_passed": bool(payload.get("validation_passed")),
-                "repair_invoked": bool(payload.get("repair_invoked")),
-                "recovered": bool(payload.get("recovered")),
-                "path": str(path),
-            }
-        )
-
-    total = len(rows)
-    validation_pass = sum(1 for row in rows if row["validation_passed"])
-    repair_invoked = sum(1 for row in rows if row["repair_invoked"])
-    unrecoverable = sum(1 for row in rows if row["repair_invoked"] and not row["recovered"])
-    models: dict[str, dict[str, float | int]] = {}
-    for row in rows:
-        key = row["model"] or "unknown"
-        bucket = models.setdefault(
-            key,
-            {
-                "count": 0,
-                "validation_pass": 0,
-                "repair_invoked": 0,
-                "unrecoverable": 0,
-            },
-        )
-        bucket["count"] += 1
-        bucket["validation_pass"] += 1 if row["validation_passed"] else 0
-        bucket["repair_invoked"] += 1 if row["repair_invoked"] else 0
-        bucket["unrecoverable"] += 1 if (row["repair_invoked"] and not row["recovered"]) else 0
-
-    for bucket in models.values():
-        count = int(bucket["count"] or 0)
-        if count <= 0:
-            bucket["validation_pass_rate"] = 0.0
-            bucket["repair_invocation_rate"] = 0.0
-            bucket["unrecoverable_failure_rate"] = 0.0
-            continue
-        bucket["validation_pass_rate"] = round(float(bucket["validation_pass"]) / count, 4)
-        bucket["repair_invocation_rate"] = round(float(bucket["repair_invoked"]) / count, 4)
-        bucket["unrecoverable_failure_rate"] = round(float(bucket["unrecoverable"]) / count, 4)
-
-    denom = total if total > 0 else 1
-    return {
-        "status": "success",
-        "window_days": days,
-        "model_filter": model,
-        "sample_count": total,
-        "validation_pass_rate": round(validation_pass / denom, 4),
-        "repair_invocation_rate": round(repair_invoked / denom, 4),
-        "unrecoverable_failure_rate": round(unrecoverable / denom, 4),
-        "by_model": models,
-    }
-
-
-def _metric_timestamp(*, path: Path, payload: dict) -> datetime | None:
-    created_at = payload.get("created_at")
-    if isinstance(created_at, str) and created_at.strip():
-        try:
-            parsed = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
-            if parsed.tzinfo is None:
-                parsed = parsed.replace(tzinfo=timezone.utc)
-            return parsed.astimezone(timezone.utc)
-        except Exception:
-            pass
-    try:
-        return datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
-    except Exception:
-        return None
 
 # Add this test endpoint to see if the basic structure works
 @router.post("/process/test")

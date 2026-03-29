@@ -2,8 +2,7 @@
 
 Generic member names are primary. Legacy product-shaped strings remain accepted as transitional
 compatibility aliases, but they are no longer the canonical harness vocabulary.
-Domain packs register additional opaque string ids via ``ActionExecutorDeps.provider_actions``.
-Phase 32: transcript-edit ``tx_*`` ids live only under ``domains.mapping.transcript_edit.execution_action_ids``.
+Product composition may register additional opaque string ids via ``ActionExecutorDeps.provider_actions``.
 """
 
 from __future__ import annotations

@@ -1,4 +1,4 @@
-"""Unit tests for shared progress evaluation (Phase 21: outcome-based progress)."""
+"""Unit tests for the stripped generic mechanical progress evaluator."""
 
 from __future__ import annotations
 
@@ -6,41 +6,43 @@ from harness.orchestration_kernel.contracts import ProgressMetrics
 from harness.orchestration_kernel.progress import evaluate_progress
 
 
-def test_pending_refresh_without_baselines_does_not_grant_grace() -> None:
-    """Audit-only execute sets pending_refresh but no post-apply baselines — not progress."""
-    m = ProgressMetrics(
-        previous_finding_signature="a",
-        current_finding_signature="a",
-        previous_blocking_signature="b",
-        current_blocking_signature="b",
-        previous_blocking_count=2,
-        current_blocking_count=2,
-        new_evidence_signal=False,
-        pending_feedback_prompt_id=None,
+def test_refresh_reports_progress_when_state_changes_from_baseline() -> None:
+    metrics = ProgressMetrics(
+        previous_state_signature="same",
+        current_state_signature="changed",
+        previous_open_item_count=3,
+        current_open_item_count=2,
         pending_refresh=True,
-        refresh_baseline_blocking_count=None,
-        refresh_baseline_blocking_signature=None,
+        refresh_baseline_state_signature="same",
+        refresh_baseline_open_item_count=3,
     )
-    delta = evaluate_progress(m)
-    assert delta.made_progress is False
-    assert delta.reason_code == "no_material_change"
-
-
-def test_pending_refresh_with_baselines_grants_grace_when_no_delta_yet() -> None:
-    m = ProgressMetrics(
-        previous_finding_signature="a",
-        current_finding_signature="a",
-        previous_blocking_signature="b",
-        current_blocking_signature="b",
-        previous_blocking_count=2,
-        current_blocking_count=2,
-        new_evidence_signal=False,
-        pending_feedback_prompt_id=None,
-        pending_refresh=True,
-        refresh_baseline_blocking_count=2,
-        # Must match current so the "signature changed vs baseline" branch does not fire first.
-        refresh_baseline_blocking_signature="b",
-    )
-    delta = evaluate_progress(m)
+    delta = evaluate_progress(metrics)
     assert delta.made_progress is True
-    assert delta.reason_code == "refresh_pending_reaudit_grace"
+    assert delta.reason_code == "refresh_state_changed"
+    assert delta.reset_refresh is True
+
+
+def test_new_artifact_signal_counts_as_mechanical_progress() -> None:
+    metrics = ProgressMetrics(
+        previous_state_signature="same",
+        current_state_signature="same",
+        previous_open_item_count=1,
+        current_open_item_count=1,
+        new_artifact_signal=True,
+    )
+    delta = evaluate_progress(metrics)
+    assert delta.made_progress is True
+    assert delta.reason_code == "new_artifact_signal"
+
+
+def test_awaiting_human_without_change_is_not_progress() -> None:
+    metrics = ProgressMetrics(
+        previous_state_signature="same",
+        current_state_signature="same",
+        previous_open_item_count=1,
+        current_open_item_count=1,
+        pending_human_input=True,
+    )
+    delta = evaluate_progress(metrics)
+    assert delta.made_progress is False
+    assert delta.reason_code == "awaiting_human"

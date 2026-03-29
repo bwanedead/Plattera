@@ -70,7 +70,7 @@ SAFETY RULES:
 DEFAULT MODES:
 =============
 - Default extraction_mode: "legal_document_json_relaxed" (structured output, local validation/repair)
-- Default model: "gpt-o4-mini" (best OCR/transcription reliability for T0)
+- Default model: "gpt-o4-mini" (best OCR reliability for image-to-text extraction)
 - JSON mode auto-enables redundancy for better consensus analysis
 """
 from services.registry import get_registry
@@ -79,31 +79,14 @@ import base64
 import hashlib
 import os
 import threading
-import time
 from pathlib import Path
 import logging
 from typing import Tuple, Dict, Any, Optional, Union
 import json
-from datetime import datetime, timezone
+from datetime import datetime
 from pydantic import BaseModel, Field, ValidationError
 from pipelines.image_to_text.image_processor import enhance_for_character_recognition
 from pipelines.image_to_text.redundancy import RedundancyProcessor
-from agent_kernel.session import build_kernel_session_manager
-from domains.mapping.transcript_edit.contracts import TranscriptEditAgentRunRequest
-from domains.mapping.transcript_edit.decision_ledger import unresolved_closure_requirements
-from services.workflows.mapping.transcription_edit.mission_runtime_bridge import run_orchestration_kernel_transcript_loop
-from services.agent_kernel.run_artifact_persistence_service import RunArtifactPersistenceService
-from feature_graph.kernel_executor_composition import build_plattera_default_action_executor
-from tooling.mapping.transcription_edit.apply import materialize_canonical_input
-from tooling.mapping.transcription_edit.contracts import (
-    EditLoopStartRequestV0,
-    TranscriptDocumentV0,
-)
-from tooling.mapping.transcription_edit.validators import run_validators
-from services.workflows.mapping.transcription_edit.persistence import TranscriptionEditPersistenceService
-from services.workflows.mapping.transcription_edit.run_registry import TranscriptionEditRunRegistry
-from config.paths import dossiers_root
-from services.agent_viewer.event_bus import event_bus as viewer_event_bus
 
 logger = logging.getLogger(__name__)
 
@@ -166,25 +149,13 @@ def _format_terminal_message(status: str, reason_code: str, iterations: int) -> 
     """Produce a human-readable terminal message from run result."""
     reason = reason_code or ""
     if status == "completed" and "promoted" in reason:
-        return f"Transcript clean and promoted for mapping after {iterations} iteration(s)."
+        return f"Run completed and promoted after {iterations} iteration(s)."
     if status == "completed":
-        return f"Transcript audit completed after {iterations} iteration(s) — no errors found."
+        return f"Run completed after {iterations} iteration(s) — no errors found."
     if status == "needs_review":
-        short_reason = reason.replace("tx_agent_", "").replace("_", " ")
-        if reason.startswith("tx_agent_no_safe_plan_for_findings"):
-            return (
-                f"Run paused for review after {iterations} iteration(s): "
-                "no safe edit plan remains for unresolved findings."
-            )
-        if reason.startswith("tx_agent_closure_requirements_unresolved"):
-            return (
-                f"Run paused after {iterations} iteration(s): "
-                "closure requirements are still unresolved."
-            )
-        return f"Run paused for review after {iterations} iteration(s) ({short_reason})."
+        return f"Run paused for review after {iterations} iteration(s)."
     if status == "failed":
-        short_reason = reason.replace("tx_", "").replace("_", " ")
-        return f"Run failed after {iterations} iteration(s): {short_reason}."
+        return f"Run failed after {iterations} iteration(s)."
     return f"Run ended with status '{status}' after {iterations} iteration(s)."
 
 
@@ -228,8 +199,6 @@ class ImageToTextPipeline:
         self.registry = get_registry()
         # Initialize redundancy processor
         self.redundancy_processor = RedundancyProcessor()
-        self.transcription_edit_persistence = TranscriptionEditPersistenceService()
-        self.transcription_edit_run_registry = TranscriptionEditRunRegistry()
     
     def process(self, image_path: str, model: str = "gpt-o4-mini", extraction_mode: str = "legal_document_json_relaxed", enhancement_settings: dict = None) -> dict:
         """
@@ -384,7 +353,6 @@ class ImageToTextPipeline:
         if not result.get("success", False):
             return result
 
-        context = context or {}
         metadata = result.get("metadata") if isinstance(result.get("metadata"), dict) else {}
         extracted_text = result.get("extracted_text")
         if not isinstance(extracted_text, str) or not extracted_text.strip():
@@ -392,751 +360,20 @@ class ImageToTextPipeline:
 
         validated = self._validate_legal_document_json_payload(extracted_text)
         validation_passed = bool(validated is not None)
-        repair_invoked = False
-        repair_snapshot_ref = None
-        raw_output_ref = None
-
-        if validation_passed:
-            normalized_payload = validated
-        elif self._is_relaxed_legal_json_mode(extraction_mode):
-            repair_invoked = True
-            raw_output_ref = self._persist_relaxed_raw_output_for_postmortem(
-                raw_output=extracted_text,
-                model=model,
-                context=context,
-            )
-            normalized_payload, repair_snapshot_ref = self._repair_relaxed_json_with_edit_loop(
-                raw_output=extracted_text,
-                context=context,
-            )
-        else:
-            normalized_payload = None
-
-        if isinstance(normalized_payload, dict):
-            result["extracted_text"] = json.dumps(normalized_payload, ensure_ascii=False)
-        elif self._is_relaxed_legal_json_mode(extraction_mode):
-            result["success"] = False
-            result["error"] = "relaxed_json_validation_and_repair_failed"
-            metadata.setdefault("json_extraction", {})
-            metadata["json_extraction"].update(
-                {
-                    "mode": self._json_mode_kind(extraction_mode),
-                    "validation_passed": validation_passed,
-                    "repair_invoked": repair_invoked,
-                    "repair_snapshot_ref": repair_snapshot_ref,
-                    "raw_output_ref": raw_output_ref,
-                }
-            )
-            self._persist_json_extraction_metric(
-                extraction_mode=extraction_mode,
-                model=model,
-                validation_passed=validation_passed,
-                repair_invoked=repair_invoked,
-                recovered=False,
-                repair_snapshot_ref=repair_snapshot_ref,
-                raw_output_ref=raw_output_ref,
-                context=context,
-            )
-            result["metadata"] = metadata
-            return result
-
         metadata.setdefault("json_extraction", {})
         metadata["json_extraction"].update(
             {
                 "mode": self._json_mode_kind(extraction_mode),
                 "validation_passed": validation_passed,
-                "repair_invoked": repair_invoked,
-                "repair_snapshot_ref": repair_snapshot_ref,
-                "raw_output_ref": raw_output_ref,
             }
         )
-        self._persist_json_extraction_metric(
-            extraction_mode=extraction_mode,
-            model=model,
-            validation_passed=validation_passed,
-            repair_invoked=repair_invoked,
-            recovered=isinstance(normalized_payload, dict),
-            repair_snapshot_ref=repair_snapshot_ref,
-            raw_output_ref=raw_output_ref,
-            context=context,
-        )
-        tx_run_id = self._maybe_trigger_transcript_edit_agent_background(
-            extraction_mode=extraction_mode,
-            normalized_payload=normalized_payload if isinstance(normalized_payload, dict) else None,
-            context={
-                **context,
-                "best_result_index": _extract_best_result_index(metadata),
-                "redundancy_total_calls": int(((metadata.get("redundancy_analysis") or {}).get("total_calls") or 0))
-                if isinstance(metadata, dict)
-                else 0,
-                "redundancy_successful_calls": int(((metadata.get("redundancy_analysis") or {}).get("successful_calls") or 0))
-                if isinstance(metadata, dict)
-                else 0,
-                "redundancy_valid_extractions": int(((metadata.get("redundancy_analysis") or {}).get("valid_extractions") or 0))
-                if isinstance(metadata, dict)
-                else 0,
-                "redundancy_candidate_texts": _extract_redundancy_candidate_texts(
-                    metadata=metadata,
-                    validate_fn=self._validate_legal_document_json_payload,
-                ),
-            },
-        )
-        if tx_run_id:
-            metadata["transcript_edit_agent_run_id"] = tx_run_id
+        if isinstance(validated, dict):
+            result["extracted_text"] = json.dumps(validated, ensure_ascii=False)
+        elif self._is_relaxed_legal_json_mode(extraction_mode):
+            result["success"] = False
+            result["error"] = "relaxed_json_validation_failed"
         result["metadata"] = metadata
-        logger.info(
-            "json_extraction_outcome %s",
-            json.dumps(
-                {
-                    "mode": metadata["json_extraction"].get("mode"),
-                    "model": model,
-                    "validation_passed": validation_passed,
-                    "repair_invoked": repair_invoked,
-                    "repair_snapshot_ref": repair_snapshot_ref,
-                    "raw_output_ref": raw_output_ref,
-                    "tokens_used": result.get("tokens_used"),
-                    "finish_reason": metadata.get("finish_reason"),
-                },
-                ensure_ascii=False,
-            ),
-        )
         return result
-
-    def _maybe_trigger_transcript_edit_agent_background(
-        self,
-        *,
-        extraction_mode: str,
-        normalized_payload: dict[str, Any] | None,
-        context: dict[str, Any],
-    ) -> str | None:
-        if extraction_mode != "legal_document_json_relaxed":
-            return None
-        if not isinstance(normalized_payload, dict):
-            return None
-        policy_mode = self._post_t0_tx_agent_mode()
-        if policy_mode == _MODE_OFF:
-            return None
-        execution_mode = self._post_t0_tx_agent_execution()
-        dossier_id = context.get("dossier_id")
-        if not isinstance(dossier_id, str) or not dossier_id.strip():
-            return None
-        transcription_id = str(context.get("transcription_id") or "").strip() or None
-        best_result_index_raw = context.get("best_result_index")
-        best_result_index = best_result_index_raw if isinstance(best_result_index_raw, int) else None
-        source_transcript_ref = self._resolve_post_t0_source_transcript_ref(
-            dossier_id=dossier_id,
-            transcription_id=transcription_id,
-            best_result_index=best_result_index,
-        )
-        source_text = None
-        candidate_texts_raw = context.get("redundancy_candidate_texts")
-        candidate_texts = (
-            [str(v) for v in candidate_texts_raw if isinstance(v, str) and str(v).strip()]
-            if isinstance(candidate_texts_raw, list)
-            else []
-        )
-        expected_count_raw = context.get("redundancy_expected_count")
-        expected_count = expected_count_raw if isinstance(expected_count_raw, int) and expected_count_raw > 0 else 0
-        total_calls_raw = context.get("redundancy_total_calls")
-        total_calls = total_calls_raw if isinstance(total_calls_raw, int) and total_calls_raw >= 0 else 0
-        successful_calls_raw = context.get("redundancy_successful_calls")
-        successful_calls = successful_calls_raw if isinstance(successful_calls_raw, int) and successful_calls_raw >= 0 else 0
-        gate_requires_full_n = expected_count > 1
-        candidate_refs = self._collect_post_t0_candidate_refs(
-            dossier_id=dossier_id,
-            transcription_id=transcription_id,
-            expected_count=expected_count if gate_requires_full_n else 0,
-        )
-        if gate_requires_full_n:
-            drafts_persisted = self._all_post_t0_draft_files_exist(
-                dossier_id=dossier_id,
-                transcription_id=transcription_id,
-                expected_count=expected_count,
-            )
-            gate_pass = (
-                total_calls >= expected_count
-                and successful_calls >= expected_count
-                and drafts_persisted
-            )
-            logger.info(
-                "TX_LOOP_BOUNDARY ► T0_HANDOFF_GATE expected=%s total_calls=%s successful_calls=%s drafts_persisted=%s status=%s",
-                expected_count,
-                total_calls,
-                successful_calls,
-                drafts_persisted,
-                "pass" if gate_pass else "blocked",
-            )
-            if not gate_pass:
-                logger.warning(
-                    "transcript_edit_agent_post_t0_blocked %s",
-                    json.dumps(
-                        {
-                            "reason": "t0_handoff_gate_not_satisfied",
-                            "expected_count": expected_count,
-                            "total_calls": total_calls,
-                            "successful_calls": successful_calls,
-                            "drafts_persisted": drafts_persisted,
-                            "dossier_id": dossier_id,
-                            "transcription_id": transcription_id,
-                        },
-                        ensure_ascii=False,
-                    ),
-                )
-                return None
-        drafts_seen = len(candidate_refs) if candidate_refs else (len(candidate_texts) if candidate_texts else "n/a")
-        input_kind = "ref" if source_transcript_ref else "text"
-        if source_transcript_ref is None:
-            sections = normalized_payload.get("sections")
-            if not isinstance(sections, list):
-                return None
-            section_bodies = [
-                str(section.get("body") or "").strip()
-                for section in sections
-                if isinstance(section, dict) and str(section.get("body") or "").strip()
-            ]
-            if not section_bodies:
-                return None
-            source_text = "\n\n".join(section_bodies)
-
-        auto_promote = policy_mode == _MODE_AUDIT_REPAIR_PROMOTE and source_transcript_ref is not None
-        run_id_hint = str(context.get("transcript_edit_run_id_hint") or "").strip()
-        run_id = run_id_hint or f"tx_post_t0_{int(time.time())}_{hashlib.sha256((dossier_id + str(transcription_id or '')).encode('utf-8')).hexdigest()[:8]}"
-        logger.info(
-            "AGENT_VIEWER_TIMING ► t0_handoff_start run_id=%s dossier=%s transcription=%s mode=%s execution=%s",
-            run_id,
-            dossier_id,
-            transcription_id or "n/a",
-            policy_mode,
-            execution_mode,
-        )
-        self.transcription_edit_run_registry.create_run(
-            run_id=run_id,
-            request={
-                "dossier_id": dossier_id,
-                "transcription_id": transcription_id,
-                "mode": policy_mode,
-                "execution": execution_mode,
-                "input_kind": input_kind,
-                "best_result_index": best_result_index,
-                "auto_promote": auto_promote,
-                "trigger": "post_t0",
-            },
-        )
-        logger.info(
-            "AGENT_VIEWER_TIMING ► tx_run_created run_id=%s stream_key=%s",
-            run_id,
-            f"transcript_edit:{run_id}",
-        )
-        logger.info(
-            "transcript_edit_agent_post_t0_trigger %s",
-            json.dumps(
-                {
-                    "run_id": run_id,
-                    "dossier_id": dossier_id,
-                    "transcription_id": transcription_id,
-                            "mode": policy_mode,
-                            "execution": execution_mode,
-                            "input_kind": input_kind,
-                            "best_result_index": best_result_index,
-                            "auto_promote": auto_promote,
-                        },
-                        ensure_ascii=False,
-                    ),
-        )
-        boundary_line = "🌟" * 50
-        ascii_boundary_line = "*" * 90
-        logger.info(ascii_boundary_line)
-        logger.info(boundary_line)
-        logger.info("🌟🌟🌟🌟🌟 TX LOOP HANDOFF START 🌟🌟🌟🌟🌟")
-        logger.info(
-            "🌟 T0 COMPLETE: dossier=%s transcription=%s drafts_saved=%s selected_draft=%s",
-            dossier_id,
-            transcription_id,
-            drafts_seen,
-            (best_result_index + 1) if isinstance(best_result_index, int) else "n/a",
-        )
-        logger.info(
-            "🌟 NEXT STAGE: TRANSCRIPT EDIT LOOP STARTING run_id=%s mode=%s execution=%s model=%s input_kind=%s",
-            run_id,
-            policy_mode,
-            execution_mode,
-            "gpt-5.2",
-            input_kind,
-        )
-        logger.info("🌟 NOTE: Any OpenAI calls after this fence are edit-loop calls, not T0 draft extraction.")
-        logger.info("🌟🌟🌟🌟🌟 TRANSCRIPT EDIT LOOP BEGINS NOW 🌟🌟🌟🌟🌟")
-        logger.info(boundary_line)
-        logger.info(ascii_boundary_line)
-        logger.info(
-            "TX_LOOP_BOUNDARY ► T0_COMPLETE dossier=%s transcription=%s selected_draft=%s run_id=%s",
-            dossier_id,
-            transcription_id,
-            (best_result_index + 1) if isinstance(best_result_index, int) else "n/a",
-            run_id,
-        )
-        logger.info(
-            "TX_LOOP_BOUNDARY ► EDIT_LOOP_START mode=%s execution=%s model=%s input_kind=%s auto_promote=%s",
-            policy_mode,
-            execution_mode,
-            "gpt-5.2",
-            input_kind,
-            auto_promote,
-        )
-
-        def _run_once() -> None:
-            try:
-                seq = 0
-                progress_log: list[dict[str, Any]] = []
-                loop_started_mono = time.perf_counter()
-                last_event_mono = loop_started_mono
-                first_progress_logged = False
-                first_viewer_publish_logged = False
-
-                def _to_artifact_ref_map(obj: Any) -> dict[str, dict[str, str]]:
-                    if not isinstance(obj, dict):
-                        return {}
-                    refs: dict[str, dict[str, str]] = {}
-                    for key, value in obj.items():
-                        if isinstance(value, str) and value.strip():
-                            refs[str(key)] = {"artifact_path": value}
-                        elif isinstance(value, dict):
-                            path = value.get("artifact_path")
-                            if isinstance(path, str) and path.strip():
-                                refs[str(key)] = {"artifact_path": path}
-                    return refs
-
-                def _publish_viewer_event(event_type: str, event: dict[str, Any]) -> None:
-                    nonlocal seq, first_viewer_publish_logged
-                    payload = event if isinstance(event, dict) else {}
-                    lane_seq = seq
-                    if not first_viewer_publish_logged:
-                        first_viewer_publish_logged = True
-                        logger.info(
-                            "AGENT_VIEWER_TIMING ► tx_first_viewer_publish run_id=%s event_type=%s phase=%s elapsed_ms=%s",
-                            run_id,
-                            event_type,
-                            str(payload.get("phase") or "n/a"),
-                            int((time.perf_counter() - loop_started_mono) * 1000),
-                        )
-                    viewer_event_bus.publish_sync(
-                        f"transcript_edit:{run_id}",
-                        {
-                            "protocol": "agent_viewer_event_v1",
-                            "run_id": run_id,
-                            "session_id": run_id,
-                            "loop_kind": "transcript_edit",
-                            "lane": "tx",
-                            "lane_seq": lane_seq,
-                            "seq": seq,
-                            "iteration": payload.get("iteration"),
-                            "timestamp_epoch_seconds": int(time.time()),
-                            "event_type": event_type,
-                            "status": {
-                                "stage": payload.get("phase"),
-                                "line1": payload.get("message") or "Transcript edit update",
-                                "line2": payload.get("execution_state"),
-                            },
-                            "artifact_refs": _to_artifact_ref_map(payload.get("latest_refs")),
-                            "payload": {
-                                **payload,
-                                "session_id": run_id,
-                                "lane": "tx",
-                                "lane_seq": lane_seq,
-                                "stream_kind": str(payload.get("stream_kind") or "narration"),
-                            },
-                        },
-                    )
-                    seq += 1
-
-                def _progress_update(event: dict[str, Any]) -> None:
-                    nonlocal last_event_mono, first_progress_logged
-                    if not isinstance(event, dict):
-                        return
-                    now_mono = time.perf_counter()
-                    elapsed_ms = int((now_mono - loop_started_mono) * 1000)
-                    since_prev_ms = int((now_mono - last_event_mono) * 1000)
-                    last_event_mono = now_mono
-                    progress_item = {
-                        "timestamp_epoch_seconds": int(time.time()),
-                        "elapsed_ms": elapsed_ms,
-                        "since_prev_ms": since_prev_ms,
-                        **event,
-                    }
-                    progress_log.append(progress_item)
-                    if len(progress_log) > 60:
-                        del progress_log[:-60]
-                    phase = str(event.get("phase") or "status")
-                    if not first_progress_logged:
-                        first_progress_logged = True
-                        logger.info(
-                            "AGENT_VIEWER_TIMING ► tx_first_progress_emitted run_id=%s phase=%s elapsed_ms=%s",
-                            run_id,
-                            phase,
-                            elapsed_ms,
-                        )
-                    iter_value = event.get("iteration")
-                    message = str(event.get("message") or "").strip()
-                    latest_refs = event.get("latest_refs") if isinstance(event.get("latest_refs"), dict) else {}
-                    logger.info(
-                        "TX_LOOP_EVENT ► run_id=%s iteration=%s phase=%s elapsed_ms=%s since_prev_ms=%s message=%s refs=%s",
-                        run_id,
-                        iter_value if isinstance(iter_value, int) else "n/a",
-                        phase,
-                        elapsed_ms,
-                        since_prev_ms,
-                        message[:220] if message else "n/a",
-                        ",".join(sorted(latest_refs.keys())) if latest_refs else "none",
-                    )
-                    self.transcription_edit_run_registry.update_run(
-                        run_id=run_id,
-                        patch={
-                            "status": "running",
-                            "snapshot": {
-                                "run_id": run_id,
-                                "status": "running",
-                                "live_status": progress_item,
-                                "progress_log": list(progress_log),
-                            },
-                        },
-                    )
-                    event_type = str(event.get("event_type") or "status")
-                    _publish_viewer_event(event_type, event)
-
-                session_manager = build_kernel_session_manager(
-                    action_executor=build_plattera_default_action_executor(),
-                    persistence_service=RunArtifactPersistenceService(),
-                )
-                result = run_orchestration_kernel_transcript_loop(
-                    session_manager=session_manager,
-                    request=TranscriptEditAgentRunRequest(
-                        dossier_id=dossier_id,
-                        transcription_id=transcription_id,
-                        trigger="post_t0",
-                        source_transcript_ref=source_transcript_ref,
-                        source_text=source_text,
-                        source_image_refs=_extract_source_image_refs_from_context(context),
-                        model="gpt-5.2",
-                        candidate_refs=candidate_refs[:10],
-                        candidate_texts=candidate_texts[:10],
-                        max_candidates_for_orient=3,
-                        max_total_hydrated_bytes_for_orient=120000,
-                        max_bytes_per_candidate_for_orient=40000,
-                        orient_hydration_selection_strategy="first_middle_last",
-                        max_iterations=5,
-                        min_iterations_before_complete=3,
-                        mode=policy_mode,
-                        auto_promote=auto_promote,
-                        hitl_enabled=True,
-                    ),
-                    request_id_prefix=f"tx-agent-{run_id}",
-                    progress_cb=_progress_update,
-                )
-                first_audit = None
-                final_audit = None
-                edits_applied = 0
-                used_human_feedback = False
-                for _entry in progress_log:
-                    if not isinstance(_entry, dict):
-                        continue
-                    _phase = str(_entry.get("phase") or "")
-                    _etype = str(_entry.get("event_type") or "")
-                    _detail = _entry.get("detail") if isinstance(_entry.get("detail"), dict) else {}
-                    if _phase == "audit_result":
-                        if first_audit is None:
-                            first_audit = _detail
-                        final_audit = _detail
-                    if _phase == "apply_result":
-                        edits_applied += int(_detail.get("plan_op_count") or 0)
-                    if _etype == "human_feedback" or _phase in {"human_feedback_received", "human_feedback_reused"}:
-                        used_human_feedback = True
-                terminal_summary = {
-                    "status": result.status,
-                    "reason_code": result.reason_code,
-                    "iterations": result.iterations,
-                    "review_required": bool(result.review_required),
-                    "edits_applied_total": edits_applied,
-                    "used_human_feedback": used_human_feedback,
-                    "initial_findings": first_audit or {},
-                    "final_findings": final_audit or {},
-                }
-                latest_decision_ledger: dict[str, Any] | None = None
-                for _entry in progress_log:
-                    if not isinstance(_entry, dict):
-                        continue
-                    _detail = _entry.get("detail") if isinstance(_entry.get("detail"), dict) else {}
-                    _ledger = _detail.get("decision_ledger")
-                    if isinstance(_ledger, dict):
-                        latest_decision_ledger = _ledger
-                if latest_decision_ledger:
-                    unresolved = unresolved_closure_requirements(latest_decision_ledger)
-                    terminal_summary["decision_ledger"] = latest_decision_ledger
-                    terminal_summary["unresolved_closure_requirements"] = unresolved
-                    terminal_summary["closure_state"] = "blocked" if unresolved else "achieved"
-                    top_unresolved = next(
-                        (
-                            item
-                            for item in unresolved
-                            if isinstance(item, dict) and bool(item.get("blocking"))
-                        ),
-                        unresolved[0] if unresolved else None,
-                    )
-                    if isinstance(top_unresolved, dict):
-                        req = top_unresolved.get("closure_requirement") if isinstance(top_unresolved.get("closure_requirement"), dict) else {}
-                        label = str(top_unresolved.get("label") or top_unresolved.get("key") or "decision")
-                        action = str(req.get("minimal_user_action") or req.get("required_information") or "").strip()
-                        terminal_summary["next_best_action"] = (
-                            f"{label}: {action}" if action else f"Resolve {label}."
-                        )
-                self.transcription_edit_run_registry.update_run(
-                    run_id=run_id,
-                    patch={
-                        "status": result.status,
-                        "snapshot": {
-                            "status": result.status,
-                            "reason_code": result.reason_code,
-                            "iterations": result.iterations,
-                            "session_id": result.session_id,
-                            "run_artifact_ref": result.run_artifact_ref,
-                            "latest_refs": result.latest_refs,
-                            "review_required": result.review_required,
-                            "terminal_summary": terminal_summary,
-                            "live_status": progress_log[-1] if progress_log else None,
-                            "progress_log": list(progress_log),
-                        },
-                    },
-                )
-                _terminal_msg = _format_terminal_message(result.status, result.reason_code, result.iterations)
-                _publish_viewer_event(
-                    "done",
-                    {
-                        "phase": result.status,
-                        "message": _terminal_msg,
-                        "execution_state": result.status,
-                        "iteration": result.iterations,
-                        "latest_refs": result.latest_refs,
-                        "review_required": result.review_required,
-                        "summary": terminal_summary,
-                        "terminal": True,
-                    },
-                )
-                logger.info(
-                    "transcript_edit_agent_post_t0_completed %s",
-                    json.dumps(
-                        {
-                            "run_id": run_id,
-                            "dossier_id": dossier_id,
-                            "transcription_id": transcription_id,
-                            "status": result.status,
-                            "reason_code": result.reason_code,
-                            "iterations": result.iterations,
-                            "review_required": result.review_required,
-                            "elapsed_ms": int((time.perf_counter() - loop_started_mono) * 1000),
-                        },
-                        ensure_ascii=False,
-                    ),
-                )
-                logger.info(
-                    "TX_LOOP_BOUNDARY ► EDIT_LOOP_END run_id=%s status=%s reason=%s iterations=%s",
-                    run_id,
-                    result.status,
-                    result.reason_code,
-                    result.iterations,
-                )
-                logger.info("*" * 90)
-                logger.info("🏁" * 50)
-                logger.info(
-                    "🏁 TX LOOP END: run_id=%s status=%s iterations=%s reason=%s",
-                    run_id,
-                    result.status,
-                    result.iterations,
-                    result.reason_code,
-                )
-                logger.info("🏁" * 50)
-                logger.info("*" * 90)
-            except Exception as exc:
-                self.transcription_edit_run_registry.update_run(
-                    run_id=run_id,
-                    patch={"status": "failed", "error": str(exc)},
-                )
-                logger.warning("transcript_edit_agent_post_t0_failed: %s", str(exc))
-                logger.info("*" * 90)
-                logger.info("🏁" * 50)
-                logger.info("🏁 TX LOOP END: run_id=%s status=failed reason=%s", run_id, str(exc))
-                logger.info("🏁" * 50)
-                logger.info("*" * 90)
-                viewer_event_bus.publish_sync(
-                    f"transcript_edit:{run_id}",
-                    {
-                        "protocol": "agent_viewer_event_v1",
-                        "run_id": run_id,
-                        "session_id": run_id,
-                        "loop_kind": "transcript_edit",
-                        "lane": "tx",
-                        "lane_seq": seq,
-                        "seq": seq,
-                        "iteration": None,
-                        "timestamp_epoch_seconds": int(time.time()),
-                        "event_type": "done",
-                        "status": {"stage": "failed", "line1": "Transcript edit run failed", "line2": str(exc)[:220]},
-                        "artifact_refs": {},
-                        "payload": {
-                            "error": str(exc),
-                            "terminal": True,
-                            "session_id": run_id,
-                            "lane": "tx",
-                            "lane_seq": seq,
-                            "stream_kind": "narration",
-                        },
-                    },
-                )
-        if execution_mode == "sync":
-            _run_once()
-            return run_id
-        threading.Thread(target=_run_once, daemon=True).start()
-        return run_id
-
-    def _resolve_post_t0_source_transcript_ref(
-        self,
-        *,
-        dossier_id: str,
-        transcription_id: str | None,
-        best_result_index: int | None = None,
-    ) -> str | None:
-        if not transcription_id:
-            return None
-        raw_root = (
-            dossiers_root()
-            / "views"
-            / "transcriptions"
-            / str(dossier_id)
-            / str(transcription_id)
-            / "raw"
-        )
-        if isinstance(best_result_index, int) and best_result_index >= 0:
-            draft_num = best_result_index + 1
-            versioned = raw_root / f"{transcription_id}_v{draft_num}.json"
-            if versioned.exists():
-                return str(versioned)
-        ref = (
-            raw_root
-            / f"{transcription_id}.json"
-        )
-        if ref.exists():
-            return str(ref)
-        return None
-
-    def _collect_post_t0_candidate_refs(
-        self,
-        *,
-        dossier_id: str,
-        transcription_id: str | None,
-        expected_count: int,
-    ) -> list[str]:
-        if not transcription_id:
-            return []
-        raw_root = (
-            dossiers_root()
-            / "views"
-            / "transcriptions"
-            / str(dossier_id)
-            / str(transcription_id)
-            / "raw"
-        )
-        if not raw_root.exists():
-            return []
-        refs: list[str] = []
-        if expected_count > 0:
-            for idx in range(1, expected_count + 1):
-                versioned = raw_root / f"{transcription_id}_v{idx}.json"
-                if versioned.exists():
-                    refs.append(str(versioned))
-            return refs[:10]
-
-        discovered: list[tuple[int, str]] = []
-        for path in raw_root.glob(f"{transcription_id}_v*.json"):
-            stem = path.stem
-            marker = f"{transcription_id}_v"
-            if not stem.startswith(marker):
-                continue
-            suffix = stem[len(marker):]
-            try:
-                version = int(suffix)
-            except Exception:
-                continue
-            discovered.append((version, str(path)))
-        discovered.sort(key=lambda item: item[0])
-        refs.extend(path for _, path in discovered[:10])
-        return refs
-
-    def _all_post_t0_draft_files_exist(
-        self,
-        *,
-        dossier_id: str,
-        transcription_id: str | None,
-        expected_count: int,
-    ) -> bool:
-        if not transcription_id or expected_count <= 0:
-            return False
-        raw_root = (
-            dossiers_root()
-            / "views"
-            / "transcriptions"
-            / str(dossier_id)
-            / str(transcription_id)
-            / "raw"
-        )
-        for idx in range(1, expected_count + 1):
-            versioned = raw_root / f"{transcription_id}_v{idx}.json"
-            if not versioned.exists():
-                return False
-        return True
-
-    def _post_t0_tx_agent_mode(self) -> str:
-        raw = str(os.getenv("PLATTERA_POST_T0_TX_AGENT_MODE", "")).strip().lower()
-        if raw in {_MODE_OFF, _MODE_AUDIT_ONLY, _MODE_AUDIT_REPAIR, _MODE_AUDIT_REPAIR_PROMOTE}:
-            return raw
-        return _MODE_AUDIT_REPAIR_PROMOTE
-
-    def _post_t0_tx_agent_execution(self) -> str:
-        raw = str(os.getenv("PLATTERA_POST_T0_TX_AGENT_EXECUTION", "")).strip().lower()
-        if raw in {"background_thread", "sync"}:
-            return raw
-        return "background_thread"
-
-    def _persist_json_extraction_metric(
-        self,
-        *,
-        extraction_mode: str,
-        model: str,
-        validation_passed: bool,
-        repair_invoked: bool,
-        recovered: bool,
-        repair_snapshot_ref: str | None,
-        raw_output_ref: str | None,
-        context: dict[str, Any],
-    ) -> None:
-        try:
-            mode = self._json_mode_kind(extraction_mode)
-            if mode not in {"relaxed", "strict"}:
-                return
-            dossier_id = str(context.get("dossier_id") or "adhoc")
-            self.transcription_edit_persistence.save_json_extraction_metric(
-                dossier_id=dossier_id,
-                payload={
-                    "artifact_type": "json_extraction_metric_v1",
-                    "created_at": datetime.now(timezone.utc).isoformat(),
-                    "mode": mode,
-                    "model": model,
-                    "validation_passed": bool(validation_passed),
-                    "repair_invoked": bool(repair_invoked),
-                    "recovered": bool(recovered),
-                    "repair_snapshot_ref": repair_snapshot_ref,
-                    "raw_output_ref": raw_output_ref,
-                    "context": context,
-                },
-            )
-        except Exception:
-            pass
 
     def _validate_legal_document_json_payload(self, payload_text: str) -> dict[str, Any] | None:
         try:
@@ -1160,73 +397,6 @@ class ImageToTextPipeline:
             "documentId": str(validated.documentId),
             "sections": normalized_sections,
         }
-
-    def _persist_relaxed_raw_output_for_postmortem(
-        self,
-        *,
-        raw_output: str,
-        model: str,
-        context: dict[str, Any],
-    ) -> str | None:
-        try:
-            dossier_id = str(context.get("dossier_id") or "adhoc")
-            return self.transcription_edit_persistence.save_raw_model_output(
-                dossier_id=dossier_id,
-                payload={
-                    "artifact_type": "relaxed_json_raw_output",
-                    "model": model,
-                    "context": context,
-                    "raw_output": raw_output,
-                },
-            )
-        except Exception:
-            return None
-
-    def _repair_relaxed_json_with_edit_loop(
-        self,
-        *,
-        raw_output: str,
-        context: dict[str, Any],
-    ) -> tuple[dict[str, Any] | None, str | None]:
-        try:
-            dossier_id = context.get("dossier_id")
-            start = EditLoopStartRequestV0(
-                dossier_id=str(dossier_id) if dossier_id else None,
-                source_text=raw_output,
-                mode="repair",
-            )
-            canonical = materialize_canonical_input(start)
-            document = TranscriptDocumentV0(
-                source_transcript_ref=canonical.source_transcript_ref,
-                source_transcript_hash=canonical.source_transcript_hash,
-                sections=canonical.transcript_sections,
-                metadata={"mode": canonical.mode.value, "pipeline_method": "relaxed_json_repair"},
-            )
-            artifact_ref = self.transcription_edit_persistence.save_source_transcript_input(
-                dossier_id=str(dossier_id or "adhoc"),
-                document=document,
-            )
-            validator_report = run_validators(document=document, source_transcript_ref=artifact_ref)
-            self.transcription_edit_persistence.save_validator_report(
-                dossier_id=str(dossier_id or "adhoc"),
-                report_payload=validator_report.model_dump(mode="json"),
-            )
-            payload = json.loads(Path(artifact_ref).read_text(encoding="utf-8"))
-            sections_raw = payload.get("sections", []) if isinstance(payload, dict) else []
-            sections: list[dict[str, Any]] = []
-            for idx, section in enumerate(sections_raw):
-                if not isinstance(section, dict):
-                    continue
-                body = section.get("body")
-                if not isinstance(body, str) or not body.strip():
-                    continue
-                sections.append({"id": idx + 1, "body": body})
-            if not sections:
-                return None, artifact_ref
-            normalized = {"documentId": "repaired", "sections": sections}
-            return normalized, artifact_ref
-        except Exception:
-            return None, None
     
     def _prepare_image(self, image_path: str, enhancement_settings: dict = None) -> Tuple[str, str]:
         """Enhanced with bulletproof error handling"""
@@ -1325,8 +495,7 @@ class ImageToTextPipeline:
     
     def process_with_redundancy(self, image_path: str, model: str = "gpt-o4-mini", extraction_mode: str = "legal_document_json_relaxed",
                                enhancement_settings: dict = None, redundancy_count: int = 3, consensus_strategy: str = "sequential",
-                               dossier_id: str = None, transcription_id: str = None, run_context: str = "solo",
-                               transcript_edit_run_id_hint: str | None = None) -> dict:
+                               dossier_id: str = None, transcription_id: str = None, run_context: str = "solo") -> dict:
         """
         Process with redundancy using the dedicated RedundancyProcessor
 
@@ -1345,46 +514,6 @@ class ImageToTextPipeline:
         """
         try:
             extraction_mode = self._effective_extraction_mode(extraction_mode)
-            lane_session_id = str(transcript_edit_run_id_hint or "").strip()
-            t0_lane_seq = 0
-
-            def _publish_t0_lane_event(event_type: str, payload: dict[str, Any]) -> None:
-                nonlocal t0_lane_seq
-                if not lane_session_id:
-                    return
-                payload_data = payload if isinstance(payload, dict) else {}
-                phase = str(payload_data.get("phase") or event_type or "t0_status")
-                message = str(payload_data.get("message") or "T0 update")
-                lane_payload = {
-                    **payload_data,
-                    "session_id": lane_session_id,
-                    "lane": "t0",
-                    "lane_seq": t0_lane_seq,
-                    "stream_kind": str(payload_data.get("stream_kind") or "ticker"),
-                }
-                viewer_event_bus.publish_sync(
-                    f"transcript_edit:{lane_session_id}",
-                    {
-                        "protocol": "agent_viewer_event_v1",
-                        "run_id": lane_session_id,
-                        "session_id": lane_session_id,
-                        "loop_kind": "transcript_edit",
-                        "lane": "t0",
-                        "lane_seq": t0_lane_seq,
-                        "seq": -(t0_lane_seq + 1),
-                        "iteration": None,
-                        "timestamp_epoch_seconds": int(time.time()),
-                        "event_type": event_type,
-                        "status": {
-                            "stage": phase,
-                            "line1": message,
-                            "line2": str(payload_data.get("execution_state") or ""),
-                        },
-                        "artifact_refs": {},
-                        "payload": lane_payload,
-                    },
-                )
-                t0_lane_seq += 1
 
             # Handle single redundancy by falling back to original method
             if redundancy_count <= 1:
@@ -1431,38 +560,6 @@ class ImageToTextPipeline:
             else:
                 logger.info(f"⚠️ PROGRESSIVE SAVING DISABLED: dossier_id={dossier_id}, transcription_id={transcription_id}")
 
-            _publish_t0_lane_event(
-                "status",
-                {
-                    "phase": "t0_start",
-                    "message": f"Starting initial transcription ({redundancy_count} drafts).",
-                    "execution_state": "running",
-                },
-            )
-
-            def _lane_progress_update(event: dict[str, Any]) -> None:
-                if not isinstance(event, dict):
-                    return
-                draft_idx = int(event.get("draft_index") or 0)
-                draft_total = int(event.get("draft_total") or max(1, redundancy_count))
-                status = str(event.get("status") or "completed")
-                elapsed_ms = int(event.get("elapsed_ms") or 0)
-                _publish_t0_lane_event(
-                    "status",
-                    {
-                        **event,
-                        "phase": str(event.get("phase") or "t0_draft_result"),
-                        "message": f"T0 draft {draft_idx}/{draft_total} {status}.",
-                        "execution_state": "running",
-                        "detail": {
-                            "draft_index": draft_idx,
-                            "draft_total": draft_total,
-                            "status": status,
-                            "elapsed_ms": elapsed_ms,
-                        },
-                    },
-                )
-
             # Delegate to redundancy processor
             json_mode = self._json_mode_kind(extraction_mode)
             result = self.redundancy_processor.process(
@@ -1477,19 +574,6 @@ class ImageToTextPipeline:
                 dossier_id=dossier_id,
                 transcription_id=transcription_id,
                 run_context=run_context,
-                lane_progress_callback=_lane_progress_update,
-            )
-            _publish_t0_lane_event(
-                "status",
-                {
-                    "phase": "t0_complete",
-                    "message": "Initial transcription completed; preparing transcript edit loop.",
-                    "execution_state": "completed",
-                    "detail": {
-                        "success": bool(result.get("success", False)),
-                        "redundancy_count": redundancy_count,
-                    },
-                },
             )
             return self._postprocess_legal_json_result(
                 result=result,
@@ -1501,22 +585,12 @@ class ImageToTextPipeline:
                     "dossier_id": dossier_id,
                     "transcription_id": transcription_id,
                     "redundancy_expected_count": redundancy_count,
-                    "transcript_edit_run_id_hint": transcript_edit_run_id_hint,
                     "original_image_path": image_path,
                     "image_path": image_path,
                 },
             )
 
         except Exception as e:
-            _publish_t0_lane_event(
-                "status",
-                {
-                    "phase": "t0_failed",
-                    "message": "Initial transcription failed.",
-                    "execution_state": "failed",
-                    "detail": {"error": str(e)},
-                },
-            )
             logger.error(f"Redundancy processing failed: {str(e)}")
             return {
                 "success": False,

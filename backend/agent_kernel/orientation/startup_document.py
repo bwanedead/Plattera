@@ -1,8 +1,8 @@
 """Generic orientation / startup document coercion (mission-agnostic).
 
-Domain packs map rows into mission-native surfaces. This module must not assign
-transcript-edit or mapping-specific posture; it only emits generic ``impact_tier``
-and preserves ambiguity when the model is vague (Phase 28).
+Startup documents map rows into mission-native surfaces. This module must not
+assign domain-specific posture; it only emits generic ``impact_tier`` and
+preserves ambiguity when the model is vague (Phase 28).
 """
 from __future__ import annotations
 

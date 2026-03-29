@@ -21,7 +21,7 @@ EventKind = Literal[
     "hitl_escalation",
     "terminal_outcome",
 ]
-ActorKind = Literal["model", "controller", "kernel", "tool", "harness", "human"]
+ActorKind = Literal["model", "kernel", "tool", "harness", "human"]
 EventStatus = Literal["started", "completed", "refused", "waiting", "failed", "running", "unknown"]
 TimestampSource = Literal["source", "derived_sequence"]
 

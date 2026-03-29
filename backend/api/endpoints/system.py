@@ -16,8 +16,6 @@ import sys
 import time
 from utils.health_monitor import check_health as hm_check
 import os
-from services.agent_viewer.event_bus import event_bus as viewer_event_bus
-from services.workflows.mapping.transcription_edit.run_registry import TranscriptionEditRunRegistry
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
@@ -43,110 +41,6 @@ class CleanupResponse(BaseModel):
     memory_after_mb: float
     memory_freed_mb: float
     errors: List[str] = []
-
-
-def _mark_running_transcript_edit_runs_interrupted(*, reason_code: str) -> int:
-    """Best-effort terminalization for in-flight transcript-edit runs before shutdown."""
-    try:
-        registry = TranscriptionEditRunRegistry()
-        runs = registry.list_runs(limit=200)
-    except Exception as exc:
-        logger.warning("Failed to list transcript-edit runs before cleanup exit: %s", exc)
-        return 0
-
-    interrupted = 0
-    now_epoch = int(time.time())
-    for run in runs:
-        if not isinstance(run, dict):
-            continue
-        if str(run.get("status") or "").lower() != "running":
-            continue
-        run_id = str(run.get("run_id") or "").strip()
-        if not run_id:
-            continue
-        snapshot = run.get("snapshot") if isinstance(run.get("snapshot"), dict) else {}
-        progress_log = snapshot.get("progress_log") if isinstance(snapshot.get("progress_log"), list) else []
-        last_iteration = None
-        if progress_log and isinstance(progress_log[-1], dict):
-            last_iteration = progress_log[-1].get("iteration")
-        summary = {
-            "status": "failed",
-            "reason_code": reason_code,
-            "iterations": last_iteration,
-            "review_required": True,
-            "edits_applied_total": 0,
-            "used_human_feedback": False,
-            "mechanical_severity_clear": False,
-            "mapping_ready": False,
-            "promoted": False,
-            "readiness_blocker": "service_shutdown",
-            "closure_state": "blocked",
-            "layer1_canonical_recovery": "unknown",
-            "layer2_canonical_sanity": "unknown",
-            "layer3_dependency_completeness": "blocked",
-            "decision_ledger": {},
-            "decision_ledger_summary": {},
-            "unresolved_closure_requirements": [
-                {
-                    "decision_key": "system_shutdown",
-                    "block_reason": "dependency",
-                    "required_information": "Run interrupted by backend shutdown before completion.",
-                    "self_retrievable": False,
-                    "retrieval_attempted": False,
-                    "minimal_user_action": "Re-run transcript edit loop after backend restart.",
-                }
-            ],
-            "initial_findings": {},
-            "final_findings": {},
-        }
-        registry.update_run(
-            run_id=run_id,
-            patch={
-                "status": "failed",
-                "error": reason_code,
-                "snapshot": {
-                    "run_id": run_id,
-                    "status": "failed",
-                    "reason_code": reason_code,
-                    "terminal_summary": summary,
-                    "live_status": {
-                        "timestamp_epoch_seconds": now_epoch,
-                        "phase": "interrupted",
-                        "message": "Run interrupted by backend shutdown.",
-                        "execution_state": "failed",
-                        "iteration": last_iteration,
-                    },
-                    "progress_log": progress_log,
-                },
-            },
-        )
-        viewer_event_bus.publish_sync(
-            f"transcript_edit:{run_id}",
-            {
-                "protocol": "agent_viewer_event_v1",
-                "run_id": run_id,
-                "loop_kind": "transcript_edit",
-                "seq": now_epoch,
-                "iteration": last_iteration,
-                "timestamp_epoch_seconds": now_epoch,
-                "event_type": "done",
-                "status": {
-                    "stage": "failed",
-                    "line1": "Transcript edit run interrupted by shutdown",
-                    "line2": reason_code,
-                },
-                "artifact_refs": {},
-                "payload": {
-                    "phase": "failed",
-                    "message": "Run interrupted by backend shutdown before terminalization completed.",
-                    "execution_state": "failed",
-                    "summary": summary,
-                    "terminal": True,
-                },
-            },
-        )
-        interrupted += 1
-    return interrupted
 
 
 def _file_identity(path: Path) -> Dict[str, Any]:
@@ -255,12 +149,7 @@ async def perform_system_cleanup(background_tasks: BackgroundTasks):
     """
     logger.info("🧹 SYSTEM CLEANUP REQUEST")
 
-    # 1) Mark in-flight transcript-edit runs as interrupted before shutdown.
-    interrupted_runs = _mark_running_transcript_edit_runs_interrupted(
-        reason_code="tx_agent_interrupted_shutdown",
-    )
-
-    # 2) Define and schedule the exit task FIRST, so shutdown is guaranteed.
+    # 1) Define and schedule the exit task FIRST, so shutdown is guaranteed.
     def delayed_exit():
         logger.info("🛑 Delayed exit requested via /api/cleanup – terminating process")
         time.sleep(0.5)
@@ -268,16 +157,16 @@ async def perform_system_cleanup(background_tasks: BackgroundTasks):
 
     background_tasks.add_task(delayed_exit)
 
-    # 3) Baseline cleanup result (so we always have something sane to return)
+    # 2) Baseline cleanup result (so we always have something sane to return)
     cleanup_results: Dict[str, Any] = {
         "status": "success",
-        "actions_performed": [f"marked_interrupted_transcript_edit_runs:{interrupted_runs}"],
+        "actions_performed": [],
         "memory_before_mb": 0.0,
         "memory_after_mb": 0.0,
         "errors": [],
     }
 
-    # 4) Best-effort cleanup – never prevent shutdown
+    # 3) Best-effort cleanup – never prevent shutdown
     try:
         # Lazy import to avoid heavy init for unrelated routes
         from services.alignment_service import AlignmentService  # type: ignore
@@ -294,7 +183,7 @@ async def perform_system_cleanup(background_tasks: BackgroundTasks):
         cleanup_results["status"] = "error"
         cleanup_results.setdefault("errors", []).append(str(e))
 
-    # 5) Compute memory freed and return a normal response
+    # 4) Compute memory freed and return a normal response
     memory_freed = cleanup_results.get("memory_before_mb", 0.0) - cleanup_results.get("memory_after_mb", 0.0)
 
     response = CleanupResponse(

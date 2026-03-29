@@ -141,8 +141,8 @@ The harness may:
 - validate schemas and payload structure
 - enforce budgets, retries, and safety limits
 - maintain session/run continuity
-- store and project decision-ledger state
-- shape bounded prompts and focus packets
+- store and project generic mission-state
+- shape bounded prompts and run-context packets
 - expose tool results and evidence to the agent
 - enforce execution invariants that are mechanical rather than semantic
 - track transport lifecycle for human feedback, retries, and waiting states
@@ -158,7 +158,7 @@ The harness must not:
 
 - create the practical work universe through deterministic issue detection
 - define the initial problem inventory through validator findings
-- create, rank, or resolve decision-ledger items from hard-coded domain logic
+- create, rank, or resolve work items from hard-coded domain logic
 - assign blocker meaning through deterministic domain taxonomies
 - decide what is mapping-critical through scripted finding types
 - generate correction plans from deterministic domain heuristics
@@ -338,7 +338,7 @@ The distinction is:
 
 The decision ledger is the agent's organized-work surface.
 
-The current repo may still carry legacy ``decision_ledger`` naming in transitional code, but the long-term generic harness direction is:
+The current repo may still carry legacy naming in transitional code, but the long-term generic harness direction is:
 
 - ``mission_state`` as the top-level continuity object
 - ``resolution_state`` as the generic active problem/work surface
@@ -508,7 +508,7 @@ Semantic stagnation, mission exhaustion, and closure posture must remain agent-j
 
 ## 9. Prompt And Packet Rule
 
-Focus packets, support state, and prompt rails are allowed.
+Prompt rails, support state, and run-context packets are allowed.
 
 But the content carried in those structures should be agent-authored wherever it expresses:
 
@@ -570,7 +570,7 @@ They must not:
 
 Stable orchestration hook structure is allowed as hosting shape.
 
-But hook grammar must not become a channel for deterministic semantic staging, planner logic, or hidden case authorship.
+But hook grammar must not become a channel for deterministic semantic staging, next-step authorship, or hidden case authorship.
 
 If a hook exists mainly because of inherited pipeline shape rather than genuine shared mechanics, it should be scrutinized or simplified.
 

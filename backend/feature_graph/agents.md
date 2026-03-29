@@ -48,6 +48,5 @@
 
 ## Links
 - Docs: `ralph/runs/2026-02-04__feature-graph-ir/PRD.md`
-- Related: `backend/domains/common/contracts.py` (Gap/CompileReport for S3)
 - Repo ethos: `docs/ethos/architecture-ethos.md`, `docs/ethos/structure-ethos.md`, `docs/ethos/testing-ethos.md`
 

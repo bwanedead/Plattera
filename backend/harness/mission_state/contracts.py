@@ -185,26 +185,6 @@ def _coerce_resolution_relation(
         return None
 
 
-def _coerce_resolution_history_entry(
-    row: Mapping[str, Any] | dict[str, Any] | ResolutionItemHistoryEntry,
-) -> ResolutionItemHistoryEntry | None:
-    if isinstance(row, ResolutionItemHistoryEntry):
-        return row
-    if not isinstance(row, Mapping):
-        return None
-    event_kind = _clean_text(row.get("event_kind"), limit=64)
-    summary = _clean_text(row.get("summary"), limit=400)
-    if not event_kind and not summary:
-        return None
-    return ResolutionItemHistoryEntry(
-        event_kind=event_kind or "update",
-        summary=summary,
-        outcome=_clean_text(row.get("outcome"), limit=128),
-        timestamp_epoch_seconds=_coerce_float(row.get("timestamp_epoch_seconds")),
-        domain_payload=dict(row.get("domain_payload")) if isinstance(row.get("domain_payload"), Mapping) else {},
-    )
-
-
 def _clean_text(value: Any, *, limit: int) -> str | None:
     if not isinstance(value, str):
         if value is None:
@@ -226,6 +206,8 @@ def _clean_str_list(values: Any, *, limit: int) -> list[str]:
         if len(out) >= limit:
             break
     return out
+
+
 def _coerce_float(value: Any) -> float | None:
     if isinstance(value, bool):
         return None

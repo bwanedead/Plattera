@@ -11,24 +11,14 @@ from .contracts import HitlState
 class LoopMemoryState:
     """Kernel-owned loop state.
 
-    Written only by the orchestration kernel. Domain packs read via OrchestratorContext
-    but must not write kernel-owned fields directly.
-
-    Kernel-owned fields (domain packs must not write):
-    - active_item_id, focus_stagnation_streak  (continuity state)
-    - hitl_state, pending_feedback_prompt_id, pending_feedback_response  (HITL state machine)
-    - no_progress_streak, last_progress_reason, evidence_signal_counter  (progress memory)
-    - invalid_plan_strikes  (loop brake)
-
-    Domain packs may read any field for decision-making but must only surface
-    updates via hook return values (SharedStateProjection, ProgressMetrics, etc.).
+    Written only by the orchestration kernel. External packs may read via
+    ``OrchestratorContext`` but must not mutate kernel-owned fields directly.
     """
 
     # --- Continuity memory ---
     iterations: int = 0
     latest_refs: dict[str, Any] = field(default_factory=dict)
-    # T2: pending_refresh is set by kernel when ProgressDelta.reset_refresh fires.
-    # Kernel-side trigger; domain pack must not write.
+    # Kernel-side trigger; external packs must not write.
     pending_refresh: bool = False
 
     # --- Native shared-state memory (written atomically from SharedStateProjection) ---
@@ -70,10 +60,10 @@ class LoopMemoryState:
     apply_refusal_same_focus_streak: int = 0
     last_apply_refusal_focus_key: str | None = None
 
-    # --- Last step refusal record (kernel-owned, readable by domain pack) ---
+    # --- Last step refusal record (kernel-owned, readable by downstream surfaces) ---
     # Set when a retryable step refusal is tolerated (not immediately fatal).
     # Cleared on the next successful step execution.
-    # Domain packs may read this to surface rejection context to the LLM.
+    # Downstream surfaces may read this to surface rejection context to the LLM.
     last_step_refusal_record: dict[str, Any] | None = None
 
     # --- LLM contact telemetry (D4) ---
@@ -87,7 +77,7 @@ class LoopMemoryState:
     def register_llm_contact(self) -> None:
         """Telemetry: increment the absolute LLM contact count.
 
-        Safe to call from any surface (kernel callback, domain pack orient, etc.).
+    Safe to call from any surface (kernel callback, adapter callback, etc.).
         This field is telemetry only and must not be used to gate loop decisions.
         """
         self.llm_contact_count += 1

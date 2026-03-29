@@ -13,7 +13,7 @@ from typing import Any
 
 from ..builder import build_canonical_trace
 from ..schema import CanonicalTraceRecord, RawTraceEvent, TerminalSnapshot
-from .controller_kernel_helpers import (
+from .trace_helpers import (
     as_dict,
     as_int,
     as_str,
@@ -36,9 +36,7 @@ def build_kernel_direct_trace(
     ``trace_events``  — serialised ``RawTraceEvent`` dicts from ``KernelTraceCollector``
     ``run_artifact``  — the session's run artifact dict (used for IDs / timestamps)
     ``run_artifact_ref`` — storage path of the run artifact, for provenance
-    ``trace_id``      — optional stable ID; derived from run_id + event count if absent
-
-    Does NOT require a controller transcript (D3).
+    ``trace_id``      — optional stable ID; derived from run_id + event count if absent.
     """
     run_id = first_non_empty(
         run_artifact.get("run_id"),
@@ -67,7 +65,7 @@ def build_kernel_direct_trace(
         run_id=run_id,
         session_id=session_id,
         request_id=request_id,
-        loop_family="controller_kernel",
+        loop_family="orchestration_kernel",
         request_metadata=_build_request_metadata(run_artifact=run_artifact),
         start_context_summary=_build_start_context_summary(
             run_artifact=run_artifact,
@@ -179,4 +177,4 @@ def _default_trace_id(
 ) -> str:
     seed = "|".join([run_id, run_artifact_ref or "", str(event_count), "kernel_direct"])
     digest = hashlib.sha1(seed.encode("utf-8"), usedforsecurity=False).hexdigest()[:10]
-    return f"trace:kernel_direct:{run_id}:{digest}"
+    return f"trace:orchestration_kernel:{run_id}:{digest}"

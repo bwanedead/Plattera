@@ -9,7 +9,6 @@ from .contracts import (
     new_mission_state,
     new_resolution_state,
 )
-from .recent_activity import RECENT_ACTIVITY_LANE_VERSION, build_recent_activity_lane
 
 __all__ = [
     "MISSION_STATE_VERSION",
@@ -21,6 +20,4 @@ __all__ = [
     "ResolutionState",
     "new_mission_state",
     "new_resolution_state",
-    "RECENT_ACTIVITY_LANE_VERSION",
-    "build_recent_activity_lane",
 ]

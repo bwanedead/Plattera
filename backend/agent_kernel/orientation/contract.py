@@ -36,12 +36,7 @@ def collect_orientation_startup_input(raw: dict[str, Any]) -> dict[str, Any]:
 
 
 def coerce_generic_orientation_payload(raw: dict[str, Any]) -> dict[str, Any]:
-    """Validate and coerce **generic** orientation only (no domain checklist rows).
-
-    Use this for mission-agnostic orientation surfaces. Transcript-edit uses
-    ``domains.mapping.transcript_edit.orient_checklist_adapter.coerce_transcript_edit_orient_payload``
-    which may additionally accept legacy checklist-shaped rows.
-    """
+    """Validate and coerce **generic** orientation only (no domain checklist rows)."""
     startup_input = collect_orientation_startup_input(raw)
     startup_coerced = coerce_startup_understanding(startup_input)
     if not startup_understanding_has_minimum_viable(startup_coerced):

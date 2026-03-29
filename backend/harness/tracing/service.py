@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from .adapters.controller_kernel import build_controller_kernel_trace
 from .adapters.kernel_direct import build_kernel_direct_trace
 from .adapters.mission_runtime import build_mission_runtime_trace
 from .registry import (
@@ -13,25 +12,8 @@ from .registry import (
 )
 from .schema import CanonicalTraceRecord, LoopFamily
 
-_CONTROLLER_DISPATCH_KEYS = {"controller_transcript", "run_artifact"}
 _MISSION_RUNTIME_KEYS = {"mission_id", "active_mode", "mode_history", "cycles"}
-
-
-def build_controller_kernel_canonical_trace(
-    *,
-    controller_transcript: dict[str, Any],
-    run_artifact: dict[str, Any],
-    transcript_ref: str | None = None,
-    run_artifact_ref: str | None = None,
-    trace_id: str | None = None,
-) -> CanonicalTraceRecord:
-    return build_controller_kernel_trace(
-        controller_transcript=controller_transcript,
-        run_artifact=run_artifact,
-        transcript_ref=transcript_ref,
-        run_artifact_ref=run_artifact_ref,
-        trace_id=trace_id,
-    )
+_ORCHESTRATION_KERNEL_KEYS = {"trace_events", "run_artifact"}
 
 
 def build_kernel_direct_canonical_trace(
@@ -41,10 +23,7 @@ def build_kernel_direct_canonical_trace(
     run_artifact_ref: str | None = None,
     trace_id: str | None = None,
 ) -> CanonicalTraceRecord:
-    """Build a CanonicalTraceRecord from live kernel trace events (no transcript required).
-
-    Phase 11 D3 — orchestration-kernel path canonical trace builder.
-    """
+    """Build a CanonicalTraceRecord from live kernel trace events (no transcript required)."""
     return build_kernel_direct_trace(
         trace_events=trace_events,
         run_artifact=run_artifact,
@@ -76,18 +55,7 @@ def build_canonical_trace_from_payload(
         raise ValueError("payload must be a JSON object dictionary")
 
     family = loop_family or _detect_loop_family(payload)
-    if family == "controller_kernel":
-        controller_transcript = _dict_field(payload, key="controller_transcript")
-        run_artifact = _dict_field(payload, key="run_artifact")
-        return build_controller_kernel_canonical_trace(
-            controller_transcript=controller_transcript,
-            run_artifact=run_artifact,
-            transcript_ref=_optional_str(payload.get("controller_transcript_ref")),
-            run_artifact_ref=_optional_str(payload.get("run_artifact_ref")),
-            trace_id=trace_id,
-        )
-
-    if family not in {"controller_kernel", "mission_runtime"}:
+    if family not in {"mission_runtime", "orchestration_kernel"}:
         try:
             registration = require_trace_family(family)
         except TraceFamilyLookupError as exc:
@@ -99,42 +67,50 @@ def build_canonical_trace_from_payload(
             snapshot_ref=_optional_str(payload.get("snapshot_ref")),
             trace_id=trace_id,
         )
-    if family == "mission_runtime":
-        mission_payload = _mission_runtime_payload(payload)
-        return build_mission_runtime_canonical_trace(
-            mission_runtime_payload=mission_payload,
-            payload_ref=_optional_str(payload.get("mission_runtime_ref")) or _optional_str(payload.get("snapshot_ref")),
+
+    if family == "orchestration_kernel":
+        kernel_payload = _orchestration_kernel_payload(payload)
+        return build_kernel_direct_canonical_trace(
+            trace_events=_as_trace_event_list(kernel_payload.get("trace_events")),
+            run_artifact=_orchestration_run_artifact(kernel_payload),
+            run_artifact_ref=_optional_str(kernel_payload.get("run_artifact_ref"))
+            or _optional_str(kernel_payload.get("snapshot_ref")),
             trace_id=trace_id,
         )
 
-    raise ValueError(f"unsupported loop_family: {family}")
+    mission_payload = _mission_runtime_payload(payload)
+    return build_mission_runtime_canonical_trace(
+        mission_runtime_payload=mission_payload,
+        payload_ref=_optional_str(payload.get("mission_runtime_ref")) or _optional_str(payload.get("snapshot_ref")),
+        trace_id=trace_id,
+    )
 
 
 def _detect_loop_family(payload: dict[str, Any]) -> LoopFamily:
-    looks_controller = _CONTROLLER_DISPATCH_KEYS.issubset(payload.keys())
     looks_mission_runtime = _looks_like_mission_runtime_payload(payload)
+    looks_orchestration_kernel = _looks_like_orchestration_kernel_payload(payload)
     registered_hits = [
         registration.loop_family
         for registration in iter_trace_families()
-        if registration.loop_family not in {"controller_kernel", "mission_runtime"} and registration.detector(payload)
+        if registration.loop_family not in {"mission_runtime", "orchestration_kernel"} and registration.detector(payload)
     ]
 
-    shape_hits = int(looks_controller) + int(looks_mission_runtime) + len(registered_hits)
+    shape_hits = int(looks_mission_runtime) + int(looks_orchestration_kernel) + len(registered_hits)
     if shape_hits > 1:
         raise ValueError(
             "ambiguous canonical trace payload: matches multiple canonical payload shapes;"
             " pass loop_family explicitly"
         )
-    if looks_controller:
-        return "controller_kernel"
     if looks_mission_runtime:
         return "mission_runtime"
+    if looks_orchestration_kernel:
+        return "orchestration_kernel"
     if len(registered_hits) == 1:
         return registered_hits[0]  # type: ignore[return-value]
     raise ValueError(
-        "unsupported canonical trace payload shape: expected controller payload with"
-        " {'controller_transcript','run_artifact'}, a registered domain trace payload,"
-        " or mission-runtime payload under 'mission_runtime'"
+        "unsupported canonical trace payload shape: expected a registered payload,"
+        " orchestration-kernel payload under 'trace_events'/'run_artifact', or"
+        " mission-runtime payload under 'mission_runtime'"
     )
 
 
@@ -159,35 +135,42 @@ def _mission_runtime_payload(payload: dict[str, Any], default_none: bool = False
     )
 
 
-def _dict_field(payload: dict[str, Any], *, key: str) -> dict[str, Any]:
-    value = payload.get(key)
-    if isinstance(value, dict):
-        return value
-    raise ValueError(f"missing required object field '{key}' for controller_kernel canonical trace build")
+def _looks_like_orchestration_kernel_payload(payload: dict[str, Any]) -> bool:
+    kernel_payload = _orchestration_kernel_payload(payload, default_none=True)
+    if not isinstance(kernel_payload, dict):
+        return False
+    has_trace_events = isinstance(kernel_payload.get("trace_events"), list)
+    has_run_artifact = isinstance(kernel_payload.get("run_artifact"), dict)
+    return has_trace_events and has_run_artifact
+
+
+def _orchestration_kernel_payload(payload: dict[str, Any], default_none: bool = False) -> dict[str, Any]:
+    nested = payload.get("orchestration_kernel")
+    if isinstance(nested, dict):
+        return nested
+    if _ORCHESTRATION_KERNEL_KEYS.issubset(payload.keys()):
+        return payload
+    if default_none:
+        return {}
+    raise ValueError(
+        "invalid orchestration_kernel payload: expected 'orchestration_kernel' object with"
+        " {'trace_events','run_artifact'}"
+    )
+
+
+def _orchestration_run_artifact(payload: dict[str, Any]) -> dict[str, Any]:
+    run_artifact = payload.get("run_artifact")
+    return run_artifact if isinstance(run_artifact, dict) else {}
+
+
+def _as_trace_event_list(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    return [row for row in value if isinstance(row, dict)]
 
 
 def _optional_str(value: Any) -> str | None:
-    return value if isinstance(value, str) and value.strip() else None
-
-
-register_trace_family(
-    loop_family="controller_kernel",
-    builder=lambda **kwargs: build_controller_kernel_canonical_trace(
-        controller_transcript=kwargs["payload"]["controller_transcript"],
-        run_artifact=kwargs["payload"]["run_artifact"],
-        transcript_ref=_optional_str(kwargs["payload"].get("controller_transcript_ref")),
-        run_artifact_ref=_optional_str(kwargs["payload"].get("run_artifact_ref")),
-        trace_id=kwargs.get("trace_id"),
-    ),
-    detector=lambda payload: _CONTROLLER_DISPATCH_KEYS.issubset(payload.keys()),
-)
-register_trace_family(
-    loop_family="mission_runtime",
-    builder=lambda **kwargs: build_mission_runtime_canonical_trace(
-        mission_runtime_payload=_mission_runtime_payload(kwargs["payload"]),
-        payload_ref=_optional_str(kwargs["payload"].get("mission_runtime_ref"))
-        or _optional_str(kwargs["payload"].get("snapshot_ref")),
-        trace_id=kwargs.get("trace_id"),
-    ),
-    detector=_looks_like_mission_runtime_payload,
-)
+    if isinstance(value, str):
+        text = value.strip()
+        return text if text else None
+    return None

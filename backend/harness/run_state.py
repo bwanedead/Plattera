@@ -12,10 +12,7 @@ from .mission_state import (
     new_resolution_state,
 )
 from .mission_runtime.observability import parse_mission_observation_payload
-from .terminal_taxonomy import (
-    TerminalClass,
-    classify_controller_terminal,
-)
+from .terminal_taxonomy import TerminalClass
 
 RUN_STATE_VERSION = "run_state.v1"
 LoopFamily = str
@@ -124,127 +121,110 @@ def build_registered_run_state(*, loop_family: str, payload: dict[str, Any]) -> 
     return builder(payload)
 
 
-def build_controller_kernel_run_state(
-    *,
-    controller_transcript: dict[str, Any],
-    run_artifact: dict[str, Any],
-    ) -> SharedRunStateEnvelope:
-    transcript_events = _as_dict_list(controller_transcript.get("events"))
-    run_header = _controller_run_header(transcript_events)
-    run_header_payload = _as_dict(run_header.get("payload"))
-    latest_refs = _controller_latest_refs(transcript_events)
-    terminal = _controller_terminal_from_transcript(transcript_events)
-
-    run_id = _first_non_empty(
-        run_artifact.get("run_id"),
-        _extract_run_id_from_session(_as_str(run_artifact.get("session_id"))),
-        _extract_run_id_from_session(_as_str(run_header_payload.get("session_id"))),
-        "unknown_controller_run",
-    ) or "unknown_controller_run"
-    session_id = _first_non_empty(run_artifact.get("session_id"), run_header_payload.get("session_id"))
-    request_id = _first_non_empty(run_artifact.get("request_id"), run_header_payload.get("request_id"), run_id)
-    stop_reason = _as_str(terminal.get("stop_reason"))
-    terminal_outcome = _as_str(terminal.get("terminal_outcome"))
-    terminal_result = classify_controller_terminal(
-        stop_reason=stop_reason,
-        terminal_outcome=terminal_outcome,
-        success=terminal.get("success"),
-        reason_code=_as_str(terminal.get("reason_code")),
+def build_orchestration_kernel_run_state(*, orchestration_kernel_payload: dict[str, Any]) -> SharedRunStateEnvelope:
+    payload = _orchestration_kernel_payload(orchestration_kernel_payload)
+    trace_events = _as_dict_list(payload.get("trace_events"))
+    run_artifact = _as_dict(payload.get("run_artifact")) or payload
+    run_header = _run_header_from_trace_events(trace_events)
+    latest_refs_summary = _latest_refs_summary_from_trace_events(trace_events=trace_events, run_artifact=run_artifact)
+    terminal_summary = _terminal_summary_from_trace_events(trace_events=trace_events, run_artifact=run_artifact)
+    blocker_summary = _blocker_summary_from_orchestration_payload(
+        payload=payload,
+        terminal_summary=terminal_summary,
     )
-
-    waiting = terminal_result.terminal_class in {"waiting_human", "waiting_evidence"}
-    waiting_kind = (
-        "human_feedback"
-        if terminal_result.terminal_class == "waiting_human"
-        else "evidence"
-        if terminal_result.terminal_class == "waiting_evidence"
-        else None
+    verification_summary = _verification_summary_from_orchestration_payload(
+        payload=payload,
+        trace_events=trace_events,
+        terminal_summary=terminal_summary,
     )
-
+    waiting_summary = _waiting_summary_from_blocker_summary(
+        blocker_summary=blocker_summary,
+        terminal_summary=terminal_summary,
+    )
+    continuity_summary = ContinuitySummary(
+        iteration=_iteration_count_from_trace_events(trace_events=trace_events, run_artifact=run_artifact),
+        last_phase=_last_phase_from_trace_events(trace_events=trace_events),
+        last_reason_code=terminal_summary.reason_code or _last_reason_code_from_trace_events(trace_events=trace_events),
+        has_recent_activity=bool(trace_events),
+    )
+    active_mode = _first_non_empty(
+        _as_str(run_artifact.get("active_mode")),
+        _as_str(run_artifact.get("mode")),
+        _as_str(run_header.get("active_mode")),
+        _as_str(run_header.get("mode")),
+    )
+    mode_history = _as_str_list(run_artifact.get("mode_history")) or _as_str_list(run_header.get("mode_history"))
+    prompt_observability_summary = _prompt_observability_summary_from_trace_events(trace_events)
+    if prompt_observability_summary.prompt_event_count == 0:
+        prompt_observability_summary = _prompt_observability_summary_from_payload(
+            payload,
+            default_surface=active_mode,
+        )
+    request_summary = RequestSummary(
+        objective=_first_non_empty(
+            _as_str(run_artifact.get("objective")),
+            _as_str(run_artifact.get("mission_objective")),
+            _as_str(run_header.get("objective")),
+        ),
+        mode=_first_non_empty(active_mode, _as_str(run_header.get("mode"))),
+        trigger=_first_non_empty(_as_str(run_artifact.get("trigger")), _as_str(run_header.get("trigger"))),
+        dossier_id=_first_non_empty(_as_str(run_artifact.get("dossier_id")), _as_str(run_header.get("dossier_id"))),
+    )
+    mission_state = _mission_state_from_components(
+        mission_id=_first_non_empty(
+            _as_str(run_artifact.get("run_id")),
+            _extract_run_id_from_session(_as_str(run_artifact.get("session_id"))),
+            _extract_run_id_from_session(_as_str(payload.get("session_id"))),
+            "unknown_run",
+        )
+        or "unknown_run",
+        session_id=_first_non_empty(_as_str(run_artifact.get("session_id")), _as_str(payload.get("session_id"))),
+        request_id=_first_non_empty(_as_str(run_artifact.get("request_id")), _as_str(run_header.get("request_id"))),
+        loop_family="orchestration_kernel",
+        objective=request_summary.objective,
+        active_mode=active_mode,
+        updated_at_epoch_seconds=float(
+            _as_int(run_artifact.get("created_at_epoch_seconds"))
+            or _as_int(run_artifact.get("updated_at_epoch_seconds"))
+            or 0
+        ),
+        latest_refs_summary=latest_refs_summary.model_dump(),
+        high_signal_artifact_refs=latest_refs_summary.ref_keys,
+        family_coordination=_as_dict(payload.get("family_coordination")),
+        blocker_summary=blocker_summary.model_dump(),
+        verification_summary=verification_summary.model_dump(),
+        waiting_summary=waiting_summary.model_dump(),
+        terminal_summary=terminal_summary.model_dump(),
+        continuity_summary=continuity_summary.model_dump(),
+        mission_mode_summary={
+            "active_mode": active_mode,
+            "mode_history": mode_history,
+            "latest_transition_reason": _as_str(run_artifact.get("latest_transition_reason")),
+            "resume_context_summary": _resume_context_summary_from_payload(payload),
+        },
+        prompt_observability_summary=prompt_observability_summary.model_dump(),
+        resolution_state=_orchestration_kernel_resolution_state_from_payload(payload),
+    )
     return SharedRunStateEnvelope(
-        run_id=run_id,
-        session_id=session_id,
-        request_id=request_id,
-        loop_family="controller_kernel",
-        request_summary=RequestSummary(
-            objective="controller_runtime_loop",
-            mode=_as_str(run_header_payload.get("mode")),
-            trigger=None,
-            dossier_id=_as_str(run_header_payload.get("dossier_id")),
+        run_id=mission_state.mission_id,
+        session_id=_first_non_empty(_as_str(run_artifact.get("session_id")), _as_str(payload.get("session_id"))),
+        request_id=_first_non_empty(_as_str(run_artifact.get("request_id")), _as_str(run_header.get("request_id"))),
+        loop_family="orchestration_kernel",
+        request_summary=request_summary,
+        latest_refs_summary=latest_refs_summary,
+        blocker_summary=blocker_summary,
+        verification_summary=verification_summary,
+        waiting_summary=waiting_summary,
+        terminal_summary=terminal_summary,
+        continuity_summary=continuity_summary,
+        mission_state=mission_state,
+        mission_mode_summary=MissionModeSummary(
+            active_mode=active_mode,
+            mode_history=mode_history,
+            latest_transition_reason=_as_str(run_artifact.get("latest_transition_reason")),
+            resume_context_summary=_resume_context_summary_from_payload(payload),
         ),
-        latest_refs_summary=_summarize_refs(latest_refs),
-        blocker_summary=BlockerSummary(
-            open_count=None,
-            active_blocker_id=None,
-            waiting_human=terminal_result.terminal_class == "waiting_human",
-            answered_unintegrated_count=None,
-            source="sparse",
-        ),
-        verification_summary=VerificationSummary(
-            status=stop_reason or _as_str(terminal.get("reason_code")),
-            last_verification_kind=_controller_last_verification_kind(transcript_events),
-            mapping_ready=True if terminal_result.terminal_class == "completed" else False if terminal_result.terminal_class in {"failed", "blocked"} else None,
-        ),
-        waiting_summary=WaitingSummary(
-            waiting=waiting,
-            waiting_kind=waiting_kind,
-            resumable=waiting,
-            owner_kind="terminal_refusal" if waiting else None,
-        ),
-        terminal_summary=NormalizedTerminalSummary(
-            terminal=bool(terminal),
-            terminal_class=terminal_result.terminal_class if terminal else None,
-            reason_code=terminal_result.reason_code if terminal else None,
-        ),
-        continuity_summary=ContinuitySummary(
-            iteration=_controller_iteration_count(transcript_events, run_artifact),
-            last_phase=_controller_last_phase(transcript_events),
-            last_reason_code=_as_str(terminal.get("reason_code")),
-            has_recent_activity=bool(transcript_events),
-        ),
-            mission_state=_mission_state_from_components(
-            mission_id=run_id,
-            session_id=session_id,
-            request_id=request_id,
-            loop_family="controller_kernel",
-            objective="controller_runtime_loop",
-            active_mode=_as_str(run_header_payload.get("mode")),
-            updated_at_epoch_seconds=0.0,
-            latest_refs_summary=_summarize_refs(latest_refs).model_dump(),
-            prompt_observability_summary=_prompt_observability_summary_from_transcript(transcript_events).model_dump(),
-            blocker_summary={
-                "open_count": None,
-                "active_blocker_id": None,
-                "waiting_human": terminal_result.terminal_class == "waiting_human",
-                "answered_unintegrated_count": None,
-                "source": "sparse",
-            },
-            verification_summary={
-                "status": stop_reason or _as_str(terminal.get("reason_code")),
-                "last_verification_kind": _controller_last_verification_kind(transcript_events),
-                "mapping_ready": True if terminal_result.terminal_class == "completed" else False if terminal_result.terminal_class in {"failed", "blocked"} else None,
-            },
-            waiting_summary={
-                "waiting": waiting,
-                "waiting_kind": waiting_kind,
-                "resumable": waiting,
-                "owner_kind": "terminal_refusal" if waiting else None,
-            },
-            terminal_summary={
-                "terminal": bool(terminal),
-                "terminal_class": terminal_result.terminal_class if terminal else None,
-                "reason_code": terminal_result.reason_code if terminal else None,
-            },
-            continuity_summary={
-                "iteration": _controller_iteration_count(transcript_events, run_artifact),
-                "last_phase": _controller_last_phase(transcript_events),
-                "last_reason_code": _as_str(terminal.get("reason_code")),
-                "has_recent_activity": bool(transcript_events),
-            },
-            resolution_state=_mission_runtime_empty_resolution_state(),
-        ),
-        mission_mode_summary=MissionModeSummary(active_mode=_as_str(run_header_payload.get("mode"))),
-        prompt_observability_summary=_prompt_observability_summary_from_transcript(transcript_events),
+        prompt_observability_summary=prompt_observability_summary,
         envelope_version=RUN_STATE_VERSION,
     )
 
@@ -433,11 +413,12 @@ def _prompt_observability_summary_from_payload(
     return PromptObservabilitySummary(last_prompt_event_surface=_as_str(default_surface))
 
 
-def _prompt_observability_summary_from_transcript(events: list[dict[str, Any]]) -> PromptObservabilitySummary:
+def _prompt_observability_summary_from_trace_events(events: list[dict[str, Any]]) -> PromptObservabilitySummary:
     prompt_events = [
         event
         for event in events
         if _as_str(event.get("phase")) == "prompt_event"
+        or _event_kind(event) == "prompt_event"
         or (
             isinstance(event.get("payload"), dict)
             and isinstance(event["payload"].get("prompt_event"), dict)
@@ -543,33 +524,147 @@ def _last_phase(*, progress_log: list[dict[str, Any]], critical_events: list[dic
     return None
 
 
-def _controller_run_header(events: list[dict[str, Any]]) -> dict[str, Any]:
+def _orchestration_kernel_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    nested = payload.get("orchestration_kernel")
+    if isinstance(nested, dict):
+        return nested
+    return payload
+
+
+def _run_header_from_trace_events(events: list[dict[str, Any]]) -> dict[str, Any]:
     for event in events:
-        if _as_str(event.get("event_type")) == "run_header":
-            return event
+        if _event_kind(event) in {"run_header", "request_start"}:
+            payload = _as_dict(event.get("payload"))
+            return payload or _as_dict(event)
     return {}
 
 
-def _controller_latest_refs(events: list[dict[str, Any]]) -> dict[str, Any]:
-    for event in reversed(events):
+def _latest_refs_summary_from_trace_events(
+    *,
+    trace_events: list[dict[str, Any]],
+    run_artifact: dict[str, Any],
+) -> LatestRefsSummary:
+    refs: dict[str, Any] = {}
+    for event in reversed(trace_events):
         payload = _as_dict(event.get("payload"))
         refs = _as_dict(payload.get("latest_refs"))
         if refs:
-            return refs
-    return {}
+            break
+        refs = _as_dict(event.get("refs_delta"))
+        if refs:
+            break
+    if not refs:
+        refs = _as_dict(run_artifact.get("latest_refs"))
+    return _summarize_refs(refs)
 
 
-def _controller_terminal_from_transcript(events: list[dict[str, Any]]) -> dict[str, Any]:
-    for event in reversed(events):
-        payload = _as_dict(event.get("payload"))
-        terminal = _as_dict(payload.get("terminal"))
-        if terminal:
-            return terminal
-    return {}
+def _terminal_summary_from_trace_events(
+    *,
+    trace_events: list[dict[str, Any]],
+    run_artifact: dict[str, Any],
+) -> NormalizedTerminalSummary:
+    terminal_payload: dict[str, Any] = {}
+    for event in reversed(trace_events):
+        if _event_kind(event) != "terminal_outcome":
+            continue
+        terminal_payload = _as_dict(event.get("payload"))
+        if terminal_payload:
+            break
+    if not terminal_payload:
+        terminal_payload = _as_dict(run_artifact.get("terminal"))
+    terminal_class = _as_terminal_class(terminal_payload.get("terminal_class"))
+    if terminal_class is None:
+        terminal_class = _terminal_class_from_payload(terminal_payload)
+    return NormalizedTerminalSummary(
+        terminal=bool(terminal_payload),
+        terminal_class=terminal_class,
+        reason_code=_first_non_empty(_as_str(terminal_payload.get("reason_code")), _as_str(terminal_payload.get("stop_reason"))),
+    )
 
 
-def _controller_iteration_count(events: list[dict[str, Any]], run_artifact: dict[str, Any]) -> int | None:
-    max_iteration = max((_as_int(_as_dict(event.get("payload")).get("iteration")) or 0 for event in events), default=0)
+def _terminal_class_from_payload(payload: dict[str, Any]) -> TerminalClass | None:
+    terminal_outcome = _as_str(payload.get("terminal_outcome"))
+    if terminal_outcome in {"SUCCESS", "completed"}:
+        return "completed"
+    if terminal_outcome in {"FAILED", "failed"}:
+        return "failed"
+    stop_reason = _as_str(payload.get("stop_reason"))
+    if stop_reason == "needs_user_choice":
+        return "waiting_human"
+    if stop_reason == "needs_upload":
+        return "waiting_evidence"
+    if stop_reason in {"needs_capability", "worker_unavailable", "validation_failed", "blocked"}:
+        return "blocked"
+    if stop_reason in {"budget_exceeded", "no_progress"}:
+        return "exhausted"
+    if stop_reason in {"internal_error", "error", "cancelled"}:
+        return "failed"
+    return None
+
+
+def _blocker_summary_from_orchestration_payload(
+    *,
+    payload: dict[str, Any],
+    terminal_summary: NormalizedTerminalSummary,
+) -> BlockerSummary:
+    blocker_payload = _as_dict(payload.get("blocker_summary"))
+    waiting_human = bool(_as_bool(blocker_payload.get("waiting_human")))
+    waiting_human = waiting_human or terminal_summary.terminal_class in {"waiting_human", "waiting_evidence"}
+    open_count = _as_int(blocker_payload.get("open_count"))
+    if open_count is None:
+        open_count = 1 if waiting_human else 0
+    return BlockerSummary(
+        open_count=open_count,
+        active_blocker_id=_as_str(blocker_payload.get("active_blocker_id")),
+        waiting_human=waiting_human,
+        answered_unintegrated_count=_as_int(blocker_payload.get("answered_unintegrated_count")),
+        source=_first_non_empty(_as_str(blocker_payload.get("source")), "derived") or "derived",
+    )
+
+
+def _verification_summary_from_orchestration_payload(
+    *,
+    payload: dict[str, Any],
+    trace_events: list[dict[str, Any]],
+    terminal_summary: NormalizedTerminalSummary,
+) -> VerificationSummary:
+    verification_payload = _as_dict(payload.get("verification_summary"))
+    status = _as_str(verification_payload.get("status"))
+    last_verification_kind = _as_str(verification_payload.get("last_verification_kind"))
+    if last_verification_kind is None:
+        last_verification_kind = _last_verification_kind_from_trace_events(trace_events)
+    mapping_ready = verification_payload.get("mapping_ready")
+    if not isinstance(mapping_ready, bool):
+        mapping_ready = True if terminal_summary.terminal_class == "completed" else False if terminal_summary.terminal else None
+    return VerificationSummary(
+        status=status,
+        last_verification_kind=last_verification_kind,
+        mapping_ready=mapping_ready,
+    )
+
+
+def _waiting_summary_from_blocker_summary(
+    *,
+    blocker_summary: BlockerSummary,
+    terminal_summary: NormalizedTerminalSummary,
+) -> WaitingSummary:
+    waiting_kind = "human_feedback" if blocker_summary.waiting_human else None
+    if terminal_summary.terminal_class == "waiting_evidence":
+        waiting_kind = "evidence"
+    return WaitingSummary(
+        waiting=blocker_summary.waiting_human or terminal_summary.terminal_class in {"waiting_human", "waiting_evidence"},
+        waiting_kind=waiting_kind,
+        resumable=bool(blocker_summary.waiting_human or terminal_summary.terminal_class in {"waiting_human", "waiting_evidence"}),
+        owner_kind="mission_transition" if blocker_summary.waiting_human else None,
+    )
+
+
+def _iteration_count_from_trace_events(
+    *,
+    trace_events: list[dict[str, Any]],
+    run_artifact: dict[str, Any],
+) -> int | None:
+    max_iteration = max((_as_int(_as_dict(event.get("payload")).get("iteration")) or 0 for event in trace_events), default=0)
     if max_iteration > 0:
         return max_iteration
     steps = run_artifact.get("steps")
@@ -578,7 +673,7 @@ def _controller_iteration_count(events: list[dict[str, Any]], run_artifact: dict
     return None
 
 
-def _controller_last_verification_kind(events: list[dict[str, Any]]) -> str | None:
+def _last_verification_kind_from_trace_events(events: list[dict[str, Any]]) -> str | None:
     for event in reversed(events):
         payload = _as_dict(event.get("payload"))
         action_type = _as_str(payload.get("action_type")) or ""
@@ -587,12 +682,48 @@ def _controller_last_verification_kind(events: list[dict[str, Any]]) -> str | No
     return None
 
 
-def _controller_last_phase(events: list[dict[str, Any]]) -> str | None:
+def _last_phase_from_trace_events(events: list[dict[str, Any]]) -> str | None:
     for event in reversed(events):
-        event_type = _as_str(event.get("event_type"))
-        if event_type:
-            return event_type
+        phase = _as_str(event.get("phase"))
+        if phase:
+            return phase
+        event_kind = _event_kind(event)
+        if event_kind:
+            return event_kind
     return None
+
+
+def _last_reason_code_from_trace_events(events: list[dict[str, Any]]) -> str | None:
+    for event in reversed(events):
+        reason_code = _as_str(event.get("reason_code"))
+        if reason_code:
+            return reason_code
+        payload = _as_dict(event.get("payload"))
+        reason_code = _as_str(payload.get("reason_code"))
+        if reason_code:
+            return reason_code
+    return None
+
+
+def _resume_context_summary_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    resume_context = _as_dict(payload.get("resume_context_summary"))
+    if resume_context:
+        return resume_context
+    resumability = _as_dict(payload.get("resumability_summary"))
+    if resumability:
+        return {
+            "resumable": bool(resumability.get("resumable")),
+            "resume_reason": _as_str(resumability.get("resume_reason")),
+            "resume_requirements": _as_str_list(resumability.get("resume_requirements")),
+        }
+    return {}
+
+
+def _orchestration_kernel_resolution_state_from_payload(payload: dict[str, Any]) -> ResolutionState:
+    resolution_payload = _as_dict(payload.get("resolution_state"))
+    if resolution_payload:
+        return _resolution_state_from_payload_dict(resolution_payload)
+    return _mission_runtime_resolution_state_from_payload(payload)
 
 
 def _extract_run_id_from_session(session_id: str | None) -> str | None:
@@ -610,6 +741,10 @@ def _as_dict_list(value: Any) -> list[dict[str, Any]]:
     if not isinstance(value, list):
         return []
     return [row for row in value if isinstance(row, dict)]
+
+
+def _event_kind(event: dict[str, Any]) -> str | None:
+    return _first_non_empty(_as_str(event.get("event_kind")), _as_str(event.get("event_type")))
 
 
 def _as_str(value: Any) -> str | None:
@@ -658,20 +793,6 @@ def _first_non_empty(*values: Any) -> str | None:
     return None
 
 
-def _build_controller_kernel_run_state_from_payload(payload: dict[str, Any]) -> SharedRunStateEnvelope:
-    controller_transcript = payload.get("controller_transcript")
-    run_artifact = payload.get("run_artifact")
-    if not isinstance(controller_transcript, dict) or not isinstance(run_artifact, dict):
-        raise ValueError(
-            "invalid controller_kernel payload for run-state build: expected object fields "
-            "'controller_transcript' and 'run_artifact'"
-        )
-    return build_controller_kernel_run_state(
-        controller_transcript=controller_transcript,
-        run_artifact=run_artifact,
-    )
-
-
 def _build_mission_runtime_run_state_from_payload(payload: dict[str, Any]) -> SharedRunStateEnvelope:
     mission_runtime_payload = payload.get("mission_runtime")
     if not isinstance(mission_runtime_payload, dict):
@@ -681,9 +802,18 @@ def _build_mission_runtime_run_state_from_payload(payload: dict[str, Any]) -> Sh
     return build_mission_runtime_run_state(mission_runtime_payload=mission_runtime_payload)
 
 
+def _build_orchestration_kernel_run_state_from_payload(payload: dict[str, Any]) -> SharedRunStateEnvelope:
+    orchestration_kernel_payload = payload.get("orchestration_kernel")
+    if not isinstance(orchestration_kernel_payload, dict):
+        orchestration_kernel_payload = payload if isinstance(payload, dict) else {}
+    if not isinstance(orchestration_kernel_payload, dict):
+        raise ValueError("invalid orchestration_kernel payload for run-state build")
+    return build_orchestration_kernel_run_state(orchestration_kernel_payload=orchestration_kernel_payload)
+
+
 register_run_state_builder(
-    loop_family="controller_kernel",
-    builder=_build_controller_kernel_run_state_from_payload,
+    loop_family="orchestration_kernel",
+    builder=_build_orchestration_kernel_run_state_from_payload,
 )
 register_run_state_builder(
     loop_family="mission_runtime",

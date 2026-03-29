@@ -71,3 +71,4 @@ def extract_run_id_from_session(session_id: str | None) -> str | None:
     if not value or "::" not in value:
         return None
     return value.rsplit("::", maxsplit=1)[-1] or None
+

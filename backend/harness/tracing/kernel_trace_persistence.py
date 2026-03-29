@@ -1,4 +1,4 @@
-"""Shared kernel-direct trace persistence utility (Phase 12 D2 / D4).
+"""Shared orchestration-kernel trace persistence utility.
 
 Provides best-effort helpers used by orchestration-kernel runtime adapters
 to persist forensic artifacts after a run:
@@ -34,7 +34,7 @@ def persist_kernel_trace(
     kernel_result: "KernelLoopResult",
     request_id_prefix: str,
 ) -> str | None:
-    """Build and atomically persist a kernel-direct canonical trace artifact.
+    """Build and atomically persist a live orchestration-kernel trace artifact.
 
     Parameters
     ----------
@@ -85,13 +85,12 @@ def persist_rationale_strip(
     max_entries: int = 5,
     per_entry_cap: int = 256,
 ) -> str | None:
-    """Build and atomically persist the rationale-continuity strip sidecar (D4).
+    """Build and atomically persist the rationale-continuity strip sidecar.
 
-    Semantics: persists the *terminal run-level* rationale strip derived from the
-    final raw event set — i.e. the strip that would be injected into the last
-    build_focus_packet call of the run.  This is NOT a history of every per-iteration
-    snapshot; it is the final continuity view for the run.  Reproducible at any time
-    from the same raw events via build_rationale_continuity_strip(trace_events).
+    Semantics: persists the terminal run-level rationale strip derived from the
+    final raw event set. This is a bounded continuity view for the run, not a
+    history of every per-iteration snapshot. Reproducible at any time from the
+    same raw events via ``build_rationale_continuity_strip(trace_events)``.
 
     Provenance fields included in the artifact:
       source_trace_artifact_ref — path to the co-located canonical trace (if known)

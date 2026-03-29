@@ -4,9 +4,9 @@ Derived from kernel trace events (RawTraceEvent dicts from KernelTraceCollector)
 Synthesizes one entry per iteration from: focus_selection, move_resolution,
 execution, and progress_evaluation events.
 
-The strip is populated on context.rationale_strip_snapshot by the kernel before
-hook 4 (build_focus_packet) each iteration. Domain packs inject it into their
-focus packet (main reasoning payloads only — not micro-tool prompt builders).
+The strip is populated on ``context.rationale_strip_snapshot`` by the kernel
+before the next iteration consumes it. The live harness carries this continuity
+signal mechanically; the agent decides how to interpret it.
 
 Entry shape:
     iteration_index:    int
