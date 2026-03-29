@@ -69,7 +69,7 @@ Reviewer subagents are useful but expensive. Run them **on-demand** behind **per
 **Per-harness toggles (edit this file):**
 
 ```
-REVIEWER_SUBAGENTS_ENABLED__CLAUDE_CODE = false
+REVIEWER_SUBAGENTS_ENABLED__CLAUDE_CODE = true (but use sparingly please just on batch work raptor agents included)
 REVIEWER_SUBAGENTS_ENABLED__CODEX     = false
 REVIEWER_SUBAGENTS_ENABLED__CURSOR    = true
 ```
