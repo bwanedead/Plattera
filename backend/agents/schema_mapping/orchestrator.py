@@ -3,8 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
-from agents.common.loop_runtime import LoopBudget, LoopOutcome, LoopState
-from agents.common.toolbelt import Toolbelt
+from domains.common.loop_runtime import LoopBudget, LoopOutcome, LoopState
+from domains.common.toolbelt import Toolbelt
 
 
 @dataclass
@@ -29,6 +29,7 @@ class SchemaMappingOrchestrator:
             "state": state.__dict__,
             "note": "skeleton_only",
         }
+
 
 
 

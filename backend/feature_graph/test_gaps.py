@@ -5,7 +5,7 @@ Tests for Feature Graph Gap Types and Judge Report Models
 Validates that gap types and judge reports:
 - Cover all required gap kinds
 - Serialize correctly to JSON
-- Convert to backend/agents/common/contracts.py Gap/CompileReport shape
+- Convert to backend/domains/common/contracts.py Gap/CompileReport shape
 - Carry citations and provenance
 - Provide deterministic, typed failure information
 """
@@ -116,7 +116,7 @@ def test_feature_gap_with_citations():
 
 
 def test_feature_gap_to_contract_gap():
-    """Verify FeatureGap converts to backend/agents/common/contracts.py Gap shape."""
+    """Verify FeatureGap converts to backend/domains/common/contracts.py Gap shape."""
     gap = FeatureGap(
         kind=GapKind.UNSUPPORTED_OPERATION,
         message="Operation 'Buffer' is not supported: not yet implemented",
@@ -418,3 +418,4 @@ def test_empty_judge_report():
     assert report.has_errors is False
     assert report.error_count == 0
     assert report.warning_count == 0
+

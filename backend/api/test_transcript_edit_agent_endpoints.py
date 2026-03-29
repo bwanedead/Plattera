@@ -11,9 +11,9 @@ from fastapi import HTTPException
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from api.endpoints import transcript_edit_agent
-from agents.transcript_edit.contracts import TranscriptEditAgentRunResult
-from agents.transcript_edit.run_feed_persistence import TranscriptEditRunFeedPersistenceService
-from transcript_edit.run_registry import TranscriptionEditRunRegistry
+from domains.mapping.transcript_edit.contracts import TranscriptEditAgentRunResult
+from services.workflows.mapping.transcription_edit.run_feed_persistence import TranscriptEditRunFeedPersistenceService
+from services.workflows.mapping.transcription_edit.run_registry import TranscriptionEditRunRegistry
 
 
 def _reset_registry(tmp_state_dir: Path) -> None:
@@ -742,3 +742,7 @@ def test_extract_resume_pending_feedback_ignores_summary_fallback_when_registry_
     assert prompt_id == "hitl_range_registry"
     assert decision_key == "range"
     assert prompt_context == {"decision_key": "range"}
+
+
+
+

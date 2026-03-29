@@ -50,7 +50,7 @@ flowchart TD
     B --> F["Domain Prompt Branch"]
 
     A --> G["Generic Runtime / Loop / HITL / Trace"]
-    B --> H["Domain State / Closure / Feedback Meaning / Handoff"]
+    B --> H["Domain State / Closure / Handoff"]
 ```
 
 ---
@@ -66,9 +66,8 @@ The canonical domain-pack sections are:
 5. Focus Context Hydration
 6. Execution Translation
 7. Domain Closure Semantics
-8. Domain Feedback Semantics
-9. Capability Requirements
-10. Handoff Semantics
+8. Capability Requirements
+9. Handoff Semantics
 
 These are architecture sections, not necessarily one file each.
 
@@ -111,8 +110,8 @@ Purpose:
 
 Code surfaces likely include:
 
-- domain prompt branch
-- domain surface doctrine
+- `prompting/branch.py`
+- small domain-local prompt helpers when truly needed
 - domain examples or schema guidance where needed
 
 This should integrate cleanly with the shared prompt trunk.
@@ -208,17 +207,7 @@ The harness may host generic terminal rails.
 
 The pack owns domain closure meaning.
 
-## 4.8 Domain Feedback Semantics
-
-Purpose:
-
-- define how human or external feedback affects domain truth
-
-The harness transports feedback.
-
-The pack determines what that feedback means.
-
-## 4.9 Capability Requirements
+## 4.8 Capability Requirements
 
 Purpose:
 
@@ -236,7 +225,7 @@ These are requirements, not implementations.
 
 Product composition maps them to concrete providers and action wiring.
 
-## 4.10 Handoff Semantics
+## 4.9 Handoff Semantics
 
 Purpose:
 
@@ -309,9 +298,10 @@ The canonical code shape should be a thin adapter shell over a small domain bund
 Conceptual template:
 
 ```text
-backend/agents/<domain>/
+backend/domains/<family>/<domain>/
   manifest.py
-  prompt_sources.py
+  prompting/
+    branch.py
   domain_pack.py
   state.py
   read_models.py
@@ -319,12 +309,18 @@ backend/agents/<domain>/
   focus_hydration.py
   execution_translation.py
   closure.py
-  feedback.py
   capabilities.py
   handoff.py
 ```
 
 Not every pack must use exactly these filenames.
+The important standard is that domains own a `prompting/` folder rather than an abstract `prompt_sources.py` file.
+
+That folder may start with one file only:
+
+- `branch.py`
+
+Add more prompt files only when the prompt surface clearly earns them.
 
 But every mature pack should have these responsibilities somewhere.
 
@@ -375,6 +371,11 @@ The current `DomainPack` protocol in the orchestration kernel remains the hostin
 
 But it should be interpreted as a mechanical host grammar, not the whole mental model.
 
+The practical rule is:
+
+- keep only the minimum mechanical grammar the harness needs
+- do not turn hook names or loop phases into the domain's own architecture vocabulary
+
 Useful grouping:
 
 - `orient + refresh` = state initialization / reconciliation
@@ -385,6 +386,14 @@ Useful grouping:
 - `supply_progress_metrics + supply_closure_rules + integrate_feedback` = convergence semantics
 
 This grouping is the better design vocabulary.
+
+Even so, pack implementation should prefer semantic module names over hook-shaped names.
+
+Avoid:
+
+- `domain_pack_runtime.py`
+- `domain_pack_orient.py`
+- other files named as if the domain owns a runtime species
 
 ---
 
@@ -460,8 +469,9 @@ Recommended order:
 2. add minimal shared manifest / capability / handoff contracts
 3. make pack construction explicit around those shared concepts
 4. audit transcript-edit against the target
-5. refactor transcript-edit into the canonical pack shape
-6. expand to other domains after the first exemplar is stable
+5. rebuild transcript-edit as a first-generation native pack under the final domain root
+6. move shared domain support into the final common root rather than leaving it in transitional agent-era locations
+7. expand to other domains after the first exemplar is stable
 
 ---
 
@@ -471,7 +481,7 @@ The domain pack should be:
 
 - a semantic specialization bundle
 - a bounded translator between domain meaning and generic rails
-- explicit in doctrine, state, hydration, execution translation, closure, feedback, and handoff
+- explicit in doctrine, state, hydration, execution translation, closure, and handoff
 
 It should not be:
 

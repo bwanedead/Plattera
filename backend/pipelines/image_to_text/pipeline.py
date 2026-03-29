@@ -89,19 +89,20 @@ from pydantic import BaseModel, Field, ValidationError
 from pipelines.image_to_text.image_processor import enhance_for_character_recognition
 from pipelines.image_to_text.redundancy import RedundancyProcessor
 from agent_kernel.session import build_kernel_session_manager
-from agents.transcript_edit.contracts import TranscriptEditAgentRunRequest
-from agents.transcript_edit.decision_ledger import unresolved_closure_requirements
-from agents.transcript_edit.mission_runtime_bridge import run_orchestration_kernel_transcript_loop
+from domains.mapping.transcript_edit.contracts import TranscriptEditAgentRunRequest
+from domains.mapping.transcript_edit.decision_ledger import unresolved_closure_requirements
+from services.workflows.mapping.transcription_edit.mission_runtime_bridge import run_orchestration_kernel_transcript_loop
 from services.agent_kernel.run_artifact_persistence_service import RunArtifactPersistenceService
 from feature_graph.kernel_executor_composition import build_plattera_default_action_executor
-from transcript_edit.contracts import (
+from tooling.mapping.transcription_edit.apply import materialize_canonical_input
+from tooling.mapping.transcription_edit.contracts import (
     EditLoopStartRequestV0,
-    TranscriptionEditRunRequestV0,
+    TranscriptDocumentV0,
 )
-from transcript_edit.persistence import TranscriptionEditPersistenceService
-from transcript_edit.run_registry import TranscriptionEditRunRegistry
+from tooling.mapping.transcription_edit.validators import run_validators
+from services.workflows.mapping.transcription_edit.persistence import TranscriptionEditPersistenceService
+from services.workflows.mapping.transcription_edit.run_registry import TranscriptionEditRunRegistry
 from config.paths import dossiers_root
-from transcript_edit.run_service import TranscriptionEditRunService
 from services.agent_viewer.event_bus import event_bus as viewer_event_bus
 
 logger = logging.getLogger(__name__)
@@ -227,7 +228,6 @@ class ImageToTextPipeline:
         self.registry = get_registry()
         # Initialize redundancy processor
         self.redundancy_processor = RedundancyProcessor()
-        self.transcription_edit_run_service = TranscriptionEditRunService()
         self.transcription_edit_persistence = TranscriptionEditPersistenceService()
         self.transcription_edit_run_registry = TranscriptionEditRunRegistry()
     
@@ -1190,17 +1190,27 @@ class ImageToTextPipeline:
     ) -> tuple[dict[str, Any] | None, str | None]:
         try:
             dossier_id = context.get("dossier_id")
-            request = TranscriptionEditRunRequestV0(
-                start=EditLoopStartRequestV0(
-                    dossier_id=str(dossier_id) if dossier_id else None,
-                    source_text=raw_output,
-                    mode="repair",
-                ),
-                plan=None,
-                promote_for_mapping=False,
+            start = EditLoopStartRequestV0(
+                dossier_id=str(dossier_id) if dossier_id else None,
+                source_text=raw_output,
+                mode="repair",
             )
-            snapshot = self.transcription_edit_run_service.run(request)
-            artifact_ref = snapshot.source_transcript_ref
+            canonical = materialize_canonical_input(start)
+            document = TranscriptDocumentV0(
+                source_transcript_ref=canonical.source_transcript_ref,
+                source_transcript_hash=canonical.source_transcript_hash,
+                sections=canonical.transcript_sections,
+                metadata={"mode": canonical.mode.value, "pipeline_method": "relaxed_json_repair"},
+            )
+            artifact_ref = self.transcription_edit_persistence.save_source_transcript_input(
+                dossier_id=str(dossier_id or "adhoc"),
+                document=document,
+            )
+            validator_report = run_validators(document=document, source_transcript_ref=artifact_ref)
+            self.transcription_edit_persistence.save_validator_report(
+                dossier_id=str(dossier_id or "adhoc"),
+                report_payload=validator_report.model_dump(mode="json"),
+            )
             payload = json.loads(Path(artifact_ref).read_text(encoding="utf-8"))
             sections_raw = payload.get("sections", []) if isinstance(payload, dict) else []
             sections: list[dict[str, Any]] = []
@@ -1595,3 +1605,9 @@ class ImageToTextPipeline:
         return final_result
 
  
+
+
+
+
+
+

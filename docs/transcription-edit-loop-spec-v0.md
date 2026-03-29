@@ -2,7 +2,7 @@
 
 ## Scope
 - Canonical contract for typed edit plans and deterministic apply semantics.
-- Python-first implementation with Pydantic models in `backend/transcription_edit_loop/contracts.py`.
+- Python-first implementation with Pydantic models in `backend/tooling/mapping/transcription_edit/contracts.py`.
 
 ## Design
 - Canonical source of truth: Pydantic models.
@@ -101,11 +101,11 @@ Failure reason codes used by apply:
 - Otherwise require review before promotion.
 
 ## Current Implementation
-- Contracts: `backend/transcription_edit_loop/contracts.py`
-- Apply engine: `backend/transcription_edit_loop/apply.py`
-- Section adapter: `backend/transcription_edit_loop/section_adapter.py`
-- Persistence: `backend/transcription_edit_loop/persistence.py`
-- Validators scaffold: `backend/transcription_edit_loop/validators.py`
-- Run service: `backend/transcription_edit_loop/run_service.py`
-- Tests: `backend/transcription_edit_loop/tests/test_apply.py`
-- Tests: `backend/transcription_edit_loop/tests/test_sections_and_run.py`
+- Contracts: `backend/tooling/mapping/transcription_edit/contracts.py`
+- Apply engine: `backend/tooling/mapping/transcription_edit/apply.py`
+- Section adapter: `backend/tooling/mapping/transcription_edit/section_adapter.py`
+- Validators scaffold: `backend/tooling/mapping/transcription_edit/validators.py`
+- Persistence service: `backend/services/workflows/mapping/transcription_edit/persistence.py`
+- Run registry service: `backend/services/workflows/mapping/transcription_edit/run_registry.py`
+- Tests: `backend/tooling/mapping/transcription_edit/tests/test_apply.py`
+- Tests: `backend/tooling/mapping/transcription_edit/tests/test_sections_and_run.py`

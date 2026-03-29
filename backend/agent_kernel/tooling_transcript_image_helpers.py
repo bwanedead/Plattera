@@ -31,11 +31,11 @@ from feature_graph.models import FeatureGraph
 from retrieval.engine.retrieval_engine import RetrievalEngine
 from retrieval.filters.models import RetrievalFilters
 from services.feature_graph.feature_graph_persistence_service import FeatureGraphPersistenceService
-from transcript_edit.apply import (
+from tooling.mapping.transcription_edit.apply import (
     apply_plan_to_sections,
     materialize_canonical_input,
 )
-from transcript_edit.contracts import (
+from tooling.mapping.transcription_edit.contracts import (
     Confidence,
     EditLoopStartRequestV0,
     EditPlanV0,
@@ -47,19 +47,19 @@ from transcript_edit.contracts import (
     TranscriptDocumentV0,
     transcript_text_hash,
 )
-from transcript_edit.persistence import TranscriptionEditPersistenceService
-from transcript_edit.span_seeds import (
+from services.workflows.mapping.transcription_edit.persistence import TranscriptionEditPersistenceService
+from tooling.mapping.transcription_edit.span_seeds import (
     build_transcript_span_seeds_artifact,
     load_transcript_text_for_seeds,
 )
-from transcript_edit.validators import run_validators
+from tooling.mapping.transcription_edit.validators import run_validators
 from services.llm.openai import OpenAIService
 
 from .run_artifact import ArtifactRef, ValidationInline
 
 logger = logging.getLogger(__name__)
 
-from agents.common.identity_composer import (
+from domains.common.identity_composer import (
     Domain,
     InheritanceMode,
     Surface,
@@ -875,3 +875,8 @@ def _resolve_transcript_source_image_path(
             if candidate and Path(candidate).exists():
                 return candidate
     return None
+
+
+
+
+

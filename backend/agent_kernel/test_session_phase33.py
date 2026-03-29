@@ -10,8 +10,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from backend.agent_kernel.actions import ActionExecutor, ActionExecutorDeps, ProviderStepResultProjector
 from backend.agent_kernel import session as kernel_session_module
 from backend.agent_kernel.run_artifact import ArtifactRef, RunArtifact, StepRecord
-from backend.agents.transcript_edit.execution_action_ids import TX_AUDIT_TRANSCRIPT
-from backend.agents.transcript_edit.provider_step_projections import build_transcript_edit_provider_step_projectors
+from backend.domains.mapping.transcript_edit.execution_action_ids import TX_AUDIT_TRANSCRIPT
+from backend.domains.mapping.transcript_edit.provider_step_projections import build_transcript_edit_provider_step_projectors
 
 
 def test_session_py_has_no_transcript_action_id_branches() -> None:
@@ -63,3 +63,4 @@ def test_transcript_edit_projection_via_registered_projectors_updates_artifact_r
     run_artifact = RunArtifact(run_id="run-tx", request_id="req-tx")
     kernel_session_module._update_latest_refs(run_artifact, step, action_executor=executor)
     assert run_artifact.artifact_refs["tx_validator_report_ref"].artifact_path == "artifacts/tx/audit-99.json"
+

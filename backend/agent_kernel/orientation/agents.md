@@ -21,4 +21,5 @@
 
 ## Links
 - Docs: `docs/architecture/harness/harness-constitution.md`
-- Domain adapter: `backend/agents/transcript_edit/orient_tool.py` (kernel wires it lazily via `session.py` — Phase 30)
+- Domain adapter: `backend/domains/mapping/transcript_edit/orient_tool.py` (kernel wires it lazily via `session.py` — Phase 30)
+

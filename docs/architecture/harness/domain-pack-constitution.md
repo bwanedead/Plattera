@@ -271,7 +271,9 @@ The domain pack may define:
 
 The harness owns feedback transport lifecycle.
 
-The domain pack owns what the feedback means.
+The agent owns what the feedback means.
+
+The domain pack may provide domain state and closure surfaces that the agent updates.
 
 The harness may track:
 
@@ -279,12 +281,6 @@ The harness may track:
 - waiting on answer
 - answer received
 - answer surfaced back to the agent
-
-The domain pack may:
-
-- update domain truth based on feedback
-- change closure posture based on feedback
-- change handoff posture based on feedback
 
 Neither shared harness nor deterministic domain helpers may pretend feedback has been semantically integrated unless that meaning has actually been authored or explicitly confirmed.
 

@@ -19,7 +19,7 @@ from backend.agent_kernel.actions import (
     ArtifactRenderer,
     ArtifactValidator,
 )
-from backend.agents.transcript_edit.execution_action_ids import (
+from backend.domains.mapping.transcript_edit.execution_action_ids import (
     TX_APPLY_EDIT_PLAN,
     TX_AUDIT_TRANSCRIPT,
     TX_OPEN_TRANSCRIPT_SPANS,
@@ -724,3 +724,4 @@ def test_step_surfaces_tool_level_kernel_refusal_and_preserves_repair_outputs() 
     assert isinstance(outputs_inline, dict)
     assert "rejected_graph_artifact_ref" in outputs_inline
     assert result.dashboard.latest_refs.artifact_refs.get("ir_ref") is not None  # initial_ir_ref remains intact
+

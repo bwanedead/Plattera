@@ -8,7 +8,7 @@ def test_import_kernel_session_manager_without_orient_cycle() -> None:
 
 
 def test_transcript_orient_tool_imports_from_domain_module() -> None:
-    from agents.transcript_edit.orient_tool import TranscriptOrientBaselineTool  # noqa: PLC0415
+    from domains.mapping.transcript_edit.orient_tool import TranscriptOrientBaselineTool  # noqa: PLC0415
 
     assert TranscriptOrientBaselineTool.__name__ == "TranscriptOrientBaselineTool"
 
@@ -19,3 +19,4 @@ def test_tooling_transcript_orient_lazy_reexport() -> None:
     m = import_module("agent_kernel.tooling_transcript_orient")
     Cls = m.TranscriptOrientBaselineTool
     assert Cls.__name__ == "TranscriptOrientBaselineTool"
+

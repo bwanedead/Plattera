@@ -12,8 +12,8 @@ from backend.agent_kernel.tooling import (
     TranscriptImageVerificationTool,
     TranscriptSpanOpenerTool,
 )
-from backend.agents.transcript_edit.orient_tool import TranscriptOrientBaselineTool
-from backend.transcript_edit.persistence import TranscriptionEditPersistenceService
+from backend.domains.mapping.transcript_edit.orient_tool import TranscriptOrientBaselineTool
+from backend.services.workflows.mapping.transcription_edit.persistence import TranscriptionEditPersistenceService
 
 
 def test_tx_open_transcript_spans_supports_offsets_and_anchors() -> None:
@@ -519,3 +519,6 @@ def test_tx_image_select_region_records_selector_type_for_normalized_pixel_and_g
         assert lineage_path.exists()
         lineage_payload = json.loads(lineage_path.read_text(encoding="utf-8"))
         assert str(lineage_payload.get("selector_type") or "") == "normalized_box"
+
+
+

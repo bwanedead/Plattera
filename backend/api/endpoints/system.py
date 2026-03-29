@@ -17,7 +17,7 @@ import time
 from utils.health_monitor import check_health as hm_check
 import os
 from services.agent_viewer.event_bus import event_bus as viewer_event_bus
-from transcript_edit.run_registry import TranscriptionEditRunRegistry
+from services.workflows.mapping.transcription_edit.run_registry import TranscriptionEditRunRegistry
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
@@ -180,8 +180,6 @@ async def runtime_identity() -> Dict[str, Any]:
     Runtime identity probe for proving UI and CLI are using the same backend code.
     """
     try:
-        from api.endpoints import agent_loop as agent_loop_endpoint
-        from agents.controller import controller as controller_module
         from agent_kernel import tooling as tooling_module
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"runtime_identity_import_failed:{type(exc).__name__}:{exc}")
@@ -189,8 +187,6 @@ async def runtime_identity() -> Dict[str, Any]:
     root = Path(__file__).resolve().parents[2]
     files = {
         "system_endpoint": Path(__file__),
-        "agent_loop_endpoint": Path(agent_loop_endpoint.__file__),
-        "controller_module": Path(controller_module.__file__),
         "tooling_module": Path(tooling_module.__file__),
     }
 
@@ -401,3 +397,5 @@ async def get_processing_types():
             status_code=500,
             detail=f"Processing types check failed: {str(e)}"
         ) 
+
+

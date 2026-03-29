@@ -9,7 +9,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from backend.services.run_inspection_service import RunInspectionMirror
-from backend.agents.transcript_edit.run_reporting import human_feedback_needed_payload
+from backend.services.workflows.mapping.transcription_edit.run_reporting import human_feedback_needed_payload
 
 
 def test_run_inspection_mirrors_image_artifacts_and_marks_reuse() -> None:
@@ -114,3 +114,5 @@ def test_run_inspection_reads_focused_refs_from_flattened_human_feedback_needed_
         assert any(str(r.get("source_artifact_path") or "") == str(region) for r in hitl_rows)
         assert any(str(r.get("selector_type") or "") == "normalized_box" for r in hitl_rows)
         assert any(str(r.get("source_image_path") or "") == "in-memory://source-image.jpg" for r in hitl_rows)
+
+

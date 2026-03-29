@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Dict
 
-from agents.common.contracts import CompileReport, CompileStatus
+from domains.common.contracts import CompileReport, CompileStatus
 
 
 @dataclass
@@ -20,6 +20,7 @@ class SchemaMappingValidator:
             status=CompileStatus.PARTIAL,
             diagnostics=[{"kind": "unimplemented", "message": "validator skeleton only"}],
         )
+
 
 
 

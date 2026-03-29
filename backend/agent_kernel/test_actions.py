@@ -26,7 +26,7 @@ from backend.agent_kernel.actions import (
     StatusSummarizer,
 )
 from backend.agent_kernel.harness_action_ids import ActionType
-from backend.agents.transcript_edit.execution_action_ids import (
+from backend.domains.mapping.transcript_edit.execution_action_ids import (
     TX_APPLY_EDIT_PLAN,
     TX_AUDIT_TRANSCRIPT,
     TX_OPEN_TRANSCRIPT_SPANS,
@@ -35,7 +35,7 @@ from backend.agents.transcript_edit.execution_action_ids import (
     TX_SAVE_TRANSCRIPT_SPAN_SEEDS,
     TX_VERIFY_TRANSCRIPT_WITH_IMAGE,
 )
-from backend.agents.transcript_edit.kernel_action_registration import (
+from backend.domains.mapping.transcript_edit.kernel_action_registration import (
     build_transcript_edit_provider_actions,
 )
 from backend.agent_kernel.run_artifact import ArtifactRef, ValidationInline
@@ -380,3 +380,4 @@ def test_new_actions_return_explicit_missing_interface_reason_codes() -> None:
     assert tx_apply.reason_codes == ["unsupported_action"]
     assert tx_span_seeds.reason_codes == ["unsupported_action"]
     assert tx_promote.reason_codes == ["unsupported_action"]
+

@@ -28,7 +28,7 @@ We send something structurally equivalent to:
 ```
 
 Code location in this repo:
-- `backend/agents/controller/openai_client.py` (controller step proposals)
+- legacy controller step-proposal surface (retired during domain-pack convergence)
 
 ## Hard requirements (treat as invariants)
 These are the rules that routinely trigger OpenAI `400 invalid_request_error` when violated.
@@ -108,7 +108,7 @@ This makes schema breakage a **local test failure** rather than a runtime paid A
 
 ## Implementation notes for this repo
 Current controller proposal schema generator:
-- `backend/agents/controller/contracts.py` (`next_step_json_schema()`)
+- legacy controller proposal schema helpers (retired during domain-pack convergence)
 
 If you hit a 400 schema error:
 - capture the `openai_next_step_error {...}` log line (it includes the exact OpenAI message and request id)

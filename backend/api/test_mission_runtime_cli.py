@@ -4,6 +4,8 @@ import json
 from pathlib import Path
 import sys
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from api import mission_runtime_cli
@@ -16,87 +18,12 @@ from harness.mission_runtime.contracts import (
     ModeCycleContext,
     ModeInterpretation,
     ModeRecommendation,
-    ModeTransitionRecommendation,
     TerminalRecommendation,
 )
 from harness.mission_runtime.registry import MissionModeAdapterRegistry
 
 
-class _DeedTerminalAdapter(MissionModeAdapter):
-    mode_name = "deed_to_ir"
-
-    def build_context(self, *, request: MissionRuntimeRequest, ledger: MissionLedgerView) -> ModeCycleContext:
-        del request, ledger
-        return ModeCycleContext(payload={})
-
-    def build_run_envelope(
-        self,
-        *,
-        request: MissionRuntimeRequest,
-        ledger: MissionLedgerView,
-        context: ModeCycleContext,
-    ) -> MissionModeRunEnvelope:
-        del request, ledger, context
-        return MissionModeRunEnvelope(
-            summary="deed_done",
-            family_coordination=MappingFamilyCoordination(
-                current_mode="deed_to_ir",
-                posture="no_handoff",
-                coordination_state="no_handoff",
-                summary="mapping family sees deed_to_ir posture no_handoff; no transition recommended",
-            ),
-        )
-
-    def interpret(
-        self,
-        *,
-        request: MissionRuntimeRequest,
-        ledger: MissionLedgerView,
-        context: ModeCycleContext,
-    ) -> ModeInterpretation:
-        del request, ledger, context
-        return ModeInterpretation(summary="deed_done")
-
-    def recommend(
-        self,
-        *,
-        request: MissionRuntimeRequest,
-        ledger: MissionLedgerView,
-        context: ModeCycleContext,
-        interpretation: ModeInterpretation,
-    ) -> ModeRecommendation:
-        del request, ledger, context, interpretation
-        return ModeRecommendation(
-            terminal=TerminalRecommendation(terminal=True, terminal_class="completed", reason_code="ok"),
-        )
-
-
-class _DeedTransitionAdapter(_DeedTerminalAdapter):
-    def recommend(
-        self,
-        *,
-        request: MissionRuntimeRequest,
-        ledger: MissionLedgerView,
-        context: ModeCycleContext,
-        interpretation: ModeInterpretation,
-    ) -> ModeRecommendation:
-        del request, context, interpretation
-        if ledger.cycle_index == 0:
-            return ModeRecommendation(
-                transition=ModeTransitionRecommendation(
-                    next_mode="transcript_edit",
-                    reason="handoff_to_transcript",
-                    handed_forward_artifact_refs=["artifact://handoff/deed"],
-                    resume_note_for_prior_mode="resume deed after transcript checks",
-                ),
-                terminal=TerminalRecommendation(terminal=True, terminal_class="completed", reason_code="deed_ready"),
-            )
-        return ModeRecommendation(
-            terminal=TerminalRecommendation(terminal=True, terminal_class="completed", reason_code="deed_done"),
-        )
-
-
-class _TranscriptTransitionAdapter(MissionModeAdapter):
+class _TranscriptTerminalAdapter(MissionModeAdapter):
     mode_name = "transcript_edit"
 
     def build_context(self, *, request: MissionRuntimeRequest, ledger: MissionLedgerView) -> ModeCycleContext:
@@ -115,11 +42,9 @@ class _TranscriptTransitionAdapter(MissionModeAdapter):
             summary="transcript_done",
             family_coordination=MappingFamilyCoordination(
                 current_mode="transcript_edit",
-                posture="ready_for_downstream_domain",
-                target_domain_id="deed_to_ir",
-                target_family_id="mapping",
-                coordination_state="transition_recommended",
-                summary="mapping family recommends transition from transcript_edit to deed_to_ir for ready_for_downstream_domain posture",
+                posture="no_handoff",
+                coordination_state="no_handoff",
+                summary="mapping family sees transcript_edit posture no_handoff; no transition recommended",
             ),
         )
 
@@ -143,13 +68,7 @@ class _TranscriptTransitionAdapter(MissionModeAdapter):
     ) -> ModeRecommendation:
         del request, ledger, context, interpretation
         return ModeRecommendation(
-            transition=ModeTransitionRecommendation(
-                next_mode="deed_to_ir",
-                reason="handoff_back_to_deed",
-                handed_forward_artifact_refs=["artifact://handoff/transcript"],
-                resume_note_for_prior_mode="return only if blockers reopen",
-            ),
-            terminal=TerminalRecommendation(terminal=True, terminal_class="completed", reason_code="tx_ready"),
+            terminal=TerminalRecommendation(terminal=True, terminal_class="completed", reason_code="ok"),
         )
 
 
@@ -157,16 +76,16 @@ def test_mission_runtime_cli_emits_canonical_payload(monkeypatch, capsys) -> Non
     monkeypatch.setattr(
         mission_runtime_cli,
         "_build_adapter_registry",
-        lambda args, mission_request: MissionModeAdapterRegistry([_DeedTerminalAdapter()]),
+        lambda args, mission_request: MissionModeAdapterRegistry([_TranscriptTerminalAdapter()]),
     )
     code = mission_runtime_cli.run_cli(
         [
             "--objective",
             "cli smoke test",
             "--initial-mode",
-            "deed_to_ir",
-            "--deed-text",
-            "Example deed body",
+            "transcript_edit",
+            "--tx-text",
+            "Example transcript body",
             "--json-only",
         ]
     )
@@ -176,41 +95,22 @@ def test_mission_runtime_cli_emits_canonical_payload(monkeypatch, capsys) -> Non
     assert payload["canonical_surface"] is True
     assert set(payload.keys()) == {"cli_surface", "canonical_surface", "mission_runtime"}
     mission_runtime = payload["mission_runtime"]
-    assert mission_runtime["active_mode"] == "deed_to_ir"
-    assert mission_runtime["mode_history"] == ["deed_to_ir"]
+    assert mission_runtime["active_mode"] == "transcript_edit"
+    assert mission_runtime["mode_history"] == ["transcript_edit"]
     assert mission_runtime["family_coordination"]["family_id"] == "mapping"
-    assert mission_runtime["family_coordination"]["current_mode"] == "deed_to_ir"
+    assert mission_runtime["family_coordination"]["current_mode"] == "transcript_edit"
 
 
-def test_mission_runtime_cli_supports_linear_roundtrip_shape(monkeypatch, capsys) -> None:
-    monkeypatch.setattr(
-        mission_runtime_cli,
-        "_build_adapter_registry",
-        lambda args, mission_request: MissionModeAdapterRegistry([_DeedTransitionAdapter(), _TranscriptTransitionAdapter()]),
-    )
-    code = mission_runtime_cli.run_cli(
-        [
-            "--objective",
-            "roundtrip test",
-            "--initial-mode",
-            "deed_to_ir",
-            "--deed-text",
-            "Example deed body",
-            "--enable-roundtrip",
-            "--max-cycles",
-            "3",
-            "--json-only",
-        ]
-    )
-    assert code == 0
-    payload = json.loads(capsys.readouterr().out)
-    mission_runtime = payload["mission_runtime"]
-    assert mission_runtime["mode_history"] == ["deed_to_ir", "transcript_edit", "deed_to_ir"]
-    assert len(mission_runtime["transition_history"]) == 2
-    assert mission_runtime["family_coordination"]["family_id"] == "mapping"
-    assert mission_runtime["family_coordination"]["current_mode"] == "deed_to_ir"
-    assert mission_runtime["family_coordination"]["posture"] == "no_handoff"
-    assert mission_runtime["cycles"][0]["executed_mode"] == "deed_to_ir"
-    assert mission_runtime["cycles"][0]["resulting_active_mode"] == "transcript_edit"
-    assert mission_runtime["cycles"][1]["executed_mode"] == "transcript_edit"
-    assert mission_runtime["cycles"][1]["resulting_active_mode"] == "deed_to_ir"
+def test_mission_runtime_cli_rejects_retired_deed_mode_choice() -> None:
+    with pytest.raises(SystemExit):
+        mission_runtime_cli.run_cli(
+            [
+                "--objective",
+                "retired deed mode test",
+                "--initial-mode",
+                "deed_to_ir",
+                "--tx-text",
+                "Example transcript body",
+                "--json-only",
+            ]
+        )

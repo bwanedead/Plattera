@@ -8,13 +8,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 from backend.pipelines.image_to_text.pipeline import ImageToTextPipeline
-from backend.agents.transcript_edit.contracts import TranscriptEditAgentRunResult
+from backend.domains.mapping.transcript_edit.contracts import TranscriptEditAgentRunResult
 from backend.prompts.image_to_text import get_available_extraction_modes, get_image_to_text_prompt
 
 
 def _pipeline_stub() -> ImageToTextPipeline:
     pipeline = ImageToTextPipeline.__new__(ImageToTextPipeline)
-    pipeline.transcription_edit_run_service = None
     pipeline.transcription_edit_persistence = None
     pipeline.transcription_edit_run_registry = None
     pipeline._maybe_trigger_transcript_edit_agent_background = lambda **kwargs: None  # type: ignore[method-assign]
@@ -274,3 +273,4 @@ def test_resolve_post_t0_source_transcript_ref_prefers_best_versioned_draft(tmp_
         best_result_index=1,
     )
     assert ref == str(versioned)
+

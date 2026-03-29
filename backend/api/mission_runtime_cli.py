@@ -1,9 +1,7 @@
 """Canonical CLI for unified mission-runtime dev/testing flows.
 
 This CLI is the preferred entry surface for exercising mission-runtime modes:
-- deed_to_ir
 - transcript_edit
-- linear cross-mode transitions (when enabled)
 """
 
 from __future__ import annotations
@@ -16,12 +14,10 @@ from time import time
 from typing import Any, Sequence, TextIO
 from uuid import uuid4
 
-from api.mission_runtime_cli_support import (
-    DEED_TO_IR_MODE_NAME,
-    TRANSCRIPT_EDIT_MODE_NAME,
-    DeedModeCliInputs,
+from domains.mapping.transcript_edit.mission_mode_adapter import TRANSCRIPT_EDIT_MODE_NAME
+from services.workflows.mapping.transcription_edit.mission_runtime_cli_bridge import (
     TranscriptModeCliInputs,
-    build_policy_list_for_cli,
+    build_transcript_mode_adapter_from_cli_inputs,
     resolve_tx_scenario,
 )
 from harness.mission_runtime.contracts import MissionRuntimeRequest
@@ -31,6 +27,7 @@ from harness.mission_runtime.cli_support import (
 )
 from harness.mission_runtime.registry import MissionModeAdapterRegistry
 from harness.mission_runtime.runtime import MissionRuntime
+from harness.mission_runtime.contracts import MissionModeAdapter
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -38,14 +35,14 @@ def _build_parser() -> argparse.ArgumentParser:
         prog="mission-runtime-cli",
         description=(
             "Canonical unified mission-runtime CLI for development/testing. "
-            "Legacy family CLIs remain available as compatibility/debug surfaces."
+            "Transcript-edit mode is the active supported runtime surface in this convergence phase."
         ),
     )
     parser.add_argument("--objective", required=True, help="Mission objective text.")
     parser.add_argument(
         "--initial-mode",
-        default=DEED_TO_IR_MODE_NAME,
-        choices=[DEED_TO_IR_MODE_NAME, TRANSCRIPT_EDIT_MODE_NAME],
+        default=TRANSCRIPT_EDIT_MODE_NAME,
+        choices=[TRANSCRIPT_EDIT_MODE_NAME],
         help="Initial mission mode.",
     )
     parser.add_argument("--mission-id", dest="mission_id", help="Optional mission id; auto-generated when omitted.")
@@ -61,44 +58,6 @@ def _build_parser() -> argparse.ArgumentParser:
             "Used by hitl_watch for agent-mode testing so it knows when the loop finishes."
         ),
     )
-    parser.add_argument(
-        "--enable-roundtrip",
-        action="store_true",
-        help="Enable linear transitions: deed_to_ir -> transcript_edit -> deed_to_ir.",
-    )
-    parser.add_argument(
-        "--enable-deed-to-transcript",
-        action="store_true",
-        help="Enable deed_to_ir transition recommendation path.",
-    )
-    parser.add_argument(
-        "--enable-transcript-to-deed",
-        action="store_true",
-        help="Enable transcript_edit transition recommendation path.",
-    )
-
-    deed_source = parser.add_mutually_exclusive_group(required=False)
-    deed_source.add_argument("--deed-dossier-id", dest="deed_dossier_id", help="Existing dossier id for deed_to_ir.")
-    deed_source.add_argument("--deed-text-file", dest="deed_text_file", help="Path to deed text file.")
-    deed_source.add_argument("--deed-text", dest="deed_text", help="Inline deed text.")
-    parser.add_argument("--deed-initial-ir-ref", dest="deed_initial_ir_ref", help="Existing IR artifact ref.")
-    parser.add_argument("--deed-model", default="gpt-5.2")
-    parser.add_argument("--deed-max-iterations", type=int, default=20)
-    deed_gp = parser.add_mutually_exclusive_group(required=False)
-    deed_gp.add_argument("--deed-global-placement", action="store_true", dest="deed_requires_global_placement")
-    deed_gp.add_argument(
-        "--deed-no-global-placement",
-        action="store_false",
-        dest="deed_requires_global_placement",
-    )
-    deed_rr = parser.add_mutually_exclusive_group(required=False)
-    deed_rr.add_argument("--deed-render-required", action="store_true", dest="deed_render_required")
-    deed_rr.add_argument("--deed-no-render-required", action="store_false", dest="deed_render_required")
-    parser.set_defaults(
-        deed_requires_global_placement=True,
-        deed_render_required=True,
-    )
-
     tx_source = parser.add_mutually_exclusive_group(required=False)
     tx_source.add_argument("--tx-source-transcript-ref", dest="tx_source_transcript_ref")
     tx_source.add_argument("--tx-text-file", dest="tx_text_file")
@@ -187,17 +146,10 @@ def run_cli(argv: Sequence[str] | None = None, stdout: TextIO | None = None, std
 
 
 def _validate_args(args: argparse.Namespace, *, parser: argparse.ArgumentParser) -> None:
-    deed_text = _resolve_text(args.deed_text, args.deed_text_file)
     tx_text = _resolve_text(args.tx_text, args.tx_text_file)
-    has_deed_source = bool(args.deed_dossier_id or deed_text or args.deed_initial_ir_ref)
     has_tx_source = bool(args.tx_source_transcript_ref or tx_text)
 
-    if args.initial_mode == DEED_TO_IR_MODE_NAME and not has_deed_source:
-        parser.error(
-            "deed_to_ir requires one of --deed-dossier-id, --deed-text-file, --deed-text, or --deed-initial-ir-ref."
-        )
-    # --tx-scenario satisfies the transcript source requirement (it resolves the ref internally).
-    if args.initial_mode == TRANSCRIPT_EDIT_MODE_NAME and not has_tx_source and not args.tx_scenario:
+    if not has_tx_source and not args.tx_scenario:
         parser.error(
             "transcript_edit requires one of --tx-source-transcript-ref, --tx-text-file, --tx-text, "
             "or --tx-scenario <name>."
@@ -206,31 +158,15 @@ def _validate_args(args: argparse.Namespace, *, parser: argparse.ArgumentParser)
     if int(args.max_cycles) < 1:
         parser.error("--max-cycles must be >= 1")
 
-    if bool(getattr(args, "enable_roundtrip", False)) and int(args.max_cycles) < 3:
-        import sys as _sys
-        _sys.stderr.write(
-            "Warning: --enable-roundtrip typically requires --max-cycles >= 3 "
-            f"(deed→transcript→deed); got {args.max_cycles}.\n"
-        )
-
 
 def _build_mission_runtime_request(args: argparse.Namespace) -> MissionRuntimeRequest:
     mission_id = str(args.mission_id or f"mission_{int(time())}_{uuid4().hex[:8]}")
-    metadata: dict[str, Any] = {}
-    deed_to_tx = bool(args.enable_roundtrip or args.enable_deed_to_transcript)
-    tx_to_deed = bool(args.enable_roundtrip or args.enable_transcript_to_deed)
-    if deed_to_tx or tx_to_deed:
-        metadata["phase_e_enable_linear_transitions"] = True
-    if deed_to_tx:
-        metadata["deed_to_ir_transition_to_transcript_edit"] = True
-    if tx_to_deed:
-        metadata["transcript_edit_transition_to_deed_to_ir"] = True
     return MissionRuntimeRequest(
         mission_id=mission_id,
         objective=str(args.objective),
         initial_mode=str(args.initial_mode),
         request_id=(str(args.request_id).strip() if isinstance(args.request_id, str) and args.request_id.strip() else None),
-        metadata=metadata,
+        metadata={},
     )
 
 
@@ -239,16 +175,6 @@ def _build_adapter_registry(
     args: argparse.Namespace,
     mission_request: MissionRuntimeRequest,
 ) -> MissionModeAdapterRegistry:
-    deed_inputs = DeedModeCliInputs(
-        dossier_id=args.deed_dossier_id,
-        deed_text=_resolve_text(args.deed_text, args.deed_text_file),
-        initial_ir_ref=args.deed_initial_ir_ref,
-        model=str(args.deed_model),
-        max_iterations=max(1, int(args.deed_max_iterations)),
-        requires_global_placement=bool(args.deed_requires_global_placement),
-        render_required=bool(args.deed_render_required),
-    )
-
     # Resolve named scenario first — it may supply dossier_id and transcript_ref.
     tx_dossier_id = args.tx_dossier_id
     tx_source_ref = args.tx_source_transcript_ref
@@ -277,10 +203,28 @@ def _build_adapter_registry(
     )
     policies = build_policy_list_for_cli(
         mission_request=mission_request,
-        deed_inputs=deed_inputs,
         transcript_inputs=transcript_inputs,
     )
     return MissionModeAdapterRegistry(policies)
+
+
+def build_policy_list_for_cli(
+    *,
+    mission_request: MissionRuntimeRequest,
+    transcript_inputs: TranscriptModeCliInputs | None,
+) -> list[MissionModeAdapter]:
+    policies: list[MissionModeAdapter] = []
+    if mission_request.initial_mode != TRANSCRIPT_EDIT_MODE_NAME:
+        raise ValueError("transcript_edit_mode_required")
+    if transcript_inputs is None:
+        raise ValueError("transcript_mode_inputs_required")
+    policies.append(
+        build_transcript_mode_adapter_from_cli_inputs(
+            inputs=transcript_inputs,
+            mission_request=mission_request,
+        )
+    )
+    return policies
 
 
 def _resolve_text(inline_text: str | None, text_file: str | None) -> str | None:
@@ -314,3 +258,5 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+

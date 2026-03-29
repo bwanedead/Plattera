@@ -39,13 +39,13 @@ from .kernel_terminal_hooks import mark_final_feature_graph_pointers
 
 
 def _default_transcript_orient_baseliner() -> Any:
-    from agents.transcript_edit.orient_tool import TranscriptOrientBaselineTool
+    from domains.mapping.transcript_edit.orient_tool import TranscriptOrientBaselineTool
 
     return TranscriptOrientBaselineTool()
 
 
 def _default_transcript_edit_provider_actions() -> dict[str, Any]:
-    from agents.transcript_edit.kernel_action_registration import build_transcript_edit_provider_actions
+    from domains.mapping.transcript_edit.kernel_action_registration import build_transcript_edit_provider_actions
 
     return build_transcript_edit_provider_actions(
         transcript_auditor=TranscriptAuditTool(),
@@ -59,7 +59,7 @@ def _default_transcript_edit_provider_actions() -> dict[str, Any]:
 
 
 def _default_combined_step_projectors() -> dict[str, Any]:
-    from agents.transcript_edit.provider_step_projections import build_transcript_edit_provider_step_projectors
+    from domains.mapping.transcript_edit.provider_step_projections import build_transcript_edit_provider_step_projectors
 
     fg = build_feature_graph_provider_step_projectors()
     tx = build_transcript_edit_provider_step_projectors()
@@ -99,3 +99,4 @@ def build_plattera_default_kernel_session_manager(
         claimability_policy=FeatureGraphClaimabilityPolicy(),
         persistence_service=persistence_service,
     )
+

@@ -9,7 +9,7 @@ that prevent full compilation.
 Design principles:
 - Gaps are deterministic and carry citations
 - No silent failure: every compilation issue produces a typed gap
-- Gaps can be serialized into backend/agents/common/contracts.py Gap/CompileReport shape
+- Gaps can be serialized into backend/domains/common/contracts.py Gap/CompileReport shape
 - Gap types cover all known failure modes: missing data, unsupported ops, precondition failures
 """
 
@@ -64,7 +64,7 @@ class FeatureGap(BaseModel):
 
     def to_contract_gap(self) -> Dict[str, Any]:
         """
-        Convert this FeatureGap to the shape expected by backend/agents/common/contracts.py Gap.
+        Convert this FeatureGap to the shape expected by backend/domains/common/contracts.py Gap.
 
         Returns a dict with keys: kind, message, severity, metadata
         This allows feature graph gaps to interoperate with existing agent contract types.
@@ -91,7 +91,7 @@ class JudgeReport(BaseModel):
     - artifacts: any partial compilation outputs (local geometry, etc)
     - metadata: compilation context (graph_id, timestamp, etc)
 
-    The report can be serialized into backend/agents/common/contracts.py CompileReport shape.
+    The report can be serialized into backend/domains/common/contracts.py CompileReport shape.
     """
     graph_id: str = Field(..., description="ID of feature graph that was judged")
     gaps: List[FeatureGap] = Field(default_factory=list, description="All typed gaps discovered")
@@ -104,7 +104,7 @@ class JudgeReport(BaseModel):
 
     def to_contract_report(self) -> Dict[str, Any]:
         """
-        Convert this JudgeReport to the shape expected by backend/agents/common/contracts.py CompileReport.
+        Convert this JudgeReport to the shape expected by backend/domains/common/contracts.py CompileReport.
 
         Returns a dict with keys: status, diagnostics, warnings, errors, artifacts
         Status determination:
@@ -274,3 +274,4 @@ def precondition_failed_gap(
         citations=citations or [],
         metadata=meta
     )
+

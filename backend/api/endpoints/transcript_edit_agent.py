@@ -16,22 +16,22 @@ from uuid import uuid4
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
-from agents.transcript_edit.contracts import TranscriptEditAgentRunRequest, TranscriptEditAgentRunResult
-from agents.transcript_edit.handoff_packet import build_handoff_packet, persist_handoff_packet
-from agents.transcript_edit.run_feed_persistence import (
+from domains.mapping.transcript_edit.contracts import TranscriptEditAgentRunRequest, TranscriptEditAgentRunResult
+from services.workflows.mapping.transcription_edit.handoff_packet import build_handoff_packet, persist_handoff_packet
+from services.workflows.mapping.transcription_edit.run_feed_persistence import (
     TranscriptEditRunFeedPersistenceService,
     write_transcript_edit_run_snapshot,
 )
-from agents.transcript_edit.state_projection import derive_waiting_feedback_projection
-from agents.transcript_edit.terminalization import terminal_message, terminal_summary
-from agents.transcript_edit.mission_runtime_bridge import run_orchestration_kernel_transcript_loop
+from domains.mapping.transcript_edit.state_projection import derive_waiting_feedback_projection
+from domains.mapping.transcript_edit.terminalization import terminal_message, terminal_summary
+from services.workflows.mapping.transcription_edit.mission_runtime_bridge import run_orchestration_kernel_transcript_loop
 from agent_kernel.ref_coercion import flatten_latest_refs_payload, latest_ref_artifact_path
 from agent_kernel.session import build_kernel_session_manager
 from feature_graph.kernel_executor_composition import build_plattera_default_action_executor
 from services.agent_kernel.run_artifact_persistence_service import RunArtifactPersistenceService
 from services.agent_viewer.event_bus import event_bus as viewer_event_bus
 from services.run_inspection_service import RunInspectionMirror
-from transcript_edit.run_registry import TranscriptionEditRunRegistry
+from services.workflows.mapping.transcription_edit.run_registry import TranscriptionEditRunRegistry
 
 router = APIRouter()
 
@@ -635,3 +635,7 @@ async def resume_run(run_id: str, request: TranscriptEditAgentResumeRequest) -> 
             raise HTTPException(status_code=409, detail=reason)
         raise HTTPException(status_code=409, detail=reason)
     return result
+
+
+
+

@@ -312,6 +312,15 @@ Requirements:
 - thin
 - mostly assembly, not authorship
 
+Ownership rule:
+
+- the harness owns the final cross-layer assembly
+- the domain owns its branch blocks and any thin domain-local prompt shaping
+- surface code owns immediate task framing
+
+There should be one final stitch owner.
+That owner should be the harness-side composer, not the domain pack.
+
 Default composition order:
 
 1. harness trunk
@@ -339,7 +348,7 @@ Every major prompt layer should have a canonical human-readable source surface.
 That means the repo should converge toward:
 
 - one obvious place for shared harness prompt text
-- one obvious place per domain for domain doctrine text
+- one obvious `prompting/` folder per domain for domain doctrine text
 - one obvious place per surface for local task/schema text
 
 Runtime composition may quilt these together, but the authored words themselves should remain easy to inspect.
@@ -360,7 +369,12 @@ One canonical module/file containing:
 
 ### Domain prompt source
 
-One canonical module/file per domain containing:
+One canonical `prompting/` folder per domain containing:
+
+- `branch.py` as the default initial source surface
+- optional extra files only when the prompt surface actually grows enough to justify them
+
+Containing:
 
 - domain doctrine block
 - domain manifestation-of-choreography block
@@ -376,11 +390,12 @@ Surface-local modules containing:
 
 ### Composer
 
-A thinner assembly layer that:
+A thinner harness-owned assembly layer that:
 
 - chooses blocks
 - assembles them in order
 - attaches run context and structured state
+- performs the final cross-layer stitch
 
 ---
 
@@ -390,22 +405,22 @@ Current repo state already contains partial pieces of this design:
 
 ### Existing shared prompt source concept
 
-- [backend/agents/common/prompt_sources.py](/C:/projects/Plattera/backend/agents/common/prompt_sources.py)
 - [backend/agents/common/identity_composer.py](/C:/projects/Plattera/backend/agents/common/identity_composer.py)
 
-The canonical shared trunk source now lives in `prompt_sources.py`. `identity_composer.py`
-handles assembly, identity headers, and source-block provenance.
+The repo still has transitional shared prompt-source surfaces under `backend/agents/common/`.
+The architectural target is:
 
-`identity_composer.py` still carries the deed-to-IR compatibility branch overlay until that
-domain is split into its own source module.
+- explicit shared harness trunk source modules
+- a harness-owned final composer
+- no reliance on `prompt_sources.py` as a naming standard
 
 ### Existing domain/surface prompt source
 
-- [backend/agents/transcript_edit/prompt_sources.py](/C:/projects/Plattera/backend/agents/transcript_edit/prompt_sources.py)
-- [backend/agents/transcript_edit/prompting.py](/C:/projects/Plattera/backend/agents/transcript_edit/prompting.py)
+- transcript-edit domain prompt surfaces are in transition and should converge toward:
+  - `backend/domains/<family>/<domain>/prompting/branch.py`
+  - optional additional files under that `prompting/` folder only when earned
 
-`prompt_sources.py` now owns transcript-edit doctrine text. `prompting.py` is the
-assembly surface for planner/resolver packets and structured state payloads.
+The naming target is `prompting/`, not `prompt_sources.py`.
 
 ### Existing structured state payloads
 
@@ -495,16 +510,13 @@ Current implementation surfaces should be read as:
 
 | Layer | Current code surface |
 | --- | --- |
-| Shared harness prompt source | [backend/agents/common/prompt_sources.py](/C:/projects/Plattera/backend/agents/common/prompt_sources.py) |
-| Shared harness prompt assembly | [backend/agents/common/identity_composer.py](/C:/projects/Plattera/backend/agents/common/identity_composer.py) |
-| Transcript-edit domain branch source | [backend/agents/transcript_edit/prompt_sources.py](/C:/projects/Plattera/backend/agents/transcript_edit/prompt_sources.py) |
-| Transcript-edit prompt assembly | [backend/agents/transcript_edit/prompting.py](/C:/projects/Plattera/backend/agents/transcript_edit/prompting.py), [backend/agents/transcript_edit/orient_prompts.py](/C:/projects/Plattera/backend/agents/transcript_edit/orient_prompts.py) |
+| Shared harness prompt source | shared harness trunk source modules |
+| Shared harness prompt assembly | harness-owned composer surfaces |
+| Domain branch source | `backend/domains/<family>/<domain>/prompting/branch.py` |
+| Domain-local prompt helpers | additional files under `backend/domains/<family>/<domain>/prompting/` only when earned |
 | Prompt observability scaffold | [backend/agents/common/prompt_observability.py](/C:/projects/Plattera/backend/agents/common/prompt_observability.py) |
 | Run context / structured state | [backend/harness/orchestration_kernel/run_progress_frame.py](/C:/projects/Plattera/backend/harness/orchestration_kernel/run_progress_frame.py), [backend/harness/tracing/rationale_continuity_strip.py](/C:/projects/Plattera/backend/harness/tracing/rationale_continuity_strip.py) |
 
 The shared trunk source is intentionally canonical. Domain doctrine should live
-in domain-owned source modules. Prompt assembly should stay thinner than source
-ownership.
-
-`orient_prompts.py` and the controller/deed leaf builders are surface-local
-assembly surfaces. They are not prompt source-of-truth modules.
+in domain-owned `prompting/` folders. Prompt assembly should stay thinner than source
+ownership, and the final cross-layer stitch should stay harness-owned.

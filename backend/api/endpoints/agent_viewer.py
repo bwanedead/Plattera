@@ -19,7 +19,6 @@ from pydantic import BaseModel, Field
 from api.logs import get_frontend_logs_snapshot
 from config.paths import dossiers_artifacts_root, dossiers_root, dossiers_views_root
 from services.agent_viewer import feedback_store
-from services.agent_loop.event_bus import event_bus as agent_loop_event_bus
 from services.agent_viewer.event_bus import event_bus as viewer_event_bus
 from services.logging_service import get_active_log_file
 
@@ -27,7 +26,7 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 _MAX_ARTIFACT_JSON_BYTES = 262144
-_VALID_LOOP_KINDS = {"agent_loop", "transcript_edit"}
+_VALID_LOOP_KINDS = {"transcript_edit"}
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
 _TS_RE = re.compile(r"^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3})")
 _MARKER_RE = re.compile(r"AGENT_VIEWER_TIMING\s+►\s+([a-zA-Z0-9_]+)")
@@ -42,18 +41,11 @@ class AgentViewerFeedbackRequest(BaseModel):
 
 @router.get("/events/{loop_kind}/{run_id}", include_in_schema=False)
 async def stream_agent_viewer_events(
-    loop_kind: Literal["agent_loop", "transcript_edit"],
+    loop_kind: Literal["transcript_edit"],
     run_id: str,
 ):
     if loop_kind not in _VALID_LOOP_KINDS:
         raise HTTPException(status_code=400, detail="invalid_loop_kind")
-    if loop_kind == "agent_loop":
-        logger.info("AGENT_VIEWER_TIMING ► sse_subscribe_start loop_kind=%s run_id=%s", loop_kind, run_id)
-        q = await agent_loop_event_bus.subscribe(run_id)
-        return StreamingResponse(
-            _agent_loop_sse_stream(run_id=run_id, q=q),
-            media_type="text/event-stream",
-        )
     stream_key = _stream_key(loop_kind, run_id)
     logger.info(
         "AGENT_VIEWER_TIMING ► sse_subscribe_start loop_kind=%s run_id=%s stream_key=%s",
@@ -113,7 +105,7 @@ async def agent_viewer_artifact_image(artifact_ref: str = Query(..., min_length=
 
 @router.get("/feedback/{loop_kind}/{run_id}")
 async def get_agent_viewer_feedback(
-    loop_kind: Literal["agent_loop", "transcript_edit"],
+    loop_kind: Literal["transcript_edit"],
     run_id: str,
 ) -> dict[str, Any]:
     entries = feedback_store.list_entries(loop_kind=loop_kind, run_id=run_id)
@@ -122,7 +114,7 @@ async def get_agent_viewer_feedback(
 
 @router.post("/feedback/{loop_kind}/{run_id}")
 async def post_agent_viewer_feedback(
-    loop_kind: Literal["agent_loop", "transcript_edit"],
+    loop_kind: Literal["transcript_edit"],
     run_id: str,
     request: AgentViewerFeedbackRequest,
 ) -> dict[str, Any]:
@@ -169,11 +161,6 @@ async def post_agent_viewer_feedback(
             "payload": entry,
         },
     )
-    if loop_kind == "agent_loop":
-        agent_loop_event_bus.publish_sync(
-            run_id,
-            {"event_type": "agent_viewer_feedback", "run_id": run_id, "entry": entry},
-        )
     auto_resume: dict[str, Any] | None = None
     if loop_kind == "transcript_edit":
         try:
@@ -364,128 +351,6 @@ def _to_artifact_ref_map(obj: Any) -> dict[str, dict[str, str]]:
             if isinstance(path, str) and path.strip():
                 refs[str(key)] = {"artifact_path": path}
     return refs
-
-
-def _normalize_agent_loop_event(run_id: str, payload: dict[str, Any]) -> dict[str, Any] | None:
-    event_type = str(payload.get("event_type") or "")
-    if event_type == "agent_tape_update":
-        status = payload.get("status") if isinstance(payload.get("status"), dict) else {}
-        return {
-            "protocol": "agent_viewer_event_v1",
-            "run_id": run_id,
-            "loop_kind": "agent_loop",
-            "seq": payload.get("seq"),
-            "iteration": status.get("iteration"),
-            "timestamp_epoch_seconds": payload.get("timestamp_epoch_seconds"),
-            "event_type": "status",
-            "status": {
-                "stage": status.get("stage"),
-                "line1": status.get("line1") or status.get("status_chip") or "Agent update",
-                "line2": status.get("line2") or status.get("display_delta"),
-            },
-            "artifact_refs": _to_artifact_ref_map(status.get("artifact_refs")),
-            "payload": {
-                "source_event_type": payload.get("source_event_type"),
-                "action_type": status.get("action_type"),
-                "outcome": status.get("outcome"),
-                "reason_code": status.get("reason_code"),
-                "phase": status.get("phase"),
-            },
-        }
-    if event_type == "upstream_correction_request":
-        request = payload.get("request") if isinstance(payload.get("request"), dict) else {}
-        line1 = str(request.get("message") or "Upstream correction request")
-        line2 = str(request.get("reason_code") or "")
-        return {
-            "protocol": "agent_viewer_event_v1",
-            "run_id": run_id,
-            "loop_kind": "agent_loop",
-            "seq": None,
-            "iteration": None,
-            "timestamp_epoch_seconds": int(time()),
-            "event_type": "upstream_correction_request",
-            "status": {
-                "stage": "upstream_correction_request",
-                "line1": line1[:200],
-                "line2": line2[:240] or None,
-            },
-            "artifact_refs": _to_artifact_ref_map({"request_ref": payload.get("request_ref")}),
-            "payload": {"request": request, "source_event_type": event_type},
-        }
-    if event_type in {"run_started", "run_completed", "run_failed"}:
-        run = payload.get("run") if isinstance(payload.get("run"), dict) else {}
-        return {
-            "protocol": "agent_viewer_event_v1",
-            "run_id": run_id,
-            "loop_kind": "agent_loop",
-            "seq": None,
-            "iteration": None,
-            "timestamp_epoch_seconds": None,
-            "event_type": "done" if event_type == "run_completed" else "status",
-            "status": {
-                "stage": run.get("status") or event_type,
-                "line1": event_type.replace("_", " ").title(),
-                "line2": str(run.get("error") or "")[:240] or None,
-            },
-            "artifact_refs": _to_artifact_ref_map(run),
-            "payload": {"run": run, "source_event_type": event_type},
-        }
-    return None
-
-
-async def _agent_loop_sse_stream(run_id: str, q: asyncio.Queue) -> AsyncGenerator[str, None]:
-    stream_key = _stream_key("agent_loop", run_id)
-    viewer_q = await viewer_event_bus.subscribe(stream_key)
-    fallback_seq = 0
-    try:
-        while True:
-            try:
-                agent_task = asyncio.create_task(q.get())
-                viewer_task = asyncio.create_task(viewer_q.get())
-                done, pending = await asyncio.wait({agent_task, viewer_task}, timeout=10.0, return_when=asyncio.FIRST_COMPLETED)
-                if not done:
-                    for p in pending:
-                        p.cancel()
-                    yield "event: ping\ndata: {}\n\n"
-                    continue
-                for p in pending:
-                    p.cancel()
-                # Important: if both queues complete in the same tick, emit both events.
-                # Otherwise one event can be dropped under concurrent publish.
-                ordered_done = sorted(done, key=lambda t: 0 if t is agent_task else 1)
-                for completed in ordered_done:
-                    try:
-                        data = completed.result()
-                    except asyncio.CancelledError:
-                        continue
-                    except Exception:
-                        continue
-                    try:
-                        parsed = json.loads(data)
-                    except Exception:
-                        continue
-                    if not isinstance(parsed, dict):
-                        continue
-                    normalized = (
-                        parsed
-                        if parsed.get("protocol") == "agent_viewer_event_v1"
-                        else _normalize_agent_loop_event(run_id, parsed)
-                    )
-                    if normalized is None:
-                        continue
-                    if normalized.get("seq") is None:
-                        normalized["seq"] = fallback_seq
-                        fallback_seq += 1
-                    if normalized.get("timestamp_epoch_seconds") is None:
-                        normalized["timestamp_epoch_seconds"] = int(time())
-                    yield f"data: {json.dumps(normalized)}\n\n"
-            except Exception:
-                continue
-    except asyncio.CancelledError:
-        return
-    finally:
-        await agent_loop_event_bus.unsubscribe(run_id, q)
-        await viewer_event_bus.unsubscribe(stream_key, viewer_q)
 
 
 async def _viewer_sse_stream(stream_key: str, q: asyncio.Queue) -> AsyncGenerator[str, None]:
