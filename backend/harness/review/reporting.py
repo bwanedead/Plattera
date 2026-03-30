@@ -5,7 +5,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from ..run_state import SharedRunStateEnvelope
+from ..run_summary import SharedRunSummaryEnvelope
 from ..tracing.schema import CanonicalTraceRecord
 
 _MAX_TOP_ITEMS = 6
@@ -62,7 +62,7 @@ class ReviewAggregateSummary(BaseModel):
 def build_run_review_summary(
     *,
     trace: CanonicalTraceRecord,
-    run_state: SharedRunStateEnvelope | None = None,
+    run_summary: SharedRunSummaryEnvelope | None = None,
 ) -> RunReviewSummary:
     event_kinds = [event.event_kind for event in trace.events]
     phases = [event.phase for event in trace.events if event.phase]
@@ -70,8 +70,8 @@ def build_run_review_summary(
     iteration_count = _iteration_count(trace)
     verification_present = any(kind == "verification" for kind in event_kinds)
     blocker_transition_present = any(kind == "blocker_transition" for kind in event_kinds)
-    waiting_human_present = _waiting_human_present(trace=trace, run_state=run_state)
-    waiting_evidence_present = _waiting_evidence_present(trace=trace, run_state=run_state)
+    waiting_human_present = _waiting_human_present(trace=trace, run_summary=run_summary)
+    waiting_evidence_present = _waiting_evidence_present(trace=trace, run_summary=run_summary)
     synthesized_count = sum(
         1 for event in trace.events if isinstance(event.payload, dict) and bool(event.payload.get("synthesized"))
     )
@@ -79,7 +79,7 @@ def build_run_review_summary(
     recurring_kinds = _top_counter_items(Counter(event_kinds))
     recurring_phases = _top_counter_items(Counter(phases))
     recurring_action_shapes = _action_shape_patterns(trace)
-    mission_modes = _mission_mode_summary(trace=trace, run_state=run_state)
+    mission_modes = _mission_mode_summary(trace=trace, run_summary=run_summary)
     transition_reasons = _transition_reasons(trace=trace)
     mode_event_distribution = _mode_event_distribution(trace=trace)
     prompt_event_count, prompt_event_surfaces, prompt_event_outcomes = _prompt_event_summary(trace=trace)
@@ -99,8 +99,8 @@ def build_run_review_summary(
         synthesized_ratio=synthesized_ratio,
     )
 
-    terminal_class = run_state.terminal_summary.terminal_class if run_state else trace.terminal.terminal_class
-    reason_code = run_state.terminal_summary.reason_code if run_state else trace.terminal.terminal_reason_code
+    terminal_class = run_summary.terminal_summary.terminal_class if run_summary else trace.terminal.terminal_class
+    reason_code = run_summary.terminal_summary.reason_code if run_summary else trace.terminal.terminal_reason_code
     return RunReviewSummary(
         run_id=trace.run_id,
         loop_family=trace.loop_family,
@@ -189,17 +189,17 @@ def _iteration_count(trace: CanonicalTraceRecord) -> int:
     return max_idx + 1 if max_idx >= 0 else 0
 
 
-def _waiting_human_present(*, trace: CanonicalTraceRecord, run_state: SharedRunStateEnvelope | None) -> bool:
-    if run_state is not None:
-        return bool(run_state.waiting_summary.waiting and run_state.waiting_summary.waiting_kind == "human_feedback")
+def _waiting_human_present(*, trace: CanonicalTraceRecord, run_summary: SharedRunSummaryEnvelope | None) -> bool:
+    if run_summary is not None:
+        return bool(run_summary.waiting_summary.waiting and run_summary.waiting_summary.waiting_kind == "human_feedback")
     if trace.terminal.terminal_class == "waiting_human":
         return True
     return any(event.event_kind == "hitl_escalation" for event in trace.events)
 
 
-def _waiting_evidence_present(*, trace: CanonicalTraceRecord, run_state: SharedRunStateEnvelope | None) -> bool:
-    if run_state is not None:
-        return bool(run_state.waiting_summary.waiting and run_state.waiting_summary.waiting_kind == "evidence")
+def _waiting_evidence_present(*, trace: CanonicalTraceRecord, run_summary: SharedRunSummaryEnvelope | None) -> bool:
+    if run_summary is not None:
+        return bool(run_summary.waiting_summary.waiting and run_summary.waiting_summary.waiting_kind == "evidence")
     if trace.terminal.terminal_class == "waiting_evidence":
         return True
     return any(
@@ -289,11 +289,11 @@ def _safe_rate(numerator: int, denominator: int) -> float:
 def _mission_mode_summary(
     *,
     trace: CanonicalTraceRecord,
-    run_state: SharedRunStateEnvelope | None,
+    run_summary: SharedRunSummaryEnvelope | None,
 ) -> dict[str, Any]:
-    if run_state is not None:
-        mode_history = [mode for mode in run_state.mission_mode_summary.mode_history if mode]
-        active_mode = run_state.mission_mode_summary.active_mode
+    if run_summary is not None:
+        mode_history = [mode for mode in run_summary.mission_mode_summary.mode_history if mode]
+        active_mode = run_summary.mission_mode_summary.active_mode
     else:
         mode_history = [mode for mode in trace.mode_history if mode]
         active_mode = trace.active_mode

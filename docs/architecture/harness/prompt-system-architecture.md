@@ -292,6 +292,7 @@ Requirements:
 - human-readable
 - organized by ownership layer
 - easy to inspect directly
+- for domains, initially centered on `backend/domains/<family>/<domain>/prompting/branch.py`
 
 A developer should be able to answer:
 
@@ -397,98 +398,47 @@ A thinner harness-owned assembly layer that:
 - attaches run context and structured state
 - performs the final cross-layer stitch
 
----
+### Minimal domain shell target
 
-## 8. Repo Reality Today
+For a new domain, the initial target may stay intentionally bare bones:
 
-Current repo state already contains partial pieces of this design:
+- `manifest.py` for identity and declared capabilities
+- `domain_pack.py` as a thin host shell
+- `prompting/branch.py` for the domain doctrine surface
 
-### Existing shared prompt source concept
-
-- [backend/agents/common/identity_composer.py](/C:/projects/Plattera/backend/agents/common/identity_composer.py)
-
-The repo still has transitional shared prompt-source surfaces under `backend/agents/common/`.
-The architectural target is:
-
-- explicit shared harness trunk source modules
-- a harness-owned final composer
-- no reliance on `prompt_sources.py` as a naming standard
-
-### Existing domain/surface prompt source
-
-- transcript-edit domain prompt surfaces are in transition and should converge toward:
-  - `backend/domains/<family>/<domain>/prompting/branch.py`
-  - optional additional files under that `prompting/` folder only when earned
-
-The naming target is `prompting/`, not `prompt_sources.py`.
-
-### Existing structured state payloads
-
-- [backend/harness/orchestration_kernel/run_progress_frame.py](/C:/projects/Plattera/backend/harness/orchestration_kernel/run_progress_frame.py)
-- [backend/harness/tracing/rationale_continuity_strip.py](/C:/projects/Plattera/backend/harness/tracing/rationale_continuity_strip.py)
+That seed is enough to express the mission-facing prompt layer without reintroducing runtime machinery or planner/resolver surfaces.
 
 ---
 
-## 9. Current Impurities / Watchpoints
+## 8. Hard Rules
 
-### 9.1 Mixed ownership in shared common
-
-[backend/agents/common/identity_composer.py](/C:/projects/Plattera/backend/agents/common/identity_composer.py) currently mixes:
-
-- shared assembly
-- a deed-to-IR compatibility branch
-- shared surface taxonomy
-
-The shared trunk source and transcript-edit branch source have now moved into
-dedicated modules. The remaining deed branch is compatibility residue, not the
-clean end state.
-
-### 9.2 Surface doctrine sprawl
-
-Legacy surface-local doctrine files still carry some packet/task assembly.
-
-This is now more clearly assembly than source ownership, but some prompt text
-still lives here until later surface cleanup.
-
-### 9.3 Structured-state advisory drift
-
-[backend/harness/tracing/rationale_continuity_strip.py](/C:/projects/Plattera/backend/harness/tracing/rationale_continuity_strip.py) includes `carry_forward_hint`.
-
-That field is one of the clearest risk seams where continuity payload can drift into tactical authorship.
-
-This should be treated as a live watchpoint during implementation.
-
----
-
-## 10. Hard Rules
-
-### 10.1 One-layer-one-granularity
+### 8.1 One-layer-one-granularity
 
 Only one layer should speak at each level of abstraction.
 
-### 10.2 Lower layers may narrow, not rewrite
+### 8.2 Lower layers may narrow, not rewrite
 
 Lower layers may instantiate higher-layer law for their scope.
 They must not override it.
 
-### 10.3 Lower layers should not redundantly repeat higher-layer doctrine
+### 8.3 Lower layers should not redundantly repeat higher-layer doctrine
 
 Lower layers may localize higher-layer doctrine when needed.
 They should not restate it verbatim or near-verbatim without a real localizing purpose.
 
 This avoids prompt bloat and stacked steering even when no explicit contradiction exists.
 
-### 10.4 Structured state must remain descriptive
+### 8.4 Structured state must remain descriptive
 
 If a payload field starts to read like advice, tactic, or next-step logic, it should be scrutinized as possible semantic overreach.
 
-### 10.5 Source text must remain inspectable
+### 8.5 Source text must remain inspectable
 
 Every major prompt layer must have a canonical human-readable source surface.
 
 ---
 
-## 11. Target Outcome
+## 9. Target Outcome
 
 The prompt system should converge to:
 
@@ -499,12 +449,13 @@ The prompt system should converge to:
 - structured state that remains descriptive only
 - clear source-of-truth files for each ownership layer
 - thin prompt composition logic
+- a minimal initial domain shell of `manifest.py`, thin `domain_pack.py`, and `prompting/branch.py`
 
 That is the target architecture this repo should implement.
 
 ---
 
-## 12. Current Repo Mapping
+## 10. Current Repo Mapping
 
 Current implementation surfaces should be read as:
 
@@ -514,9 +465,9 @@ Current implementation surfaces should be read as:
 | Shared harness prompt assembly | harness-owned composer surfaces |
 | Domain branch source | `backend/domains/<family>/<domain>/prompting/branch.py` |
 | Domain-local prompt helpers | additional files under `backend/domains/<family>/<domain>/prompting/` only when earned |
-| Prompt observability scaffold | [backend/agents/common/prompt_observability.py](/C:/projects/Plattera/backend/agents/common/prompt_observability.py) |
-| Run context / structured state | [backend/harness/orchestration_kernel/run_progress_frame.py](/C:/projects/Plattera/backend/harness/orchestration_kernel/run_progress_frame.py), [backend/harness/tracing/rationale_continuity_strip.py](/C:/projects/Plattera/backend/harness/tracing/rationale_continuity_strip.py) |
+| Minimal domain shell | `backend/domains/<family>/<domain>/manifest.py`, `backend/domains/<family>/<domain>/domain_pack.py` |
+| Run context / structured state | harness-owned run-context and structured-state surfaces |
 
-The shared trunk source is intentionally canonical. Domain doctrine should live
-in domain-owned `prompting/` folders. Prompt assembly should stay thinner than source
+The shared trunk source is intentionally canonical. Domain doctrine should live in
+domain-owned `prompting/` folders. Prompt assembly should stay thinner than source
 ownership, and the final cross-layer stitch should stay harness-owned.

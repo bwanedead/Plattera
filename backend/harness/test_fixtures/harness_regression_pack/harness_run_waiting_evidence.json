@@ -1,0 +1,47 @@
+{
+  "kernel_trace": {
+    "events": [
+      {
+        "event_type": "run_header",
+        "detail": "kernel_run_started",
+        "timestamp_epoch_seconds": 200,
+        "payload": {
+          "request_id": "request-reg-ck-wait-evidence",
+          "session_id": "request-reg-ck-wait-evidence::run-reg-ck-wait-evidence",
+          "opaque_run_context": { "example_case_ref": "d-reg-2" }
+        }
+      },
+      {
+        "event_type": "kernel_step_result",
+        "detail": "executed",
+        "timestamp_epoch_seconds": 201,
+        "payload": {
+          "iteration": 1,
+          "action_type": "compile",
+          "latest_refs": {
+            "attempt_ref": "artifact://compile-reg-1"
+          },
+          "terminal": {
+            "terminal_outcome": "NEEDS_UPLOAD",
+            "stop_reason": "needs_upload",
+            "success": null,
+            "reason_code": "missing_uploaded_document"
+          }
+        }
+      }
+    ]
+  },
+  "run_artifact": {
+    "run_id": "run-reg-ck-wait-evidence",
+    "request_id": "request-reg-ck-wait-evidence",
+    "session_id": "request-reg-ck-wait-evidence::run-reg-ck-wait-evidence",
+    "created_at_epoch_seconds": 200,
+    "steps": [
+      {
+        "step_id": "step-reg-wait-evidence-1",
+        "action": "compile"
+      }
+    ],
+    "idempotency_ledger": {}
+  }
+}

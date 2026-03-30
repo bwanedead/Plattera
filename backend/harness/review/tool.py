@@ -1,6 +1,6 @@
 """Review-bundle inspection is the canonical human path for prompt events.
 
-The bundle keeps trace, run-state, review summary, and derived prompt-event
+The bundle keeps trace, derived run-summary envelope, review summary, and prompt-event
 snapshots together so prompt observability remains inspectable without adding a
 parallel reporting regime.
 """
@@ -12,10 +12,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from ..run_state import (
-    SharedRunStateEnvelope,
-    build_registered_run_state,
-    build_mission_runtime_run_state,
+from ..run_summary import (
+    SharedRunSummaryEnvelope,
+    build_mission_flow_run_summary,
+    build_registered_run_summary,
 )
 from ..tracing.schema import CanonicalTraceRecord
 from ..tracing.service import build_canonical_trace_from_payload
@@ -35,8 +35,8 @@ def build_single_run_review(
     payload: dict[str, Any],
     loop_family: str | None = None,
 ) -> dict[str, Any]:
-    trace, run_state, review = _assemble_run_review(payload=payload, loop_family=loop_family)
-    return _review_artifact(trace=trace, run_state=run_state, review=review)
+    trace, run_summary, review = _assemble_run_review(payload=payload, loop_family=loop_family)
+    return _review_artifact(trace=trace, run_summary=run_summary, review=review)
 
 
 def build_single_run_review_from_path(
@@ -56,9 +56,9 @@ def build_multi_run_review(
     per_run: list[dict[str, Any]] = []
     review_summaries: list[RunReviewSummary] = []
     for payload in payloads:
-        trace, run_state, review = _assemble_run_review(payload=payload, loop_family=loop_family)
+        trace, run_summary, review = _assemble_run_review(payload=payload, loop_family=loop_family)
         review_summaries.append(review)
-        per_run.append(_review_artifact(trace=trace, run_state=run_state, review=review))
+        per_run.append(_review_artifact(trace=trace, run_summary=run_summary, review=review))
 
     aggregate = build_review_aggregate(summaries=review_summaries)
     return {
@@ -83,13 +83,13 @@ def build_single_run_review_bundle(
     loop_family: str | None = None,
     input_ref: str | None = None,
 ) -> dict[str, Any]:
-    trace, run_state, review = _assemble_run_review(payload=payload, loop_family=loop_family)
+    trace, run_summary, review = _assemble_run_review(payload=payload, loop_family=loop_family)
     return _build_review_bundle(
         mode="single_run",
         runs=[
             _review_bundle_run(
                 trace=trace,
-                run_state=run_state,
+                run_summary=run_summary,
                 review=review,
                 input_ref=input_ref,
             )
@@ -122,13 +122,13 @@ def build_multi_run_review_bundle(
     review_summaries: list[RunReviewSummary] = []
     refs = input_refs if isinstance(input_refs, list) else []
     for idx, payload in enumerate(payloads):
-        trace, run_state, review = _assemble_run_review(payload=payload, loop_family=loop_family)
+        trace, run_summary, review = _assemble_run_review(payload=payload, loop_family=loop_family)
         review_summaries.append(review)
         input_ref = refs[idx] if idx < len(refs) and isinstance(refs[idx], str) else None
         per_run.append(
             _review_bundle_run(
                 trace=trace,
-                run_state=run_state,
+                run_summary=run_summary,
                 review=review,
                 input_ref=input_ref,
             )
@@ -169,11 +169,11 @@ def _assemble_run_review(
     *,
     payload: dict[str, Any],
     loop_family: str | None,
-) -> tuple[CanonicalTraceRecord, SharedRunStateEnvelope, RunReviewSummary]:
+) -> tuple[CanonicalTraceRecord, SharedRunSummaryEnvelope, RunReviewSummary]:
     trace = _build_trace(payload=payload, loop_family=loop_family)
-    run_state = _build_run_state(payload=payload, loop_family=trace.loop_family)
-    review = build_run_review_summary(trace=trace, run_state=run_state)
-    return trace, run_state, review
+    run_summary = _build_run_summary(payload=payload, loop_family=trace.loop_family)
+    review = build_run_review_summary(trace=trace, run_summary=run_summary)
+    return trace, run_summary, review
 
 
 def _build_trace(*, payload: dict[str, Any], loop_family: str | None) -> CanonicalTraceRecord:
@@ -182,23 +182,27 @@ def _build_trace(*, payload: dict[str, Any], loop_family: str | None) -> Canonic
     return build_canonical_trace_from_payload(payload=payload, loop_family=loop_family)
 
 
-def _build_run_state(*, payload: dict[str, Any], loop_family: str) -> SharedRunStateEnvelope:
-    if loop_family == "mission_runtime":
-        mission_runtime_payload = payload.get("mission_runtime")
-        if not isinstance(mission_runtime_payload, dict):
-            mission_runtime_payload = payload if isinstance(payload, dict) else {}
-        if not isinstance(mission_runtime_payload, dict):
-            raise ValueError("invalid mission_runtime payload for run-state build")
-        return build_mission_runtime_run_state(mission_runtime_payload=mission_runtime_payload)
-    return build_registered_run_state(loop_family=loop_family, payload=payload)
+def _build_run_summary(*, payload: dict[str, Any], loop_family: str) -> SharedRunSummaryEnvelope:
+    if loop_family == "mission_flow":
+        mission_flow_payload: dict[str, Any] | None = None
+        nested = payload.get("mission_flow")
+        if isinstance(nested, dict):
+            mission_flow_payload = nested
+        if mission_flow_payload is None:
+            mission_flow_payload = payload if isinstance(payload, dict) else {}
+        if not isinstance(mission_flow_payload, dict):
+            raise ValueError("invalid mission_flow payload for run-summary build")
+        return build_mission_flow_run_summary(mission_flow_payload=mission_flow_payload)
+    return build_registered_run_summary(loop_family=loop_family, payload=payload)
 
 
 def _review_artifact(
     *,
     trace: CanonicalTraceRecord,
-    run_state: SharedRunStateEnvelope,
+    run_summary: SharedRunSummaryEnvelope,
     review: RunReviewSummary,
 ) -> dict[str, Any]:
+    dumped = run_summary.model_dump(mode="json")
     return {
         "trace": {
             "trace_id": trace.trace_id,
@@ -211,16 +215,16 @@ def _review_artifact(
             "normalization_warnings": list(trace.normalization_warnings),
             "event_count": len(trace.events),
         },
-        "run_state": run_state.model_dump(mode="json"),
+        "run_summary": dumped,
         "review": review.model_dump(mode="json"),
         "prompt_events": extract_prompt_events_from_trace(trace=trace),
-    }
+    )
 
 
 def _review_bundle_run(
     *,
     trace: CanonicalTraceRecord,
-    run_state: SharedRunStateEnvelope,
+    run_summary: SharedRunSummaryEnvelope,
     review: RunReviewSummary,
     input_ref: str | None,
 ) -> dict[str, Any]:
@@ -228,12 +232,13 @@ def _review_bundle_run(
     run_input: dict[str, Any] = {"source_refs": inferred_refs}
     if isinstance(input_ref, str) and input_ref.strip():
         run_input["payload_path"] = input_ref
+    dumped = run_summary.model_dump(mode="json")
     return {
         "run_id": trace.run_id,
         "loop_family": trace.loop_family,
         "input": run_input,
         "trace": trace.model_dump(mode="json"),
-        "run_state": run_state.model_dump(mode="json"),
+        "run_summary": dumped,
         "review": review.model_dump(mode="json"),
         "prompt_events": extract_prompt_events_from_trace(trace=trace),
     }
@@ -304,7 +309,7 @@ def extract_prompt_events_from_trace(*, trace: CanonicalTraceRecord) -> list[dic
                 "iteration_index": event.iteration_index,
                 "phase": event.phase,
                 "surface": str(metadata.get("surface") or payload.get("surface") or "").strip(),
-                "domain": str(metadata.get("domain") or payload.get("domain") or "").strip(),
+                "pack_id": str(metadata.get("pack_id") or payload.get("pack_id") or "").strip(),
                 "model": str(metadata.get("model") or payload.get("model") or "").strip(),
                 "prompt_event_id": str(metadata.get("prompt_event_id") or payload.get("prompt_event_id") or "").strip() or None,
                 "outcome_kind": str(prompt_event_data.get("outcome_kind") or "").strip() or None,

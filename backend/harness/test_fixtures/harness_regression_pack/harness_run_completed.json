@@ -1,0 +1,63 @@
+{
+  "kernel_trace": {
+    "events": [
+      {
+        "event_type": "run_header",
+        "detail": "kernel_run_started",
+        "timestamp_epoch_seconds": 100,
+        "payload": {
+          "request_id": "request-reg-ck-complete",
+          "session_id": "request-reg-ck-complete::run-reg-ck-complete",
+          "opaque_run_context": { "example_case_ref": "d-reg-1" }
+        }
+      },
+      {
+        "event_type": "kernel_step_result",
+        "detail": "executed",
+        "timestamp_epoch_seconds": 101,
+        "payload": {
+          "iteration": 1,
+          "action_type": "retrieve_evidence",
+          "latest_refs": {
+            "retrieval_ref": "artifact://retrieval-reg-1"
+          }
+        }
+      },
+      {
+        "event_type": "kernel_step_result",
+        "detail": "executed",
+        "timestamp_epoch_seconds": 102,
+        "payload": {
+          "iteration": 2,
+          "action_type": "declare_done",
+          "latest_refs": {
+            "bundle_ref": "artifact://bundle-reg-1"
+          },
+          "terminal": {
+            "terminal_outcome": "SUCCESS",
+            "stop_reason": "completed",
+            "success": true,
+            "reason_code": "done_verified"
+          }
+        }
+      }
+    ]
+  },
+  "run_artifact": {
+    "run_id": "run-reg-ck-complete",
+    "request_id": "request-reg-ck-complete",
+    "session_id": "request-reg-ck-complete::run-reg-ck-complete",
+    "created_at_epoch_seconds": 100,
+    "steps": [
+      {
+        "step_id": "step-reg-1",
+        "action": "retrieve_evidence"
+      },
+      {
+        "step_id": "step-reg-2",
+        "action": "declare_done"
+      }
+    ],
+    "idempotency_ledger": {}
+  }
+}

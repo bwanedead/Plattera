@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from .adapters.kernel_direct import build_kernel_direct_trace
-from .adapters.mission_runtime import build_mission_runtime_trace
+from .adapters.mission_flow import build_mission_flow_trace
 from .registry import (
     TraceFamilyLookupError,
     iter_trace_families,
@@ -12,7 +12,7 @@ from .registry import (
 )
 from .schema import CanonicalTraceRecord, LoopFamily
 
-_MISSION_RUNTIME_KEYS = {"mission_id", "active_mode", "mode_history", "cycles"}
+_MISSION_FLOW_SHAPE_KEYS = {"mission_id", "active_mode", "mode_history", "cycles"}
 _ORCHESTRATION_KERNEL_KEYS = {"trace_events", "run_artifact"}
 
 
@@ -32,14 +32,14 @@ def build_kernel_direct_canonical_trace(
     )
 
 
-def build_mission_runtime_canonical_trace(
+def build_mission_flow_canonical_trace(
     *,
-    mission_runtime_payload: dict[str, Any],
+    mission_flow_payload: dict[str, Any],
     payload_ref: str | None = None,
     trace_id: str | None = None,
 ) -> CanonicalTraceRecord:
-    return build_mission_runtime_trace(
-        mission_runtime_payload=mission_runtime_payload,
+    return build_mission_flow_trace(
+        mission_flow_payload=mission_flow_payload,
         payload_ref=payload_ref,
         trace_id=trace_id,
     )
@@ -55,7 +55,7 @@ def build_canonical_trace_from_payload(
         raise ValueError("payload must be a JSON object dictionary")
 
     family = loop_family or _detect_loop_family(payload)
-    if family not in {"mission_runtime", "orchestration_kernel"}:
+    if family not in {"mission_flow", "orchestration_kernel"}:
         try:
             registration = require_trace_family(family)
         except TraceFamilyLookupError as exc:
@@ -78,31 +78,32 @@ def build_canonical_trace_from_payload(
             trace_id=trace_id,
         )
 
-    mission_payload = _mission_runtime_payload(payload)
-    return build_mission_runtime_canonical_trace(
-        mission_runtime_payload=mission_payload,
-        payload_ref=_optional_str(payload.get("mission_runtime_ref")) or _optional_str(payload.get("snapshot_ref")),
+    mission_payload = _mission_flow_payload(payload)
+    return build_mission_flow_canonical_trace(
+        mission_flow_payload=mission_payload,
+        payload_ref=_optional_str(payload.get("mission_flow_ref"))
+        or _optional_str(payload.get("snapshot_ref")),
         trace_id=trace_id,
     )
 
 
 def _detect_loop_family(payload: dict[str, Any]) -> LoopFamily:
-    looks_mission_runtime = _looks_like_mission_runtime_payload(payload)
+    looks_mission_flow = _looks_like_mission_flow_payload(payload)
     looks_orchestration_kernel = _looks_like_orchestration_kernel_payload(payload)
     registered_hits = [
         registration.loop_family
         for registration in iter_trace_families()
-        if registration.loop_family not in {"mission_runtime", "orchestration_kernel"} and registration.detector(payload)
+        if registration.loop_family not in {"mission_flow", "orchestration_kernel"} and registration.detector(payload)
     ]
 
-    shape_hits = int(looks_mission_runtime) + int(looks_orchestration_kernel) + len(registered_hits)
+    shape_hits = int(looks_mission_flow) + int(looks_orchestration_kernel) + len(registered_hits)
     if shape_hits > 1:
         raise ValueError(
             "ambiguous canonical trace payload: matches multiple canonical payload shapes;"
             " pass loop_family explicitly"
         )
-    if looks_mission_runtime:
-        return "mission_runtime"
+    if looks_mission_flow:
+        return "mission_flow"
     if looks_orchestration_kernel:
         return "orchestration_kernel"
     if len(registered_hits) == 1:
@@ -110,28 +111,28 @@ def _detect_loop_family(payload: dict[str, Any]) -> LoopFamily:
     raise ValueError(
         "unsupported canonical trace payload shape: expected a registered payload,"
         " orchestration-kernel payload under 'trace_events'/'run_artifact', or"
-        " mission-runtime payload under 'mission_runtime'"
+        " mission-flow payload under 'mission_flow'"
     )
 
 
-def _looks_like_mission_runtime_payload(payload: dict[str, Any]) -> bool:
-    mission_payload = _mission_runtime_payload(payload, default_none=True)
+def _looks_like_mission_flow_payload(payload: dict[str, Any]) -> bool:
+    mission_payload = _mission_flow_payload(payload, default_none=True)
     if not isinstance(mission_payload, dict):
         return False
-    return _MISSION_RUNTIME_KEYS.issubset(mission_payload.keys())
+    return _MISSION_FLOW_SHAPE_KEYS.issubset(mission_payload.keys())
 
 
-def _mission_runtime_payload(payload: dict[str, Any], default_none: bool = False) -> dict[str, Any]:
-    nested = payload.get("mission_runtime")
+def _mission_flow_payload(payload: dict[str, Any], default_none: bool = False) -> dict[str, Any]:
+    nested = payload.get("mission_flow")
     if isinstance(nested, dict):
         return nested
-    if _MISSION_RUNTIME_KEYS.issubset(payload.keys()):
+    if _MISSION_FLOW_SHAPE_KEYS.issubset(payload.keys()):
         return payload
     if default_none:
         return {}
     raise ValueError(
-        "invalid mission_runtime payload: expected 'mission_runtime' object with"
-        " {'mission_id','active_mode','mode_history','cycles'}"
+        "invalid mission_flow payload: expected 'mission_flow' object"
+        " with {'mission_id','active_mode','mode_history','cycles'}"
     )
 
 

@@ -135,7 +135,6 @@ def _extract_terminal(
 def _build_request_metadata(*, run_artifact: dict[str, Any]) -> dict[str, Any]:
     out: dict[str, Any] = {
         "request_id": as_str(run_artifact.get("request_id")),
-        "dossier_id": as_str(run_artifact.get("dossier_id")),
         "source_entry_ref": as_str(run_artifact.get("source_entry_ref")),
         # D3: discriminator flag — lets analytics separate native kernel-live traces
         # from other emission paths without touching loop_family.

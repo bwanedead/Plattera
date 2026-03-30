@@ -43,6 +43,11 @@ Its intended native shape is:
 
 Domain packs are the interchangeable **skins** the harness wears for particular missions.
 
+The initial domain-shell target may be deliberately minimal: a manifest, a thin
+`domain_pack.py` host shell, and a `prompting/branch.py` source surface. That
+seed is enough to define the mission doctrine without reintroducing runtime
+machinery.
+
 The harness core must be intrinsically capable of hosting radically different missions without rewriting its ontology or shared execution contracts for each mission family.
 
 If a shared layer only makes sense for one concrete mission family, it is not generic enough to live in the harness core.

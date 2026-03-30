@@ -15,7 +15,7 @@ class ResolutionItemHistoryEntry(BaseModel):
     summary: str | None = Field(default=None, max_length=400)
     outcome: str | None = Field(default=None, max_length=128)
     timestamp_epoch_seconds: float | None = None
-    domain_payload: dict[str, Any] = Field(default_factory=dict)
+    opaque_payload: dict[str, Any] = Field(default_factory=dict)
 
 
 class ResolutionRelation(BaseModel):
@@ -25,7 +25,7 @@ class ResolutionRelation(BaseModel):
     target_item_id: str = Field(min_length=1, max_length=128)
     relation_type: str = Field(min_length=1, max_length=64)
     summary: str | None = Field(default=None, max_length=240)
-    domain_payload: dict[str, Any] = Field(default_factory=dict)
+    opaque_payload: dict[str, Any] = Field(default_factory=dict)
 
 
 class ResolutionItem(BaseModel):
@@ -44,7 +44,7 @@ class ResolutionItem(BaseModel):
     materiality: str | None = Field(default=None, max_length=32)
     scope: dict[str, Any] = Field(default_factory=dict)
     provenance: str | None = Field(default=None, max_length=128)
-    domain_payload: dict[str, Any] = Field(default_factory=dict)
+    opaque_payload: dict[str, Any] = Field(default_factory=dict)
 
 
 class ResolutionState(BaseModel):
@@ -55,7 +55,7 @@ class ResolutionState(BaseModel):
     active_item_id: str | None = Field(default=None, max_length=128)
     items: list[ResolutionItem] = Field(default_factory=list)
     relations: list[ResolutionRelation] = Field(default_factory=list)
-    domain_payload: dict[str, Any] = Field(default_factory=dict)
+    opaque_payload: dict[str, Any] = Field(default_factory=dict)
 
 
 class MissionState(BaseModel):
@@ -71,7 +71,6 @@ class MissionState(BaseModel):
     updated_at_epoch_seconds: float = Field(default=0.0, ge=0.0)
     latest_refs_summary: dict[str, Any] = Field(default_factory=dict)
     high_signal_artifact_refs: list[str] = Field(default_factory=list, max_length=16)
-    family_coordination: dict[str, Any] = Field(default_factory=dict)
     blocker_summary: dict[str, Any] = Field(default_factory=dict)
     verification_summary: dict[str, Any] = Field(default_factory=dict)
     waiting_summary: dict[str, Any] = Field(default_factory=dict)
@@ -80,7 +79,7 @@ class MissionState(BaseModel):
     mission_mode_summary: dict[str, Any] = Field(default_factory=dict)
     prompt_observability_summary: dict[str, Any] = Field(default_factory=dict)
     resolution_state: ResolutionState = Field(default_factory=ResolutionState)
-    domain_payload: dict[str, Any] = Field(default_factory=dict)
+    opaque_payload: dict[str, Any] = Field(default_factory=dict)
 
 
 def new_resolution_state(
@@ -89,7 +88,7 @@ def new_resolution_state(
     items: list[ResolutionItem | dict[str, Any]] | None = None,
     relations: list[ResolutionRelation | dict[str, Any]] | None = None,
     updated_at_epoch_seconds: float = 0.0,
-    domain_payload: Mapping[str, Any] | None = None,
+    opaque_payload: Mapping[str, Any] | None = None,
 ) -> ResolutionState:
     items_out: list[ResolutionItem] = []
     for row in items or []:
@@ -106,7 +105,7 @@ def new_resolution_state(
         items=items_out,
         relations=relations_out,
         updated_at_epoch_seconds=float(updated_at_epoch_seconds or 0.0),
-        domain_payload=dict(domain_payload) if isinstance(domain_payload, Mapping) else {},
+        opaque_payload=dict(opaque_payload) if isinstance(opaque_payload, Mapping) else {},
     )
 
 
@@ -121,7 +120,6 @@ def new_mission_state(
     updated_at_epoch_seconds: float = 0.0,
     latest_refs_summary: Mapping[str, Any] | None = None,
     high_signal_artifact_refs: list[str] | None = None,
-    family_coordination: Mapping[str, Any] | None = None,
     blocker_summary: Mapping[str, Any] | None = None,
     verification_summary: Mapping[str, Any] | None = None,
     waiting_summary: Mapping[str, Any] | None = None,
@@ -130,7 +128,7 @@ def new_mission_state(
     mission_mode_summary: Mapping[str, Any] | None = None,
     prompt_observability_summary: Mapping[str, Any] | None = None,
     resolution_state: ResolutionState | dict[str, Any] | None = None,
-    domain_payload: Mapping[str, Any] | None = None,
+    opaque_payload: Mapping[str, Any] | None = None,
 ) -> MissionState:
     return MissionState(
         mission_id=_clean_text(mission_id, limit=128) or "unknown_mission",
@@ -142,7 +140,6 @@ def new_mission_state(
         updated_at_epoch_seconds=float(updated_at_epoch_seconds or 0.0),
         latest_refs_summary=dict(latest_refs_summary) if isinstance(latest_refs_summary, Mapping) else {},
         high_signal_artifact_refs=_clean_str_list(high_signal_artifact_refs, limit=16),
-        family_coordination=dict(family_coordination) if isinstance(family_coordination, Mapping) else {},
         blocker_summary=dict(blocker_summary) if isinstance(blocker_summary, Mapping) else {},
         verification_summary=dict(verification_summary) if isinstance(verification_summary, Mapping) else {},
         waiting_summary=dict(waiting_summary) if isinstance(waiting_summary, Mapping) else {},
@@ -157,7 +154,7 @@ def new_mission_state(
             if isinstance(resolution_state, dict)
             else ResolutionState()
         ),
-        domain_payload=dict(domain_payload) if isinstance(domain_payload, Mapping) else {},
+        opaque_payload=dict(opaque_payload) if isinstance(opaque_payload, Mapping) else {},
     )
 
 

@@ -1,6 +1,6 @@
-"""Shared orchestration-kernel trace persistence utility.
+"""Orchestration-loop trace persistence utility (wire family ``orchestration_kernel``).
 
-Provides best-effort helpers used by orchestration-kernel runtime adapters
+Provides best-effort helpers used by orchestration runtime adapters
 to persist forensic artifacts after a run:
 
   persist_kernel_trace        — canonical trace record (CanonicalTraceRecord JSON)
@@ -26,7 +26,7 @@ from .rationale_continuity_strip import build_rationale_continuity_strip
 from .service import build_kernel_direct_canonical_trace
 
 if TYPE_CHECKING:
-    from harness.orchestration_kernel.contracts import KernelLoopResult
+    from harness.runtime.run.contracts import KernelLoopResult
 
 
 def persist_kernel_trace(
