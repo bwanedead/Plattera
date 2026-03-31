@@ -1,0 +1,57 @@
+{
+  "orchestration_kernel": {
+    "trace_events": [
+      {
+        "timestamp_epoch_seconds": 100,
+        "event_kind": "request_start",
+        "phase": "bootstrap",
+        "iteration_index": null,
+        "actor": "kernel",
+        "status": "started",
+        "refs_delta": {},
+        "payload": {
+          "session_id": "sess-comp::run-comp",
+          "request_id": "req-comp",
+          "opaque_run_context": { "fixture": "orch" }
+        },
+        "source_origin": { "kind": "kernel_live", "ref": "session:sess-comp", "sequence_index": 0 }
+      },
+      {
+        "timestamp_epoch_seconds": 101,
+        "event_kind": "model_proposal",
+        "phase": "prompt_event",
+        "iteration_index": 1,
+        "actor": "kernel",
+        "status": "completed",
+        "refs_delta": {},
+        "payload": {
+          "prompt_event": {
+            "metadata": {
+              "prompt_event_id": "pe-comp",
+              "surface": "comp_surface",
+              "pack_id": "pack-comp"
+            }
+          }
+        },
+        "source_origin": { "kind": "kernel_live", "ref": "session:sess-comp", "sequence_index": 1 }
+      },
+      {
+        "timestamp_epoch_seconds": 102,
+        "event_kind": "terminal_outcome",
+        "phase": "terminal",
+        "iteration_index": 1,
+        "actor": "kernel",
+        "status": "completed",
+        "refs_delta": {},
+        "payload": { "terminal_class": "completed", "reason_code": "fixture_done" },
+        "source_origin": { "kind": "kernel_live", "ref": "session:sess-comp", "sequence_index": 2 }
+      }
+    ],
+    "run_artifact": {
+      "run_id": "run-comp-orch",
+      "session_id": "sess-comp::run-comp",
+      "request_id": "req-comp",
+      "created_at_epoch_seconds": 100
+    }
+  }
+}

@@ -93,7 +93,12 @@ def test_shared_surface_fields_stay_generic() -> None:
 
 def test_hotspot_files_do_not_grow_past_budget() -> None:
     budgets = {
-        HARNESS_ROOT / "run_summary" / "build.py": 725,
+        HARNESS_ROOT / "run_summary" / "build.py": 120,
+        HARNESS_ROOT / "run_summary" / "orchestration.py": 400,
+        HARNESS_ROOT / "run_summary" / "mission_flow.py": 220,
+        HARNESS_ROOT / "run_summary" / "mission_state.py": 130,
+        HARNESS_ROOT / "run_summary" / "prompt_observability.py": 90,
+        HARNESS_ROOT / "run_summary" / "common.py": 100,
         HARNESS_ROOT / "runtime" / "run" / "orchestrator.py": 400,
         HARNESS_ROOT / "review" / "reporting.py": 360,
         HARNESS_ROOT / "review" / "tool.py": 340,

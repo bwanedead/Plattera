@@ -218,7 +218,7 @@ def _review_artifact(
         "run_summary": dumped,
         "review": review.model_dump(mode="json"),
         "prompt_events": extract_prompt_events_from_trace(trace=trace),
-    )
+    }
 
 
 def _review_bundle_run(

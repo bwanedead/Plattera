@@ -10,7 +10,7 @@
 - **Mechanics, not choreography:** Tracing and runtime helpers must describe mechanical events; they must not encode a universal semantic phase model (e.g. focus → move → plan) as harness truth. See rationale: `docs/architecture/harness/harness-sanity-refactor-brief.md` §14.
 - **Shared runtime stays generic:** Family- or mission-pack-specific meaning belongs at adapter/domain edges; narrow helpers in `runtime/mission/` must not grow into family policy hosts without an explicit boundary.
 - **Native wire only:** Harness accepts and produces the current wire vocabulary only (e.g. `opaque_payload`, `opaque_adapter_payload`, `pack_id`, JSON keys `mission_flow` and `orchestration_kernel`, `loop_family` values aligned with those). Do not add alternate keys, Pydantic aliases, or fallbacks for superseded names.
-- **Inspection:** `run_summary/` package (`models.py` + `build.py`) is the derived read model; avoid turning it into a dumping ground for unrelated summary logic (split targets described in §14.3).
+- **Inspection:** `run_summary/` package (`models.py`, thin `build.py`, `orchestration.py`, `mission_flow.py`, shared helpers) is the derived read model; keep it inspection-only (see `docs/architecture/harness/run-summary-build-refactor-brief.md`).
 
 ## Allowed changes
 
@@ -28,7 +28,7 @@
 
 ## Remaining convergence (when touched)
 
-- **`run_summary/build.py`:** Still a broad adapter bundle. Likely next split: orchestration-run builder, mission-flow builder, then `register_run_summary_builder` glue—only when a change touches enough to justify it.
+- **`run_summary/`:** Builders split per `run-summary-build-refactor-brief.md` (`build.py` = entrypoints + registration; family logic in `orchestration.py` / `mission_flow.py`; shared coercion in `common.py`; prompt + mission-state helpers in dedicated modules).
 - **`runtime/run/orchestrator.py`:** Loop driver is typed against ``OrchestrationPack`` from ``contracts.py``; optional ``wire_identity_trace_cb`` stays duck-typed. No ``progress_cb``—mechanical status is trace-only (``KernelTraceCollector`` / ``KernelLoopResult.trace_events``). Open rename: ``OrchestrationPack`` → e.g. ``OrchestrationAdapter`` if clearer; see ``docs/architecture/harness/harness-sanity-refactor-brief.md`` §3.4.
 
 ## Enforcement
@@ -65,4 +65,5 @@ After edits, ensure no reintroduction of superseded wire keys or ownership vocab
 
 - Docs: `docs/architecture/harness/harness-sanity-refactor-brief.md` (especially §13 snapshot, §14 rationale)
 - Docs: `docs/architecture/harness/harness-testing-brief.md`
+- Docs: `docs/architecture/harness/run-summary-build-refactor-brief.md`
 - Related: `docs/architecture/harness/harness-constitution.md`

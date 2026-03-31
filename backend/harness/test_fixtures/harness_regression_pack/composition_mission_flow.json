@@ -1,0 +1,41 @@
+{
+  "mission_flow": {
+    "mission_id": "mission-comp-1",
+    "objective": "composition test",
+    "request_id": "req-mf-comp",
+    "active_mode": "work",
+    "mode_history": ["work"],
+    "transition_history": [
+      {
+        "prior_mode": "start",
+        "next_mode": "work",
+        "reason": "begin",
+        "status": "applied",
+        "order_anchor": 1,
+        "timestamp_epoch_seconds": 200
+      }
+    ],
+    "high_signal_artifact_refs": ["artifact://comp-sig"],
+    "resumability_summary": { "resumable": false },
+    "mission_status": {
+      "terminal": true,
+      "terminal_class": "completed",
+      "reason_code": "mission_fixture_done"
+    },
+    "blocker_posture_summary": { "waiting_human": false, "open_blocker_count": 0 },
+    "verification_posture_summary": { "status": "ok", "last_verification_kind": null },
+    "opaque_adapter_payload": { "fixture_opaque": true },
+    "created_at_epoch_seconds": 199,
+    "updated_at_epoch_seconds": 201,
+    "cycle_index": 1,
+    "cycles": [
+      {
+        "cycle_index": 1,
+        "executed_mode": "work",
+        "resulting_active_mode": "work",
+        "summary": "cycle fixture",
+        "timestamp_epoch_seconds": 201
+      }
+    ]
+  }
+}
