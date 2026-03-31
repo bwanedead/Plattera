@@ -43,6 +43,19 @@ def build_mission_flow_run_summary(*, mission_flow_payload: dict[str, Any]) -> S
     reason_code = _as_str(mission_status.get("reason_code"))
     high_signal_refs = list(observation.high_signal_artifact_refs)
     resolution_state = _mission_flow_resolution_state_from_payload(mission_flow_payload)
+    prompt_observability_summary = _prompt_observability_summary_from_payload(
+        mission_flow_payload,
+        default_surface=active_mode,
+    )
+    resume_context_summary: dict[str, Any] = {
+        "resumable": bool(resumability.get("resumable")),
+        "resume_reason": _as_str(resumability.get("resume_reason")),
+        "resume_requirements": _as_str_list(resumability.get("resume_requirements")),
+        "latest_transition_target_mode": latest_transition.next_mode if latest_transition else None,
+        "resume_note_for_prior_mode": (
+            latest_transition.resume_note_for_prior_mode if latest_transition else None
+        ),
+    }
 
     return SharedRunSummaryEnvelope(
         run_id=mission_id,
@@ -138,15 +151,7 @@ def build_mission_flow_run_summary(*, mission_flow_payload: dict[str, Any]) -> S
                 "active_mode": active_mode,
                 "mode_history": mode_history,
                 "latest_transition_reason": transition_reason,
-                "resume_context_summary": {
-                    "resumable": bool(resumability.get("resumable")),
-                    "resume_reason": _as_str(resumability.get("resume_reason")),
-                    "resume_requirements": _as_str_list(resumability.get("resume_requirements")),
-                    "latest_transition_target_mode": latest_transition.next_mode if latest_transition else None,
-                    "resume_note_for_prior_mode": (
-                        latest_transition.resume_note_for_prior_mode if latest_transition else None
-                    ),
-                },
+                "resume_context_summary": resume_context_summary,
             },
             resolution_state=resolution_state,
         ),
@@ -154,16 +159,8 @@ def build_mission_flow_run_summary(*, mission_flow_payload: dict[str, Any]) -> S
             active_mode=active_mode,
             mode_history=mode_history,
             latest_transition_reason=transition_reason,
-            resume_context_summary={
-                "resumable": bool(resumability.get("resumable")),
-                "resume_reason": _as_str(resumability.get("resume_reason")),
-                "resume_requirements": _as_str_list(resumability.get("resume_requirements")),
-                "latest_transition_target_mode": latest_transition.next_mode if latest_transition else None,
-                "resume_note_for_prior_mode": (
-                    latest_transition.resume_note_for_prior_mode if latest_transition else None
-                ),
-            },
+            resume_context_summary=resume_context_summary,
         ),
-        prompt_observability_summary=_prompt_observability_summary_from_payload(mission_flow_payload, default_surface=active_mode),
+        prompt_observability_summary=prompt_observability_summary,
         envelope_version=RUN_SUMMARY_ENVELOPE_VERSION,
     )

@@ -23,7 +23,7 @@ def _build_mission_flow_run_summary_from_payload(payload: dict[str, Any]) -> Sha
     if mission_flow_payload is None:
         mission_flow_payload = payload if isinstance(payload, dict) else {}
     if not isinstance(mission_flow_payload, dict):
-        raise ValueError("invalid mission_flow payload for run-state build")
+        raise ValueError("invalid mission_flow payload for run_summary")
     return build_mission_flow_run_summary(mission_flow_payload=mission_flow_payload)
 
 
@@ -32,7 +32,7 @@ def _build_orchestration_kernel_run_summary_from_payload(payload: dict[str, Any]
     if not isinstance(orchestration_kernel_payload, dict):
         orchestration_kernel_payload = payload if isinstance(payload, dict) else {}
     if not isinstance(orchestration_kernel_payload, dict):
-        raise ValueError("invalid orchestration_kernel payload for run-state build")
+        raise ValueError("invalid orchestration_kernel payload for run_summary")
     return build_orchestration_kernel_run_summary(orchestration_kernel_payload=orchestration_kernel_payload)
 
 
