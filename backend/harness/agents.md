@@ -20,6 +20,7 @@
 ## Commands
 
 - Test: from `backend/`, with repo venv active: `pytest harness/ -q`
+- Guardrails: from `backend/`, with repo venv active: `pytest harness/test_architecture_guardrails.py -q`
 
 ## Gotchas
 
@@ -28,6 +29,16 @@
 ## Remaining convergence (when touched)
 
 - **`run_summary/build.py`:** Still a broad adapter bundle. Likely next split: orchestration-run builder, mission-flow builder, then `register_run_summary_builder` glue—only when a change touches enough to justify it.
+- **`runtime/run/orchestrator.py`:** Loop driver is typed against ``OrchestrationPack`` from ``contracts.py``; optional ``wire_identity_trace_cb`` stays duck-typed. No ``progress_cb``—mechanical status is trace-only (``KernelTraceCollector`` / ``KernelLoopResult.trace_events``). Open rename: ``OrchestrationPack`` → e.g. ``OrchestrationAdapter`` if clearer; see ``docs/architecture/harness/harness-sanity-refactor-brief.md`` §3.4.
+
+## Enforcement
+
+- `test_architecture_guardrails.py` is the executable backstop for shared harness discipline. Extend it when introducing a new canonical boundary or deleting an old one.
+- The guard suite currently protects:
+  - banned shared-harness vocabulary from re-entering live Python
+  - deleted path regressions (`orchestration_kernel/`, `mission_runtime/`, `run_state.py`, etc.)
+  - generic shared surface shape (`RequestSummary`, `VerificationSummary`, `OrchestratorContext`)
+  - hotspot file growth budgets so broad modules get split instead of silently expanding
 
 ## Canonical naming (not legacy)
 
@@ -48,8 +59,10 @@ After edits, ensure no reintroduction of superseded wire keys or ownership vocab
 - `rg -n "domain_payload|family_coordination|mission_runtime|mission_runtime_ref" backend/harness --glob "*.py"` — should be empty.
 - `rg -n "domain_|\\.get\\(\"domain\"\\)" backend/harness --glob "*.py"` — should be empty (product “domain” layer lives outside this folder; do not add `domain` as a prompt/trace key here).
 - `rg -n "mapping_ready|dossier_id" backend/harness --glob "*.py"` — should be empty (composition/product layers may still use those terms outside this folder).
+- `pytest backend/harness/test_architecture_guardrails.py -q` — should pass before considering the shared harness “clean.”
 
 ## Links
 
 - Docs: `docs/architecture/harness/harness-sanity-refactor-brief.md` (especially §13 snapshot, §14 rationale)
+- Docs: `docs/architecture/harness/harness-testing-brief.md`
 - Related: `docs/architecture/harness/harness-constitution.md`

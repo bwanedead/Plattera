@@ -62,254 +62,87 @@ The target is **clarity by separation**, not abstraction for its own sake.
 
 ---
 
-## 3. Current Diagnosis
+## 3. Repo reality (authoritative)
 
-The current harness is no longer transcript-corrupted, but it is still under-shaped.
+**Supersedes** older §3–§5 path names (`orchestration_kernel/`, `mission_runtime/`, top-level `run_state.py`, etc.). If anything here disagrees with §13, prefer §13 and the tree on disk.
 
-### 3.1 Orchestration is conceptually right, but packaged poorly
-
-Current location:
-
-- `backend/harness/orchestration_kernel/`
-
-What is right:
-
-- the harness owns a bounded per-run loop
-- the loop rhythm is sane:
-  - initialize loop-local context
-  - hydrate current shared understanding
-  - check terminal posture
-  - choose one bounded next action
-  - execute it
-  - repeat or stop
-
-What is wrong:
-
-- `kernel.py` is a bad, non-descriptive name
-- `orchestration_kernel/` is heavier and more legacy-coded than needed
-- `kernel.py` carries too many concerns in one file
-- orchestration-local memory is embedded too tightly inside the orchestration layer
-- some orchestration seam types are duplicated between `kernel.py` and `contracts.py`
-
-### 3.2 Memory is missing as a real first-class subsystem
-
-Current location:
-
-- `backend/harness/orchestration_kernel/loop_memory.py`
-
-Problem:
-
-This file is currently a mixed bag of:
-
-- continuity state
-- transport posture
-- telemetry
-- anti-spin / brake counters
-- stale loop-shaped residue
-
-That is not a real memory system.
-
-The harness still needs a generic memory subsystem for things like:
-
-- bounded recent iteration history
-- rolling continuity summary
-- last pursued item / current working locus
-- recent action and outcome continuity
-- prompt observability continuity if needed
-
-This is distinct from mission state.
-
-### 3.3 Mission state is not memory and should remain separate
-
-Current location:
-
-- `backend/harness/mission_state/`
-
-Mission state is the shared understanding of the work:
-
-- what items exist
-- what status they have
-- what dependencies or relations exist
-- what supporting payload is attached
-
-Mission state should not be collapsed into generic memory and should not be treated as the harness's whole continuity substrate.
-
-### 3.4 Prompt-facing carriage is in the wrong place
-
-Current location:
-
-- `backend/harness/orchestration_kernel/run_progress_frame.py`
-
-Problem:
-
-This file builds a small prompt-facing packet.
-That means it is not really orchestration.
-
-If this packet is genuinely needed, it belongs under a clearly named shared prompting/context surface.
-If it is leftover from older framing mechanics, it should be deleted.
-
-Do not leave prompt-context shaping hidden inside orchestration helpers.
-
-### 3.5 Mission runtime naming is misleading
-
-Current location:
-
-- `backend/harness/mission_runtime/`
-
-The responsibilities in this area are mostly reasonable:
-
-- mission-level cycles
-- mode transitions
-- resumability
-- terminal posture
-- mission-level observability
-
-But several names are misleading:
-
-- `mission_runtime` sounds lower-level than what it is
-- `MissionLedger` sounds like semantic ledger truth and carries unwanted legacy associations
-- `ModeRecommendation` sounds like a scripted planner/controller voice
-
-This area is closer to **mission flow / mission coordination** than to low-level runtime mechanics.
-
-### 3.6 Inspection surfaces are useful but under-named
-
-Current locations:
-
-- `backend/harness/run_state.py`
-- `backend/harness/tracing/service.py`
-- `backend/harness/review/tool.py`
-
-Problem:
-
-- `run_state.py` is not active runtime state; it is a derived inspection envelope
-- `tool.py` is really a review-bundle assembler
-- some files are functionally coherent but named too vaguely to teach the architecture cleanly
-
-### 3.7 Trace collection still carries stale loop-era emitters
-
-Current location:
-
-- `backend/harness/orchestration_kernel/trace_collector.py`
-
-Problem:
-
-Even after the transcript purge, trace collection still carries old-world event methods and phase framing that imply heavier semantic staging than the current harness should own.
-
-Trace collection should describe what happened mechanically.
-It should not preserve stale semantic stage vocabulary.
-
----
-
-## 4. Target Shape
-
-The harness should converge toward something closer to:
+### 3.1 Layout today
 
 ```text
 backend/harness/
-  orchestration/
-    orchestrator.py
-    contracts.py
-    context.py
-    progress_detection.py
-    step_execution.py          # only if earned
-  memory/
-    contracts.py              # only if earned
-    continuity.py
-    iteration_capsule.py
-    rolling_summary.py
-    telemetry.py              # only if earned
-  mission_state/
-    contracts.py
-  mission_flow/
-    contracts.py
-    mission_coordinator.py
-    registry.py
-    observability.py
-    transition.py             # or capabilities/transition.py if that still earns a seat
-  tracing/
-    ...
-  review/
-    ...
+  mission_state/              # MissionState, ResolutionState (shared work-understanding model)
+  runtime/                    # mechanical substrate (umbrella package)
+    memory/                   # continuity + prompt-contact telemetry
+    run/                      # single-cycle orchestration kernel loop
+      orchestrator.py         # run_orchestration_kernel_loop
+      contracts.py            # OrchestratorContext, OrchestrationPack (Protocol), KernelLoopResult, …
+      trace_collector.py, loop_memory.py, hitl_transport.py, progress.py
+    mission/                  # multi-cycle coordination; wire family name: mission_flow
+      mission_coordinator.py, contracts.py, observability.py, registry.py, cli_support.py, …
+      capabilities/transition.py
+  run_summary/                # inspection envelope (models.py + build.py)
+  tracing/                    # canonical traces, service, registry, persistence, rationale strip
+  review/                     # reporting + review-bundle assembler
+  run_summary_registry.py, terminal_taxonomy.py, agents.md, test_*.py, test_fixtures/
 ```
 
-This is directional, not a rigid checklist.
-Do not create files that do not earn a seat.
+There is **no** `backend/harness/orchestration_kernel/` or `backend/harness/mission_runtime/` directory. The **wire token** `loop_family="orchestration_kernel"` still names the single-cycle family in traces and run summaries; Python code lives under `runtime/run/`.
 
-But the folder boundaries should become real:
+### 3.2 Sanity legs already landed (summary)
 
-- orchestration
-- memory
-- mission state
-- mission flow
-- tracing
-- review
+- **Runtime umbrella:** `run/` vs `mission/` vs `memory/` separation is in place.
+- **Inspection:** `run_summary/` replaces the old monolithic “run_state” story; review bundles use `run_summary` only.
+- **Parsers:** harness no longer merges legacy wire keys (`domain_payload`, `mission_runtime`, …); native payloads only—product migration belongs outside `harness/`.
+- **Boundary repair:** shared read models avoid product semantics (`RequestSummary` has no dossier field; `VerificationSummary` has no mapping-specific readiness); `OrchestratorContext` + trace `request_start` use **`opaque_run_context`** for caller-owned context.
+- **Dead inspection paths:** `run_progress_frame` fallbacks removed from `run_summary/build.py`.
+- **Traces:** collector documents mechanical phases, not a universal cognitive staging model.
+
+### 3.3 Optional hardening (not blockers)
+
+- Split **`run_summary/build.py`** when the next large change touches it (orchestration vs mission-flow builders).
+- Add tests for **tracing / review / run_summary** when those modules churn (core mission-flow tests already exist).
+- **`OrchestrationPack`** types **`run_orchestration_kernel_loop`**; optional hooks like **`wire_identity_trace_cb`** stay duck-typed (`hasattr`) and are **not** part of the Protocol.
+
+### 3.4 Open design questions (for the next coding agent)
+
+These are **explicitly not closed**—they are small, visible follow-ups:
+
+1. **Mechanical status surface** — Iteration and host-visible progress belong on **`KernelTraceCollector`** and **`KernelLoopResult.trace_events`** (then canonical trace / persistence), not a parallel callback on the loop driver. The unused **`progress_cb`** parameter on **`run_orchestration_kernel_loop`** was removed for that bias; do not reintroduce a duplicate status channel unless tracing proves insufficient.
+
+2. **Protocol display name** — The typed seam is **`OrchestrationPack`** in **`runtime/run/contracts.py`**. That name is accurate for “implementation behind the orchestrator,” but it shares the word *pack* with prompt-pack vocabulary. A future **mechanical rename** (e.g. to **`OrchestrationAdapter`**) is an open ergonomics decision: same Protocol shape, clearer seam language. When renaming, update implementers and exports in one pass.
 
 ---
 
-## 5. Naming Direction
+## 4. Target shape (reconciled with the tree)
 
-The following naming moves are favored.
+Original brief targets map to the **current** tree as follows:
 
-### 5.1 Orchestration
+| Intent | Current location |
+|--------|------------------|
+| Single-cycle orchestration | `runtime/run/` (`orchestrator.py`, `contracts.py`) |
+| Continuity / observability telemetry | `runtime/memory/` |
+| Shared mission understanding | `mission_state/` |
+| Multi-cycle mission coordination | `runtime/mission/` (wire/API: **`mission_flow`**) |
+| Canonical tracing | `tracing/` |
+| Human review bundles | `review/` |
+| Derived run inspection | `run_summary/` |
 
-- `orchestration_kernel/` -> `orchestration/`
-- `kernel.py` -> `orchestrator.py`
+Further file splits (e.g. moving coercion helpers out of `orchestrator.py`) are optional polish.
 
-The file is not “a kernel” in any explanatory sense.
-It is the bounded per-run orchestrator.
+---
 
-### 5.2 Mission flow
+## 5. Naming (settled vs historical)
 
-- `mission_runtime/` -> `mission_flow/` or `mission_orchestration/`
+Moves from the **original** brief that are **done or superseded**:
 
-Preferred bias:
+- Driver file: **`orchestrator.py`** in `runtime/run/` (no `kernel.py` under harness).
+- Multi-cycle package: **`runtime/mission/`**; canonical **wire name `mission_flow`** for traces/summaries/review.
+- Inspection package: **`run_summary/`** with `models.py` + `build.py`.
+- **`run_progress_frame`:** removed from harness; no builders read that snapshot shape.
 
-- use `mission_flow/` unless a better name becomes clearly superior
+Older type renames (`MissionLedger`, `ModeRecommendation`, …) are historical; see **`runtime/mission/contracts.py`** for current coordination types.
 
-This subsystem coordinates mission-level cycles and transitions.
-It is not the lowest-level runtime substrate.
-
-### 5.3 Mission coordination record
-
-- `MissionLedger` -> `MissionRecord` or `MissionCoordinationState`
-
-Preferred bias:
-
-- `MissionRecord`
-
-The data structure is a mission-level coordination record, not a semantic ledger.
-
-### 5.4 Mode cycle result naming
-
-- `ModeRecommendation` -> `ModeCycleOutcome`
-
-This reduces the feel of controller scripting and better matches what the object really is:
-
-- the outcome/disposition of one mode cycle
-
-### 5.5 Inspection envelope naming
-
-- `run_state.py` -> `run_summary.py` or `run_envelope.py`
-
-Preferred bias:
-
-- `run_summary.py` if the emphasis is inspection
-- `run_envelope.py` if the emphasis is normalized carriage
-
-Do not keep `run_state.py` if the file is not representing active live state.
-
-### 5.6 Prompt carriage naming
-
-If `run_progress_frame.py` survives, it should be renamed around what it actually is:
-
-- prompt context snapshot
-- run snapshot
-- prompt run snapshot
-
-But the default bias is:
-
-- delete it unless it clearly earns a seat
+**Run-loop seam (Protocol):** today’s name is **`OrchestrationPack`**. Whether to keep *pack* or rename (e.g. **`OrchestrationAdapter`**) is an open preference—see **§3.4**.
 
 ---
 
@@ -376,49 +209,30 @@ Do not let orchestration become the hiding place for prompt packet builders.
 
 ---
 
-## 7. What Should Probably Be Deleted
+## 7. Deletion / cleanup posture (updated)
 
-The following surfaces should be treated as guilty until proven necessary:
+**Already removed (harness):** `run_progress_frame`-style builders; legacy wire-key merges in parsers; product-specific fields on shared inspection models (see §3.2).
 
-- `backend/harness/orchestration_kernel/run_progress_frame.py`
-- stale phase-shaped emitters or helpers inside `trace_collector.py`
-- orchestration-local counters/fields in `loop_memory.py` that no longer express generic mechanical necessity
-- duplicated seam models that exist both in `kernel.py` and `contracts.py`
+**Still treat as guilty until necessary:**
 
-Do not preserve a helper just because it has tests or because it was useful under the older shape.
+- Any **new** prompt-facing packet builders hiding under `runtime/run/` instead of an explicit prompt/context area.
+- **Stale phase vocabulary** reappearing on trace emitters (mechanical-only policy; see §14.1).
 
 ---
 
-## 8. What Should Probably Be Split
+## 8. Splits and file weight (updated)
 
-### 8.1 Orchestrator file
+### 8.1 `orchestrator.py`
 
-`kernel.py` should not continue to own:
+Still hosts coercion helpers (`_coerce_projection`, `_coerce_action_plan`, …) alongside the loop. **Seam types and `OrchestrationPack` live in `contracts.py`.** Extracting coercion to a small helper module is optional.
 
-- context definition
-- memory state definition
-- result building
-- execution coercion helpers
-- tracing callback wiring
+### 8.2 `run_summary/build.py`
 
-Those should move to explicit files if they remain necessary.
+Still the largest harness adapter; splitting **orchestration-kernel** vs **mission-flow** builders is the natural next boundary when that file is next heavily edited.
 
-### 8.2 Inspection summary file
+### 8.3 `trace_collector.py`
 
-`run_state.py` should likely split into:
-
-- summary/envelope models
-- orchestration payload adapter
-- mission-flow payload adapter
-
-Only split once the intended boundaries are clear.
-Do not split blindly.
-
-### 8.3 Trace collector
-
-`trace_collector.py` should be reduced to generic emitted events that match the current harness shape.
-
-If separate event-building helpers are needed, use focused helpers rather than one growing collector monolith.
+Keep emitters **mechanical**; add focused helpers instead of growing a monolith if new event shapes are needed.
 
 ---
 
@@ -465,45 +279,45 @@ If traces or helpers still speak in old focus/move/plan phase language, strip th
 Do not create compatibility wrappers just to soften the cleanup.
 Delete first, reconnect cleanly.
 
----
+### 9.7 Enforce the architecture in tests, not just prose
 
-## 10. Recommended Working Sequence
+The harness now has explicit architecture guard tests in:
 
-1. Create the target folder boundaries:
-   - orchestration
-   - memory
-   - mission flow (if renaming from mission runtime in this leg)
-2. Move only the cleanly-understood files first.
-3. Rename the primary seams:
-   - `kernel.py`
-   - `MissionLedger`
-   - `ModeRecommendation`
-   - `run_state.py`
-4. Delete `run_progress_frame.py` unless a clear live need remains.
-5. Redesign loop memory into a minimal real memory subsystem.
-6. Strip stale trace-collector emitters and stale phase-shaped assumptions.
-7. Re-run targeted tests after each coherent batch.
-8. Keep the domain layer untouched unless a harness seam change genuinely requires a corresponding rename.
+- `backend/harness/test_architecture_guardrails.py`
+
+Those tests are meant to fail when shared harness drift returns. They currently cover:
+
+- banned vocabulary and deleted concepts reappearing in live harness Python
+- removed paths reappearing (`orchestration_kernel/`, `mission_runtime/`, `run_state.py`, family adapter residue, etc.)
+- generic shared-surface shape for key inspection/runtime types
+- file-size budgets on known hotspot modules so structural splits happen before new monoliths form
+
+When a future change establishes a new canonical boundary, update the guard suite in the same batch.
 
 ---
 
-## 11. Definition Of Done For This Leg
+## 10. Recommended working sequence (for remaining polish)
 
-This refactor leg is complete when:
+The **major structural leg** (runtime umbrella, `run_summary/`, legacy parser purge, boundary repair on inspection/runtime) is largely complete. Further work is **incremental**:
 
-- orchestration is a clearly named subsystem, not `kernel.py`
-- memory is a distinct shared harness subsystem
-- mission state remains separate from memory
-- mission flow/coordinator naming is explicit and non-legacy
-- prompt-facing packet shaping is either deleted or clearly placed in a prompt/context ownership area
-- trace collection no longer carries stale semantic phase vocabulary
-- inspection/read-model surfaces have names that describe what they actually are
-- the harness teaches its own architecture correctly through folder structure and file names
+1. Split **`run_summary/build.py`** when a change already touches both orchestration and mission-flow adaptation.
+2. Add **tests** for tracing/review/run_summary when editing those modules.
+3. Keep **domain / composition** layers responsible for product IDs and pipeline readiness signals; do not reintroduce them on shared harness models.
+4. Re-run **`pytest backend/harness/`** after each coherent batch and keep **`test_architecture_guardrails.py`** passing as the minimum architecture gate.
 
-The win condition is not “tests still pass.”
-The win condition is:
+---
 
-- the harness now has a shape that a fresh coding agent can read and extend without inheriting confusion
+## 11. Definition of done (this brief’s original leg)
+
+Treat the following as **substantially satisfied** in the current tree:
+
+- Orchestration is a clearly named subsystem: **`runtime/run/orchestrator.py`**, not a vague `kernel.py` under harness.
+- Memory is distinct: **`runtime/memory/`** vs **`mission_state/`**.
+- Mission coordination is explicit: **`runtime/mission/`** with wire name **`mission_flow`**.
+- Prompt/run snapshot **`run_progress_frame`** is gone from harness; inspection uses **`run_summary`** and trace-derived prompt summaries.
+- Trace collection follows **mechanical** phase policy (see §14.1).
+
+**Ongoing** (not a single PR): `run_summary/build.py` weight, broader tests, and guarding against semantic staging creep.
 
 ---
 
@@ -519,7 +333,7 @@ Legs completed in-repo (for readers matching this brief to the tree):
 
 - **Runtime (mechanical substrate):** `backend/harness/runtime/` umbrella — **`run/`** single-cycle loop (`orchestrator.py`, contracts, trace collector, `hitl_transport.py`, `loop_memory.py`); **`mission/`** multi-cycle coordination (`mission_coordinator.py`, `contracts.py`, HITL CLI helpers, …); **`memory/`** continuity + prompt-contact telemetry (`continuity.py`, `telemetry.py`). Wire tokens include `loop_family="orchestration_kernel"` and JSON key `mission_flow` (native payloads only; no alternate legacy keys in harness parsers).
 - **Run inspection read model:** `backend/harness/run_summary/` (`models.py`, `build.py` — derived envelope + payload adaptation); registry `backend/harness/run_summary_registry.py` (`register_run_summary_builder`, …). Review bundles expose the derived envelope under `run_summary` only.
-- **Removed:** `run_progress_frame.py` (dead builder); compatibility paths remain where payloads must still parse.
+- **Removed:** `run_progress_frame.py` (dead builder); harness parsers accept **native wire only** (product-side migration for old artifacts is outside `backend/harness/`).
 
 ---
 
@@ -597,6 +411,6 @@ Stale harness artifacts are failures when they **silently reintroduce semantic s
 
 - Harness surfaces describe **mechanics**, not **hidden semantic choreography**.
 - **Shared runtime** must not quietly absorb **family-specific meaning**.
-- **Compatibility** exists to **read old things**, not to **define** new architecture.
+- **Compatibility** for superseded wire keys is **not** reintroduced inside `backend/harness/`; normalization of old artifacts is a **composition** concern.
 - **Inspection** code (`run_summary`, review) must not become an unbounded monolith.
 - **Repository structure and names** are part of the architecture story—residue teaches as much as code does.

@@ -10,6 +10,7 @@ from .contracts import (
     ActionPlan,
     KernelLoopResult,
     OrchestratorContext,
+    OrchestrationPack,
     SharedStateProjection,
     TerminalEvaluation,
 )
@@ -24,6 +25,7 @@ __all__ = [
     "KernelLoopResult",
     "LoopMemoryState",
     "OrchestrationContinuity",
+    "OrchestrationPack",
     "OrchestratorContext",
     "PromptContactTelemetry",
     "ProgressDelta",

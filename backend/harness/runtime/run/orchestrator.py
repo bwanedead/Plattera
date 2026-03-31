@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable
+from typing import Any
 
 from agent_kernel.models import KernelStepRequest, StepExecutionState
 from agent_kernel.session import KernelSessionManager
@@ -12,6 +12,7 @@ from .contracts import (
     ActionPlan,
     KernelLoopResult,
     OrchestratorContext,
+    OrchestrationPack,
     SharedStateProjection,
     TerminalEvaluation,
 )
@@ -28,17 +29,23 @@ def _pack_id_from_prompt_metadata(metadata: dict[str, Any], info: dict[str, Any]
 
 def run_orchestration_kernel_loop(
     *,
-    orchestration_pack: Any,
+    orchestration_pack: OrchestrationPack,
     session_manager: KernelSessionManager,
     session_id: str,
     run_artifact_ref: str | None,
     request_id_prefix: str,
     opaque_run_context: dict[str, Any] | None = None,
     max_iterations: int,
-    progress_cb: Callable[[dict[str, Any]], None] | None = None,
     resume_hitl_response: dict[str, Any] | None = None,
 ) -> KernelLoopResult:
-    """Drive a minimal generic mission loop skeleton."""
+    """Drive the bounded per-run loop; ``orchestration_pack`` implements ``OrchestrationPack``.
+
+    Mechanical run status is emitted only through ``KernelTraceCollector`` (see
+    ``KernelLoopResult.trace_events``)—no parallel host progress callback.
+
+    Packs may optionally define ``wire_identity_trace_cb`` for LLM identity tracing; that hook is
+    not part of the protocol and is discovered via ``hasattr``.
+    """
     loop_memory = LoopMemoryState()
     if isinstance(resume_hitl_response, dict) and resume_hitl_response:
         loop_memory.hitl.hitl_state = "answered_unintegrated"
@@ -224,7 +231,7 @@ def run_orchestration_kernel_loop(
     )
 
 
-def _call_optional(obj: Any, name: str, *args: Any, **kwargs: Any) -> Any:
+def _call_optional(obj: OrchestrationPack, name: str, *args: Any, **kwargs: Any) -> Any:
     fn = getattr(obj, name, None)
     if not callable(fn):
         return None
