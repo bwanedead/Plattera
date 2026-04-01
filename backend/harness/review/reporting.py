@@ -5,7 +5,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from ..run_summary import SharedRunSummaryEnvelope
+from ..observability.summary import SharedRunSummaryEnvelope
 from ..tracing.schema import CanonicalTraceRecord
 
 _MAX_TOP_ITEMS = 6

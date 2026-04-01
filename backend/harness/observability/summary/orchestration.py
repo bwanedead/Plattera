@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..mission_state import ResolutionState
-from ..terminal_taxonomy import TerminalClass
+from ...mission_state import ResolutionState
+from ...terminal_taxonomy import TerminalClass
 from .common import (
     _as_bool,
     _as_dict,
@@ -17,7 +17,7 @@ from .common import (
     _event_kind,
     _first_non_empty,
 )
-from .mission_state import (
+from .state_projection import (
     _mission_flow_resolution_state_from_payload,
     _mission_state_from_components,
     _resolution_state_from_payload_dict,

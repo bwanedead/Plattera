@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from ..run_summary import (
+from ..observability.summary import (
     SharedRunSummaryEnvelope,
     build_mission_flow_run_summary,
     build_registered_run_summary,

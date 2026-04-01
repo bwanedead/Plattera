@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Callable
 
-from ..contracts import MissionRecord, ModeTransition, ModeTransitionRecommendation
+from .mission_contracts import MissionRecord, ModeTransition, ModeTransitionRecommendation
 
 
 def evaluate_mode_transition(

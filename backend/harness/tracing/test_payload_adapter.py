@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from harness.tracing.adapters.mission_flow import build_mission_flow_trace
+from harness.tracing.adapters.payload import build_mission_flow_trace
 
 
 def _payload() -> dict:

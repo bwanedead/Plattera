@@ -8,9 +8,10 @@
 ## Contracts & invariants
 
 - **Mechanics, not choreography:** Tracing and runtime helpers must describe mechanical events; they must not encode a universal semantic phase model (e.g. focus → move → plan) as harness truth. See rationale: `docs/architecture/harness/harness-sanity-refactor-brief.md` §14.
-- **Shared runtime stays generic:** Family- or mission-pack-specific meaning belongs at adapter/domain edges; narrow helpers in `runtime/mission/` must not grow into family policy hosts without an explicit boundary.
+- **Shared runtime stays generic:** Family- or mission-pack-specific meaning belongs at adapter/domain edges; orchestration helpers may host generic mode/runtime support, but they must not grow into family policy hosts.
 - **Native wire only:** Harness accepts and produces the current wire vocabulary only (e.g. `opaque_payload`, `opaque_adapter_payload`, `pack_id`, JSON keys `mission_flow` and `orchestration_kernel`, `loop_family` values aligned with those). Do not add alternate keys, Pydantic aliases, or fallbacks for superseded names.
-- **Inspection:** `run_summary/` package (`models.py`, thin `build.py`, `orchestration.py`, `mission_flow.py`, shared helpers) is the derived read model; keep it inspection-only (see `docs/architecture/harness/run-summary-build-refactor-brief.md`).
+- **Inspection:** `observability/summary/` package (`models.py`, thin `build.py`, `orchestration.py`, `payload.py`, shared helpers) is the derived read model; keep it inspection-only (see `docs/architecture/harness/run-summary-build-refactor-brief.md`).
+- **Runtime folders are responsibility-based:** `runtime/orchestration/` holds run-scope and mission-scope orchestration plus their generic mode-support contracts; `runtime/memory/` holds continuity/telemetry/loop-local carriage; `runtime/hitl/` holds HITL transport; CLI payload helpers live in `cli/`; mission payload helpers and derived summaries live in `observability/`.
 
 ## Allowed changes
 
@@ -28,8 +29,9 @@
 
 ## Remaining convergence (when touched)
 
-- **`run_summary/`:** Builders split per `run-summary-build-refactor-brief.md` (`build.py` = entrypoints + registration; family logic in `orchestration.py` / `mission_flow.py`; shared coercion in `common.py`; prompt + mission-state helpers in dedicated modules).
-- **`runtime/run/orchestrator.py`:** Loop driver is typed against ``OrchestrationPack`` from ``contracts.py``; optional ``wire_identity_trace_cb`` stays duck-typed. No ``progress_cb``—mechanical status is trace-only (``KernelTraceCollector`` / ``KernelLoopResult.trace_events``). Open rename: ``OrchestrationPack`` → e.g. ``OrchestrationAdapter`` if clearer; see ``docs/architecture/harness/harness-sanity-refactor-brief.md`` §3.4.
+- **`observability/summary/`:** Builders split per `run-summary-build-refactor-brief.md` (`build.py` = entrypoints + registration; family logic in `orchestration.py` / `payload.py`; shared coercion in `common.py`; prompt + mission-state helpers in dedicated modules).
+- **`runtime/orchestration/orchestrator.py`:** Run-scope loop driver is typed against ``OrchestrationAdapter`` from ``contracts.py``; optional ``wire_identity_trace_cb`` stays duck-typed. No ``progress_cb``—mechanical status is trace-only (``KernelTraceCollector`` / ``KernelLoopResult.trace_events``).
+- **`runtime/orchestration/mission_orchestrator.py`:** Mission-scope orchestration lives beside run orchestration; generic mode contracts/registries/transition validation live in `runtime/orchestration/`, not a separate `mission/` bucket.
 
 ## Enforcement
 
@@ -42,7 +44,7 @@
 
 ## Canonical naming (not legacy)
 
-- **`mission_flow`:** Current native `loop_family` / JSON key for the **multi-cycle mission runtime** (traces, run-summary registration, review). It is not a removed package name; the Python home for that subsystem is `runtime/mission/`. Do not confuse “old `mission_flow/` folder” (removed) with **`mission_flow` as wire vocabulary** (still canonical).
+- **`mission_flow`:** Current native `loop_family` / JSON key for the **multi-cycle mission runtime** (traces, run-summary registration, review). It is wire vocabulary only; do not reintroduce a vague `mission/` ownership bucket just because the wire token contains “mission”.
 - **`orchestration_kernel`:** Current native `loop_family` / JSON key for the **single-cycle orchestration kernel** loop (`run_orchestration_kernel_loop`, kernel trace persistence).
 
 ## No domain/family semantics in harness

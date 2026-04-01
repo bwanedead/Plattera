@@ -53,7 +53,7 @@ Current harness tests cover:
   - transition capability rejection
   - typed mode-context execution adapter flow
 
-- `backend/harness/runtime/run/test_progress.py`
+- `backend/harness/runtime/orchestration/test_progress.py`
   - mechanical progress evaluation
 
 - `backend/harness/test_architecture_guardrails.py`
@@ -126,10 +126,10 @@ The harness should have explicit tests at four layers:
 
 Target files:
 
-- `backend/harness/runtime/run/orchestrator.py`
-- `backend/harness/runtime/run/trace_collector.py`
-- `backend/harness/runtime/run/hitl_transport.py`
-- `backend/harness/runtime/run/loop_memory.py`
+- `backend/harness/runtime/orchestration/orchestrator.py`
+- `backend/harness/runtime/orchestration/trace_collector.py`
+- `backend/harness/runtime/hitl/transport.py`
+- `backend/harness/runtime/memory/loop_state.py`
 
 What is missing:
 
@@ -144,7 +144,7 @@ What is missing:
 
 Recommended test module:
 
-- `backend/harness/runtime/run/test_orchestrator.py`
+- `backend/harness/runtime/orchestration/test_orchestrator.py`
 
 Minimum cases:
 
@@ -159,9 +159,9 @@ Minimum cases:
 
 Target files:
 
-- `backend/harness/runtime/mission/observability.py`
-- `backend/harness/runtime/mission/registry.py`
-- `backend/harness/runtime/mission/cli_support.py`
+- `backend/harness/observability/payload.py`
+- `backend/harness/runtime/orchestration/mode_registry.py`
+- `backend/harness/cli/payload.py`
 
 What is missing:
 
@@ -173,7 +173,7 @@ What is missing:
 
 Recommended test module:
 
-- `backend/harness/runtime/mission/test_observability.py`
+- `backend/harness/observability/test_payload.py`
 
 Minimum cases:
 
@@ -190,7 +190,7 @@ Target files:
 - `backend/harness/tracing/service.py`
 - `backend/harness/tracing/builder.py`
 - `backend/harness/tracing/adapters/kernel_direct.py`
-- `backend/harness/tracing/adapters/mission_flow.py`
+- `backend/harness/tracing/adapters/payload.py`
 - `backend/harness/tracing/rationale_continuity_strip.py`
 
 What is missing:
@@ -206,7 +206,7 @@ Recommended test modules:
 
 - `backend/harness/tracing/test_service.py`
 - `backend/harness/tracing/test_kernel_direct.py`
-- `backend/harness/tracing/test_mission_flow_adapter.py`
+- `backend/harness/tracing/test_payload_adapter.py`
 - `backend/harness/tracing/test_rationale_continuity_strip.py`
 
 Minimum cases:
@@ -222,8 +222,8 @@ Minimum cases:
 
 Target files:
 
-- `backend/harness/run_summary/build.py`
-- `backend/harness/run_summary/models.py`
+- `backend/harness/observability/summary/build.py`
+- `backend/harness/observability/summary/models.py`
 
 What is missing:
 
@@ -235,8 +235,8 @@ What is missing:
 
 Recommended test modules:
 
-- `backend/harness/run_summary/test_build_orchestration.py`
-- `backend/harness/run_summary/test_build_mission_flow.py`
+- `backend/harness/observability/summary/test_build_orchestration.py`
+- `backend/harness/observability/summary/test_build_payload.py`
 
 Minimum cases:
 
@@ -341,7 +341,7 @@ With repo venv active:
 
 - future focused slices
   - `pytest backend/harness/tracing -q`
-  - `pytest backend/harness/run_summary -q`
+  - `pytest backend/harness/observability/summary -q`
   - `pytest backend/harness/review -q`
 
 If directory-local test packages do not exist yet, create them as part of the suite build-out.
@@ -355,7 +355,7 @@ Build the missing suite in this order:
 1. tracing service + adapters
 2. run summary builders
 3. review/reporting
-4. runtime/run orchestrator behavior
+4. runtime/orchestration orchestrator behavior
 5. end-to-end composition tests
 
 Why this order:

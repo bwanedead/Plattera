@@ -73,35 +73,35 @@ backend/harness/
   mission_state/              # MissionState, ResolutionState (shared work-understanding model)
   runtime/                    # mechanical substrate (umbrella package)
     memory/                   # continuity + prompt-contact telemetry
-    run/                      # single-cycle orchestration kernel loop
+    orchestration/            # single-cycle orchestration kernel loop
       orchestrator.py         # run_orchestration_kernel_loop
-      contracts.py            # OrchestratorContext, OrchestrationPack (Protocol), KernelLoopResult, …
-      trace_collector.py, loop_memory.py, hitl_transport.py, progress.py
+      contracts.py            # OrchestratorContext, OrchestrationAdapter (Protocol), KernelLoopResult, …
+      trace_collector.py, progress.py, mission_orchestrator.py
     mission/                  # multi-cycle coordination; wire family name: mission_flow
-      mission_coordinator.py, contracts.py, observability.py, registry.py, cli_support.py, …
+      mission_contracts.py, mode_registry.py, mode_transition.py, …
       capabilities/transition.py
-  run_summary/                # inspection envelope (models.py + build.py)
+  observability/summary/      # inspection envelope (models.py + build.py)
   tracing/                    # canonical traces, service, registry, persistence, rationale strip
   review/                     # reporting + review-bundle assembler
-  run_summary_registry.py, terminal_taxonomy.py, agents.md, test_*.py, test_fixtures/
+  terminal_taxonomy.py, agents.md, test_*.py, test_fixtures/
 ```
 
-There is **no** `backend/harness/orchestration_kernel/` or `backend/harness/mission_runtime/` directory. The **wire token** `loop_family="orchestration_kernel"` still names the single-cycle family in traces and run summaries; Python code lives under `runtime/run/`.
+There is **no** `backend/harness/orchestration_kernel/` or `backend/harness/mission_runtime/` directory. The **wire token** `loop_family="orchestration_kernel"` still names the single-cycle family in traces and run summaries; Python code lives under `runtime/orchestration/`.
 
 ### 3.2 Sanity legs already landed (summary)
 
 - **Runtime umbrella:** `run/` vs `mission/` vs `memory/` separation is in place.
-- **Inspection:** `run_summary/` replaces the old monolithic “run_state” story; review bundles use `run_summary` only.
+- **Inspection:** `observability/summary/` replaces the old monolithic “run_state” story; review bundles use `run_summary` only.
 - **Parsers:** harness no longer merges legacy wire keys (`domain_payload`, `mission_runtime`, …); native payloads only—product migration belongs outside `harness/`.
 - **Boundary repair:** shared read models avoid product semantics (`RequestSummary` has no dossier field; `VerificationSummary` has no mapping-specific readiness); `OrchestratorContext` + trace `request_start` use **`opaque_run_context`** for caller-owned context.
-- **Dead inspection paths:** `run_progress_frame` fallbacks removed from `run_summary/build.py`.
+- **Dead inspection paths:** `run_progress_frame` fallbacks removed from `observability/summary/build.py`.
 - **Traces:** collector documents mechanical phases, not a universal cognitive staging model.
 
 ### 3.3 Optional hardening (not blockers)
 
-- Split **`run_summary/build.py`** when the next large change touches it (orchestration vs mission-flow builders).
+- Split **`observability/summary/build.py`** when the next large change touches it (orchestration vs mission-flow builders).
 - Add tests for **tracing / review / run_summary** when those modules churn (core mission-flow tests already exist).
-- **`OrchestrationPack`** types **`run_orchestration_kernel_loop`**; optional hooks like **`wire_identity_trace_cb`** stay duck-typed (`hasattr`) and are **not** part of the Protocol.
+- **`OrchestrationAdapter`** types **`run_orchestration_kernel_loop`**; optional hooks like **`wire_identity_trace_cb`** stay duck-typed (`hasattr`) and are **not** part of the Protocol.
 
 ### 3.4 Open design questions (for the next coding agent)
 
@@ -109,7 +109,7 @@ These are **explicitly not closed**—they are small, visible follow-ups:
 
 1. **Mechanical status surface** — Iteration and host-visible progress belong on **`KernelTraceCollector`** and **`KernelLoopResult.trace_events`** (then canonical trace / persistence), not a parallel callback on the loop driver. The unused **`progress_cb`** parameter on **`run_orchestration_kernel_loop`** was removed for that bias; do not reintroduce a duplicate status channel unless tracing proves insufficient.
 
-2. **Protocol display name** — The typed seam is **`OrchestrationPack`** in **`runtime/run/contracts.py`**. That name is accurate for “implementation behind the orchestrator,” but it shares the word *pack* with prompt-pack vocabulary. A future **mechanical rename** (e.g. to **`OrchestrationAdapter`**) is an open ergonomics decision: same Protocol shape, clearer seam language. When renaming, update implementers and exports in one pass.
+2. **Protocol display name** — The typed seam is **`OrchestrationAdapter`** in **`runtime/orchestration/contracts.py`**. This is the clearer seam language for “implementation behind the orchestrator.”
 
 ---
 
@@ -119,13 +119,13 @@ Original brief targets map to the **current** tree as follows:
 
 | Intent | Current location |
 |--------|------------------|
-| Single-cycle orchestration | `runtime/run/` (`orchestrator.py`, `contracts.py`) |
+| Single-cycle orchestration | `runtime/orchestration/` (`orchestrator.py`, `contracts.py`) |
 | Continuity / observability telemetry | `runtime/memory/` |
 | Shared mission understanding | `mission_state/` |
-| Multi-cycle mission coordination | `runtime/mission/` (wire/API: **`mission_flow`**) |
+| Multi-cycle mission coordination | `runtime/orchestration/mission_orchestrator.py` + mission-flow support surfaces |
 | Canonical tracing | `tracing/` |
 | Human review bundles | `review/` |
-| Derived run inspection | `run_summary/` |
+| Derived run inspection | `observability/summary/` |
 
 Further file splits (e.g. moving coercion helpers out of `orchestrator.py`) are optional polish.
 
@@ -135,14 +135,14 @@ Further file splits (e.g. moving coercion helpers out of `orchestrator.py`) are 
 
 Moves from the **original** brief that are **done or superseded**:
 
-- Driver file: **`orchestrator.py`** in `runtime/run/` (no `kernel.py` under harness).
-- Multi-cycle package: **`runtime/mission/`**; canonical **wire name `mission_flow`** for traces/summaries/review.
-- Inspection package: **`run_summary/`** with `models.py` + `build.py`.
+- Driver file: **`orchestrator.py`** in `runtime/orchestration/` (no `kernel.py` under harness).
+- Multi-cycle orchestration lives in **`runtime/orchestration/mission_orchestrator.py`**; canonical **wire name `mission_flow`** remains for traces/summaries/review.
+- Inspection package: **`observability/summary/`** with `models.py` + `build.py`.
 - **`run_progress_frame`:** removed from harness; no builders read that snapshot shape.
 
-Older type renames (`MissionLedger`, `ModeRecommendation`, …) are historical; see **`runtime/mission/contracts.py`** for current coordination types.
+Older type renames (`MissionLedger`, `ModeRecommendation`, …) are historical; see **`runtime/orchestration/mission_contracts.py`** for current coordination types.
 
-**Run-loop seam (Protocol):** today’s name is **`OrchestrationPack`**. Whether to keep *pack* or rename (e.g. **`OrchestrationAdapter`**) is an open preference—see **§3.4**.
+**Run-loop seam (Protocol):** today’s name is **`OrchestrationAdapter`**.
 
 ---
 
@@ -215,7 +215,7 @@ Do not let orchestration become the hiding place for prompt packet builders.
 
 **Still treat as guilty until necessary:**
 
-- Any **new** prompt-facing packet builders hiding under `runtime/run/` instead of an explicit prompt/context area.
+- Any **new** prompt-facing packet builders hiding under `runtime/orchestration/` instead of an explicit prompt/context area.
 - **Stale phase vocabulary** reappearing on trace emitters (mechanical-only policy; see §14.1).
 
 ---
@@ -224,9 +224,9 @@ Do not let orchestration become the hiding place for prompt packet builders.
 
 ### 8.1 `orchestrator.py`
 
-Still hosts coercion helpers (`_coerce_projection`, `_coerce_action_plan`, …) alongside the loop. **Seam types and `OrchestrationPack` live in `contracts.py`.** Extracting coercion to a small helper module is optional.
+Still hosts coercion helpers (`_coerce_projection`, `_coerce_action_plan`, …) alongside the loop. **Seam types and `OrchestrationAdapter` live in `contracts.py`.** Extracting coercion to a small helper module is optional.
 
-### 8.2 `run_summary/build.py`
+### 8.2 `observability/summary/build.py`
 
 Still the largest harness adapter; splitting **orchestration-kernel** vs **mission-flow** builders is the natural next boundary when that file is next heavily edited.
 
@@ -298,9 +298,9 @@ When a future change establishes a new canonical boundary, update the guard suit
 
 ## 10. Recommended working sequence (for remaining polish)
 
-The **major structural leg** (runtime umbrella, `run_summary/`, legacy parser purge, boundary repair on inspection/runtime) is largely complete. Further work is **incremental**:
+The **major structural leg** (runtime umbrella, `observability/summary/`, legacy parser purge, boundary repair on inspection/runtime) is largely complete. Further work is **incremental**:
 
-1. Split **`run_summary/build.py`** when a change already touches both orchestration and mission-flow adaptation.
+1. Split **`observability/summary/build.py`** when a change already touches both orchestration and mission-flow adaptation.
 2. Add **tests** for tracing/review/run_summary when editing those modules.
 3. Keep **domain / composition** layers responsible for product IDs and pipeline readiness signals; do not reintroduce them on shared harness models.
 4. Re-run **`pytest backend/harness/`** after each coherent batch and keep **`test_architecture_guardrails.py`** passing as the minimum architecture gate.
@@ -311,13 +311,13 @@ The **major structural leg** (runtime umbrella, `run_summary/`, legacy parser pu
 
 Treat the following as **substantially satisfied** in the current tree:
 
-- Orchestration is a clearly named subsystem: **`runtime/run/orchestrator.py`**, not a vague `kernel.py` under harness.
+- Orchestration is a clearly named subsystem: **`runtime/orchestration/orchestrator.py`**, not a vague `kernel.py` under harness.
 - Memory is distinct: **`runtime/memory/`** vs **`mission_state/`**.
-- Mission coordination is explicit: **`runtime/mission/`** with wire name **`mission_flow`**.
-- Prompt/run snapshot **`run_progress_frame`** is gone from harness; inspection uses **`run_summary`** and trace-derived prompt summaries.
+- Mission coordination is explicit: **`runtime/orchestration/mission_orchestrator.py`** with wire name **`mission_flow`**.
+- Prompt/run snapshot **`run_progress_frame`** is gone from harness; inspection uses **`observability/summary`** and trace-derived prompt summaries.
 - Trace collection follows **mechanical** phase policy (see §14.1).
 
-**Ongoing** (not a single PR): `run_summary/build.py` weight, broader tests, and guarding against semantic staging creep.
+**Ongoing** (not a single PR): `observability/summary/build.py` weight, broader tests, and guarding against semantic staging creep.
 
 ---
 
@@ -331,8 +331,8 @@ Bring the harness into a structure where every shared subsystem is named for wha
 
 Legs completed in-repo (for readers matching this brief to the tree):
 
-- **Runtime (mechanical substrate):** `backend/harness/runtime/` umbrella — **`run/`** single-cycle loop (`orchestrator.py`, contracts, trace collector, `hitl_transport.py`, `loop_memory.py`); **`mission/`** multi-cycle coordination (`mission_coordinator.py`, `contracts.py`, HITL CLI helpers, …); **`memory/`** continuity + prompt-contact telemetry (`continuity.py`, `telemetry.py`). Wire tokens include `loop_family="orchestration_kernel"` and JSON key `mission_flow` (native payloads only; no alternate legacy keys in harness parsers).
-- **Run inspection read model:** `backend/harness/run_summary/` (`models.py`, `build.py` — derived envelope + payload adaptation); registry `backend/harness/run_summary_registry.py` (`register_run_summary_builder`, …). Review bundles expose the derived envelope under `run_summary` only.
+- **Runtime (mechanical substrate):** `backend/harness/runtime/` umbrella — **`orchestration/`** single-run and mission-scope orchestration plus generic mode-support contracts/registry/transition validation (`orchestrator.py`, `mission_orchestrator.py`, `contracts.py`, `mission_contracts.py`, `mode_registry.py`, `mode_transition.py`, trace collector, progress); **`memory/`** continuity + prompt-contact telemetry + loop-local memory (`continuity.py`, `telemetry.py`, `loop_state.py`); **`hitl/`** transport and CLI helpers (`transport.py`, `watch.py`, `inject.py`). Outside runtime, **`cli/`** owns CLI payload shaping and **`observability/`** owns mission payload observation/parsing. Wire tokens include `loop_family="orchestration_kernel"` and JSON key `mission_flow` (native payloads only; no alternate legacy keys in harness parsers).
+- **Run inspection read model:** `backend/harness/observability/summary/` (`models.py`, `build.py` — derived envelope + payload adaptation; `registry.py` = builder registry). Review bundles expose the derived envelope under `run_summary` only.
 - **Removed:** `run_progress_frame.py` (dead builder); harness parsers accept **native wire only** (product-side migration for old artifacts is outside `backend/harness/`).
 
 ---
@@ -345,7 +345,7 @@ This section explains *why* specific remaining items are called out in strict re
 
 ### 14.1 Trace collector: stale semantic staging vocabulary
 
-`trace_collector` (under `backend/harness/runtime/run/`) must describe **mechanics**, not a universal agent “grammar.”
+`trace_collector` (under `backend/harness/runtime/orchestration/`) must describe **mechanics**, not a universal agent “grammar.”
 
 Methods or events that encode phases such as **focus selection**, **move resolution**, or **plan compilation** come from an older theory: that every run naturally decomposes into those semantic stages. That is **hidden choreography** expressed as shared harness truth.
 
@@ -369,9 +369,9 @@ The harness must not own **domain logic**, **family logic**, handoff interpretat
 - Mode adapters may attach **opaque** JSON via `MissionModeRunEnvelope.opaque_payload` (harness does not interpret keys).
 - Mission-flow observability exposes **`opaque_adapter_payload`** on the wire. Harness parsers do not merge alternate legacy coordination keys; native wire only.
 
-### 14.3 `run_summary/`: honest name, responsibilities split across modules
+### 14.3 `observability/summary/`: honest name, responsibilities split across modules
 
-`backend/harness/run_summary/` is well-named (derived inspection/read model, not live state). Models live in `models.py`; adaptation and registration live in `build.py`. The package can still grow — treat new summary concerns as a boundary decision, not a default add to `build.py`.
+`backend/harness/observability/summary/` is the derived inspection/read model, not live state. Models live in `models.py`; adaptation and registration live in `build.py`. The package can still grow — treat new summary concerns as a boundary decision, not a default add to `build.py`.
 
 **Why shape still matters**
 
@@ -412,5 +412,5 @@ Stale harness artifacts are failures when they **silently reintroduce semantic s
 - Harness surfaces describe **mechanics**, not **hidden semantic choreography**.
 - **Shared runtime** must not quietly absorb **family-specific meaning**.
 - **Compatibility** for superseded wire keys is **not** reintroduced inside `backend/harness/`; normalization of old artifacts is a **composition** concern.
-- **Inspection** code (`run_summary`, review) must not become an unbounded monolith.
+- **Inspection** code (`observability/summary`, review) must not become an unbounded monolith.
 - **Repository structure and names** are part of the architecture story—residue teaches as much as code does.

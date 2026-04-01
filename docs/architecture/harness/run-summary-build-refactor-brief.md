@@ -2,7 +2,7 @@
 
 This brief defines the next cleanup leg for:
 
-- `backend/harness/run_summary/build.py`
+- `backend/harness/observability/summary/build.py`
 
 Its purpose is simple:
 
@@ -17,7 +17,7 @@ This is a **shape and maintainability** brief, not a feature brief.
 
 ## 1. Why this file matters
 
-`run_summary/` is the shared harness inspection/read-model layer.
+`observability/summary/` is the shared harness inspection/read-model layer.
 
 That layer is important because it is the place where native harness payloads become:
 
@@ -47,7 +47,7 @@ all inside one file that feels “convenient” until it quietly turns into a se
 Current package:
 
 ```text
-backend/harness/run_summary/
+backend/harness/observability/summary/
   __init__.py
   models.py
   build.py
@@ -98,7 +98,7 @@ So this is a **modularity / drift prevention** refactor, not an anti-corruption 
 
 ### 4.1 Stay inspection-only
 
-`run_summary/` must remain a derived read-model surface.
+`observability/summary/` must remain a derived read-model surface.
 
 It must not start owning:
 
@@ -141,7 +141,7 @@ Do not over-promote helpers into “shared” modules just because that looks ti
 Recommended package shape:
 
 ```text
-backend/harness/run_summary/
+backend/harness/observability/summary/
   __init__.py
   models.py
   build.py                # tiny public entrypoints only
@@ -281,8 +281,8 @@ At minimum, keep or add direct tests for:
 
 Relevant test targets:
 
-- `backend/harness/run_summary/test_build_orchestration.py`
-- `backend/harness/run_summary/test_build_mission_flow.py`
+- `backend/harness/observability/summary/test_build_orchestration.py`
+- `backend/harness/observability/summary/test_build_payload.py`
 
 And re-run:
 
@@ -305,4 +305,4 @@ This refactor is done when:
 
 ## 11. One-line operating rule
 
-Split `run_summary/build.py` into honest inspection-layer modules so orchestration adaptation, mission-flow adaptation, shared state construction, and prompt observability stop cohabiting one expanding file.
+Split `observability/summary/build.py` into honest inspection-layer modules so orchestration adaptation, mission-flow adaptation, shared state construction, and prompt observability stop cohabiting one expanding file.

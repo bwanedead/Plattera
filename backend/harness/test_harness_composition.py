@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 
 from harness.review.tool import build_single_run_review_bundle
-from harness.run_summary.build import (
+from harness.observability.summary.build import (
     build_mission_flow_run_summary,
     build_orchestration_kernel_run_summary,
 )

@@ -11,14 +11,14 @@ from harness.execution.contracts import (
 )
 from harness.execution.session import ExecutionSessionManager
 from harness.mission_state import new_mission_state, new_resolution_state
-from harness.runtime.run.contracts import (
+from harness.runtime.orchestration.contracts import (
     ActionPlan,
-    OrchestrationPack,
+    OrchestrationAdapter,
     OrchestratorContext,
     SharedStateProjection,
     TerminalEvaluation,
 )
-from harness.runtime.run.orchestrator import run_orchestration_kernel_loop
+from harness.runtime.orchestration.orchestrator import run_orchestration_kernel_loop
 
 
 def _dashboard(*, refs: dict | None = None) -> ExecutionDashboard:
@@ -138,7 +138,7 @@ class SkipExecutionPack:
 def test_orchestrator_one_step_then_complete_trace() -> None:
     sm = FakeSessionManager()
     result = run_orchestration_kernel_loop(
-        orchestration_pack=OneStepThenCompletePack(),
+        orchestration_adapter=OneStepThenCompletePack(),
         session_manager=sm,
         session_id="s1",
         run_artifact_ref=None,
@@ -159,7 +159,7 @@ def test_orchestrator_one_step_then_complete_trace() -> None:
 def test_terminal_before_action_no_step() -> None:
     sm = FakeSessionManager()
     result = run_orchestration_kernel_loop(
-        orchestration_pack=ImmediateTerminalPack(),
+        orchestration_adapter=ImmediateTerminalPack(),
         session_manager=sm,
         session_id="s1",
         run_artifact_ref=None,
@@ -173,7 +173,7 @@ def test_terminal_before_action_no_step() -> None:
 def test_wait_for_human_no_step() -> None:
     sm = FakeSessionManager()
     result = run_orchestration_kernel_loop(
-        orchestration_pack=WaitHumanPack(),
+        orchestration_adapter=WaitHumanPack(),
         session_manager=sm,
         session_id="s1",
         run_artifact_ref=None,
@@ -187,7 +187,7 @@ def test_wait_for_human_no_step() -> None:
 def test_skip_execution_no_session_step() -> None:
     sm = FakeSessionManager()
     result = run_orchestration_kernel_loop(
-        orchestration_pack=SkipExecutionPack(),
+        orchestration_adapter=SkipExecutionPack(),
         session_manager=sm,
         session_id="s1",
         run_artifact_ref=None,
@@ -198,6 +198,6 @@ def test_skip_execution_no_session_step() -> None:
     assert len(sm.steps) == 0
 
 
-def test_orchestration_pack_protocol_typing() -> None:
-    p: OrchestrationPack = OneStepThenCompletePack()
+def test_orchestration_adapter_protocol_typing() -> None:
+    p: OrchestrationAdapter = OneStepThenCompletePack()
     assert hasattr(p, "initialize")

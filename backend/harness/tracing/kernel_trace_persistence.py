@@ -26,7 +26,7 @@ from .rationale_continuity_strip import build_rationale_continuity_strip
 from .service import build_kernel_direct_canonical_trace
 
 if TYPE_CHECKING:
-    from harness.runtime.run.contracts import KernelLoopResult
+    from harness.runtime.orchestration.contracts import KernelLoopResult
 
 
 def persist_kernel_trace(

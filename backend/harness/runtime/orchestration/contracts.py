@@ -7,7 +7,7 @@ from ...execution.session import ExecutionSessionManager
 
 from ...mission_state import MissionState, ResolutionState
 from ...terminal_taxonomy import TerminalClass
-from .loop_memory import LoopMemoryState
+from ..memory import LoopMemoryState
 
 
 @dataclass(frozen=True)
@@ -82,7 +82,7 @@ class KernelLoopResult:
 
 
 @runtime_checkable
-class OrchestrationPack(Protocol):
+class OrchestrationAdapter(Protocol):
     def initialize(self, context: OrchestratorContext) -> None: ...
 
     def sync(self, context: OrchestratorContext) -> SharedStateProjection: ...

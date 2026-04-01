@@ -4,7 +4,12 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
-from .contracts import MissionFlowCycleResult, MissionFlowRequest, MissionRecord, ModeTransition
+from ..runtime.orchestration.mission_contracts import (
+    MissionFlowCycleResult,
+    MissionFlowRequest,
+    MissionRecord,
+    ModeTransition,
+)
 
 
 @dataclass(frozen=True)

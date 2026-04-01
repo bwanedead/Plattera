@@ -10,7 +10,7 @@ _BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(_BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(_BACKEND_ROOT))
 
-from harness.runtime.mission.contracts import (
+from harness.runtime.orchestration.mission_contracts import (
     MissionBlockerPostureSummary,
     MissionFlowRequest,
     MissionModeRunEnvelope,
@@ -23,8 +23,8 @@ from harness.runtime.mission.contracts import (
     ModeTransitionRecommendation,
     TerminalRecommendation,
 )
-from harness.runtime.mission.mission_coordinator import MissionCoordinator
-from harness.runtime.mission.registry import MissionModeAdapterRegistry, ModeAdapterLookupError
+from harness.runtime.orchestration.mission_orchestrator import MissionCoordinator
+from harness.runtime.orchestration.mode_registry import MissionModeAdapterRegistry, ModeAdapterLookupError
 
 
 class FakeModeAdapter:

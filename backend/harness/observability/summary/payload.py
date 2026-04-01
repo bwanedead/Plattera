@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..runtime.mission.observability import parse_mission_observation_payload
+from ..payload import parse_mission_observation_payload
 from .common import _as_int, _as_str, _as_str_list, _as_terminal_class
-from .mission_state import (
+from .state_projection import (
     _mission_flow_resolution_state_from_payload,
     _mission_state_from_components,
 )

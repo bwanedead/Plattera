@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from harness.runtime.mission.observability import MissionObservation, parse_mission_observation_payload
+from harness.observability.payload import MissionObservation, parse_mission_observation_payload
 
 
 def _full_native_root() -> dict:

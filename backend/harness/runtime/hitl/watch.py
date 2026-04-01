@@ -14,11 +14,11 @@ Usage pattern for agent testing:
   python -m api.mission_flow_cli --mission-id myrun ... --done-file /tmp/done_myrun.json > /tmp/result_myrun.json &
 
   # 2. Watch (blocking) — exits when HITL arrives or loop finishes
-  python -m harness.runtime.mission.hitl_watch --run-id mission-myrun-tx --done-file /tmp/done_myrun.json
+  python -m harness.runtime.hitl.watch --run-id mission-myrun-tx --done-file /tmp/done_myrun.json
 
   # 3a. If event=hitl: inject feedback, then re-watch
-  python -m harness.runtime.mission.hitl_inject --loop-kind mission_flow_cli --run-id mission-myrun-tx --prompt-id <id> --choice "75"
-  python -m harness.runtime.mission.hitl_watch --run-id mission-myrun-tx --done-file /tmp/done_myrun.json
+  python -m harness.runtime.hitl.inject --loop-kind mission_flow_cli --run-id mission-myrun-tx --prompt-id <id> --choice "75"
+  python -m harness.runtime.hitl.watch --run-id mission-myrun-tx --done-file /tmp/done_myrun.json
 
   # 3b. If event=loop_done: read /tmp/result_myrun.json
 """

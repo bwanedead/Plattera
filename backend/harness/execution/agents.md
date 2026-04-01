@@ -16,7 +16,7 @@
 - Thin compatibility work that points harness runtime at this package while avoiding semantic bleed.
 
 ## Commands
-- Test: `. .venv\scripts\activate.ps1; pytest backend/harness/execution/test_execution_layer.py backend/harness/runtime/run/test_orchestrator.py backend/harness/runtime/run/test_progress.py -q`
+- Test: `. .venv\scripts\activate.ps1; pytest backend/harness/execution/test_execution_layer.py backend/harness/runtime/orchestration/test_orchestrator.py backend/harness/runtime/orchestration/test_progress.py -q`
 - Guardrails: `. .venv\scripts\activate.ps1; pytest backend/harness/test_architecture_guardrails.py -q`
 - Syntax: `. .venv\scripts\activate.ps1; Get-ChildItem backend/harness/execution/*.py | ForEach-Object { python -m py_compile $_.FullName }`
 
@@ -26,4 +26,4 @@
 
 ## Links
 - Docs: `docs/architecture/harness/harness-constitution.md`
-- Related code: `backend/harness/runtime/run/`
+- Related code: `backend/harness/runtime/orchestration/`

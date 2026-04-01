@@ -6,8 +6,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from ..mission_state import MissionState
-from ..terminal_taxonomy import TerminalClass
+from ...mission_state import MissionState
+from ...terminal_taxonomy import TerminalClass
 
 RUN_SUMMARY_ENVELOPE_VERSION = "run_summary.v1"
 LoopFamily = str

@@ -7,8 +7,8 @@ _BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(_BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(_BACKEND_ROOT))
 
-from harness.runtime.mission.capabilities.transition import evaluate_mode_transition
-from harness.runtime.mission.contracts import (
+from harness.runtime.orchestration.mode_transition import evaluate_mode_transition
+from harness.runtime.orchestration.mission_contracts import (
     MissionFlowRequest,
     MissionModeRunEnvelope,
     MissionRecord,
@@ -18,8 +18,8 @@ from harness.runtime.mission.contracts import (
     ModeInterpretation,
     ModeTransitionRecommendation,
 )
-from harness.runtime.mission.mission_coordinator import MissionCoordinator
-from harness.runtime.mission.registry import MissionModeAdapterRegistry
+from harness.runtime.orchestration.mission_orchestrator import MissionCoordinator
+from harness.runtime.orchestration.mode_registry import MissionModeAdapterRegistry
 
 
 def test_transition_capability_rejects_unknown_mode() -> None:

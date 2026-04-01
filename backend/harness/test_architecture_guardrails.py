@@ -3,8 +3,8 @@ from __future__ import annotations
 from dataclasses import fields
 from pathlib import Path
 
-from harness.run_summary.models import RequestSummary, VerificationSummary
-from harness.runtime.run.contracts import OrchestratorContext
+from harness.observability.summary.models import RequestSummary, VerificationSummary
+from harness.runtime.orchestration.contracts import OrchestratorContext
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -70,11 +70,11 @@ def test_removed_harness_paths_do_not_return() -> None:
 
 def test_current_runtime_layout_exists() -> None:
     required_paths = [
-        HARNESS_ROOT / "runtime" / "run" / "orchestrator.py",
-        HARNESS_ROOT / "runtime" / "mission" / "mission_coordinator.py",
+        HARNESS_ROOT / "runtime" / "orchestration" / "orchestrator.py",
+        HARNESS_ROOT / "runtime" / "orchestration" / "mission_orchestrator.py",
         HARNESS_ROOT / "runtime" / "memory" / "continuity.py",
         HARNESS_ROOT / "mission_state" / "contracts.py",
-        HARNESS_ROOT / "run_summary" / "models.py",
+        HARNESS_ROOT / "observability" / "summary" / "models.py",
         HARNESS_ROOT / "review" / "tool.py",
         HARNESS_ROOT / "tracing" / "service.py",
     ]
@@ -93,16 +93,16 @@ def test_shared_surface_fields_stay_generic() -> None:
 
 def test_hotspot_files_do_not_grow_past_budget() -> None:
     budgets = {
-        HARNESS_ROOT / "run_summary" / "build.py": 120,
-        HARNESS_ROOT / "run_summary" / "orchestration.py": 400,
-        HARNESS_ROOT / "run_summary" / "mission_flow.py": 220,
-        HARNESS_ROOT / "run_summary" / "mission_state.py": 130,
-        HARNESS_ROOT / "run_summary" / "prompt_observability.py": 90,
-        HARNESS_ROOT / "run_summary" / "common.py": 100,
-        HARNESS_ROOT / "runtime" / "run" / "orchestrator.py": 400,
+        HARNESS_ROOT / "observability" / "summary" / "build.py": 120,
+        HARNESS_ROOT / "observability" / "summary" / "orchestration.py": 400,
+        HARNESS_ROOT / "observability" / "summary" / "payload.py": 220,
+        HARNESS_ROOT / "observability" / "summary" / "state_projection.py": 130,
+        HARNESS_ROOT / "observability" / "summary" / "prompt_observability.py": 90,
+        HARNESS_ROOT / "observability" / "summary" / "common.py": 100,
+        HARNESS_ROOT / "runtime" / "orchestration" / "orchestrator.py": 400,
         HARNESS_ROOT / "review" / "reporting.py": 360,
         HARNESS_ROOT / "review" / "tool.py": 340,
-        HARNESS_ROOT / "runtime" / "mission" / "observability.py": 350,
+        HARNESS_ROOT / "observability" / "payload.py": 350,
     }
     failures: list[str] = []
     for path, budget in budgets.items():

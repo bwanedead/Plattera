@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from harness.run_summary.build import build_orchestration_kernel_run_summary
-from harness.run_summary.models import RUN_SUMMARY_ENVELOPE_VERSION
+from harness.observability.summary.build import build_orchestration_kernel_run_summary
+from harness.observability.summary.models import RUN_SUMMARY_ENVELOPE_VERSION
 
 
 def _payload_with_prompt_event() -> dict:

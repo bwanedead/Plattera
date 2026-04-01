@@ -11,12 +11,12 @@ from ...terminal_taxonomy import TerminalClass
 from .contracts import (
     ActionPlan,
     KernelLoopResult,
+    OrchestrationAdapter,
     OrchestratorContext,
-    OrchestrationPack,
     SharedStateProjection,
     TerminalEvaluation,
 )
-from .loop_memory import LoopMemoryState
+from ..memory import LoopMemoryState
 from .trace_collector import KernelTraceCollector
 
 _LOG = logging.getLogger(__name__)
@@ -29,7 +29,7 @@ def _pack_id_from_prompt_metadata(metadata: dict[str, Any], info: dict[str, Any]
 
 def run_orchestration_kernel_loop(
     *,
-    orchestration_pack: OrchestrationPack,
+    orchestration_adapter: OrchestrationAdapter,
     session_manager: ExecutionSessionManager,
     session_id: str,
     run_artifact_ref: str | None,
@@ -38,7 +38,7 @@ def run_orchestration_kernel_loop(
     max_iterations: int,
     resume_hitl_response: dict[str, Any] | None = None,
 ) -> KernelLoopResult:
-    """Drive the bounded per-run loop; ``orchestration_pack`` implements ``OrchestrationPack``.
+    """Drive the bounded per-run loop; ``orchestration_adapter`` implements ``OrchestrationAdapter``.
 
     Mechanical run status is emitted only through ``KernelTraceCollector`` (see
     ``KernelLoopResult.trace_events``)—no parallel host progress callback.
@@ -95,12 +95,12 @@ def run_orchestration_kernel_loop(
         )
         loop_memory.telemetry.register_llm_contact()
 
-    if hasattr(orchestration_pack, "wire_identity_trace_cb"):
-        orchestration_pack.wire_identity_trace_cb(_identity_trace_cb)  # type: ignore[attr-defined]
+    if hasattr(orchestration_adapter, "wire_identity_trace_cb"):
+        orchestration_adapter.wire_identity_trace_cb(_identity_trace_cb)  # type: ignore[attr-defined]
     if hasattr(session_manager, "wire_identity_trace_cb"):
         session_manager.wire_identity_trace_cb(_identity_trace_cb)  # type: ignore[attr-defined]
 
-    _call_optional(orchestration_pack, "initialize", context)
+    _call_optional(orchestration_adapter, "initialize", context)
 
     for iterations in range(1, max_iterations + 1):
         loop_memory.iterations = iterations
@@ -120,7 +120,7 @@ def run_orchestration_kernel_loop(
                 tracer=tracer,
             )
 
-        projection = _coerce_projection(_call_optional(orchestration_pack, "sync", context))
+        projection = _coerce_projection(_call_optional(orchestration_adapter, "sync", context))
         if projection is not None:
             loop_memory.continuity.mission_state = projection.mission_state
             loop_memory.continuity.resolution_state = projection.resolution_state
@@ -132,7 +132,7 @@ def run_orchestration_kernel_loop(
                 or loop_memory.continuity.active_item_id
             )
 
-        terminal = _coerce_terminal_evaluation(_call_optional(orchestration_pack, "evaluate_terminal", context, projection))
+        terminal = _coerce_terminal_evaluation(_call_optional(orchestration_adapter, "evaluate_terminal", context, projection))
         if terminal is not None:
             return _make_result(
                 loop_memory=loop_memory,
@@ -144,7 +144,7 @@ def run_orchestration_kernel_loop(
                 tracer=tracer,
             )
 
-        action_plan = _coerce_action_plan(_call_optional(orchestration_pack, "choose_action", context, projection))
+        action_plan = _coerce_action_plan(_call_optional(orchestration_adapter, "choose_action", context, projection))
         if action_plan is None:
             continue
 
@@ -227,7 +227,7 @@ def run_orchestration_kernel_loop(
     )
 
 
-def _call_optional(obj: OrchestrationPack, name: str, *args: Any, **kwargs: Any) -> Any:
+def _call_optional(obj: OrchestrationAdapter, name: str, *args: Any, **kwargs: Any) -> Any:
     fn = getattr(obj, name, None)
     if not callable(fn):
         return None

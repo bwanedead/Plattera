@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from .adapters.kernel_direct import build_kernel_direct_trace
-from .adapters.mission_flow import build_mission_flow_trace
+from .adapters.payload import build_mission_flow_trace
 from .registry import (
     TraceFamilyLookupError,
     iter_trace_families,

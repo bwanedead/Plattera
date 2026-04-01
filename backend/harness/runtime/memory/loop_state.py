@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from ..memory.continuity import OrchestrationContinuity
-from ..memory.telemetry import PromptContactTelemetry
-from .hitl_transport import HitlTransportPosture
+from .continuity import OrchestrationContinuity
+from .telemetry import PromptContactTelemetry
+from ..hitl.transport import HitlTransportPosture
 
 
 @dataclass

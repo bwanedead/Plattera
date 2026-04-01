@@ -3,8 +3,8 @@ from __future__ import annotations
 from time import time
 from typing import Any, Callable
 
-from .capabilities.transition import evaluate_mode_transition
-from .contracts import (
+from ...observability.payload import build_mission_observation_from_runtime
+from .mission_contracts import (
     MissionFlowCoordinator,
     MissionFlowCycleResult,
     MissionFlowRequest,
@@ -20,8 +20,8 @@ from .contracts import (
     TerminalRecommendation,
     build_mission_record_view,
 )
-from .observability import build_mission_observation_from_runtime
-from .registry import MissionModeAdapterRegistry
+from .mode_registry import MissionModeAdapterRegistry
+from .mode_transition import evaluate_mode_transition
 
 
 class MissionFlowCoordinatorError(RuntimeError):

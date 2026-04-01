@@ -4,10 +4,10 @@ This is the CLI equivalent of the UI submitting feedback via the API endpoint.
 Uses the same feedback_store mechanism the production system uses.
 
 Usage:
-  python -m harness.runtime.mission.hitl_inject \\
+  python -m harness.runtime.hitl.inject \\
     --loop-kind mission_flow_cli \\
     --run-id <run_id> \\
-    --prompt-id <prompt_id from hitl_watch output> \\
+    --prompt-id <prompt_id from watch output> \\
     --choice "<feedback>"
 """
 
@@ -56,7 +56,7 @@ def main() -> None:
         help="Feedback store loop namespace (for example mission_flow_cli).",
     )
     parser.add_argument("--run-id", required=True, help="The run_id used by the loop (request_id_prefix).")
-    parser.add_argument("--prompt-id", required=True, help="The prompt_id from the hitl_watch output.")
+    parser.add_argument("--prompt-id", required=True, help="The prompt_id from the HITL watch output.")
     parser.add_argument("--choice", required=True, help="The feedback choice value or full choice text.")
     parser.add_argument("--note", default=None, help="Optional note to include with the feedback.")
     args = parser.parse_args()

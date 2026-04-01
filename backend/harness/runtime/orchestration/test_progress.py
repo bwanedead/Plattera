@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from harness.runtime.run.contracts import ProgressMetrics
-from harness.runtime.run.progress import evaluate_progress
+from harness.runtime.orchestration.contracts import ProgressMetrics
+from harness.runtime.orchestration.progress import evaluate_progress
 
 
 def test_refresh_reports_progress_when_state_changes_from_baseline() -> None:

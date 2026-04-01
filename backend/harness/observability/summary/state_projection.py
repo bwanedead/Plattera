@@ -1,10 +1,10 @@
-"""Mission-state and resolution-state construction for run-summary inspection."""
+"""Run-summary helpers for projecting derived mission/resolution state."""
 
 from __future__ import annotations
 
 from typing import Any
 
-from ..mission_state import (
+from ...mission_state import (
     MissionState,
     ResolutionState,
     new_mission_state,

@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 from typing import Any
 
-from ...runtime.mission.observability import (
+from ...observability.payload import (
     MissionTransitionObservation,
     parse_mission_observation_payload,
 )

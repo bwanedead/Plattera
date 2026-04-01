@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Iterable
 
-from .contracts import MissionModeAdapter
+from .mission_contracts import MissionModeAdapter
 
 
 class ModeAdapterLookupError(KeyError):

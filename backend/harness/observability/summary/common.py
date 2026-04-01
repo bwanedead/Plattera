@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..terminal_taxonomy import TerminalClass
+from ...terminal_taxonomy import TerminalClass
 
 
 def _as_dict(value: Any) -> dict[str, Any]:
