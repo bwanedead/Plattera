@@ -1,8 +1,8 @@
-"""Compatibility shell for Agent Kernel v0 legacy loop execution.
+"""Retired compatibility shell for the old Agent Kernel v0 JSON loop.
 
-Canonical shared integration is step-driven ``KernelSessionManager``.
-The product-shaped JSON loop is retained only as a compatibility surface and delegates to the
-product-owned compatibility implementation in ``backend.feature_graph.kernel_compatibility``.
+Canonical shared integration is now harness-native step execution plus harness runtime.
+This module is intentionally severed from feature-graph compatibility code so dormant
+product residue cannot keep an implicit bridge into the active harness path.
 """
 
 from __future__ import annotations
@@ -53,7 +53,7 @@ class KernelLoopOutput:
 
 
 class KernelLoop:
-    """Compatibility wrapper that delegates legacy workflow execution out of shared core."""
+    """Retired compatibility wrapper kept only for explicit failure surfaces."""
 
     def __init__(
         self,
@@ -73,16 +73,11 @@ class KernelLoop:
         self._run_id_factory = run_id_factory or (lambda request: f"{request.request_id}-run-001")
 
     def run(self, request: KernelRequest) -> KernelLoopOutput:
-        from backend.feature_graph.kernel_compatibility import run_feature_graph_compatibility_kernel
-
-        return run_feature_graph_compatibility_kernel(
-            request,
-            policy=self._policy,
-            action_executor=self._action_executor,
-            persistence_service=self._persistence_service,
-            ir_graph_loader=self._ir_graph_loader,
-            no_progress_max_stagnant_repair_cycles=self._no_progress_max_stagnant_repair_cycles,
-            run_id_factory=self._run_id_factory,
+        del request
+        raise RuntimeError(
+            "agent_kernel_compatibility_loop_retired:"
+            "feature_graph_bridge_severed:"
+            "use_harness_native_execution_and_runtime"
         )
 
 
@@ -96,7 +91,7 @@ def run_kernel(
     no_progress_max_stagnant_repair_cycles: int = 2,
     run_id_factory: Callable[[KernelRequest], str] | None = None,
 ) -> KernelLoopOutput:
-    """Convenience function for one-shot kernel loop execution."""
+    """Retired one-shot compatibility entrypoint."""
     loop = KernelLoop(
         policy=policy,
         action_executor=action_executor,

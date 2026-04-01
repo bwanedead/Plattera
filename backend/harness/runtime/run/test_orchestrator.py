@@ -2,22 +2,14 @@
 
 from __future__ import annotations
 
-from typing import Any
-
-import pytest
-
-from agent_kernel.models import (
-    KernelClaimabilityStatus,
-    KernelDashboard,
-    KernelFailureClassification,
-    KernelGapSummary,
-    KernelLatestRefs,
-    KernelNoProgressRisk,
-    KernelStepRequest,
-    KernelStepResult,
-    StepExecutionState,
+from harness.execution.contracts import (
+    ExecutionDashboard,
+    ExecutionLatestRefs,
+    ExecutionState,
+    ExecutionStepRequest,
+    ExecutionStepResult,
 )
-
+from harness.execution.session import ExecutionSessionManager
 from harness.mission_state import new_mission_state, new_resolution_state
 from harness.runtime.run.contracts import (
     ActionPlan,
@@ -28,46 +20,29 @@ from harness.runtime.run.contracts import (
 )
 from harness.runtime.run.orchestrator import run_orchestration_kernel_loop
 
-from agent_kernel.session import KernelSessionManager
 
-
-def _dashboard(*, refs: dict | None = None) -> KernelDashboard:
-    artifact_refs: dict[str, dict[str, object]] = {}
-    if refs:
-        for k, v in refs.items():
-            artifact_refs[k] = {"ref": v, "kind": "test"}
-    return KernelDashboard(
-        latest_refs=KernelLatestRefs(artifact_refs=artifact_refs),
-        gap_summary=KernelGapSummary(),
-        claimability=KernelClaimabilityStatus(claimable_ready=True, missing_claimability=[]),
-        semantic_ready=True,
-        budgets_remaining={
-            "steps_remaining": 9,
-            "wall_time_seconds_remaining": 3600,
-            "retrieval_calls_remaining": 10,
-            "semantic_calls_remaining": 10,
-            "patch_calls_remaining": 10,
-        },
-        failure_classification=KernelFailureClassification(),
-        no_progress_risk=KernelNoProgressRisk(risk_score=0.0, basis="test"),
+def _dashboard(*, refs: dict | None = None) -> ExecutionDashboard:
+    return ExecutionDashboard(
+        latest_refs=ExecutionLatestRefs(refs=dict(refs or {})),
+        budgets_remaining={},
         last_refusal=None,
     )
 
 
-class FakeSessionManager(KernelSessionManager):
+class FakeSessionManager(ExecutionSessionManager):
     """Session manager that records steps and returns EXECUTED with optional refs."""
 
     def __init__(self) -> None:
         super().__init__()
-        self.steps: list[KernelStepRequest] = []
+        self.steps: list[ExecutionStepRequest] = []
 
-    def step(self, request: KernelStepRequest) -> KernelStepResult:  # type: ignore[override]
+    def step(self, request: ExecutionStepRequest) -> ExecutionStepResult:  # type: ignore[override]
         self.steps.append(request)
-        return KernelStepResult(
+        return ExecutionStepResult(
             session_id=request.session_id,
             idempotency_key=request.idempotency_key,
-            execution_state=StepExecutionState.EXECUTED,
-            dashboard=_dashboard(refs={"step_ref": f"artifact://{request.action_type}"}),
+            execution_state=ExecutionState.EXECUTED,
+            dashboard=_dashboard(refs={"step_ref": f"artifact://{request.action_id}"}),
         )
 
 
@@ -224,6 +199,5 @@ def test_skip_execution_no_session_step() -> None:
 
 
 def test_orchestration_pack_protocol_typing() -> None:
-    # Runtime check: pack satisfies structural protocol used by the loop driver.
     p: OrchestrationPack = OneStepThenCompletePack()
     assert hasattr(p, "initialize")

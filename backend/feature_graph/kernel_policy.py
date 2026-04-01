@@ -8,7 +8,8 @@ from __future__ import annotations
 
 from typing import Mapping, Sequence
 
-from agent_kernel.models import ActionType, KernelState
+from agent_kernel.harness_action_ids import ActionType
+from agent_kernel.models import KernelState
 from agent_kernel.policies.generic import KernelPolicy
 
 

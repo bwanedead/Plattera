@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
 
-from agent_kernel.session import KernelSessionManager
+from ...execution.session import ExecutionSessionManager
 
 from ...mission_state import MissionState, ResolutionState
 from ...terminal_taxonomy import TerminalClass
@@ -12,7 +12,7 @@ from .loop_memory import LoopMemoryState
 
 @dataclass(frozen=True)
 class OrchestratorContext:
-    session_manager: KernelSessionManager
+    session_manager: ExecutionSessionManager
     session_id: str
     loop_memory: LoopMemoryState
     request_id_prefix: str

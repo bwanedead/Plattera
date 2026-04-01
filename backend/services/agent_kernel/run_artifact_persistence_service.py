@@ -1,4 +1,4 @@
-"""Persistence service for durable Agent Kernel run artifacts."""
+"""Persistence service for durable execution run artifacts."""
 
 from __future__ import annotations
 
@@ -7,14 +7,26 @@ import os
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Protocol
 
 try:
-    from backend.agent_kernel.run_artifact import RunArtifact
-    from backend.config.paths import agent_kernel_artifacts_root, dossiers_state_root
+    from harness.execution.run_artifact import RunArtifact as HarnessRunArtifact
 except ModuleNotFoundError:
-    from agent_kernel.run_artifact import RunArtifact
+    HarnessRunArtifact = None  # type: ignore[assignment]
+
+try:
+    from agent_kernel.run_artifact import RunArtifact as LegacyRunArtifact
     from config.paths import agent_kernel_artifacts_root, dossiers_state_root
+except ModuleNotFoundError:
+    from agent_kernel.run_artifact import RunArtifact as LegacyRunArtifact
+    from config.paths import agent_kernel_artifacts_root, dossiers_state_root
+
+
+class PersistableRunArtifact(Protocol):
+    run_id: str
+
+
+RunArtifact = PersistableRunArtifact
 
 
 class RunArtifactPersistenceService:
@@ -74,17 +86,19 @@ class RunArtifactPersistenceService:
         if isinstance(existing, dict):
             index = existing
 
+        request_id = _artifact_request_id(run_artifact)
+
         entries = [
             entry
             for entry in index.get("runs", [])
             if not (
-                (entry or {}).get("request_id") == run_artifact.request_id
+                (entry or {}).get("request_id") == request_id
                 and (entry or {}).get("run_id") == run_artifact.run_id
             )
         ]
         entries.append(
             {
-                "request_id": run_artifact.request_id,
+                "request_id": request_id,
                 "run_id": run_artifact.run_id,
                 "artifact_path": str(artifact_path),
                 "saved_at": saved_at,
@@ -94,8 +108,9 @@ class RunArtifactPersistenceService:
         self._atomic_write(self._index_path, index)
 
     def save_run_artifact(self, run_artifact: RunArtifact) -> Dict[str, Any]:
-        artifact_dict = run_artifact.model_dump(mode="json")
-        request_dir = self._artifacts_root / str(run_artifact.request_id)
+        artifact_dict = _dump_run_artifact(run_artifact)
+        request_id = _artifact_request_id(run_artifact)
+        request_dir = self._artifacts_root / request_id
         artifact_path = request_dir / f"{run_artifact.run_id}.json"
         saved_at = datetime.now(timezone.utc).isoformat()
 
@@ -104,7 +119,7 @@ class RunArtifactPersistenceService:
 
         return {
             "success": True,
-            "request_id": run_artifact.request_id,
+            "request_id": request_id,
             "run_id": run_artifact.run_id,
             "path": str(artifact_path),
             "saved_at": saved_at,
@@ -115,7 +130,7 @@ class RunArtifactPersistenceService:
         payload = self._read_json_file(artifact_path)
         if payload is None:
             return None
-        return RunArtifact.model_validate(payload)
+        return _load_run_artifact(payload)
 
     def list_run_artifacts(self, request_id: Optional[str] = None) -> List[Dict[str, Any]]:
         index = self._read_json_file(self._index_path)
@@ -126,3 +141,31 @@ class RunArtifactPersistenceService:
         if request_id is None:
             return entries
         return [entry for entry in entries if (entry or {}).get("request_id") == str(request_id)]
+
+
+def _artifact_request_id(run_artifact: RunArtifact) -> str:
+    request_id = getattr(run_artifact, "request_id", None)
+    if isinstance(request_id, str) and request_id.strip():
+        return request_id.strip()
+    run_id = str(getattr(run_artifact, "run_id", "") or "").strip()
+    if run_id:
+        return run_id
+    raise ValueError("run_artifact_missing_request_or_run_id")
+
+
+def _dump_run_artifact(run_artifact: RunArtifact) -> Dict[str, Any]:
+    if hasattr(run_artifact, "model_dump"):
+        payload = run_artifact.model_dump(mode="json")  # type: ignore[call-arg]
+        if isinstance(payload, dict):
+            return payload
+    if hasattr(run_artifact, "to_dict"):
+        payload = run_artifact.to_dict()  # type: ignore[call-arg]
+        if isinstance(payload, dict):
+            return payload
+    raise TypeError("unsupported_run_artifact_type")
+
+
+def _load_run_artifact(payload: Dict[str, Any]) -> RunArtifact:
+    if HarnessRunArtifact is not None:
+        return HarnessRunArtifact.from_dict(payload)
+    return LegacyRunArtifact.model_validate(payload)

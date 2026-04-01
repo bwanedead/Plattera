@@ -3,8 +3,8 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from agent_kernel.models import KernelStepRequest, StepExecutionState
-from agent_kernel.session import KernelSessionManager
+from ...execution.contracts import ExecutionState, ExecutionStepRequest
+from ...execution.session import ExecutionSessionManager
 
 from ...mission_state import MissionState, ResolutionState
 from ...terminal_taxonomy import TerminalClass
@@ -30,7 +30,7 @@ def _pack_id_from_prompt_metadata(metadata: dict[str, Any], info: dict[str, Any]
 def run_orchestration_kernel_loop(
     *,
     orchestration_pack: OrchestrationPack,
-    session_manager: KernelSessionManager,
+    session_manager: ExecutionSessionManager,
     session_id: str,
     run_artifact_ref: str | None,
     request_id_prefix: str,
@@ -174,13 +174,13 @@ def run_orchestration_kernel_loop(
         step_request = _coerce_step_request(action_plan, session_id=session_id)
         if step_request is not None and not action_plan.skip_execution:
             step_result = session_manager.step(step_request)
-            if step_result.execution_state != StepExecutionState.EXECUTED:
+            if step_result.execution_state != ExecutionState.EXECUTED:
                 refusal = step_result.refusal
                 reason = refusal.reason_code if refusal is not None else "step_execution_refused"
                 retryable = refusal.retryable if refusal is not None else False
                 tracer.emit_execution_result(
                     iteration=iterations,
-                    action_type=str(step_request.action_type),
+                    action_type=str(step_request.action_id),
                     execution_state="refused",
                     reason_code=reason,
                     retryable=retryable,
@@ -203,17 +203,13 @@ def run_orchestration_kernel_loop(
                         tracer=tracer,
                     )
                 if step_result.dashboard is not None:
-                    loop_memory.continuity.latest_refs = step_result.dashboard.latest_refs.model_dump(
-                        mode="json"
-                    )
+                    loop_memory.continuity.latest_refs = step_result.dashboard.latest_refs.model_dump(mode="json")
             else:
                 if step_result.dashboard is not None:
-                    loop_memory.continuity.latest_refs = step_result.dashboard.latest_refs.model_dump(
-                        mode="json"
-                    )
+                    loop_memory.continuity.latest_refs = step_result.dashboard.latest_refs.model_dump(mode="json")
                 tracer.emit_execution_result(
                     iteration=iterations,
-                    action_type=str(step_request.action_type),
+                    action_type=str(step_request.action_id),
                     execution_state="executed",
                     reason_code=None,
                     retryable=None,
@@ -295,17 +291,17 @@ def _coerce_action_plan(value: Any) -> ActionPlan | None:
     )
 
 
-def _coerce_step_request(value: Any, *, session_id: str) -> KernelStepRequest | None:
+def _coerce_step_request(value: Any, *, session_id: str) -> ExecutionStepRequest | None:
     if value is None:
         return None
-    if isinstance(value, KernelStepRequest):
+    if isinstance(value, ExecutionStepRequest):
         return value
     if isinstance(value, ActionPlan):
         if value.action_type is None:
             return None
-        return KernelStepRequest(
+        return ExecutionStepRequest(
             session_id=session_id,
-            action_type=value.action_type,
+            action_id=value.action_type,
             inputs=dict(value.action_inputs),
             idempotency_key=value.idempotency_key,
         )
@@ -314,9 +310,9 @@ def _coerce_step_request(value: Any, *, session_id: str) -> KernelStepRequest | 
         inputs = value.get("inputs")
         if action_type is None:
             return None
-        return KernelStepRequest(
+        return ExecutionStepRequest(
             session_id=str(value.get("session_id") or session_id),
-            action_type=action_type,
+            action_id=action_type,
             inputs=inputs if isinstance(inputs, dict) else {},
             idempotency_key=str(value.get("idempotency_key") or ""),
         )
@@ -324,9 +320,9 @@ def _coerce_step_request(value: Any, *, session_id: str) -> KernelStepRequest | 
     inputs = getattr(value, "inputs", None)
     if action_type is None:
         return None
-    return KernelStepRequest(
+    return ExecutionStepRequest(
         session_id=str(getattr(value, "session_id", None) or session_id),
-        action_type=action_type,
+        action_id=action_type,
         inputs=inputs if isinstance(inputs, dict) else {},
         idempotency_key=str(getattr(value, "idempotency_key", "") or ""),
     )

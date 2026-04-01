@@ -74,14 +74,14 @@ async def runtime_identity() -> Dict[str, Any]:
     Runtime identity probe for proving UI and CLI are using the same backend code.
     """
     try:
-        from agent_kernel import tooling as tooling_module
+        from harness import execution as execution_module
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"runtime_identity_import_failed:{type(exc).__name__}:{exc}")
 
     root = Path(__file__).resolve().parents[2]
     files = {
         "system_endpoint": Path(__file__),
-        "tooling_module": Path(tooling_module.__file__),
+        "execution_module": Path(execution_module.__file__),
     }
 
     return {
