@@ -28,11 +28,19 @@ It is “establish trustworthy transcript state for mapping.”
 
 ---
 
-## 2. What The Domain Must Accomplish
+## 2. Semantic Mission Facets (Not A Domain Pipeline)
 
-The transcript-edit domain needs to let the agent do five kinds of work.
+The transcript-edit domain needs to support work that can be **described** as orienting, investigating, repairing, verifying, and handing off. These are **semantic mission facets**—vocabulary for doctrine, projections, and closure—not deterministic orchestration phases.
 
-### 2.1 Orient
+**Do not** implement them as a scripted state machine, ordered pipeline, or domain-owned controller inside `backend/domains/`. The harness owns loop and orchestration; nuance belongs in `prompting/branch.py`, `state/`, `execution/tool_specs.py` (affordances), and `semantics/` (closure/handoff).
+
+---
+
+## 3. What The Domain Must Accomplish (Facet Lens)
+
+The agent’s work in this domain often involves the following kinds of activity.
+
+### 3.1 Orient
 
 Understand:
 
@@ -42,7 +50,7 @@ Understand:
 - what evidence already exists
 - what the current unresolved transcript problem is
 
-### 2.2 Investigate
+### 3.2 Investigate
 
 Inspect:
 
@@ -52,7 +60,7 @@ Inspect:
 - alignment and consensus outputs
 - provenance / version history where needed
 
-### 2.3 Repair
+### 3.3 Repair
 
 Produce:
 
@@ -60,7 +68,7 @@ Produce:
 - revised per-draft content
 - revised head choice
 
-### 2.4 Verify
+### 3.4 Verify
 
 Decide:
 
@@ -69,7 +77,7 @@ Decide:
 - whether more image or draft evidence is required
 - whether human input is required
 
-### 2.5 Handoff
+### 3.5 Handoff
 
 Determine:
 
@@ -79,7 +87,7 @@ Determine:
 
 ---
 
-## 3. Domain-Owned Semantics
+## 4. Domain-Owned Semantics
 
 Transcript edit should own semantic concepts such as:
 
@@ -97,13 +105,13 @@ They do not belong in the harness.
 
 ---
 
-## 4. Tool Surface The Domain Needs
+## 5. Tool Surface The Domain Needs (Semantic Declarations Only)
 
 The domain pack should declare a semantic tool menu for transcript work.
 
 The important categories are:
 
-### 4.1 Observation tools
+### 5.1 Observation tools
 
 - `load_transcript_run_bundle`
   - load dossier/run/head/final/version context in one semantic bundle
@@ -112,7 +120,7 @@ The important categories are:
 - `load_transcript_variant`
   - fetch one specific draft/version
 
-### 4.2 Image evidence tools
+### 5.2 Image evidence tools
 
 - `image_verify`
   - inspect image evidence for a textual claim
@@ -121,14 +129,14 @@ The important categories are:
 - `load_source_image_context`
   - fetch the image(s) relevant to a transcription or segment
 
-### 4.3 Comparison tools
+### 5.3 Comparison tools
 
 - `compare_transcript_variants`
   - compare two or more draft candidates
 - `compare_transcript_to_image`
   - align a claimed text span to image evidence
 
-### 4.4 Mutation tools
+### 5.4 Mutation tools
 
 - `save_transcript_edit`
   - save an edited draft variant
@@ -139,80 +147,46 @@ The important categories are:
 - `clear_segment_final`
   - clear final selection when needed
 
-### 4.5 Regeneration/request tools
+### 5.5 Regeneration/request tools
 
 - `request_alignment_refresh`
 - `request_consensus_refresh`
 - `request_human_verification`
 
-These tools are semantic declarations only.
-Their concrete implementation belongs in product composition, not in the domain pack.
+Implementations belong in **`backend/tooling/`** (see `docs/architecture/harness/domain-pack-constitution.md`). The domain pack holds declarations in `execution/tool_specs.py` only.
 
 ---
 
-## 5. Recommended Transcript-Edit Package Shape
+## 6. Canonical First-Cut Package Shape
 
-Recommended target:
+The transcript-edit domain uses the **standard domain first-cut** (see `docs/architecture/harness/domain-pack-architecture.md` §2.1):
 
 ```text
 backend/domains/mapping/transcript_edit/
   __init__.py
   manifest.py
   domain_pack.py
-  mission_mode_adapter.py
+
   prompting/
     __init__.py
     branch.py
-    surfaces/
-      orient.py
-      repair.py
-      verify.py
-      handoff.py
+
   state/
     __init__.py
     contracts.py
     projection.py
-    hydration.py
+
   execution/
     __init__.py
     tool_specs.py
-    translator.py
-    capability_requirements.py
+
   semantics/
     __init__.py
     closure.py
-    feedback.py
     handoff.py
-  test_*.py
 ```
 
-This is the target shape.
-The initial implementation can start smaller.
-
----
-
-## 6. Recommended First-Cut Implementation
-
-To keep the first cut slim, start with:
-
-```text
-manifest.py
-domain_pack.py
-mission_mode_adapter.py
-prompting/branch.py
-execution/tool_specs.py
-state/contracts.py
-state/projection.py
-semantics/closure.py
-semantics/handoff.py
-```
-
-Then add:
-
-- `prompting/surfaces/` when prompt surfaces truly diverge
-- `state/hydration.py` once artifact hydration gets non-trivial
-- `execution/translator.py` when semantic tool-call translation needs code
-- `semantics/feedback.py` when human feedback incorporation becomes explicit
+Optional later growth (hydration, translator, capability_requirements, feedback, `prompting/surfaces/`, `mission_mode_adapter.py`) only when clearly needed—not as a stand-in for orchestration.
 
 ---
 
@@ -226,7 +200,7 @@ All domains should follow these conventions:
 2. `domain_pack.py` is always a thin host shell, never a controller.
 3. `prompting/branch.py` is always the canonical domain doctrine surface.
 4. `state/` is always the semantic state authority.
-5. `execution/` is always semantic tool declaration and translation, not provider wiring.
+5. `execution/` is always semantic tool declarations (and an optional `translator.py` when intent-mapping earns a module), never provider wiring.
 6. `semantics/` is always domain meaning like closure, feedback, and handoff.
 7. Any harness-facing adapter stays small and explicit.
 
@@ -234,7 +208,21 @@ This gives every future domain the same mental map.
 
 ---
 
-## 8. What Should Be Deleted Or Ignored
+## 8. What Must Stay Out Of The Domain Pack
+
+Do not add under `backend/domains/mapping/transcript_edit/`:
+
+- concrete tool implementations
+- provider/client wiring
+- API endpoint orchestration
+- persistence logic
+- retry/polling logic
+- a domain-side workflow engine or scripted facet pipeline
+- hidden deterministic prioritization or “next phase” machinery
+
+---
+
+## 9. What Should Be Deleted Or Ignored
 
 The transcript-edit domain should be treated as a fresh native pack effort.
 
@@ -250,18 +238,18 @@ It should not constrain the new standard if a cleaner structure is needed.
 
 ---
 
-## 9. Recommended Next Implementation Order
+## 10. Recommended Next Implementation Order
 
 1. Establish the standard domain-pack constitution and architecture docs.
 2. Rebuild transcript edit around the standard shape.
 3. Define the transcript-edit semantic tool menu.
 4. Define transcript-edit state/projection and closure/handoff semantics.
-5. Only then wire concrete tool realization outside the domain pack.
+5. Only then implement concrete tools under `backend/tooling/` (and related composition).
 
 That order keeps semantics and product composition from being tangled together.
 
 ---
 
-## 10. One-Line Rule
+## 11. One-Line Rule
 
 Build transcript edit as a bounded semantic pack that knows what trustworthy transcript work means, what tools it needs, and when it is ready to hand off — but never tries to become the harness or the product runtime.

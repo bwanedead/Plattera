@@ -9,11 +9,11 @@ It exists to prevent a specific class of regression:
 - harness mechanics leaking down into the domain layer
 - mission-specific policy being spread across ad hoc files instead of one bounded semantic bundle
 
-The harness owns machinery.
-The domain pack owns semantics.
-Product composition owns concrete realization.
+The harness owns generic machinery (`backend/harness/`).
+The domain pack owns mission semantics (`backend/domains/`).
+Concrete tool and service realization lives in tooling (`backend/tooling/`) and other composition edges as the repo evolves.
 
-That boundary is not optional.
+That three-way split is not optional. Do not fold tooling into domain packs “for convenience.”
 
 ---
 
@@ -129,27 +129,29 @@ Do not create a stack of wrappers that all partly own the same thing.
 
 ---
 
-## 6. Tooling And Product Composition Rule
+## 6. Tooling Rule (`backend/tooling/`)
 
-The domain pack may declare **semantic tool surfaces**:
+The domain pack may declare **semantic tool surfaces** (see `execution/tool_specs.py`):
 
 - tool IDs
 - what each tool is for
 - what inputs the agent should provide
-- what outputs the domain expects back
+- what outputs the domain expects back, at a semantic level
 
-The domain pack must not own **concrete provider realization**:
+The domain pack must not own **concrete tool implementation**:
 
-- API endpoint wiring
+- real tool handlers
+- API endpoint wiring and orchestration
 - service object construction
 - vendor/client setup
 - filesystem integration details
-- product-specific authorization or environment wiring
+- compare/load/mutate/refresh logic
+- retry, polling, or regeneration mechanics
 
-Those belong in a composition layer outside `backend/domains/`.
+Those belong in `backend/tooling/` (and related product composition), not under `backend/domains/`.
 
-The domain pack names what the mission needs.
-Product composition decides how the system fulfills it.
+The domain names what the mission needs semantically.
+Tooling fulfills it mechanically.
 
 ---
 
@@ -210,7 +212,9 @@ If an adapter starts doing more than translation and bounded packaging, it is to
 
 ---
 
-## 10. Transcript-Edit Example Rule
+## 10. Transcript-Edit Motivating Example
+
+Mission facets such as **orient**, **investigate**, **repair**, **verify**, and **handoff** are **semantic descriptions of the work**, not a deterministic domain-side pipeline. The harness still owns orchestration; the domain owns doctrine, state meaning, projections, tool affordances, and closure/handoff semantics—not scripted phase machines.
 
 For transcript edit specifically, the domain pack may own semantics like:
 
@@ -262,4 +266,4 @@ If any answer is no, the design is drifting out of bounds.
 
 ## 13. One-Line Rule
 
-Keep each domain pack a thin semantic skin on top of the harness: doctrine, state meaning, execution translation, closure, feedback, and handoff only — never runtime machinery or product realization.
+Keep each domain pack a thin semantic skin on top of the harness: doctrine, state meaning, semantic tool declarations, closure, feedback, and handoff only—never runtime machinery or concrete tool/product realization (that lives in `backend/tooling/`).

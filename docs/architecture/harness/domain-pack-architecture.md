@@ -20,9 +20,9 @@ A domain pack should be a **sleek semantic shell** on top of the generic harness
 
 That means:
 
-- the harness owns generic machinery
-- the domain pack owns mission semantics
-- product composition owns concrete tooling realization
+- the harness owns generic machinery (`backend/harness/`)
+- the domain pack owns mission semantics (`backend/domains/`)
+- tooling owns concrete tool handlers and service integration (`backend/tooling/`)
 
 The domain layer should be capable, but thin.
 Simplicity is better than complexity.
@@ -31,7 +31,9 @@ Simplicity is better than complexity.
 
 ## 2. Standard Layout
 
-Recommended standard layout for every domain:
+### 2.1 Default first-cut shape (canonical starting point)
+
+Use this **exact** tree for a new real domain unless a smaller seed is explicitly chosen. Do not grow beyond it until the responsibility is earned.
 
 ```text
 backend/domains/
@@ -40,33 +42,48 @@ backend/domains/
       __init__.py
       manifest.py
       domain_pack.py
-      mission_mode_adapter.py        # only when the domain needs a harness-facing adapter
+
       prompting/
         __init__.py
         branch.py
-        surfaces/                    # optional; only when distinct prompt surfaces are earned
+
       state/
         __init__.py
         contracts.py
         projection.py
-        hydration.py
+
       execution/
         __init__.py
         tool_specs.py
-        translator.py
-        capability_requirements.py
+
       semantics/
         __init__.py
         closure.py
-        feedback.py
         handoff.py
-      test_*.py
 ```
 
-This is a target convention, not a commandment that every domain must start with every file on day one.
+### 2.2 Optional growth (only when earned)
 
-Start minimal.
-Add only the modules the domain has actually earned.
+```text
+      state/
+        hydration.py
+
+      execution/
+        translator.py
+        capability_requirements.py
+
+      semantics/
+        feedback.py
+
+      prompting/
+        surfaces/
+
+      mission_mode_adapter.py
+```
+
+Add `prompting/surfaces/` only when multiple distinct authored prompt surfaces are genuinely needed—not to encode a deterministic phase pipeline. Mission “facets” (e.g. orient/repair/verify) belong in doctrine and semantics, not in a scripted domain runtime.
+
+Co-located `test_*.py` under the domain are allowed when the domain earns focused tests; they are not part of the default skeleton.
 
 ---
 
@@ -107,8 +124,10 @@ This is where the domain says:
 - what the mission world is
 - what counts as evidence here
 - what risks matter
-- what closure means here
-- how harness choreography manifests in this world
+- what good and bad reasoning look like in this world
+- vocabulary and guardrails the agent should respect
+
+It does **not** own harness loop law, orchestration order, or deterministic “phase” scripts. The harness composes prompts; the domain supplies bounded doctrine text and semantic context shapes elsewhere (`state/`, `semantics/`).
 
 This file should remain a human-readable source of truth.
 
@@ -124,6 +143,8 @@ Only add this when the domain truly has distinct prompt surfaces that need separ
 - handoff
 
 Do not split prompt text prematurely.
+
+When an extra prompt surface is earned, it should usually express a different authored granularity from `branch.py` itself, such as run-shaping procedural guidance or handoff-local doctrine. Keep these surfaces suggestive and semantic; they must not become a hidden controller script.
 
 ### 3.5 `state/contracts.py`
 
@@ -147,6 +168,8 @@ This is where generic harness state plus opaque payload becomes a clean domain v
 
 Projection is not truth.
 It is a shaped view over truth.
+
+When coercion helpers grow, keep the **public lens** in `projection.py` (scope merge + assembly) and move parsing/coercion into a sibling module such as `projection_coerce.py` so the lens file stays inspectable.
 
 ### 3.7 `state/hydration.py`
 
@@ -232,30 +255,21 @@ It must not become a hidden mission controller.
 
 ---
 
-## 4. Tooling / Composition Boundary
+## 4. Tooling Boundary
 
-The domain pack should not own real tool/provider wiring.
+The domain pack must not own real tool handlers or service wiring.
 
-Instead, use a separate composition layer outside `backend/domains/` for:
+Canonical home for concrete implementations: **`backend/tooling/`** (e.g. `backend/tooling/<family>/…`), holding:
 
-- API endpoint bindings
-- service-object wiring
-- provider/client setup
-- environment- and product-specific realization
+- real tool handlers
+- service integration
+- endpoint/service orchestration
+- persistence operations
+- image operations
+- compare/load/mutate logic
+- refresh/regeneration logic
 
-Suggested direction:
-
-```text
-backend/domain_composition/
-  <family>/
-    <domain>/
-      tool_bindings.py
-      providers.py
-      runtime_wiring.py
-```
-
-This path is a proposal, not a current repo truth.
-The important rule is the boundary, not the exact folder name.
+The domain declares **what** tools mean and **what** shapes are expected; tooling implements **how** they run. Additional composition layers may exist at the app edge; they do not replace the domains vs tooling split.
 
 ---
 
@@ -298,52 +312,23 @@ Not shared across domains:
 
 ## 7. Minimal First-Cut Domain
 
-A brand-new domain should start small.
+A brand-new domain should start with the **default first-cut shape** in §2.1 when it is a “real” domain (not a tiny experimental stub). That includes `state/contracts.py`, `state/projection.py`, `execution/tool_specs.py`, `semantics/closure.py`, and `semantics/handoff.py` alongside `manifest.py`, `domain_pack.py`, and `prompting/branch.py`.
 
-The first cut should usually be:
+Smaller seeds (manifest + domain_pack + branch only) are acceptable only when explicitly intentional; they should grow into the standard shape as soon as the domain carries real semantic state or tool menus.
 
-```text
-manifest.py
-domain_pack.py
-prompting/branch.py
-execution/tool_specs.py
-mission_mode_adapter.py      # only if the domain must plug into mission runtime immediately
-```
+Then add optional modules from §2.2 only when needed.
 
-Then add:
-
-- `state/` when the domain gains real semantic state
-- `semantics/` when closure/feedback/handoff need explicit code
-- `prompting/surfaces/` only when there are multiple substantive prompt tasks
-
-This keeps the domain layer from becoming overbuilt before it proves its needs.
+This keeps the domain layer standardized and slim—not a second harness.
 
 ---
 
 ## 8. Transcript-Edit As The First Real Domain
 
-Transcript edit is a good first domain because its mission is clear:
+Transcript edit is the reference implementation for the default first-cut shape. Its mission intent is spelled out in `docs/architecture/harness/transcript-edit-domain-brief.md` and aligns with the transcription/dossier artifact model (`docs/transcription-dossier-system-spec.md`).
 
-- inspect source images and transcript variants
-- identify unresolved text ambiguities
-- make evidence-grounded repairs
-- decide final selections
-- reach a verified enough state for downstream mapping
+It owns semantic bundles only: doctrine, state contracts, projection lens, semantic tool specs, closure meaning, handoff meaning.
 
-That means transcript edit should own:
-
-- transcript-specific doctrine
-- transcript-specific state/projection
-- transcript-specific tool menu semantics
-- transcript-specific closure and handoff semantics
-
-It should not own:
-
-- dossier persistence engines
-- alignment engines
-- consensus engines
-- API orchestration
-- generic loop mechanics
+Concrete loaders, savers, image ops, and refresh requests live in **`backend/tooling/`**, not under `backend/domains/mapping/transcript_edit/`.
 
 ---
 

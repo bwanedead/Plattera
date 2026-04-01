@@ -1,39 +1,47 @@
 # agents.md
 
 ## Scope
+
 - Folder: `backend/domains/`
-- Purpose: Domain packs as bounded semantic skins on top of the harness, with consistent package layout and strict separation from product/tool realization.
+- Purpose: Bounded **semantic** domain packs (doctrine, state meaning, projection lens, semantic tool declarations, closure/handoff meaning) on top of the generic harness—never a second runtime.
 
 ## Contracts & invariants
-- Domain packs own semantics only: doctrine, state meaning, projection, execution translation, closure, feedback, and handoff.
-- Domain packs must not own loop machinery, persistence machinery, trace machinery, or provider/client wiring.
-- `manifest.py` is identity/capabilities only; `domain_pack.py` is a thin host shell; `prompting/branch.py` is the canonical doctrine source.
-- Tool menus declared under a domain are semantic declarations only. Concrete endpoint/service/provider realization belongs outside `backend/domains/`.
-- Start minimal. Add `state/`, `execution/`, `semantics/`, or `prompting/surfaces/` only when the domain has genuinely earned them.
+
+- **Harness** (`backend/harness/`) owns loop/run mechanics, continuity, tool execution rails, tracing, run summary, review.
+- **Domains** (`backend/domains/`) own mission doctrine, semantic state meaning, projections, semantic tool **menus** (declarations only), closure/handoff/feedback **meaning**, and a thin harness-facing adapter **only if needed**.
+- **Tooling** (`backend/tooling/`) owns concrete tool handlers, service integration, persistence, image/compare/mutate/refresh logic.
+- `manifest.py` = identity and declaration only (no meaningful logic). `domain_pack.py` = thin index/bundle, not a controller. `prompting/branch.py` = canonical doctrine source for prompt text; extra domain-local guidance surfaces live under `prompting/surfaces/` only when earned.
+- Semantic mission **facets** (e.g. orient / investigate / repair / verify / handoff) are vocabulary for doctrine and semantics—not a scripted domain pipeline or state machine.
+- Prefer **deletion over compatibility** for dead domain residue; do not preserve parallel “museum” packs.
+- Add optional modules (`state/hydration.py`, `execution/translator.py`, `semantics/feedback.py`, `prompting/surfaces/`, `mission_mode_adapter.py`) only when earned.
 
 ## Allowed changes
-- Add or refine domain doctrine, state/projection, semantic tool specs, and closure/feedback/handoff logic.
-- Create new domain-pack files when they establish one clear responsibility.
-- Delete older domain scaffolding rather than preserving parallel systems.
+
+- Add or refine domain doctrine, earned prompt guidance under `prompting/surfaces/`, `state/contracts.py`, `state/projection.py`, `state/projection_coerce.py`, `execution/tool_specs.py`, `semantics/*`.
+- New domains follow the default first-cut tree in `docs/architecture/harness/domain-pack-architecture.md` §2.1.
 
 ## Commands
-- Test: `.venv\scripts\activate.ps1; pytest backend/harness -q`
-- Other: `Get-Content docs/architecture/harness/domain-pack-constitution.md`
-- Other: `Get-Content docs/architecture/harness/domain-pack-architecture.md`
-- Other: `Get-Content docs/architecture/harness/transcript-edit-domain-brief.md`
+
+- Test (harness smoke): `.venv\scripts\activate.ps1; cd backend; pytest harness/test_architecture_guardrails.py -q`
+- Test (transcript_edit pack): `.venv\scripts\activate.ps1; cd backend; pytest domains/mapping/transcript_edit/test_transcript_edit_pack.py -q`
+- Docs: `docs/architecture/harness/domain-pack-constitution.md`, `domain-pack-architecture.md`, `transcript-edit-domain-brief.md`
 
 ## Gotchas
-- Do not let `backend/domains/` become a second harness. If code looks like runtime/control flow, it is probably in the wrong layer.
-- Do not mix product IDs, endpoint wiring, or provider setup into semantic pack code.
-- Pycache residue and older transcript-edit names are not architecture. Treat them as noise unless live source still depends on them.
+
+- If code looks like orchestration, polling, HTTP, or file I/O, it belongs in **tooling** or API layers—not here.
+- Do not import dossier services, LLM clients, or FastAPI routers from domain packs.
 
 ## Patterns
-- Structure: `manifest.py`, `domain_pack.py`, `prompting/branch.py` are the default seed for every new domain.
-- Structure: When a domain grows, prefer `state/`, `execution/`, and `semantics/` subpackages over growing one large file.
+
+- Standard tree: `manifest.py`, `domain_pack.py`, `prompting/branch.py`, `state/contracts.py`, `state/projection.py`, `execution/tool_specs.py`, `semantics/closure.py`, `semantics/handoff.py`.
+- Earned prompt helpers: use `prompting/surfaces/` for additional domain-local guidance that should be included every iteration, but keep it suggestive and never turn it into a deterministic domain pipeline.
+- Projection split: keep `state/projection.py` as the public lens (scope merge + assembly); put coercion helpers in `state/projection_coerce.py` so the lens file does not become a junk drawer.
+- Avoid `Mapping[str, Any]` escape hatches on domain state contracts—extend `state/contracts.py` with real fields instead.
 
 ## Links
+
 - Docs: `docs/architecture/harness/domain-pack-constitution.md`
 - Docs: `docs/architecture/harness/domain-pack-architecture.md`
 - Docs: `docs/architecture/harness/transcript-edit-domain-brief.md`
-- Docs: `docs/architecture/harness/prompt-system-architecture.md`
 - Related code: `backend/domains/mapping/transcript_edit/`
+- Tooling home: `backend/tooling/`
