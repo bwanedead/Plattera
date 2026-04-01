@@ -21,7 +21,7 @@
 - Syntax: `. .venv\scripts\activate.ps1; Get-ChildItem backend/harness/execution/*.py | ForEach-Object { python -m py_compile $_.FullName }`
 
 ## Gotchas
-- Do not recreate `agent_kernel` protocol contamination here (compile/judge/bundle/georeference-style interfaces).
+- Do not recreate old protocol contamination here (compile/judge/bundle/georeference-style interfaces).
 - Do not add an `orientation/` subsystem unless there is a future explicit architectural decision for it.
 
 ## Links

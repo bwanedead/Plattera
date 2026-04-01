@@ -9,7 +9,7 @@ to persist forensic artifacts after a run:
 Rules (both helpers):
 - Never raises — any I/O failure returns None so callers can proceed unblocked.
 - Persists atomically (tmp-file + os.replace) next to the run artifact, or under
-  the agent_kernel artifacts root as a fallback.
+  the harness artifacts root as a fallback.
 - File name conventions:
     ``<run_id>_trace.json``           (canonical trace)
     ``<safe_prefix>_rationale_strip.json``  (D4 sidecar, same directory)
@@ -156,10 +156,10 @@ def _resolve_trace_dir(*, run_artifact_ref: str | None, request_id_prefix: str) 
         if candidate.exists():
             return candidate
     try:
-        from config.paths import agent_kernel_artifacts_root
+        from config.paths import harness_artifacts_root
     except ModuleNotFoundError:
-        from backend.config.paths import agent_kernel_artifacts_root  # type: ignore[no-redef]
-    return agent_kernel_artifacts_root() / str(request_id_prefix)
+        from backend.config.paths import harness_artifacts_root  # type: ignore[no-redef]
+    return harness_artifacts_root() / "traces" / str(request_id_prefix)
 
 
 def _atomic_write(*, path: Path, data: dict[str, Any]) -> None:
