@@ -19,22 +19,21 @@ def transcript_edit_handoff_semantics() -> TranscriptEditHandoffSemantics:
     return TranscriptEditHandoffSemantics(
         summary=(
             "Handoff means mapping-oriented consumers can trust the transcript snapshot: scope is clear, "
-            "pinned finals and authored transcript-edit output reflect evidence, and remaining risk is labeled—not hidden."
+            "the authored transcript-edit output reflects evidence, and remaining risk is labeled—not hidden."
         ),
         ready_when=(
             "Downstream readiness posture explicitly affirms trust for mapping or documents blockers.",
-            "Per-segment finals (when required by product policy) are set, or an explicit waiver notes why not.",
-            "Authored transcript-edit output and chosen variant refs align with the verification narrative.",
+            "Authored transcript-edit working/output draft and hydrated peer refs align with the verification narrative.",
             "Any human-input dependencies are either satisfied or ticketed with refs.",
         ),
         artifact_expectations=(
-            "Pointers or ids for dossier, segment, run, and chosen drafts/finals as required by tooling.",
+            "Refs for dossier, segment, run, t0 peers, and transcript-edit drafts as required by tooling.",
             "Short human-readable notes capturing residual risk acceptable to mapping.",
             "Evidence refs (image crops, draft ids) for non-obvious repairs that affect geometry-bearing language.",
         ),
         should_not_hand_off_yet=(
             "Material ambiguity on calls, bearings, curves, ties, or acreage language without disposition.",
             "Known mismatch between transcript span and imagery that changes legal reading.",
-            "Unset finals where policy demands a pinned per-segment choice.",
+            "Claiming handoff while the authored transcript-edit draft is missing or inconsistent with cited evidence.",
         ),
     )

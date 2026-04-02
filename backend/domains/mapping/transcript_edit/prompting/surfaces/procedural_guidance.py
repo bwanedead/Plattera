@@ -11,7 +11,7 @@ from ..branch import (
 TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_SOURCE_REF = (
     "backend/domains/mapping/transcript_edit/prompting/surfaces/procedural_guidance.py"
 )
-TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_VERSION = "v2"
+TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_VERSION = "v3"
 
 TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_TEXT = """\
 Use this guidance to shape your movement through transcript-edit work. This is **guidance**, not a hard script. The harness still owns orchestration. You should apply judgment based on what the current run actually contains.
@@ -34,7 +34,6 @@ That generally means establishing a baseline across the current transcript state
 - what alignment or consensus variants already exist
 - what source imagery or image regions are available (via refs)
 - whether a transcript-edit working or output draft already exists
-- what pinned per-segment finals exist when that product surface applies
 - what human feedback, prior notes, or prior closure judgments already exist
 - what external references or related materials are already present versus still absent
 

@@ -61,13 +61,12 @@ class VerificationPosture:
 
 
 @dataclass(frozen=True)
-class FinalSelectionPosture:
-    """Readiness for pinned segment finals vs authored transcript-edit output (not persistence)."""
+class TranscriptEditAuthoredDraftPosture:
+    """Posture for the agent-authored transcript-edit working/output draft (not T0 peer selection)."""
 
     narrative: str
-    selected_final_ref: str | None = None
-    authored_transcript_edit_ref: str | None = None
-    conflicts_remain: bool = False
+    working_draft_ref: str | None = None
+    output_draft_ref: str | None = None
 
 
 @dataclass(frozen=True)
@@ -88,6 +87,6 @@ class TranscriptEditSemanticState:
     evidence: EvidencePosture | None = None
     candidate_repairs: tuple[CandidateRepair, ...] = ()
     verification: VerificationPosture | None = None
-    final_selection: FinalSelectionPosture | None = None
+    authored_draft_posture: TranscriptEditAuthoredDraftPosture | None = None
     downstream: DownstreamReadinessPosture | None = None
     human_feedback_notes: tuple[str, ...] = ()

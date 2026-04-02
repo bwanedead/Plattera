@@ -8,9 +8,9 @@ from .contracts import (
     CandidateRepair,
     DownstreamReadinessPosture,
     EvidencePosture,
-    FinalSelectionPosture,
     TranscriptAmbiguity,
     TranscriptDefect,
+    TranscriptEditAuthoredDraftPosture,
     VerificationPosture,
 )
 
@@ -153,17 +153,32 @@ def coerce_verification(m: Mapping[str, Any] | None) -> VerificationPosture | No
     )
 
 
-def coerce_final_selection(m: Mapping[str, Any] | None) -> FinalSelectionPosture | None:
+def coerce_authored_draft_posture(m: Mapping[str, Any] | None) -> TranscriptEditAuthoredDraftPosture | None:
     if not m:
         return None
     narrative = pick_str(m, "narrative", "summary", "description")
     if not narrative:
         return None
-    return FinalSelectionPosture(
+    return TranscriptEditAuthoredDraftPosture(
         narrative=narrative,
-        selected_final_ref=pick_str(m, "selected_final_ref", "final_ref"),
-        authored_transcript_edit_ref=pick_str(m, "authored_transcript_edit_ref", "transcript_edit_work_ref"),
-        conflicts_remain=bool(m.get("conflicts_remain")),
+        working_draft_ref=pick_str(m, "working_draft_ref", "authored_transcript_edit_ref", "transcript_edit_work_ref"),
+        output_draft_ref=pick_str(m, "output_draft_ref", "authored_output_draft_ref"),
+    )
+
+
+def coerce_authored_draft_posture_from_legacy_final_selection(
+    m: Mapping[str, Any] | None,
+) -> TranscriptEditAuthoredDraftPosture | None:
+    """Tolerate old ``final_selection`` payloads without surfacing ``selected_final_ref`` in the domain shape."""
+    if not m:
+        return None
+    narrative = pick_str(m, "narrative", "summary", "description")
+    if not narrative:
+        return None
+    return TranscriptEditAuthoredDraftPosture(
+        narrative=narrative,
+        working_draft_ref=pick_str(m, "authored_transcript_edit_ref", "transcript_edit_work_ref", "working_draft_ref"),
+        output_draft_ref=pick_str(m, "output_draft_ref", "authored_output_draft_ref"),
     )
 
 

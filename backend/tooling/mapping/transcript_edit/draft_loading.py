@@ -34,6 +34,9 @@ class HydratedT0Draft:
 class HydrateT0DraftsResult:
     drafts: tuple[HydratedT0Draft, ...]
     errors: tuple[dict[str, Any], ...]
+    cap_exceeded: bool = False
+    omitted_ref_ids: tuple[str, ...] = ()
+    max_refs_applied: int = 8
 
 
 def _draft_text(data: dict[str, Any]) -> str:
@@ -56,20 +59,43 @@ def hydrate_t0_draft_refs(
     ref_ids: list[str],
     max_refs: int = 8,
 ) -> HydrateT0DraftsResult:
-    """Load full text for one or many ``t0:raw:<stem>`` refs; cap enforced; no merge."""
+    """Load full text for one or many ``t0:raw:<stem>`` refs; cap is explicit when partial."""
     dossier_id = str(dossier_id).strip()
     transcription_id = str(transcription_id).strip()
     cap = max(1, min(int(max_refs), 32))
-    trimmed = [str(r).strip() for r in ref_ids if str(r).strip()][:cap]
+    all_refs = [str(r).strip() for r in ref_ids if str(r).strip()]
+    cap_exceeded = len(all_refs) > cap
+    omitted = tuple(all_refs[cap:]) if cap_exceeded else ()
+    to_process = all_refs[:cap]
 
     drafts: list[HydratedT0Draft] = []
     errors: list[dict[str, Any]] = []
     raw_dir = raw_drafts_dir(dossier_id, transcription_id)
 
-    for ref_id in trimmed:
+    if cap_exceeded:
+        errors.append(
+            {
+                "code": "cap_exceeded",
+                "message": f"Requested {len(all_refs)} refs; max_refs={cap}. Only the first {cap} were hydrated.",
+                "requested_count": len(all_refs),
+                "max_refs": cap,
+                "omitted_ref_ids": list(omitted),
+            }
+        )
+
+    for ref_id in to_process:
         stem = _safe_stem_from_t0_ref(ref_id)
         if stem is None:
             errors.append({"ref_id": ref_id, "code": "invalid_ref", "message": "Expected t0:raw:<file_stem>."})
+            continue
+        if stem == transcription_id:
+            errors.append(
+                {
+                    "ref_id": ref_id,
+                    "code": "legacy_pointer_alias",
+                    "message": "This stem is the legacy raw pointer copy, not a peer T0 pass; use completed_drafts peer refs.",
+                }
+            )
             continue
         path = raw_dir / f"{stem}.json"
         if not path.is_file():
@@ -91,7 +117,13 @@ def hydrate_t0_draft_refs(
         }
         drafts.append(HydratedT0Draft(ref_id=ref_id, text=text, metadata=meta))
 
-    return HydrateT0DraftsResult(drafts=tuple(drafts), errors=tuple(errors))
+    return HydrateT0DraftsResult(
+        drafts=tuple(drafts),
+        errors=tuple(errors),
+        cap_exceeded=cap_exceeded,
+        omitted_ref_ids=omitted,
+        max_refs_applied=cap,
+    )
 
 
 def hydrate_transcript_edit_working_draft(

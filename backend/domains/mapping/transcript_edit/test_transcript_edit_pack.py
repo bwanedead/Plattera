@@ -147,3 +147,30 @@ def test_handoff_semantics_stable_contract() -> None:
     assert len(h.artifact_expectations) >= 2
     assert len(h.should_not_hand_off_yet) >= 2
     assert "Handoff means" in h.summary
+    blob = (h.summary + "\n" + "\n".join(h.ready_when)).lower()
+    assert "pinned" not in blob
+    assert "per-segment" not in blob
+
+
+def test_prompts_avoid_first_slice_final_selection_vocabulary() -> None:
+    branch = build_transcript_edit_branch_blocks()[0].text.lower()
+    proc = build_transcript_edit_domain_pack().build_prompt_branch_blocks()[1].text.lower()
+    joined = branch + "\n" + proc
+    assert "selected final" not in joined
+    assert "segment final" not in joined
+
+
+def test_projection_legacy_final_selection_maps_to_authored_only() -> None:
+    view = project_transcript_edit_view(
+        mission_opaque_state={
+            "final_selection": {
+                "narrative": "working toward authored draft",
+                "selected_final_ref": "must_not_surface",
+                "authored_transcript_edit_ref": "transcript_edit:working",
+            },
+        },
+    )
+    ap = view.semantic_state.authored_draft_posture
+    assert ap is not None
+    assert ap.working_draft_ref == "transcript_edit:working"
+    assert ap.output_draft_ref is None

@@ -13,7 +13,7 @@
 - `manifest.py` = identity and declaration only (no meaningful logic). `domain_pack.py` = thin index/bundle, not a controller. `prompting/branch.py` = canonical doctrine source for prompt text; extra domain-local guidance surfaces live under `prompting/surfaces/` only when earned.
 - Semantic mission **facets** (e.g. orient / investigate / repair / verify / handoff) are vocabulary for doctrine and semantics—not a scripted domain pipeline or state machine.
 - Prefer **deletion over compatibility** for dead domain residue; do not preserve parallel “museum” packs.
-- Add optional modules (`state/hydration.py`, `execution/translator.py`, `semantics/feedback.py`, `prompting/surfaces/`, `mission_mode_adapter.py`) only when earned.
+- Add optional modules (`state/hydration.py`, `execution/translator.py`, `semantics/feedback.py`, `prompting/surfaces/`, `runtime_adapter/`) only when earned.
 
 ## Allowed changes
 
@@ -42,6 +42,8 @@
 
 - Docs: `docs/architecture/harness/domain-pack-constitution.md`
 - Docs: `docs/architecture/harness/domain-pack-architecture.md`
+- Docs: `docs/architecture/harness/domain-runtime-adapter-architecture.md`
+- Docs: `docs/architecture/harness/domain-authoring-shape.md`
 - Docs: `docs/architecture/harness/transcript-edit-domain-brief.md`
 - Related code: `backend/domains/mapping/transcript_edit/`
 - Tooling home: `backend/tooling/`

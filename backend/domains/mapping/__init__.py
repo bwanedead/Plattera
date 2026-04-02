@@ -1,2 +1,31 @@
-"""Mapping-family domain packs."""
+"""Mapping-family domain packs and adapter registrations."""
 
+from __future__ import annotations
+
+from domains.registry import DomainAdapterRegistration, DomainAdapterRegistry
+
+_TRANSCRIPT_EDIT_DOMAIN_ID = "transcript_edit"
+
+
+def build_mapping_domain_adapter_registry() -> DomainAdapterRegistry:
+    """Register mapping-family domain adapters by opaque domain id only."""
+
+    registry = DomainAdapterRegistry()
+    registry.register(
+        DomainAdapterRegistration(
+            domain_id=_TRANSCRIPT_EDIT_DOMAIN_ID,
+            adapter_factory=_build_transcript_edit_runtime_adapter,
+        )
+    )
+    return registry
+
+
+def _build_transcript_edit_runtime_adapter():
+    from .transcript_edit.runtime_adapter import build_transcript_edit_runtime_adapter
+
+    return build_transcript_edit_runtime_adapter()
+
+
+__all__ = [
+    "build_mapping_domain_adapter_registry",
+]

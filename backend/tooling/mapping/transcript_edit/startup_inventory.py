@@ -65,20 +65,24 @@ def _section_count(data: dict[str, Any]) -> int | None:
     return None
 
 
-def _artifact_fingerprint(raw_dir: Path, run_payload: dict[str, Any] | None) -> str | None:
+def _artifact_fingerprint(
+    *,
+    run_payload: dict[str, Any] | None,
+    peer_stems: tuple[str, ...],
+) -> str | None:
     try:
-        names = sorted(
-            p.name
-            for p in raw_dir.glob("*.json")
-            if p.is_file() and not _DUP_SUFFIX.search(p.name)
-        )
         run_blob = json.dumps(run_payload or {}, sort_keys=True, ensure_ascii=False)
         h = hashlib.sha256()
         h.update(run_blob.encode("utf-8"))
-        h.update(("\n".join(names)).encode("utf-8"))
+        h.update(("\n".join(sorted(peer_stems))).encode("utf-8"))
         return h.hexdigest()[:20]
     except Exception:
         return None
+
+
+def _is_legacy_pointer_stem(stem: str, transcription_id: str) -> bool:
+    """Bare ``<transcription_id>.json`` in raw/ is a head-era alias, not a peer T0 pass."""
+    return stem.strip() == transcription_id.strip()
 
 
 def _load_association_slice(dossier_id: str, transcription_id: str) -> tuple[dict[str, Any] | None, list[MissingResource]]:
@@ -156,44 +160,129 @@ def _source_image_descriptors(
     return tuple(out)
 
 
-def _discover_t0_descriptors(
-    raw_dir: Path,
-    completed: list[str],
-) -> tuple[T0DraftDescriptor, ...]:
-    completed_set = {str(x).strip() for x in completed if str(x).strip()}
-    seen_stems: set[str] = set()
-    descriptors: list[T0DraftDescriptor] = []
+def _peer_json_paths(raw_dir: Path) -> list[Path]:
+    if not raw_dir.is_dir():
+        return []
+    return [
+        p
+        for p in sorted(raw_dir.glob("*.json"))
+        if p.is_file() and not _DUP_SUFFIX.search(p.name)
+    ]
 
-    candidates: list[Path] = []
-    if raw_dir.is_dir():
-        for p in sorted(raw_dir.glob("*.json")):
-            if not p.is_file() or _DUP_SUFFIX.search(p.name):
+
+def _descriptor_for_peer_path(path: Path, *, listed_in_run_json: bool) -> T0DraftDescriptor | None:
+    data = _load_json(path)
+    if not isinstance(data, dict):
+        return None
+    stem = path.stem
+    try:
+        byte_length = path.stat().st_size
+    except OSError:
+        byte_length = None
+    return T0DraftDescriptor(
+        ref_id=f"{_T0_REF_PREFIX}{stem}",
+        variant_label=stem,
+        source_file_stem=stem,
+        listed_in_run_json=listed_in_run_json,
+        byte_length=byte_length,
+        section_count=_section_count(data),
+        snippet_preview=_flatten_preview(data),
+    )
+
+
+def _discover_t0_descriptors(
+    *,
+    raw_dir: Path,
+    transcription_id: str,
+    completed: list[str],
+    completed_is_authoritative: bool,
+    missing: list[MissingResource],
+) -> tuple[T0DraftDescriptor, ...]:
+    """
+    Peer T0 set:
+    - When ``run.json`` supplies a non-empty ``completed_drafts`` list, that list is canonical:
+      only those stems (with files present) are peers; extras on disk are mismatches; missing files are gaps.
+    - Otherwise, scan ``raw/*.json`` excluding version sidecars and the legacy pointer alias ``<transcription_id>.json``.
+    """
+    transcription_id = str(transcription_id).strip()
+    descriptors: list[T0DraftDescriptor] = []
+    completed_ordered = [str(x).strip() for x in completed if str(x).strip()]
+    completed_set = set(completed_ordered)
+
+    if completed_is_authoritative and completed_ordered:
+        for did in completed_ordered:
+            if _is_legacy_pointer_stem(did, transcription_id):
+                missing.append(
+                    MissingResource(
+                        code="completed_drafts_contains_pointer_alias",
+                        message="completed_drafts lists the bare transcription id (legacy pointer alias), not a peer T0 pass.",
+                        detail=did,
+                    )
+                )
                 continue
-            candidates.append(p)
+            path = raw_dir / f"{did}.json"
+            if not path.is_file():
+                missing.append(
+                    MissingResource(
+                        code="t0_peer_file_missing",
+                        message="completed_drafts lists a draft id with no matching raw JSON file.",
+                        detail=did,
+                    )
+                )
+                continue
+            desc = _descriptor_for_peer_path(path, listed_in_run_json=True)
+            if desc:
+                descriptors.append(desc)
+
+        disk_stems = {p.stem for p in _peer_json_paths(raw_dir)}
+        for stem in sorted(disk_stems):
+            if _is_legacy_pointer_stem(stem, transcription_id):
+                continue
+            if stem not in completed_set:
+                missing.append(
+                    MissingResource(
+                        code="t0_raw_file_not_in_completed_drafts",
+                        message="raw/ contains a JSON draft not listed in run.json completed_drafts.",
+                        detail=stem,
+                    )
+                )
+        ptr = raw_dir / f"{transcription_id}.json"
+        if ptr.is_file():
+            missing.append(
+                MissingResource(
+                    code="t0_legacy_pointer_file_present",
+                    message="Legacy raw pointer file exists; excluded from peer T0 inventory (not an independent pass).",
+                    detail=ptr.name,
+                )
+            )
+        return tuple(descriptors)
+
+    pointer_only = False
+    paths = _peer_json_paths(raw_dir)
+    candidates = [p for p in paths if not _is_legacy_pointer_stem(p.stem, transcription_id)]
+    if not candidates and raw_dir.is_dir():
+        ptr = raw_dir / f"{transcription_id}.json"
+        if ptr.is_file():
+            pointer_only = True
+            missing.append(
+                MissingResource(
+                    code="t0_only_legacy_pointer_no_peer_drafts",
+                    message="Only the legacy raw pointer alias exists; no peer T0 draft files to inventory.",
+                    detail=str(ptr),
+                )
+            )
 
     for path in candidates:
-        stem = path.stem
-        if stem in seen_stems:
-            continue
-        seen_stems.add(stem)
-        data = _load_json(path)
-        if not isinstance(data, dict):
-            continue
-        listed = stem in completed_set
-        ref_id = f"{_T0_REF_PREFIX}{stem}"
-        try:
-            byte_length = path.stat().st_size
-        except OSError:
-            byte_length = None
-        descriptors.append(
-            T0DraftDescriptor(
-                ref_id=ref_id,
-                variant_label=stem,
-                source_file_stem=stem,
-                listed_in_run_json=listed,
-                byte_length=byte_length,
-                section_count=_section_count(data),
-                snippet_preview=_flatten_preview(data),
+        desc = _descriptor_for_peer_path(path, listed_in_run_json=path.stem in completed_set)
+        if desc:
+            descriptors.append(desc)
+
+    if not descriptors and raw_dir.is_dir() and not pointer_only:
+        missing.append(
+            MissingResource(
+                code="no_t0_raw_drafts_found",
+                message="No readable peer T0 JSON drafts found under raw/.",
+                detail=str(raw_dir),
             )
         )
 
@@ -245,6 +334,10 @@ def build_transcript_edit_startup_inventory(
 
     run_path = run_json_path(dossier_id, transcription_id)
     run_payload = _load_json(run_path)
+    completed: list[str] = []
+    completed_is_authoritative = False
+    run_dict: dict[str, Any] | None = None
+
     if run_payload is None:
         missing.append(
             MissingResource(
@@ -253,34 +346,49 @@ def build_transcript_edit_startup_inventory(
                 detail=str(run_path),
             )
         )
-        completed: list[str] = []
+    elif not isinstance(run_payload, dict):
+        missing.append(
+            MissingResource(
+                code="run_json_invalid_shape",
+                message="run.json root was not an object.",
+                detail=str(run_path),
+            )
+        )
     else:
-        if not isinstance(run_payload, dict):
+        run_dict = run_payload
+        if "completed_drafts" not in run_payload:
             missing.append(
                 MissingResource(
-                    code="run_json_invalid_shape",
-                    message="run.json root was not an object.",
+                    code="run_json_completed_drafts_missing",
+                    message="run.json has no completed_drafts key; falling back to raw/ scan (excluding pointer alias).",
                     detail=str(run_path),
                 )
             )
-            completed = []
         else:
             raw_cd = run_payload.get("completed_drafts")
-            completed = [str(x) for x in raw_cd] if isinstance(raw_cd, list) else []
+            if isinstance(raw_cd, list):
+                completed = [str(x) for x in raw_cd]
+                completed_is_authoritative = len(completed) > 0
+            else:
+                missing.append(
+                    MissingResource(
+                        code="run_json_completed_drafts_invalid_type",
+                        message="run.json completed_drafts is not a list; falling back to raw/ scan.",
+                        detail=str(run_path),
+                    )
+                )
 
     assoc_row, assoc_missing = _load_association_slice(dossier_id, transcription_id)
     missing.extend(assoc_missing)
 
     raw_dir = raw_drafts_dir(dossier_id, transcription_id)
-    t0 = _discover_t0_descriptors(raw_dir, completed)
-    if not t0 and raw_dir.is_dir():
-        missing.append(
-            MissingResource(
-                code="no_t0_raw_drafts_found",
-                message="No readable T0 JSON drafts found under raw/.",
-                detail=str(raw_dir),
-            )
-        )
+    t0 = _discover_t0_descriptors(
+        raw_dir=raw_dir,
+        transcription_id=transcription_id,
+        completed=completed,
+        completed_is_authoritative=completed_is_authoritative,
+        missing=missing,
+    )
 
     images = _source_image_descriptors(dossier_id, transcription_id, assoc_row)
     if not images and assoc_row is not None:
@@ -292,7 +400,10 @@ def build_transcript_edit_startup_inventory(
             )
         )
 
-    fp = _artifact_fingerprint(raw_dir, run_payload if isinstance(run_payload, dict) else None)
+    fp = _artifact_fingerprint(
+        run_payload=run_dict,
+        peer_stems=tuple(d.source_file_stem for d in t0),
+    )
 
     return TranscriptEditStartupInventory(
         scope=TranscriptEditScope(

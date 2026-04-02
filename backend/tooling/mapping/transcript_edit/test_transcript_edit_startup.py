@@ -15,7 +15,9 @@ from tooling.mapping.transcript_edit.startup_inventory import build_transcript_e
 _PRACTICE_DOSSIER = "9f5eecb6-cd7e-483c-b691-b76aa7132e8e"
 _PRACTICE_TX = "draft_legal_text_image"
 
-_FORBIDDEN_STARTUP_KEYS = frozenset({"head", "head_ref", "head_json", "current_head", "transcript_head"})
+_FORBIDDEN_STARTUP_KEYS = frozenset(
+    {"head", "head_ref", "head_json", "current_head", "transcript_head", "selected_final_ref", "final_selection"}
+)
 
 
 def _assert_no_forbidden_keys(obj: object) -> None:
@@ -35,8 +37,9 @@ def test_practice_dossier_startup_lists_peer_t0_and_images():
     )
     assert inv.scope.dossier_id == _PRACTICE_DOSSIER
     stems = {d.source_file_stem for d in inv.t0_drafts}
-    assert {"draft_legal_text_image_v1", "draft_legal_text_image_v2", "draft_legal_text_image_v3"}.issubset(stems)
-    assert "draft_legal_text_image" in stems or len(stems) >= 3
+    assert stems == {"draft_legal_text_image_v1", "draft_legal_text_image_v2", "draft_legal_text_image_v3"}
+    assert "draft_legal_text_image" not in stems
+    assert any(m.code == "t0_legacy_pointer_file_present" for m in inv.missing_resources)
     assert inv.source_images, "expected association image refs"
     roles = {img.role for img in inv.source_images}
     assert "source_original" in roles
@@ -47,6 +50,19 @@ def test_practice_dossier_startup_lists_peer_t0_and_images():
         assert "base64" not in json.dumps(asdict(img)).lower()
 
 
+def _max_nested_string_len(obj: object) -> int:
+    best = 0
+    if isinstance(obj, str):
+        return len(obj)
+    if isinstance(obj, dict):
+        for v in obj.values():
+            best = max(best, _max_nested_string_len(v))
+    elif isinstance(obj, (list, tuple)):
+        for v in obj:
+            best = max(best, _max_nested_string_len(v))
+    return best
+
+
 def test_startup_snippet_previews_are_short_non_authoritative():
     inv = build_transcript_edit_startup_inventory(
         dossier_id=_PRACTICE_DOSSIER,
@@ -55,6 +71,9 @@ def test_startup_snippet_previews_are_short_non_authoritative():
     for d in inv.t0_drafts:
         if d.snippet_preview:
             assert len(d.snippet_preview) <= 240
+    plain = asdict(inv)
+    slim = {k: v for k, v in plain.items() if k != "missing_resources"}
+    assert _max_nested_string_len(slim) <= 280
     full = hydrate_t0_draft_refs(
         dossier_id=_PRACTICE_DOSSIER,
         transcription_id=_PRACTICE_TX,
@@ -62,6 +81,17 @@ def test_startup_snippet_previews_are_short_non_authoritative():
         max_refs=1,
     )
     assert len(full.drafts[0].text) > 500
+
+
+def test_hydrate_legacy_pointer_alias_rejected():
+    out = hydrate_t0_draft_refs(
+        dossier_id=_PRACTICE_DOSSIER,
+        transcription_id=_PRACTICE_TX,
+        ref_ids=[f"t0:raw:{_PRACTICE_TX}"],
+        max_refs=8,
+    )
+    assert out.drafts == ()
+    assert any(e.get("code") == "legacy_pointer_alias" for e in out.errors)
 
 
 def test_hydrate_single_and_multiple_t0():
@@ -87,7 +117,8 @@ def test_hydrate_single_and_multiple_t0():
         max_refs=8,
     )
     assert len(out2.drafts) == len(refs)
-    assert not out2.errors
+    assert not out2.cap_exceeded
+    assert not any(e.get("code") == "cap_exceeded" for e in out2.errors)
 
 
 def test_hydrate_respects_cap(tmp_path, monkeypatch):
@@ -109,6 +140,10 @@ def test_hydrate_respects_cap(tmp_path, monkeypatch):
         max_refs=3,
     )
     assert len(out.drafts) == 3
+    assert out.cap_exceeded is True
+    assert len(out.omitted_ref_ids) == 7
+    assert set(out.omitted_ref_ids) == {f"t0:raw:stem_{i}" for i in range(3, 10)}
+    assert any(e.get("code") == "cap_exceeded" for e in out.errors)
 
 
 def test_hydrate_invalid_and_missing_refs(tmp_path, monkeypatch):
@@ -159,6 +194,37 @@ def test_hydrate_transcript_edit_working_not_present():
     )
     assert r["status"] == "error"
     assert r.get("code") == "not_found"
+
+
+def test_pointer_only_raw_emits_structured_gap(tmp_path, monkeypatch):
+    import config.paths as paths_mod
+
+    root = tmp_path / "dossiers_data"
+    raw = root / "views" / "transcriptions" / "d1" / "t_tx" / "raw"
+    raw.mkdir(parents=True)
+    (raw / "t_tx.json").write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(paths_mod, "dossiers_root", lambda: root)
+
+    inv = build_transcript_edit_startup_inventory(dossier_id="d1", transcription_id="t_tx")
+    assert inv.t0_drafts == ()
+    assert any(m.code == "t0_only_legacy_pointer_no_peer_drafts" for m in inv.missing_resources)
+
+
+def test_completed_drafts_mismatch_extra_raw_file(tmp_path, monkeypatch):
+    import config.paths as paths_mod
+
+    root = tmp_path / "dossiers_data"
+    base = root / "views" / "transcriptions" / "d1" / "t1"
+    raw = base / "raw"
+    raw.mkdir(parents=True)
+    (base / "run.json").write_text(json.dumps({"completed_drafts": ["stem_a"]}), encoding="utf-8")
+    (raw / "stem_a.json").write_text(json.dumps({"sections": [{"body": "a"}]}), encoding="utf-8")
+    (raw / "stem_extra.json").write_text(json.dumps({"sections": [{"body": "x"}]}), encoding="utf-8")
+    monkeypatch.setattr(paths_mod, "dossiers_root", lambda: root)
+
+    inv = build_transcript_edit_startup_inventory(dossier_id="d1", transcription_id="t1")
+    assert {d.source_file_stem for d in inv.t0_drafts} == {"stem_a"}
+    assert any(m.code == "t0_raw_file_not_in_completed_drafts" and m.detail == "stem_extra" for m in inv.missing_resources)
 
 
 def test_missing_run_dir_structured():

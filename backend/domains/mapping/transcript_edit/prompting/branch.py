@@ -8,7 +8,7 @@ from dataclasses import dataclass
 TRANSCRIPT_EDIT_DOMAIN_ID = "transcript_edit"
 TRANSCRIPT_EDIT_FAMILY_ID = "mapping"
 TRANSCRIPT_EDIT_BRANCH_SOURCE_REF = "backend/domains/mapping/transcript_edit/prompting/branch.py"
-TRANSCRIPT_EDIT_BRANCH_VERSION = "v4"
+TRANSCRIPT_EDIT_BRANCH_VERSION = "v5"
 
 TRANSCRIPT_EDIT_BRANCH_TEXT = """\
 You are operating in the **transcript edit** domain for mapping-bound work.
@@ -35,7 +35,6 @@ Assume the run begins from dossier-scoped **peer t0 transcript drafts** (redunda
 You may also have:
 - alignment or consensus variants when present
 - an **authored transcript-edit working or output draft** separate from t0 peers (when tooling has created one)
-- pinned per-segment finals when product policy requires them (distinct from t0 inputs)
 - prior human feedback
 - artifact refs and provenance
 
@@ -47,7 +46,7 @@ Use tooling to load only what you judge useful. Baseline orientation across the 
 - **Evidence**: imagery, crops, raw drafts, alignment/consensus outputs, and provenance that support or challenge a reading.
 - **Candidate repair**: a proposed change not yet committed; must cite what evidence supports it.
 - **Verification posture**: explicit statement of trust in the current text relative to evidence.
-- **T0 peer drafts vs authored edit output**: t0 drafts are parallel starting inputs; your transcript-edit working/output draft is a **separate** authored artifact. Do not elevate one t0 file over the others as an implicit source of truth. Pinned per-segment finals (when in scope) are a product selection distinct from both.
+- **T0 peer drafts vs authored edit output**: t0 drafts are parallel starting inputs; your transcript-edit working/output draft is a **separate** authored artifact. Do not elevate one t0 file over the others as an implicit source of truth. App-level registry or selection mechanics outside this domain are not part of your first-slice reasoning model here.
 - **Downstream mapping readiness**: whether mapping consumers can rely on this transcript state without hidden landmines.
 
 ## Facets (semantic, not steps)

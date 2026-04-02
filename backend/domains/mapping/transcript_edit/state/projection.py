@@ -9,10 +9,11 @@ from .contracts import TranscriptEditSemanticState
 from .projection_coerce import (
     as_mapping,
     coerce_ambiguities,
+    coerce_authored_draft_posture,
+    coerce_authored_draft_posture_from_legacy_final_selection,
     coerce_defects,
     coerce_downstream,
     coerce_evidence,
-    coerce_final_selection,
     coerce_repairs,
     coerce_verification,
     pick_str,
@@ -87,8 +88,13 @@ def project_transcript_edit_view(
     verification = coerce_verification(as_mapping(s.get("verification"))) or coerce_verification(
         as_mapping(d.get("verification"))
     )
-    final_selection = coerce_final_selection(as_mapping(s.get("final_selection"))) or coerce_final_selection(
-        as_mapping(d.get("final_selection"))
+    authored_draft_posture = (
+        coerce_authored_draft_posture(as_mapping(s.get("authored_draft_posture")))
+        or coerce_authored_draft_posture(as_mapping(s.get("transcript_edit_authored")))
+        or coerce_authored_draft_posture_from_legacy_final_selection(as_mapping(s.get("final_selection")))
+        or coerce_authored_draft_posture(as_mapping(d.get("authored_draft_posture")))
+        or coerce_authored_draft_posture(as_mapping(d.get("transcript_edit_authored")))
+        or coerce_authored_draft_posture_from_legacy_final_selection(as_mapping(d.get("final_selection")))
     )
     downstream = coerce_downstream(as_mapping(s.get("downstream"))) or coerce_downstream(
         as_mapping(d.get("downstream"))
@@ -107,7 +113,7 @@ def project_transcript_edit_view(
         evidence=evidence,
         candidate_repairs=repairs,
         verification=verification,
-        final_selection=final_selection,
+        authored_draft_posture=authored_draft_posture,
         downstream=downstream,
         human_feedback_notes=human_notes,
     )

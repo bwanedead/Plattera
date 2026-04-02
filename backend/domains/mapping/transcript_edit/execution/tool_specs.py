@@ -28,7 +28,7 @@ def build_transcript_edit_tool_specs() -> tuple[SemanticToolSpec, ...]:
             category="observation",
             purpose="Load full text for one or more T0 raw draft refs from the startup inventory (peer inputs; no merge or ranking).",
             expected_request_shape="dossier_id, transcription_id, list of t0:raw:<stem> ref_ids; optional max_refs cap.",
-            expected_result_shape="Per-ref bodies + metadata; explicit errors for unknown or invalid refs.",
+            expected_result_shape="Per-ref bodies + metadata; explicit errors for unknown, invalid, or legacy-pointer refs; if max_refs exceeded, cap_exceeded + omitted_ref_ids (partial hydrate, never silent).",
         ),
         SemanticToolSpec(
             tool_id="hydrate_transcript_edit_working_draft",

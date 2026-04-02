@@ -9,7 +9,8 @@
 
 - **Domain vs tooling:** Dossier I/O and ref resolution live in `backend/tooling/mapping/transcript_edit/` only.
 - **Startup payloads** (`payloads/startup_inventory.py`) are ref-first inventories for model-facing assembly—not persistence services, no “next action” scripting, no draft ranking.
-- **FinalSelectionPosture** uses `authored_transcript_edit_ref` (not legacy head pointers) for the agent-authored draft; `selected_final_ref` remains for pinned segment finals when applicable.
+- **TranscriptEditAuthoredDraftPosture** (`working_draft_ref` / `output_draft_ref`) models the agent-authored transcript-edit draft only. Legacy `final_selection` maps may be coerced for compatibility but `selected_final_ref` is not part of the domain shape.
+- `runtime_adapter/` is the only harness-facing seam here; it may translate prompt blocks, startup inventories, and tool ids into generic `harness.runtime.composition` surfaces, but it must not author mission-state, closure, or ranking.
 
 ## Allowed changes
 

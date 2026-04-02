@@ -25,7 +25,7 @@ def transcript_edit_closure_semantics() -> TranscriptEditClosureSemantics:
             "Each prioritized ambiguity or defect has a recorded disposition: fixed, accepted with rationale, or deferred with explicit blockers.",
             "Verification posture states why the current text matches image and draft evidence, or what evidence is still missing.",
             "Repairs that change meaning are tied to image or draft evidence—not unsupported rewrites.",
-            "If pinned finals or an authored transcript-edit draft are in scope, their posture is coherent: either selected with rationale or explicitly not ready.",
+            "Authored transcript-edit working/output posture is coherent: either aligned with evidence or explicitly not ready.",
         ),
         must_remain_explicit_if_unresolved=(
             "Residual ambiguities that could change boundary or corner interpretation in mapping.",
