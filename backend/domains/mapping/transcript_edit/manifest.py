@@ -22,6 +22,7 @@ class TranscriptEditManifest:
     semantic_surfaces: tuple[str, ...] = (
         "prompting.branch",
         "prompting.surfaces.procedural_guidance",
+        "payloads.startup_inventory",
         "state.contracts",
         "state.projection",
         "execution.tool_specs",

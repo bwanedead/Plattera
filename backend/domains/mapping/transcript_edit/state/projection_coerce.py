@@ -162,7 +162,7 @@ def coerce_final_selection(m: Mapping[str, Any] | None) -> FinalSelectionPosture
     return FinalSelectionPosture(
         narrative=narrative,
         selected_final_ref=pick_str(m, "selected_final_ref", "final_ref"),
-        head_ref=pick_str(m, "head_ref"),
+        authored_transcript_edit_ref=pick_str(m, "authored_transcript_edit_ref", "transcript_edit_work_ref"),
         conflicts_remain=bool(m.get("conflicts_remain")),
     )
 

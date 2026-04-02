@@ -11,13 +11,13 @@ from ..branch import (
 TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_SOURCE_REF = (
     "backend/domains/mapping/transcript_edit/prompting/surfaces/procedural_guidance.py"
 )
-TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_VERSION = "v1"
+TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_VERSION = "v2"
 
 TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_TEXT = """\
 Use this guidance to shape your movement through transcript-edit work. This is **guidance**, not a hard script. The harness still owns orchestration. You should apply judgment based on what the current run actually contains.
 
 ## Why this guidance exists
-Transcript edit often begins from a messy run reality: multiple t0 drafts, partial derived variants, unclear heads/finals, uneven evidence coverage, and unresolved uncertainty about what matters for mapping. Effective work usually requires establishing a baseline reality before forcing closure claims.
+Transcript edit often begins from a messy run reality: multiple peer t0 drafts, partial derived variants, unclear authored transcript-edit state, uneven evidence coverage, and unresolved uncertainty about what matters for mapping. Effective work usually requires establishing a baseline reality before forcing closure claims.
 
 This guidance exists to help you:
 - understand the run before making local edits
@@ -29,11 +29,12 @@ This guidance exists to help you:
 Early in a run, assume your first responsibility is to understand **what is here**, **what disagrees**, **what is mapping-critical**, and **what is already known or missing**.
 
 That generally means establishing a baseline across the current transcript state:
-- what t0 drafts exist
-- whether t0 produced redundant parallel drafts and where they disagree
+- what t0 peer drafts exist (refs + optional hydration)
+- whether t0 produced redundant parallel drafts and where they disagree once you inspect them
 - what alignment or consensus variants already exist
-- what source imagery or image regions are available
-- what current heads or finals are present
+- what source imagery or image regions are available (via refs)
+- whether a transcript-edit working or output draft already exists
+- what pinned per-segment finals exist when that product surface applies
 - what human feedback, prior notes, or prior closure judgments already exist
 - what external references or related materials are already present versus still absent
 

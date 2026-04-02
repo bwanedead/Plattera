@@ -3,6 +3,14 @@
 from .domain_pack import TranscriptEditDomainPack, build_transcript_edit_domain_pack
 from .execution.tool_specs import SemanticToolSpec, build_transcript_edit_tool_specs
 from .manifest import TranscriptEditManifest, build_transcript_edit_manifest
+from .payloads import (
+    MissingResource,
+    SourceImageRefDescriptor,
+    T0DraftDescriptor,
+    TranscriptEditDraftInventory,
+    TranscriptEditScope,
+    TranscriptEditStartupInventory,
+)
 from .prompting import (
     PromptBlock,
     build_transcript_edit_branch_blocks,
@@ -28,10 +36,16 @@ __all__ = [
     "DownstreamReadinessPosture",
     "EvidencePosture",
     "FinalSelectionPosture",
+    "MissingResource",
     "PromptBlock",
     "SemanticToolSpec",
+    "SourceImageRefDescriptor",
+    "T0DraftDescriptor",
     "TranscriptAmbiguity",
     "TranscriptDefect",
+    "TranscriptEditDraftInventory",
+    "TranscriptEditScope",
+    "TranscriptEditStartupInventory",
     "TranscriptEditClosureSemantics",
     "TranscriptEditDomainPack",
     "TranscriptEditHandoffSemantics",

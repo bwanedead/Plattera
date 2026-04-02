@@ -12,13 +12,16 @@ from domains.mapping.transcript_edit import (
     transcript_edit_handoff_semantics,
 )
 from domains.mapping.transcript_edit.prompting.branch import TRANSCRIPT_EDIT_BRANCH_VERSION
+from domains.mapping.transcript_edit.prompting.surfaces.procedural_guidance import (
+    TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_VERSION,
+)
 
 
 def test_manifest_tool_ids_match_tool_specs() -> None:
     manifest = build_transcript_edit_manifest()
     specs = build_transcript_edit_tool_specs()
     assert manifest.declared_semantic_tool_ids == tuple(s.tool_id for s in specs)
-    assert len(specs) == 15
+    assert len(specs) == 12
 
 
 def test_domain_pack_wires_same_tool_count_as_manifest() -> None:
@@ -38,8 +41,10 @@ def test_prompt_branch_block_shape_and_doctrine_markers() -> None:
     assert "transcript edit" in text.lower()
     assert "semantic" in text.lower() and "facet" in text.lower()
     assert "harness orchestrates" in text.lower()
+    assert "head / final" not in text.lower()
     assert "mapping-family mission" in text.lower()
-    assert "t0 transcript drafts" in text.lower()
+    assert "peer t0" in text.lower() or "t0" in text.lower()
+    assert "ref inventory" in text.lower()
     assert "deed-to-ir" in text.lower()
     assert "layer 1 — delta convergence" in text.lower()
     assert "layer 2 — intrinsic source integrity" in text.lower()
@@ -60,6 +65,7 @@ def test_domain_pack_includes_procedural_guidance_block() -> None:
     }
     guidance = next(b for b in blocks if b.block_id == "transcript_edit_procedural_guidance")
     assert guidance.layer == "domain_guidance"
+    assert guidance.version == TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_VERSION
     text = guidance.text.lower()
     assert "not a hard script" in text
     assert "mission state" in text
@@ -67,6 +73,8 @@ def test_domain_pack_includes_procedural_guidance_block() -> None:
     assert "mapping-critical" in text
     assert "recommended movement pattern" in text
     assert "baseline closure accounting" in text
+    assert "heads/finals" not in text
+    assert "peer t0" in text
 
 
 def test_projection_empty_inputs() -> None:

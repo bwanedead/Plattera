@@ -3,12 +3,11 @@
 This is the CLI equivalent of the UI submitting feedback via the API endpoint.
 Uses the same feedback_store mechanism the production system uses.
 
-Usage:
-  python -m harness.runtime.hitl.inject \\
-    --loop-kind mission_flow_cli \\
-    --run-id <run_id> \\
-    --prompt-id <prompt_id from watch output> \\
-    --choice "<feedback>"
+Usage (operator CLI preferred):
+  python -m harness.cli.answer --run-id <run_id> --prompt-id <id> --choice "<feedback>"
+
+Lower-level:
+  python -m harness.runtime.hitl.inject --loop-kind <namespace> --run-id <run_id> ...
 """
 
 from __future__ import annotations
@@ -53,7 +52,7 @@ def main() -> None:
     parser.add_argument(
         "--loop-kind",
         required=True,
-        help="Feedback store loop namespace (for example mission_flow_cli).",
+        help="Feedback store loop namespace (must match the running loop / harness.cli.start --loop-kind).",
     )
     parser.add_argument("--run-id", required=True, help="The run_id used by the loop (request_id_prefix).")
     parser.add_argument("--prompt-id", required=True, help="The prompt_id from the HITL watch output.")

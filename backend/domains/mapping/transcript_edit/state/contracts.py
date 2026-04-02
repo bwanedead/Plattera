@@ -62,11 +62,11 @@ class VerificationPosture:
 
 @dataclass(frozen=True)
 class FinalSelectionPosture:
-    """Readiness and choice state for per-segment finals (not persistence)."""
+    """Readiness for pinned segment finals vs authored transcript-edit output (not persistence)."""
 
     narrative: str
     selected_final_ref: str | None = None
-    head_ref: str | None = None
+    authored_transcript_edit_ref: str | None = None
     conflicts_remain: bool = False
 
 

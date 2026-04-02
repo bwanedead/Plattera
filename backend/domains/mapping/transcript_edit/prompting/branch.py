@@ -8,7 +8,7 @@ from dataclasses import dataclass
 TRANSCRIPT_EDIT_DOMAIN_ID = "transcript_edit"
 TRANSCRIPT_EDIT_FAMILY_ID = "mapping"
 TRANSCRIPT_EDIT_BRANCH_SOURCE_REF = "backend/domains/mapping/transcript_edit/prompting/branch.py"
-TRANSCRIPT_EDIT_BRANCH_VERSION = "v3"
+TRANSCRIPT_EDIT_BRANCH_VERSION = "v4"
 
 TRANSCRIPT_EDIT_BRANCH_TEXT = """\
 You are operating in the **transcript edit** domain for mapping-bound work.
@@ -30,16 +30,16 @@ That means:
 This domain is **not** about generic proofreading, generic OCR cleanup, or text polishing for its own sake. It exists to establish transcript trustworthiness for mapping.
 
 ## Starting resources
-Assume the run begins from dossier-scoped transcript artifacts, especially the **t0 transcript drafts**, plus any currently available related material such as:
-- source images and image regions
-- raw draft variants
-- alignment variants
-- consensus variants
-- current heads and pinned finals
-- prior human feedback
-- artifact refs and provenance needed to understand the current transcript state
+Assume the run begins from dossier-scoped **peer t0 transcript drafts** (redundant parallel passes are normal) and **source image refs**, exposed as a **ref inventory** you can hydrate on demand—not as a forced reading order or preloaded full bodies.
 
-You are expected to use those materials to judge what the transcript can support and what still remains unresolved.
+You may also have:
+- alignment or consensus variants when present
+- an **authored transcript-edit working or output draft** separate from t0 peers (when tooling has created one)
+- pinned per-segment finals when product policy requires them (distinct from t0 inputs)
+- prior human feedback
+- artifact refs and provenance
+
+Use tooling to load only what you judge useful. Baseline orientation across the run is recommended when reality is unclear, but the harness does not script which ref to open first.
 
 ## Vocabulary (use consistently)
 - **Ambiguity**: competing plausible readings of the text where evidence has not yet decided the matter.
@@ -47,7 +47,7 @@ You are expected to use those materials to judge what the transcript can support
 - **Evidence**: imagery, crops, raw drafts, alignment/consensus outputs, and provenance that support or challenge a reading.
 - **Candidate repair**: a proposed change not yet committed; must cite what evidence supports it.
 - **Verification posture**: explicit statement of trust in the current text relative to evidence.
-- **Head / final**: working draft choice vs pinned per-segment final selection—do not conflate them.
+- **T0 peer drafts vs authored edit output**: t0 drafts are parallel starting inputs; your transcript-edit working/output draft is a **separate** authored artifact. Do not elevate one t0 file over the others as an implicit source of truth. Pinned per-segment finals (when in scope) are a product selection distinct from both.
 - **Downstream mapping readiness**: whether mapping consumers can rely on this transcript state without hidden landmines.
 
 ## Facets (semantic, not steps)

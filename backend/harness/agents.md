@@ -22,6 +22,13 @@
 
 - Test: from `backend/`, with repo venv active: `pytest harness/ -q`
 - Guardrails: from `backend/`, with repo venv active: `pytest harness/test_architecture_guardrails.py -q`
+- Operator CLI (from `backend/` so `python -m harness.cli.*` resolves): `pytest harness/cli/test_cli_operator.py -q`
+
+## Operator CLI (`harness/cli/`)
+
+- **Purpose:** Process and path plumbing only (`start`, `watch`, `answer`, `status`). Run-state lives under `harness_artifacts_root() / "cli_runs" / <run_id> /` (`state.json`, `done.json`, `result.json`, logs). Not orchestration.
+- **Start:** Spawns a detached child with env `HARNESS_CLI_RUN_ID`, `HARNESS_CLI_DONE_FILE`, `HARNESS_CLI_RESULT_FILE`, `HARNESS_CLI_STDOUT_LOG`, `HARNESS_CLI_STDERR_LOG`, `HARNESS_CLI_LOOP_KIND`. Real runners (e.g. future transcript-edit) should read these paths and write `done.json` / `result.json` on completion; default `--stub` uses `harness.cli.stub_worker`.
+- **HITL:** Pending prompts still use `dossiers_artifacts_root() / hitl_prompts / {run_id}_pending.json` (see `runtime/hitl/watch.py`). **`--loop-kind` on `start` must match** the loop’s feedback namespace and `harness.cli.answer` / `feedback_store`.
 
 ## Gotchas
 

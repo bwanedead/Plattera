@@ -2,25 +2,29 @@
 
 Polls for two signals:
 - HITL prompt file: written by the running loop when human feedback is needed
-- Done sentinel file: written by mission_flow_cli when the loop completes
+- Done sentinel file: written by the harness run (e.g. child of ``python -m harness.cli.start``) when the loop completes
 
 Exits immediately when either signal arrives, printing a single JSON line:
   {"event": "hitl", "run_id": ..., "prompt_id": ..., "message": ..., "choices": [...]}
   {"event": "loop_done", "status": ..., "terminal": ...}
   {"event": "timeout", "timeout_seconds": ...}
 
-Usage pattern for agent testing:
-  # 1. Start loop in background
-  python -m api.mission_flow_cli --mission-id myrun ... --done-file /tmp/done_myrun.json > /tmp/result_myrun.json &
+Usage pattern for agent testing (prefer harness operator CLI when available):
+  # 1. Start run in background (persists run-state + paths)
+  python -m harness.cli.start --run-id myrun --loop-kind harness_cli
 
-  # 2. Watch (blocking) — exits when HITL arrives or loop finishes
-  python -m harness.runtime.hitl.watch --run-id mission-myrun-tx --done-file /tmp/done_myrun.json
+  # 2. Watch (blocking) — reads done path from run-state
+  python -m harness.cli.watch --run-id myrun
 
-  # 3a. If event=hitl: inject feedback, then re-watch
-  python -m harness.runtime.hitl.inject --loop-kind mission_flow_cli --run-id mission-myrun-tx --prompt-id <id> --choice "75"
-  python -m harness.runtime.hitl.watch --run-id mission-myrun-tx --done-file /tmp/done_myrun.json
+  # 3a. If event=hitl: answer, then re-watch
+  python -m harness.cli.answer --run-id myrun --prompt-id <id> --choice "75"
+  python -m harness.cli.watch --run-id myrun
 
-  # 3b. If event=loop_done: read /tmp/result_myrun.json
+  # 3b. If event=loop_done: read result.json / stdout.log from printed paths
+
+  Lower-level (explicit paths):
+  python -m harness.runtime.hitl.watch --run-id <run_id> --done-file <path>
+  python -m harness.runtime.hitl.inject --loop-kind <namespace> --run-id <run_id> ...
 """
 
 from __future__ import annotations
@@ -91,9 +95,15 @@ def run_watch(
     run_id: str,
     done_file: str | None,
     timeout_seconds: int,
+    poll_interval: float = 2.0,
 ) -> dict:
     done_path = Path(done_file) if done_file else None
-    return _poll(run_id=run_id, done_file=done_path, timeout_seconds=timeout_seconds)
+    return _poll(
+        run_id=run_id,
+        done_file=done_path,
+        timeout_seconds=timeout_seconds,
+        poll_interval=poll_interval,
+    )
 
 
 def main() -> None:
@@ -102,7 +112,11 @@ def main() -> None:
         description="Block until a HITL prompt or loop-done sentinel appears for a given run.",
     )
     parser.add_argument("--run-id", required=True, help="The mission-flow request prefix (e.g. mission-myrun-tx).")
-    parser.add_argument("--done-file", default=None, help="Path to the done-sentinel file written by mission_flow_cli.")
+    parser.add_argument(
+        "--done-file",
+        default=None,
+        help="Path to the done-sentinel JSON file (harness.cli.start stores this in run-state).",
+    )
     parser.add_argument("--timeout", type=int, default=600, help="Max seconds to wait before giving up (default: 600).")
     parser.add_argument("--poll-interval", type=float, default=2.0, help="Poll interval in seconds (default: 2.0).")
     args = parser.parse_args()

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..observability.mission_flow import build_mission_observation_from_runtime, build_mission_trace_index
+from ..observability.payload import build_mission_observation_from_runtime, build_mission_trace_index
 from ..runtime.orchestration.mission_contracts import MissionFlowCycleResult, MissionFlowRequest
 from ..runtime.orchestration.mission_orchestrator import build_mission_observability_payload
 
