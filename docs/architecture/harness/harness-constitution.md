@@ -309,6 +309,34 @@ If the system needs a durable claim that feedback was actually incorporated, tha
 The harness may remind the agent that feedback remains pending.
 It must not pretend to know that the meaning has been absorbed.
 
+## 4.5 Agent-Ergonomic Action Contract Rule
+
+Harness action seams should follow
+[`docs/ethos/agent-engine-ergonomics-theory.md`](../../ethos/agent-engine-ergonomics-theory.md):
+when the agent repeatedly emits a sane, unambiguous action shape, that emitted
+shape is valid design signal for evolving the accepted contract.
+
+That does **not** permit fuzzy interpretation.
+
+Shared runtime code may:
+
+- preserve raw emitted action payloads in traces for contract discovery
+- deliberately accept a narrow family of recurring ergonomic aliases when they
+  are unambiguous
+- normalize those accepted forms into one deterministic execution shape
+- reject ambiguous, conflicting, or underspecified shapes with a clear
+  mechanical error
+
+Shared runtime code must not:
+
+- infer missing domain meaning from a near-miss action payload
+- silently guess which artifact, work item, or closure posture the agent meant
+- add broad permissive parsers that hide recurring contract drift instead of
+  surfacing it
+
+The standard is **agent-natural where repeatedly sane, strict after
+normalization, and evidence-based rather than guessed upfront**.
+
 ---
 
 ## 5. Evidence Rule

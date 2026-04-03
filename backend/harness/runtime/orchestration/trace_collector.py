@@ -100,6 +100,42 @@ class KernelTraceCollector:
             )
         )
 
+    def emit_state_patch_outcome(
+        self,
+        *,
+        iteration: int,
+        outcome: str,
+        reason_code: str | None = None,
+        gate: str | None = None,
+        message: str | None = None,
+        execution_reason_code: str | None = None,
+        detail: dict[str, Any] | None = None,
+    ) -> None:
+        """Mechanical record of state_patch apply / reject / defer (kernel-only; no semantic inference)."""
+        _status = "completed" if outcome in ("applied", "no_patch") else "refused"
+        payload: dict[str, Any] = {
+            "outcome": outcome,
+            "gate": gate,
+            "message": message,
+            "execution_reason_code": execution_reason_code,
+        }
+        if detail:
+            payload["detail"] = dict(detail)
+        self._append(
+            RawTraceEvent(
+                timestamp_epoch_seconds=self._now(),
+                event_kind="state_patch_outcome",
+                phase="state_patch",
+                iteration_index=iteration,
+                actor="kernel",
+                status=_status,
+                reason_code=reason_code,
+                refs_delta={},
+                payload=payload,
+                source_origin=self._source(local_id=f"iter_{iteration}_state_patch"),
+            )
+        )
+
     def emit_execution_result(
         self,
         *,

@@ -28,3 +28,5 @@ class OrchestrationContinuity:
     mission_state: MissionState = field(default_factory=_default_mission_state)
     resolution_state: ResolutionState = field(default_factory=new_resolution_state)
     active_item_id: str | None = None
+    # Mechanical outcome of the last state_patch attempt (for prompt + traces; not semantic work).
+    state_patch_feedback: dict[str, Any] = field(default_factory=dict)

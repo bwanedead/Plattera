@@ -19,6 +19,12 @@ from harness.execution.contracts import ExecutionSessionStartRequest
 from harness.execution.executor import ExecutionExecutor
 from harness.execution.session import ExecutionSessionManager
 from harness.runtime.composition import ComposedTurnInput, DefaultTurnComposer, TurnSurface
+from harness.runtime.memory.resume_snapshot import (
+    hydrate_session_manager_from_resume_payload,
+    load_kernel_resume_snapshot_from_path,
+    merge_launch_latest_refs_with_resume_continuity,
+    parse_kernel_resume_snapshot,
+)
 from harness.runtime.orchestration.llm_turn_adapter import LlmTurnOrchestrationAdapter
 from harness.runtime.orchestration.orchestrator import run_orchestration_kernel_loop
 from services.llm.openai import OpenAIService
@@ -27,6 +33,10 @@ from .contracts import RuntimeAdapter, RuntimeArtifactTargets, RuntimeRunResult
 
 class RuntimeRunnerError(RuntimeError):
     """Raised when the mechanical runner cannot complete its lifecycle."""
+
+    def __init__(self, message: str, *, reason_code: str | None = None) -> None:
+        super().__init__(message)
+        self.reason_code = str(reason_code or message)
 
 
 class RuntimeRunner:
@@ -60,6 +70,15 @@ class RuntimeRunner:
                 result_payload=_build_loop_result_payload(loop_result),
                 done_payload=_build_loop_done_payload(loop_result),
             )
+        except RuntimeRunnerError as exc:
+            result = RuntimeRunResult(
+                status="failed",
+                reason_code=exc.reason_code,
+                result_payload={"error": str(exc), "reason_code": exc.reason_code, "status": "failed"},
+                done_payload={"error": str(exc), "reason_code": exc.reason_code, "status": "failed"},
+            )
+            self._write_artifacts(targets=targets, result=result)
+            raise
         except Exception as exc:
             reason_code = str(getattr(exc, "reason_code", "") or "runner_exception")
             result = RuntimeRunResult(
@@ -69,7 +88,9 @@ class RuntimeRunner:
                 done_payload={"error": str(exc), "reason_code": reason_code, "status": "failed"},
             )
             self._write_artifacts(targets=targets, result=result)
-            raise RuntimeRunnerError(f"runtime_runner_failed:{reason_code}") from exc
+            raise RuntimeRunnerError(
+                f"runtime_runner_failed:{reason_code}", reason_code=reason_code
+            ) from exc
 
         self._write_artifacts(targets=targets, result=result)
         return result
@@ -96,15 +117,53 @@ class RuntimeRunner:
         for tool_id, handler in composed.tool_handlers.items():
             executor.register(tool_id, handler)
 
+        resume_doc, resume_err = _load_resume_document(context)
+        if resume_err:
+            raise RuntimeRunnerError(resume_err)
+        initial_loop_memory = None
+        resume_start_iteration = 1
+        if resume_doc is not None:
+            initial_loop_memory, resume_start_iteration, perr = parse_kernel_resume_snapshot(resume_doc)
+            if perr:
+                raise RuntimeRunnerError(f"resume_snapshot_invalid:{perr}")
+
         session_manager = ExecutionSessionManager(executor=executor)
         run_id = _select_run_id(context)
-        session_start = session_manager.start_session(
-            ExecutionSessionStartRequest(
-                run_id=run_id,
-                session_id=_select_session_id(context, run_id=run_id),
-                initial_latest_refs=_extract_initial_latest_refs(context),
+        run_artifact_ref: str | None = None
+        if resume_doc is not None:
+            alt_mgr, eerr = hydrate_session_manager_from_resume_payload(resume_doc, executor=executor)
+            if eerr:
+                raise RuntimeRunnerError(f"resume_snapshot_invalid:{eerr}")
+            if alt_mgr is not None:
+                session_manager = alt_mgr
+                session_ids = list(session_manager.sessions.keys())
+                if len(session_ids) != 1:
+                    raise RuntimeRunnerError("resume_snapshot_invalid:execution_session_count")
+                session_id = session_ids[0]
+                run_artifact_ref = str(context.get("run_artifact_ref") or "").strip() or None
+            else:
+                session_start = session_manager.start_session(
+                    ExecutionSessionStartRequest(
+                        run_id=run_id,
+                        session_id=_select_session_id(context, run_id=run_id),
+                        initial_latest_refs=merge_launch_latest_refs_with_resume_continuity(
+                            _extract_initial_latest_refs(context),
+                            initial_loop_memory=initial_loop_memory,
+                        ),
+                    )
+                )
+                session_id = session_start.session_id
+                run_artifact_ref = session_start.run_artifact_ref
+        else:
+            session_start = session_manager.start_session(
+                ExecutionSessionStartRequest(
+                    run_id=run_id,
+                    session_id=_select_session_id(context, run_id=run_id),
+                    initial_latest_refs=_extract_initial_latest_refs(context),
+                )
             )
-        )
+            session_id = session_start.session_id
+            run_artifact_ref = session_start.run_artifact_ref
 
         orchestration_adapter = LlmTurnOrchestrationAdapter(
             composed_input=composed,
@@ -113,15 +172,17 @@ class RuntimeRunner:
             opaque_launch_context=context,
         )
         max_iterations = _select_max_iterations(context)
-        request_id_prefix = _select_request_id_prefix(context, fallback=session_start.run_id)
+        request_id_prefix = _select_request_id_prefix(context, fallback=run_id)
         return run_orchestration_kernel_loop(
             orchestration_adapter=orchestration_adapter,
             session_manager=session_manager,
-            session_id=session_start.session_id,
-            run_artifact_ref=session_start.run_artifact_ref,
+            session_id=session_id,
+            run_artifact_ref=run_artifact_ref,
             request_id_prefix=request_id_prefix,
             opaque_run_context=dict(context),
             max_iterations=max_iterations,
+            initial_loop_memory=initial_loop_memory,
+            resume_start_iteration=resume_start_iteration,
         )
 
     def _write_artifacts(self, *, targets: RuntimeArtifactTargets, result: RuntimeRunResult) -> None:
@@ -146,7 +207,7 @@ def run_runtime_from_env(
 
 
 def _build_loop_result_payload(loop_result: Any) -> dict[str, Any]:
-    return {
+    payload: dict[str, Any] = {
         "terminal_class": str(loop_result.terminal_class),
         "reason_code": loop_result.reason_code,
         "iterations": loop_result.iterations,
@@ -156,6 +217,10 @@ def _build_loop_result_payload(loop_result: Any) -> dict[str, Any]:
         "runtime_state": _jsonable(loop_result.runtime_state),
         "trace_events": _jsonable(loop_result.trace_events),
     }
+    snap = getattr(loop_result, "kernel_resume_snapshot", None)
+    if isinstance(snap, dict):
+        payload["kernel_resume_snapshot"] = _jsonable(snap)
+    return payload
 
 
 def _build_loop_done_payload(loop_result: Any) -> dict[str, Any]:
@@ -202,6 +267,23 @@ def _select_max_iterations(context: Mapping[str, Any]) -> int:
     except (TypeError, ValueError):
         return 3
     return max(1, value)
+
+
+def _load_resume_document(context: Mapping[str, Any]) -> tuple[dict[str, Any] | None, str | None]:
+    """Return ``(resume_dict, error_code)``. At most one of path vs inline may be set."""
+    path_raw = context.get("kernel_resume_snapshot_path") or context.get("resume_snapshot_path")
+    inline = context.get("kernel_resume_snapshot") or context.get("resume_snapshot")
+    if path_raw is not None and inline is not None:
+        return None, "resume_snapshot_conflict_path_and_inline"
+    if path_raw is not None:
+        path = Path(str(path_raw).strip())
+        doc, err = load_kernel_resume_snapshot_from_path(path)
+        return doc, err
+    if isinstance(inline, dict):
+        return dict(inline), None
+    if inline is not None:
+        return None, "resume_snapshot_inline_not_object"
+    return None, None
 
 
 def _extract_initial_latest_refs(context: Mapping[str, Any]) -> dict[str, Any]:

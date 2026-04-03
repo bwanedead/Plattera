@@ -210,6 +210,28 @@ It must not:
 
 If an adapter starts doing more than translation and bounded packaging, it is too big.
 
+## 9.1 Agent-Ergonomic Domain Surface Rule
+
+Domain-owned prompt/tool surfaces should also follow
+[`docs/ethos/agent-engine-ergonomics-theory.md`](../../ethos/agent-engine-ergonomics-theory.md).
+
+If the agent repeatedly expresses a domain tool intent in a stable, sane,
+unambiguous shape, the domain may evolve its semantic tool contract or expose
+a narrow ergonomic alias for that shape.
+
+That evolution must stay within the domain layer's responsibility:
+
+- the domain names the semantic contract and documents the accepted request
+  shape
+- tooling/harness adapters may normalize that shape mechanically
+- ambiguous near-miss requests should be rejected or bounced for repair, not
+  guessed
+- no adapter or tool wrapper may infer domain conclusions, rank evidence, or
+  choose next work on the agent's behalf
+
+In short: **pave the agent's repeated sane dirt paths, but only with explicit,
+bounded contracts and deterministic normalization underneath**.
+
 ---
 
 ## 10. Transcript-Edit Motivating Example

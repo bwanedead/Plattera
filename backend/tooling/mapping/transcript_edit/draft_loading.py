@@ -7,7 +7,16 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .paths import raw_drafts_dir, transcript_edit_dir
+from .draft_persistence import parse_working_revision_ref, resolve_workspace_key
+from .paths import (
+    UnsafeArtifactPathSegmentError,
+    raw_drafts_dir,
+    require_safe_workspace_relative_path,
+    transcript_edit_latest_pointer_path,
+    transcript_edit_output_path,
+    transcript_edit_revision_path,
+    transcript_edit_workspace_root,
+)
 from .startup_inventory import _OUTPUT_REF, _T0_REF_PREFIX, _WORKING_REF
 
 
@@ -70,7 +79,21 @@ def hydrate_t0_draft_refs(
 
     drafts: list[HydratedT0Draft] = []
     errors: list[dict[str, Any]] = []
-    raw_dir = raw_drafts_dir(dossier_id, transcription_id)
+    try:
+        raw_dir = raw_drafts_dir(dossier_id, transcription_id)
+    except UnsafeArtifactPathSegmentError as exc:
+        return HydrateT0DraftsResult(
+            drafts=tuple(),
+            errors=(
+                {
+                    "code": "invalid_scope_path",
+                    "message": str(exc),
+                },
+            ),
+            cap_exceeded=False,
+            omitted_ref_ids=tuple(),
+            max_refs_applied=cap,
+        )
 
     if cap_exceeded:
         errors.append(
@@ -131,19 +154,59 @@ def hydrate_transcript_edit_working_draft(
     dossier_id: str,
     transcription_id: str,
     ref_id: str,
+    workspace_id: str | None = None,
+    run_id: str | None = None,
 ) -> dict[str, Any]:
-    """Load authored transcript-edit artifact by ref (``transcript_edit:working`` or ``:output``)."""
+    """Load transcript-edit workspace artifact by ref (latest working, specific rev, or published output)."""
     dossier_id = str(dossier_id).strip()
     transcription_id = str(transcription_id).strip()
     rid = str(ref_id).strip()
-    te_dir = transcript_edit_dir(dossier_id, transcription_id)
-    if rid == _WORKING_REF:
-        path: Path = te_dir / "working.json"
-    elif rid == _OUTPUT_REF:
-        path = te_dir / "output.json"
-    else:
-        return {"status": "error", "code": "invalid_ref", "message": "Expected transcript_edit:working or transcript_edit:output."}
+    ws = resolve_workspace_key(workspace_id=workspace_id, run_id=run_id)
+    if not ws:
+        return {
+            "status": "error",
+            "code": "workspace_required",
+            "message": "Provide workspace_id or run_id to resolve transcript_edit artifact paths.",
+        }
 
+    path: Path | None = None
+    try:
+        if rid == _OUTPUT_REF:
+            path = transcript_edit_output_path(dossier_id, transcription_id, ws)
+        elif rid == _WORKING_REF:
+            lp = transcript_edit_latest_pointer_path(dossier_id, transcription_id, ws)
+            if not lp.is_file():
+                return {"status": "error", "code": "not_found", "message": str(lp)}
+            try:
+                ptr = json.loads(lp.read_text(encoding="utf-8"))
+            except Exception as exc:
+                return {"status": "error", "code": "read_error", "message": str(exc)}
+            if not isinstance(ptr, dict) or not ptr.get("relative_path"):
+                return {
+                    "status": "error",
+                    "code": "invalid_latest_pointer",
+                    "message": str(lp),
+                }
+            rel = require_safe_workspace_relative_path(str(ptr["relative_path"]))
+            path = transcript_edit_workspace_root(dossier_id, transcription_id, ws) / rel
+        else:
+            rev_digits = parse_working_revision_ref(rid)
+            if rev_digits:
+                path = transcript_edit_revision_path(dossier_id, transcription_id, ws, rev_digits)
+            else:
+                return {
+                    "status": "error",
+                    "code": "invalid_ref",
+                    "message": "Expected transcript_edit:working, transcript_edit:output, or transcript_edit:working:rev:NNNN.",
+                }
+    except UnsafeArtifactPathSegmentError as exc:
+        return {
+            "status": "error",
+            "code": "invalid_scope_path",
+            "message": str(exc),
+        }
+
+    assert path is not None
     if not path.is_file():
         return {"status": "error", "code": "not_found", "message": str(path)}
 

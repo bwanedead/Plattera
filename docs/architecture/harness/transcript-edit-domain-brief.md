@@ -1,5 +1,15 @@
 # Transcript-Edit Domain Brief
 
+> **Stale implementation brief warning**
+>
+> This document is an older architecture/implementation brief and still
+> contains legacy `head/final` language. For current transcript-edit runtime
+> behavior, tester guidance, and up-to-date semantics, use:
+>
+> - [`docs/architecture/harness/transcript-edit-domain.md`](./transcript-edit-domain.md)
+> - [`docs/architecture/harness/transcript-edit-live-loop-testing.md`](./transcript-edit-live-loop-testing.md)
+> - [`docs/architecture/mapping/mapping-family-intent.md`](../mapping/mapping-family-intent.md)
+
 This brief defines the intended domain surface for the first real domain pack:
 
 - `mapping / transcript_edit`

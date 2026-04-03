@@ -23,7 +23,7 @@
 
 ## Gotchas
 
-- Tool specs describe intent only; runtime wiring may lag—mark deferred tools honestly in `execution/tool_specs.py`.
+- `save_transcript_edit` and `publish_transcript_edit_output` are wired in `runtime_adapter/composition.py`; other tools may still be declarative-only—keep `execution/tool_specs.py` honest.
 
 ## Links
 

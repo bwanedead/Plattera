@@ -143,6 +143,15 @@ def dossiers_georefs_artifacts_root(dossier_id: str | None = None) -> Path:
     return base if dossier_id is None else base / str(dossier_id)
 
 
+def dossiers_transcript_edit_artifacts_root(dossier_id: str | None = None) -> Path:
+    """
+    Root for transcript-edit domain-owned drafts (working revisions, published output).
+    Layout: artifacts/transcript_edit/<dossier_id>/<transcription_id>/<workspace_id>/...
+    """
+    base = dossiers_artifacts_root() / "transcript_edit"
+    return base if dossier_id is None else base / str(dossier_id)
+
+
 def dossiers_feature_graphs_artifacts_root(dossier_id: str | None = None) -> Path:
     """
     Root for feature graph artifacts (IR, compile, judge, bundle).

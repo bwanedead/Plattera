@@ -20,7 +20,7 @@ def build_transcript_edit_tool_specs() -> tuple[SemanticToolSpec, ...]:
             tool_id="load_transcript_edit_startup_inventory",
             category="observation",
             purpose="First-contact ref inventory: dossier scope, peer T0 draft refs, source image refs, transcript-edit draft refs, lightweight metadata only.",
-            expected_request_shape="dossier_id, transcription_id; optional segment_id, run_id.",
+            expected_request_shape="dossier_id, transcription_id; optional segment_id, run_id, workspace_id (workspace_id or run_id scopes transcript_edit artifacts under artifacts/transcript_edit/).",
             expected_result_shape="TranscriptEditStartupInventory: refs + descriptors; no full draft bodies; structured missing_resource entries if gaps.",
         ),
         SemanticToolSpec(
@@ -33,9 +33,9 @@ def build_transcript_edit_tool_specs() -> tuple[SemanticToolSpec, ...]:
         SemanticToolSpec(
             tool_id="hydrate_transcript_edit_working_draft",
             category="observation",
-            purpose="Load authored transcript-edit working or output artifact when present (refs transcript_edit:working | transcript_edit:output).",
-            expected_request_shape="dossier_id, transcription_id, ref_id from startup inventory.",
-            expected_result_shape="JSON payload + path metadata, or structured not_found / invalid_ref.",
+            purpose="Load latest working revision, a specific working revision, or published output (refs transcript_edit:working | transcript_edit:working:rev:NNNN | transcript_edit:output).",
+            expected_request_shape="dossier_id, transcription_id, ref_id; workspace_id or run_id required to resolve on-disk workspace.",
+            expected_result_shape="JSON payload + path metadata, or structured workspace_required / not_found / invalid_ref.",
         ),
         SemanticToolSpec(
             tool_id="load_source_image_context",
@@ -75,9 +75,16 @@ def build_transcript_edit_tool_specs() -> tuple[SemanticToolSpec, ...]:
         SemanticToolSpec(
             tool_id="save_transcript_edit",
             category="mutation",
-            purpose="(Deferred) Persist evidence-grounded edits to the transcript-edit working/output draft; tooling/storage not guaranteed in this slice.",
-            expected_request_shape="Target ref from inventory, new text or patch, rationale, evidence refs.",
-            expected_result_shape="When implemented: updated ref + confirmation; until then explicit deferred / unavailable signal from runtime.",
+            purpose="Append one agent-authored working draft revision under the transcript-edit workspace (does not mutate T0 raw drafts).",
+            expected_request_shape="dossier_id, transcription_id, workspace_id or run_id; transcript_text XOR draft_payload dict; optional base_revision_ref, evidence_refs, rationale.",
+            expected_result_shape="Executor-shaped result: top-level artifact_refs include working rev + aggregate working ref for harness latest_refs; outputs carry revision metadata, hash/size.",
+        ),
+        SemanticToolSpec(
+            tool_id="publish_transcript_edit_output",
+            category="mutation",
+            purpose="Publish a chosen working revision to output/output.json (agent must pass explicit source_revision_ref; no deterministic pick).",
+            expected_request_shape="dossier_id, transcription_id, workspace_id or run_id, source_revision_ref transcript_edit:working:rev:NNNN.",
+            expected_result_shape="Executor-shaped result: top-level artifact_refs include output ref + source revision ref for harness latest_refs; outputs carry published_at and paths.",
         ),
         SemanticToolSpec(
             tool_id="request_alignment_refresh",

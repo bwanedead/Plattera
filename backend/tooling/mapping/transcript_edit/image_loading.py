@@ -7,7 +7,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from .paths import association_path
+from .paths import UnsafeArtifactPathSegmentError, association_path
 
 _IMAGE_REF_RE = re.compile(
     r"^image:assoc:(?P<tid>[^:]+):(?P<slot>original|processed)$",
@@ -46,7 +46,14 @@ def hydrate_source_image_context(
             "message": "Ref transcription_id does not match request scope.",
         }
 
-    path_a = association_path(dossier_id)
+    try:
+        path_a = association_path(dossier_id)
+    except UnsafeArtifactPathSegmentError as exc:
+        return {
+            "status": "error",
+            "code": "invalid_scope_path",
+            "message": str(exc),
+        }
     if not path_a.is_file():
         return {"status": "error", "code": "association_missing", "message": str(path_a)}
     try:

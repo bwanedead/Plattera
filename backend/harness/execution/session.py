@@ -78,6 +78,14 @@ class ExecutionSessionManager:
     def wire_identity_trace_cb(self, callback: Callable[[dict[str, Any]], None]) -> None:
         self._identity_trace_cb = callback
 
+    def hydrate_session(self, session: ExecutionSession) -> None:
+        """Register a fully-built session (e.g. from a resume snapshot). Does not create a new ``RunArtifact``."""
+        sid = str(session.session_id or "").strip()
+        if not sid:
+            raise ValueError("execution_session_id_required")
+        self.sessions[sid] = session
+        self._persist(session)
+
     def start_session(self, request: ExecutionSessionStartRequest) -> ExecutionSessionStartResult:
         session_id = str(request.session_id or "").strip() or f"exec-{uuid4().hex}"
         run_id = str(request.run_id or "").strip() or session_id

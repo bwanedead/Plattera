@@ -21,7 +21,7 @@ def test_manifest_tool_ids_match_tool_specs() -> None:
     manifest = build_transcript_edit_manifest()
     specs = build_transcript_edit_tool_specs()
     assert manifest.declared_semantic_tool_ids == tuple(s.tool_id for s in specs)
-    assert len(specs) == 12
+    assert len(specs) == 13
 
 
 def test_domain_pack_wires_same_tool_count_as_manifest() -> None:

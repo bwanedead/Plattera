@@ -17,11 +17,17 @@ from domains.mapping.transcript_edit.payloads.startup_inventory import (
     TranscriptEditStartupInventory,
 )
 
+from .draft_persistence import resolve_workspace_key
 from .paths import (
+    UnsafeArtifactPathSegmentError,
     association_path,
+    require_safe_workspace_relative_path,
     raw_drafts_dir,
     run_json_path,
-    transcript_edit_dir,
+    transcript_edit_latest_pointer_path,
+    transcript_edit_manifest_path,
+    transcript_edit_output_path,
+    transcript_edit_workspace_root,
     transcription_run_dir,
 )
 
@@ -87,7 +93,17 @@ def _is_legacy_pointer_stem(stem: str, transcription_id: str) -> bool:
 
 def _load_association_slice(dossier_id: str, transcription_id: str) -> tuple[dict[str, Any] | None, list[MissingResource]]:
     missing: list[MissingResource] = []
-    path = association_path(dossier_id)
+    try:
+        path = association_path(dossier_id)
+    except UnsafeArtifactPathSegmentError as exc:
+        missing.append(
+            MissingResource(
+                code="launch_scope_path_invalid",
+                message="Dossier id is not safe for association file paths.",
+                detail=str(exc),
+            )
+        )
+        return None, missing
     if not path.is_file():
         missing.append(
             MissingResource(
@@ -289,15 +305,60 @@ def _discover_t0_descriptors(
     return tuple(descriptors)
 
 
-def _transcript_edit_inventory(dossier_id: str, transcription_id: str) -> TranscriptEditDraftInventory:
-    te_dir = transcript_edit_dir(dossier_id, transcription_id)
-    working = te_dir / "working.json"
-    output = te_dir / "output.json"
+def _transcript_edit_inventory(
+    dossier_id: str,
+    transcription_id: str,
+    workspace_key: str | None,
+) -> TranscriptEditDraftInventory:
+    """
+    Ref-first transcript-edit draft inventory under ``artifacts/transcript_edit/...``.
+    Requires ``workspace_key`` (``workspace_id`` or ``run_id`` from scope); otherwise empty.
+    """
+    if not workspace_key:
+        return TranscriptEditDraftInventory()
+
+    latest_path = transcript_edit_latest_pointer_path(dossier_id, transcription_id, workspace_key)
+    output_path = transcript_edit_output_path(dossier_id, transcription_id, workspace_key)
+    manifest_path = transcript_edit_manifest_path(dossier_id, transcription_id, workspace_key)
+
+    working_exists = False
+    working_saved_at: str | None = None
+    if latest_path.is_file():
+        ptr = _load_json(latest_path)
+        if isinstance(ptr, dict) and ptr.get("relative_path"):
+            try:
+                rel = require_safe_workspace_relative_path(str(ptr["relative_path"]))
+                target = transcript_edit_workspace_root(dossier_id, transcription_id, workspace_key) / rel
+                working_exists = target.is_file()
+            except UnsafeArtifactPathSegmentError:
+                working_exists = False
+            if isinstance(ptr.get("saved_at"), str):
+                working_saved_at = ptr["saved_at"]
+
+    manifest = _load_json(manifest_path)
+    working_latest_revision: int | None = None
+    working_revision_count: int | None = None
+    output_published_at: str | None = None
+    if isinstance(manifest, dict):
+        lr = manifest.get("latest_revision")
+        if isinstance(lr, int) or (isinstance(lr, str) and str(lr).isdigit()):
+            working_latest_revision = int(lr)
+        rc = manifest.get("revision_count")
+        if isinstance(rc, int) or (isinstance(rc, str) and str(rc).isdigit()):
+            working_revision_count = int(rc)
+        op = manifest.get("output_published_at")
+        if isinstance(op, str) and op.strip():
+            output_published_at = op.strip()
+
     return TranscriptEditDraftInventory(
-        working_draft_exists=working.is_file(),
-        working_draft_ref=_WORKING_REF if working.is_file() else None,
-        output_draft_exists=output.is_file(),
-        output_draft_ref=_OUTPUT_REF if output.is_file() else None,
+        working_draft_exists=working_exists,
+        working_draft_ref=_WORKING_REF if working_exists else None,
+        output_draft_exists=output_path.is_file(),
+        output_draft_ref=_OUTPUT_REF if output_path.is_file() else None,
+        working_latest_revision=working_latest_revision,
+        working_revision_count=working_revision_count,
+        working_saved_at=working_saved_at,
+        output_published_at=output_published_at,
     )
 
 
@@ -307,13 +368,33 @@ def build_transcript_edit_startup_inventory(
     transcription_id: str,
     segment_id: str | None = None,
     run_id: str | None = None,
+    workspace_id: str | None = None,
 ) -> TranscriptEditStartupInventory:
     """Scan run folder + association metadata; never reads ``head.json`` for the inventory."""
     dossier_id = str(dossier_id).strip()
     transcription_id = str(transcription_id).strip()
     missing: list[MissingResource] = []
 
-    run_dir = transcription_run_dir(dossier_id, transcription_id)
+    try:
+        run_dir = transcription_run_dir(dossier_id, transcription_id)
+    except UnsafeArtifactPathSegmentError as exc:
+        missing.append(
+            MissingResource(
+                code="launch_scope_path_invalid",
+                message="Dossier or transcription id is not safe for filesystem paths under views/transcriptions.",
+                detail=str(exc),
+            )
+        )
+        return TranscriptEditStartupInventory(
+            scope=TranscriptEditScope(
+                dossier_id=dossier_id,
+                transcription_id=transcription_id,
+                segment_id=segment_id,
+                run_id=run_id,
+                workspace_id=workspace_id,
+            ),
+            missing_resources=tuple(missing),
+        )
     if not run_dir.is_dir():
         missing.append(
             MissingResource(
@@ -328,6 +409,7 @@ def build_transcript_edit_startup_inventory(
                 transcription_id=transcription_id,
                 segment_id=segment_id,
                 run_id=run_id,
+                workspace_id=workspace_id,
             ),
             missing_resources=tuple(missing),
         )
@@ -405,16 +487,31 @@ def build_transcript_edit_startup_inventory(
         peer_stems=tuple(d.source_file_stem for d in t0),
     )
 
+    workspace_key = resolve_workspace_key(workspace_id=workspace_id, run_id=run_id)
+
+    try:
+        te_drafts = _transcript_edit_inventory(dossier_id, transcription_id, workspace_key)
+    except UnsafeArtifactPathSegmentError as exc:
+        missing.append(
+            MissingResource(
+                code="transcript_edit_scope_path_invalid",
+                message="Transcript-edit workspace path used invalid dossier, transcription, or workspace segments.",
+                detail=str(exc),
+            )
+        )
+        te_drafts = TranscriptEditDraftInventory()
+
     return TranscriptEditStartupInventory(
         scope=TranscriptEditScope(
             dossier_id=dossier_id,
             transcription_id=transcription_id,
             segment_id=segment_id,
             run_id=run_id,
+            workspace_id=workspace_id,
         ),
         source_images=images,
         t0_drafts=t0,
-        transcript_edit_drafts=_transcript_edit_inventory(dossier_id, transcription_id),
+        transcript_edit_drafts=te_drafts,
         artifact_fingerprint=fp,
         missing_resources=tuple(missing),
     )

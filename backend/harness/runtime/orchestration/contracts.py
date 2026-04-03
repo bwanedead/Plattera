@@ -29,6 +29,8 @@ class SharedStateProjection:
 
 @dataclass(frozen=True)
 class ActionPlan:
+    """Kernel action; optional ``state_patch`` is model-authored generic work-state (see ``state_patch_apply``)."""
+
     action_type: str | None = None
     action_inputs: dict[str, Any] = field(default_factory=dict)
     idempotency_key: str = ""
@@ -36,6 +38,7 @@ class ActionPlan:
     wait_for_human: bool = False
     complete_run: bool = False
     rationale: str | None = None
+    state_patch: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -74,6 +77,8 @@ class KernelLoopResult:
     latest_refs: dict[str, Any] = field(default_factory=dict)
     runtime_state: dict[str, Any] = field(default_factory=dict)
     trace_events: list[dict[str, Any]] = field(default_factory=list)
+    # Mechanical persistence blob for process restart (``kernel_resume.v1``); no semantic authoring.
+    kernel_resume_snapshot: dict[str, Any] | None = None
 
     @property
     def opaque_runtime_payload(self) -> dict[str, Any]:

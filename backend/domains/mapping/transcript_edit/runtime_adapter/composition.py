@@ -18,6 +18,8 @@ from tooling.mapping.transcript_edit import (
     hydrate_source_image_context,
     hydrate_t0_draft_refs,
     hydrate_transcript_edit_working_draft,
+    publish_transcript_edit_output,
+    save_transcript_edit,
 )
 
 from ..payloads import TranscriptEditStartupInventory
@@ -64,6 +66,8 @@ def _tool_handler_specs() -> tuple[tuple[str, Callable[..., Any]], ...]:
         ("hydrate_t0_draft_refs", hydrate_t0_draft_refs),
         ("hydrate_transcript_edit_working_draft", hydrate_transcript_edit_working_draft),
         ("load_source_image_context", hydrate_source_image_context),
+        ("save_transcript_edit", save_transcript_edit),
+        ("publish_transcript_edit_output", publish_transcript_edit_output),
     )
 
 

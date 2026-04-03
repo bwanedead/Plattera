@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import time
+
 from harness.execution.contracts import (
     ExecutionDashboard,
     ExecutionLatestRefs,
+    ExecutionRefusal,
     ExecutionState,
     ExecutionStepRequest,
     ExecutionStepResult,
@@ -116,6 +119,203 @@ class WaitHumanPack:
         return ActionPlan(wait_for_human=True)
 
 
+class MechanicalInheritSyncPack:
+    """Mirrors LlmTurnOrchestrationAdapter: carry forward continuity + mechanical envelope."""
+
+    def initialize(self, context: OrchestratorContext) -> None:
+        pass
+
+    def sync(self, context: OrchestratorContext) -> SharedStateProjection:
+        prior_ms = context.loop_memory.continuity.mission_state
+        prior_rs = context.loop_memory.continuity.resolution_state
+        ts = time.time()
+        mo = dict(prior_ms.opaque_payload)
+        mo["turn_iteration"] = context.loop_memory.iterations
+        ro = dict(prior_rs.opaque_payload)
+        ro["turn_iteration"] = context.loop_memory.iterations
+        rs = prior_rs.model_copy(update={"opaque_payload": ro, "updated_at_epoch_seconds": ts})
+        ms = prior_ms.model_copy(
+            update={
+                "mission_id": context.session_id,
+                "session_id": context.session_id,
+                "request_id": context.request_id_prefix,
+                "loop_family": "orchestration_kernel",
+                "updated_at_epoch_seconds": ts,
+                "opaque_payload": mo,
+                "resolution_state": rs,
+            }
+        )
+        ca = context.loop_memory.continuity.active_item_id
+        return SharedStateProjection(
+            mission_state=ms,
+            resolution_state=rs,
+            latest_refs=dict(context.loop_memory.continuity.latest_refs),
+            active_item_id=ca if ca is not None else rs.active_item_id,
+        )
+
+    def evaluate_terminal(self, context: OrchestratorContext, projection: SharedStateProjection | None) -> TerminalEvaluation | None:
+        if context.loop_memory.iterations >= 3:
+            return TerminalEvaluation(terminal_class="completed", reason_code="patch_persisted")
+        return None
+
+    def choose_action(self, context: OrchestratorContext, projection: SharedStateProjection | None) -> ActionPlan:
+        it = context.loop_memory.iterations
+        if it == 1:
+            return ActionPlan(
+                action_type="noop",
+                action_inputs={},
+                idempotency_key="ik-patch-1",
+                state_patch={
+                    "resolution": {
+                        "active_item_id": "work-1",
+                        "items": [
+                            {
+                                "item_id": "work-1",
+                                "title": "Unit",
+                                "kind": "work_unit",
+                                "status": "open",
+                            }
+                        ],
+                    }
+                },
+            )
+        if it == 2:
+            assert projection is not None
+            assert len(projection.resolution_state.items) == 1
+            assert projection.resolution_state.items[0].item_id == "work-1"
+            return ActionPlan(
+                action_type="noop",
+                action_inputs={},
+                idempotency_key="ik-patch-2",
+                state_patch={
+                    "resolution": {
+                        "items": [
+                            {"item_id": "work-1", "status": "closed"},
+                        ],
+                    }
+                },
+            )
+        return ActionPlan(skip_execution=True, idempotency_key="ik-fallback")
+
+
+class BadTopLevelStatePatchPack:
+    def initialize(self, context: OrchestratorContext) -> None:
+        pass
+
+    def sync(self, context: OrchestratorContext) -> SharedStateProjection:
+        return MechanicalInheritSyncPack().sync(context)
+
+    def evaluate_terminal(self, context: OrchestratorContext, projection: SharedStateProjection | None) -> TerminalEvaluation | None:
+        if context.loop_memory.iterations >= 2:
+            return TerminalEvaluation(terminal_class="completed", reason_code="after_bad_patch")
+        return None
+
+    def choose_action(self, context: OrchestratorContext, projection: SharedStateProjection | None) -> ActionPlan:
+        return ActionPlan(
+            action_type="noop",
+            action_inputs={},
+            idempotency_key="ik-bad",
+            state_patch={"domain_specific_surface": {"x": 1}},
+        )
+
+
+class RefuseOnceSessionManager(FakeSessionManager):
+    """First ``step`` refuses; later calls behave like ``FakeSessionManager`` (no real session table)."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._calls = 0
+
+    def step(self, request: ExecutionStepRequest) -> ExecutionStepResult:  # type: ignore[override]
+        self.steps.append(request)
+        self._calls += 1
+        if self._calls == 1:
+            return ExecutionStepResult(
+                session_id=request.session_id,
+                idempotency_key=request.idempotency_key,
+                execution_state=ExecutionState.REFUSED,
+                dashboard=_dashboard(),
+                refusal=ExecutionRefusal(reason_code="test_refusal", retryable=False),
+            )
+        return ExecutionStepResult(
+            session_id=request.session_id,
+            idempotency_key=request.idempotency_key,
+            execution_state=ExecutionState.EXECUTED,
+            dashboard=_dashboard(refs={"step_ref": f"artifact://{request.action_id}"}),
+        )
+
+
+class PatchOnNoopRefusedPack:
+    """Proposes a resolution patch with a noop step; used with a refusing session manager."""
+
+    def initialize(self, context: OrchestratorContext) -> None:
+        pass
+
+    def sync(self, context: OrchestratorContext) -> SharedStateProjection:
+        return SharedStateProjection(
+            mission_state=new_mission_state(mission_id="m-ref", loop_family="orchestration_kernel"),
+            resolution_state=new_resolution_state(),
+        )
+
+    def evaluate_terminal(self, context: OrchestratorContext, projection: SharedStateProjection | None) -> TerminalEvaluation | None:
+        return None
+
+    def choose_action(self, context: OrchestratorContext, projection: SharedStateProjection | None) -> ActionPlan:
+        return ActionPlan(
+            action_type="noop",
+            action_inputs={},
+            idempotency_key="ik-ref-patch",
+            state_patch={
+                "resolution": {
+                    "items": [
+                        {
+                            "item_id": "x1",
+                            "title": "T",
+                            "kind": "work_unit",
+                            "status": "open",
+                        }
+                    ],
+                }
+            },
+        )
+
+
+class CompleteRunWithSkippedItemRowsPack:
+    """``complete_run`` with a patch containing one invalid and one valid item row."""
+
+    def initialize(self, context: OrchestratorContext) -> None:
+        pass
+
+    def sync(self, context: OrchestratorContext) -> SharedStateProjection:
+        return SharedStateProjection(
+            mission_state=new_mission_state(mission_id="m-skip", loop_family="orchestration_kernel"),
+            resolution_state=new_resolution_state(),
+        )
+
+    def evaluate_terminal(self, context: OrchestratorContext, projection: SharedStateProjection | None) -> TerminalEvaluation | None:
+        return None
+
+    def choose_action(self, context: OrchestratorContext, projection: SharedStateProjection | None) -> ActionPlan:
+        return ActionPlan(
+            complete_run=True,
+            rationale="done",
+            idempotency_key="ik-skip-rows",
+            state_patch={
+                "resolution": {
+                    "items": [
+                        {"item_id": "", "title": "x", "kind": "k", "status": "s"},
+                        {
+                            "item_id": "ok",
+                            "title": "Valid",
+                            "kind": "work_unit",
+                            "status": "open",
+                        },
+                    ],
+                }
+            },
+        )
+
+
 class SkipExecutionPack:
     def initialize(self, context: OrchestratorContext) -> None:
         pass
@@ -201,3 +401,88 @@ def test_skip_execution_no_session_step() -> None:
 def test_orchestration_adapter_protocol_typing() -> None:
     p: OrchestrationAdapter = OneStepThenCompletePack()
     assert hasattr(p, "initialize")
+
+
+def test_state_patch_persists_across_sync_iterations() -> None:
+    sm = FakeSessionManager()
+    result = run_orchestration_kernel_loop(
+        orchestration_adapter=MechanicalInheritSyncPack(),
+        session_manager=sm,
+        session_id="sess-patch",
+        run_artifact_ref=None,
+        request_id_prefix="req-patch",
+        opaque_run_context={},
+        max_iterations=6,
+    )
+    assert result.terminal_class == "completed"
+    assert result.reason_code == "patch_persisted"
+    assert len(sm.steps) == 2
+    rs = result.runtime_state["resolution_state"]
+    assert len(rs.items) == 1
+    assert rs.items[0].status == "closed"
+
+
+def test_complete_run_patch_surfaces_skipped_item_rows_in_feedback_and_trace() -> None:
+    sm = FakeSessionManager()
+    result = run_orchestration_kernel_loop(
+        orchestration_adapter=CompleteRunWithSkippedItemRowsPack(),
+        session_manager=sm,
+        session_id="sess-skip-rows",
+        run_artifact_ref=None,
+        request_id_prefix="req-skip-rows",
+        opaque_run_context={},
+        max_iterations=3,
+    )
+    assert result.terminal_class == "completed"
+    assert len(result.runtime_state["resolution_state"].items) == 1
+    fb = result.runtime_state["state_patch_feedback"]
+    assert fb.get("outcome") == "applied"
+    assert fb.get("skipped_resolution_rows") is True
+    assert fb.get("row_skips") == {"resolution": {"items": {"missing_item_id": 1}, "relations": {}}}
+    patch_events = [e for e in result.trace_events if e.get("event_kind") == "state_patch_outcome"]
+    assert patch_events
+    assert patch_events[-1]["payload"].get("detail", {}).get("skipped_resolution_rows") is True
+
+
+def test_invalid_state_patch_is_dropped_without_terminating_loop() -> None:
+    sm = FakeSessionManager()
+    result = run_orchestration_kernel_loop(
+        orchestration_adapter=BadTopLevelStatePatchPack(),
+        session_manager=sm,
+        session_id="sess-bad",
+        run_artifact_ref=None,
+        request_id_prefix="req-bad",
+        max_iterations=5,
+    )
+    assert result.terminal_class == "completed"
+    assert result.reason_code == "after_bad_patch"
+    assert len(sm.steps) == 1
+    assert len(result.runtime_state["resolution_state"].items) == 0
+    fb = result.runtime_state["state_patch_feedback"]
+    assert fb.get("outcome") == "rejected"
+    assert fb.get("reason_code") == "state_patch_unknown_keys"
+    kinds = [e.get("event_kind") for e in result.trace_events]
+    assert "state_patch_outcome" in kinds
+
+
+def test_state_patch_not_applied_when_step_refused() -> None:
+    sm = RefuseOnceSessionManager()
+    result = run_orchestration_kernel_loop(
+        orchestration_adapter=PatchOnNoopRefusedPack(),
+        session_manager=sm,
+        session_id="sess-np",
+        run_artifact_ref=None,
+        request_id_prefix="req-np",
+        opaque_run_context={},
+        max_iterations=3,
+    )
+    assert result.terminal_class == "failed"
+    assert result.reason_code == "test_refusal"
+    assert len(sm.steps) == 1
+    assert len(result.runtime_state["resolution_state"].items) == 0
+    fb = result.runtime_state["state_patch_feedback"]
+    assert fb.get("outcome") == "not_applied"
+    assert fb.get("execution_reason_code") == "test_refusal"
+    assert any(e.get("event_kind") == "state_patch_outcome" for e in result.trace_events)
+
+

@@ -6,6 +6,7 @@ from .draft_loading import (
     hydrate_transcript_edit_working_draft,
     hydrate_t0_draft_refs,
 )
+from .draft_persistence import publish_transcript_edit_output, save_transcript_edit
 from .image_loading import hydrate_source_image_context
 from .startup_inventory import build_transcript_edit_startup_inventory
 
@@ -16,4 +17,6 @@ __all__ = [
     "hydrate_source_image_context",
     "hydrate_t0_draft_refs",
     "hydrate_transcript_edit_working_draft",
+    "publish_transcript_edit_output",
+    "save_transcript_edit",
 ]

@@ -3,20 +3,24 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from ...execution.contracts import ExecutionState, ExecutionStepRequest
+from ...execution.contracts import ExecutionState
 from ...execution.session import ExecutionSessionManager
 
-from ...mission_state import MissionState, ResolutionState
 from ...terminal_taxonomy import TerminalClass
-from .contracts import (
-    ActionPlan,
-    KernelLoopResult,
-    OrchestrationAdapter,
-    OrchestratorContext,
-    SharedStateProjection,
-    TerminalEvaluation,
-)
+from .contracts import KernelLoopResult, OrchestrationAdapter, OrchestratorContext
 from ..memory import LoopMemoryState
+from ..memory.resume_snapshot import build_kernel_resume_snapshot
+from .orchestrator_coercion import (
+    coerce_kernel_action_plan,
+    coerce_projection,
+    coerce_step_request,
+    coerce_terminal_evaluation,
+)
+from .state_patch_apply import (
+    sync_state_patch_after_committed_gate,
+    sync_state_patch_after_step_refusal,
+    sync_state_patch_when_no_step_dispatched,
+)
 from .trace_collector import KernelTraceCollector
 
 _LOG = logging.getLogger(__name__)
@@ -37,6 +41,8 @@ def run_orchestration_kernel_loop(
     opaque_run_context: dict[str, Any] | None = None,
     max_iterations: int,
     resume_hitl_response: dict[str, Any] | None = None,
+    initial_loop_memory: LoopMemoryState | None = None,
+    resume_start_iteration: int = 1,
 ) -> KernelLoopResult:
     """Drive the bounded per-run loop; ``orchestration_adapter`` implements ``OrchestrationAdapter``.
 
@@ -45,8 +51,12 @@ def run_orchestration_kernel_loop(
 
     Packs may optionally define ``wire_identity_trace_cb`` for LLM identity tracing; that hook is
     not part of the protocol and is discovered via ``hasattr``.
+
+    For process restart, pass ``initial_loop_memory`` and ``resume_start_iteration`` from a parsed
+    ``kernel_resume.v1`` snapshot (mechanical rehydration only; no semantic repair).
     """
-    loop_memory = LoopMemoryState()
+    loop_memory = initial_loop_memory if initial_loop_memory is not None else LoopMemoryState()
+    start_iteration = max(1, int(resume_start_iteration))
     if isinstance(resume_hitl_response, dict) and resume_hitl_response:
         loop_memory.hitl.hitl_state = "answered_unintegrated"
         loop_memory.hitl.pending_feedback_response = resume_hitl_response
@@ -102,7 +112,8 @@ def run_orchestration_kernel_loop(
 
     _call_optional(orchestration_adapter, "initialize", context)
 
-    for iterations in range(1, max_iterations + 1):
+    for offset in range(max_iterations):
+        iterations = start_iteration + offset
         loop_memory.iterations = iterations
         tracer.emit_iteration_start(iteration=iterations, hitl_state=loop_memory.hitl.hitl_state)
 
@@ -118,9 +129,10 @@ def run_orchestration_kernel_loop(
                 session_id=session_id,
                 run_artifact_ref=run_artifact_ref,
                 tracer=tracer,
+                session_manager=session_manager,
             )
 
-        projection = _coerce_projection(_call_optional(orchestration_adapter, "sync", context))
+        projection = coerce_projection(_call_optional(orchestration_adapter, "sync", context))
         if projection is not None:
             loop_memory.continuity.mission_state = projection.mission_state
             loop_memory.continuity.resolution_state = projection.resolution_state
@@ -132,7 +144,7 @@ def run_orchestration_kernel_loop(
                 or loop_memory.continuity.active_item_id
             )
 
-        terminal = _coerce_terminal_evaluation(_call_optional(orchestration_adapter, "evaluate_terminal", context, projection))
+        terminal = coerce_terminal_evaluation(_call_optional(orchestration_adapter, "evaluate_terminal", context, projection))
         if terminal is not None:
             return _make_result(
                 loop_memory=loop_memory,
@@ -142,13 +154,23 @@ def run_orchestration_kernel_loop(
                 session_id=session_id,
                 run_artifact_ref=run_artifact_ref,
                 tracer=tracer,
+                session_manager=session_manager,
             )
 
-        action_plan = _coerce_action_plan(_call_optional(orchestration_adapter, "choose_action", context, projection))
+        action_plan = coerce_kernel_action_plan(_call_optional(orchestration_adapter, "choose_action", context, projection))
         if action_plan is None:
             continue
 
+        patch_present = bool(action_plan.state_patch)
+
         if action_plan.wait_for_human:
+            sync_state_patch_after_committed_gate(
+                loop_memory=loop_memory,
+                action_plan=action_plan,
+                tracer=tracer,
+                iteration=iterations,
+                gate="wait_for_human",
+            )
             loop_memory.hitl.hitl_state = "waiting"
             return _make_result(
                 loop_memory=loop_memory,
@@ -158,9 +180,17 @@ def run_orchestration_kernel_loop(
                 session_id=session_id,
                 run_artifact_ref=run_artifact_ref,
                 tracer=tracer,
+                session_manager=session_manager,
             )
 
         if action_plan.complete_run:
+            sync_state_patch_after_committed_gate(
+                loop_memory=loop_memory,
+                action_plan=action_plan,
+                tracer=tracer,
+                iteration=iterations,
+                gate="complete_run",
+            )
             return _make_result(
                 loop_memory=loop_memory,
                 terminal_class="completed",
@@ -169,9 +199,10 @@ def run_orchestration_kernel_loop(
                 session_id=session_id,
                 run_artifact_ref=run_artifact_ref,
                 tracer=tracer,
+                session_manager=session_manager,
             )
 
-        step_request = _coerce_step_request(action_plan, session_id=session_id)
+        step_request = coerce_step_request(action_plan, session_id=session_id)
         if step_request is not None and not action_plan.skip_execution:
             step_result = session_manager.step(step_request)
             if step_result.execution_state != ExecutionState.EXECUTED:
@@ -185,6 +216,13 @@ def run_orchestration_kernel_loop(
                     reason_code=reason,
                     retryable=retryable,
                     refs_delta=None,
+                )
+                sync_state_patch_after_step_refusal(
+                    loop_memory=loop_memory,
+                    tracer=tracer,
+                    iteration=iterations,
+                    patch_present=patch_present,
+                    execution_reason_code=reason,
                 )
                 is_retryable = (
                     refusal is not None
@@ -201,6 +239,7 @@ def run_orchestration_kernel_loop(
                         session_id=session_id,
                         run_artifact_ref=run_artifact_ref,
                         tracer=tracer,
+                        session_manager=session_manager,
                     )
                 if step_result.dashboard is not None:
                     loop_memory.continuity.latest_refs = step_result.dashboard.latest_refs.model_dump(mode="json")
@@ -215,6 +254,22 @@ def run_orchestration_kernel_loop(
                     retryable=None,
                     refs_delta=loop_memory.continuity.latest_refs,
                 )
+                sync_state_patch_after_committed_gate(
+                    loop_memory=loop_memory,
+                    action_plan=action_plan,
+                    tracer=tracer,
+                    iteration=iterations,
+                    gate="step_executed",
+                )
+        else:
+            sync_state_patch_when_no_step_dispatched(
+                loop_memory=loop_memory,
+                action_plan=action_plan,
+                tracer=tracer,
+                iteration=iterations,
+                patch_present=patch_present,
+                skip_execution=action_plan.skip_execution,
+            )
 
     return _make_result(
         loop_memory=loop_memory,
@@ -224,6 +279,7 @@ def run_orchestration_kernel_loop(
         session_id=session_id,
         run_artifact_ref=run_artifact_ref,
         tracer=tracer,
+        session_manager=session_manager,
     )
 
 
@@ -232,118 +288,6 @@ def _call_optional(obj: OrchestrationAdapter, name: str, *args: Any, **kwargs: A
     if not callable(fn):
         return None
     return fn(*args, **kwargs)
-
-
-def _coerce_projection(value: Any) -> SharedStateProjection | None:
-    if value is None:
-        return None
-    if isinstance(value, SharedStateProjection):
-        return value
-    if isinstance(value, dict):
-        mission_state = value.get("mission_state")
-        resolution_state = value.get("resolution_state")
-        if not isinstance(mission_state, MissionState) or not isinstance(resolution_state, ResolutionState):
-            return None
-        return SharedStateProjection(
-            mission_state=mission_state,
-            resolution_state=resolution_state,
-            latest_refs=dict(value.get("latest_refs") or {}),
-            active_item_id=str(value.get("active_item_id") or "").strip() or None,
-        )
-    mission_state = getattr(value, "mission_state", None)
-    resolution_state = getattr(value, "resolution_state", None)
-    if not isinstance(mission_state, MissionState) or not isinstance(resolution_state, ResolutionState):
-        return None
-    latest_refs = getattr(value, "latest_refs", {})
-    active_item_id = getattr(value, "active_item_id", None)
-    return SharedStateProjection(
-        mission_state=mission_state,
-        resolution_state=resolution_state,
-        latest_refs=dict(latest_refs) if isinstance(latest_refs, dict) else {},
-        active_item_id=str(active_item_id or "").strip() or None,
-    )
-
-
-def _coerce_action_plan(value: Any) -> ActionPlan | None:
-    if value is None:
-        return None
-    if isinstance(value, ActionPlan):
-        return value
-    if isinstance(value, dict):
-        return ActionPlan(
-            action_type=str(value.get("action_type") or "").strip() or None,
-            action_inputs=dict(value.get("action_inputs") or {}),
-            idempotency_key=str(value.get("idempotency_key") or ""),
-            skip_execution=bool(value.get("skip_execution", False)),
-            wait_for_human=bool(value.get("wait_for_human", False)),
-            complete_run=bool(value.get("complete_run", False)),
-            rationale=str(value.get("rationale") or "").strip() or None,
-        )
-    action_inputs = getattr(value, "action_inputs", None)
-    return ActionPlan(
-        action_type=str(getattr(value, "action_type", "") or "").strip() or None,
-        action_inputs=action_inputs if isinstance(action_inputs, dict) else {},
-        idempotency_key=str(getattr(value, "idempotency_key", "") or ""),
-        skip_execution=bool(getattr(value, "skip_execution", False)),
-        wait_for_human=bool(getattr(value, "wait_for_human", False)),
-        complete_run=bool(getattr(value, "complete_run", False)),
-        rationale=str(getattr(value, "rationale", "") or "").strip() or None,
-    )
-
-
-def _coerce_step_request(value: Any, *, session_id: str) -> ExecutionStepRequest | None:
-    if value is None:
-        return None
-    if isinstance(value, ExecutionStepRequest):
-        return value
-    if isinstance(value, ActionPlan):
-        if value.action_type is None:
-            return None
-        return ExecutionStepRequest(
-            session_id=session_id,
-            action_id=value.action_type,
-            inputs=dict(value.action_inputs),
-            idempotency_key=value.idempotency_key,
-        )
-    if isinstance(value, dict):
-        action_type = value.get("action_type")
-        inputs = value.get("inputs")
-        if action_type is None:
-            return None
-        return ExecutionStepRequest(
-            session_id=str(value.get("session_id") or session_id),
-            action_id=action_type,
-            inputs=inputs if isinstance(inputs, dict) else {},
-            idempotency_key=str(value.get("idempotency_key") or ""),
-        )
-    action_type = getattr(value, "action_type", None)
-    inputs = getattr(value, "inputs", None)
-    if action_type is None:
-        return None
-    return ExecutionStepRequest(
-        session_id=str(getattr(value, "session_id", None) or session_id),
-        action_id=action_type,
-        inputs=inputs if isinstance(inputs, dict) else {},
-        idempotency_key=str(getattr(value, "idempotency_key", "") or ""),
-    )
-
-
-def _coerce_terminal_evaluation(value: Any) -> TerminalEvaluation | None:
-    if value is None:
-        return None
-    if isinstance(value, TerminalEvaluation):
-        return value
-    if isinstance(value, dict):
-        terminal_class = value.get("terminal_class")
-        reason_code = str(value.get("reason_code") or "").strip()
-        if terminal_class is None or not reason_code:
-            return None
-        return TerminalEvaluation(terminal_class=terminal_class, reason_code=reason_code)
-    terminal_class = getattr(value, "terminal_class", None)
-    reason_code = str(getattr(value, "reason_code", "") or "").strip()
-    if terminal_class is None or not reason_code:
-        return None
-    return TerminalEvaluation(terminal_class=terminal_class, reason_code=reason_code)
 
 
 def _make_result(
@@ -355,6 +299,7 @@ def _make_result(
     session_id: str,
     run_artifact_ref: str | None,
     tracer: KernelTraceCollector,
+    session_manager: ExecutionSessionManager,
 ) -> KernelLoopResult:
     tracer.emit_terminal(
         iteration=iterations,
@@ -371,7 +316,14 @@ def _make_result(
         "last_prompt_event_surface": loop_memory.telemetry.last_prompt_event_surface,
         "mission_state": loop_memory.continuity.mission_state,
         "resolution_state": loop_memory.continuity.resolution_state,
+        "state_patch_feedback": dict(loop_memory.continuity.state_patch_feedback),
     }
+    resume_snap = build_kernel_resume_snapshot(
+        loop_memory=loop_memory,
+        session_manager=session_manager,
+        session_id=session_id,
+        next_iteration=iterations + 1,
+    )
     return KernelLoopResult(
         terminal_class=terminal_class,
         reason_code=reason_code,
@@ -381,4 +333,5 @@ def _make_result(
         latest_refs=dict(loop_memory.continuity.latest_refs),
         runtime_state=runtime_state,
         trace_events=tracer.build_raw_events(),
+        kernel_resume_snapshot=resume_snap,
     )

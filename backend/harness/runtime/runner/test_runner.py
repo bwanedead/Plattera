@@ -6,6 +6,8 @@ from pathlib import Path
 
 import pytest
 
+from domains.mapping.transcript_edit.runtime_adapter import build_transcript_edit_runtime_adapter
+import config.paths as config_paths
 from harness.execution.contracts import ActionDispatchResult, ExecutionStepRequest
 from harness.runtime.composition import ToolBinding, TurnBlock, TurnSurface
 from harness.runtime.runner import RuntimeArtifactTargets, RuntimeRunner, RuntimeRunnerError
@@ -41,6 +43,54 @@ def _surface(tool_calls: list[ExecutionStepRequest]) -> TurnSurface:
         blocks=(TurnBlock(content="block-1", metadata={"kind": "prompt"}),),
         payload={"opaque": {"scope": "generic"}},
         tool_bindings=(ToolBinding(tool_id="select_tool", handler=_handler),),
+    )
+
+
+def _write_transcript_edit_fixture(root: Path) -> None:
+    dossier_id = "9f5eecb6-cd7e-483c-b691-b76aa7132e8e"
+    transcription_id = "draft_legal_text_image"
+    run_dir = root / "views" / "transcriptions" / dossier_id / transcription_id
+    raw_dir = run_dir / "raw"
+    te_dir = run_dir / "transcript_edit"
+    assoc_dir = root / "associations"
+
+    raw_dir.mkdir(parents=True, exist_ok=True)
+    te_dir.mkdir(parents=True, exist_ok=True)
+    assoc_dir.mkdir(parents=True, exist_ok=True)
+
+    (run_dir / "run.json").write_text(
+        json.dumps({"completed_drafts": ["peer_alpha"]}, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    (raw_dir / "peer_alpha.json").write_text(
+        json.dumps(
+            {
+                "sections": [
+                    {
+                        "body": "Peer alpha text for deterministic hydrate testing.",
+                    }
+                ]
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    (te_dir / "working.json").write_text(json.dumps({"status": "draft"}, ensure_ascii=False, indent=2), encoding="utf-8")
+    (assoc_dir / f"assoc_{dossier_id}.json").write_text(
+        json.dumps(
+            {
+                "associations": [
+                    {
+                        "transcription_id": transcription_id,
+                        "metadata": {},
+                    }
+                ]
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
     )
 
 
@@ -145,3 +195,71 @@ def test_runner_writes_mechanical_failure_for_invalid_model_json(tmp_path: Path)
     assert done_doc["status"] == "failed"
     assert done_doc["reason_code"] == "invalid_model_action_json"
 
+
+def test_runner_executes_transcript_edit_tool_and_writes_artifacts(tmp_path: Path, monkeypatch) -> None:
+    dossier_root = tmp_path / "dossiers_data"
+    dossier_root.mkdir()
+    _write_transcript_edit_fixture(dossier_root)
+    monkeypatch.setattr(config_paths, "dossiers_root", lambda: dossier_root)
+
+    model_calls: list[tuple[str, str]] = []
+
+    def model_caller(prompt: str, model: str) -> str:
+        model_calls.append((prompt, model))
+        if len(model_calls) == 1:
+            return json.dumps(
+                {
+                    "action_type": "hydrate_t0_draft_refs",
+                    "action_inputs": {
+                        "dossier_id": "9f5eecb6-cd7e-483c-b691-b76aa7132e8e",
+                        "transcription_id": "draft_legal_text_image",
+                        "ref_ids": ["t0:raw:peer_alpha"],
+                    },
+                    "idempotency_key": "ik-1",
+                    "skip_execution": False,
+                    "wait_for_human": False,
+                    "complete_run": False,
+                    "rationale": "hydrate the requested draft refs",
+                }
+            )
+        return json.dumps(
+            {
+                "action_inputs": {},
+                "idempotency_key": "ik-2",
+                "skip_execution": False,
+                "wait_for_human": False,
+                "complete_run": True,
+                "rationale": "finished",
+            }
+        )
+
+    runner = RuntimeRunner(
+        adapter=build_transcript_edit_runtime_adapter(),
+        model_caller=model_caller,
+        targets=_targets(tmp_path),
+    )
+
+    result = runner.run(
+        launch_context={
+            "dossier_id": "9f5eecb6-cd7e-483c-b691-b76aa7132e8e",
+            "transcription_id": "draft_legal_text_image",
+            "run_id": "practice-live-smoke-1",
+            "model": "gpt-o4-mini",
+            "max_iterations": 2,
+        }
+    )
+
+    assert result.status == "completed"
+    assert result.reason_code == "finished"
+    assert len(model_calls) == 2
+
+    tool_events = [event for event in result.result_payload["trace_events"] if event.get("event_kind") == "tool_execution"]
+    assert len(tool_events) == 1
+    assert tool_events[0]["payload"]["action_type"] == "hydrate_t0_draft_refs"
+
+    result_doc = json.loads((tmp_path / "result.json").read_text(encoding="utf-8"))
+    done_doc = json.loads((tmp_path / "done.json").read_text(encoding="utf-8"))
+    assert result_doc["status"] == "completed"
+    assert result_doc["reason_code"] == "finished"
+    assert done_doc["status"] == "completed"
+    assert done_doc["reason_code"] == "finished"

@@ -19,6 +19,7 @@ EventKind = Literal[
     "blocker_transition",
     "verification",
     "hitl_escalation",
+    "state_patch_outcome",
     "terminal_outcome",
 ]
 ActorKind = Literal["model", "kernel", "tool", "harness", "human"]

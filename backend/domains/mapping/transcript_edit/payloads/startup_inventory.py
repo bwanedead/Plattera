@@ -13,6 +13,7 @@ class TranscriptEditScope:
     transcription_id: str
     segment_id: str | None = None
     run_id: str | None = None
+    workspace_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -46,6 +47,10 @@ class TranscriptEditDraftInventory:
     working_draft_ref: str | None = None
     output_draft_exists: bool = False
     output_draft_ref: str | None = None
+    working_latest_revision: int | None = None
+    working_revision_count: int | None = None
+    working_saved_at: str | None = None
+    output_published_at: str | None = None
 
 
 @dataclass(frozen=True)

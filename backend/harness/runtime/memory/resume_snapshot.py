@@ -1,0 +1,277 @@
+"""Mechanical kernel resume snapshot (``kernel_resume.v1``): loop memory + execution session wire.
+
+No semantic inference: validate or reject; restored fields are carried state only.
+"""
+
+from __future__ import annotations
+
+import json
+from collections.abc import Mapping
+from pathlib import Path
+from typing import Any
+
+from pydantic import ValidationError
+
+from ...execution.executor import ExecutionExecutor
+from ...execution.session import ExecutionSessionManager
+from ...execution.session_wire import execution_session_from_wire, execution_session_to_wire
+from ...mission_state import MissionState, ResolutionState
+from ..hitl.transport import HitlTransportPosture
+from .continuity import OrchestrationContinuity
+from .loop_state import LoopMemoryState
+from .telemetry import PromptContactTelemetry
+
+KERNEL_RESUME_SNAPSHOT_VERSION = "kernel_resume.v1"
+
+_VALID_HITL: frozenset[str] = frozenset({"no_prompt", "waiting", "answered_unintegrated", "consumed"})
+
+
+def build_kernel_resume_snapshot(
+    *,
+    loop_memory: LoopMemoryState,
+    session_manager: ExecutionSessionManager,
+    session_id: str,
+    next_iteration: int,
+) -> dict[str, Any]:
+    """Produce a JSON-serializable snapshot for persistence (caller writes bytes)."""
+    sid = str(session_id or "").strip()
+    session = session_manager.sessions.get(sid) if sid else None
+    exec_wire: dict[str, Any] | None
+    if session is None:
+        exec_wire = None
+    else:
+        exec_wire = execution_session_to_wire(session)
+
+    return {
+        "schema_version": KERNEL_RESUME_SNAPSHOT_VERSION,
+        "next_iteration": max(1, int(next_iteration)),
+        "continuity": {
+            "latest_refs": dict(loop_memory.continuity.latest_refs),
+            "mission_state": loop_memory.continuity.mission_state.model_dump(mode="json"),
+            "resolution_state": loop_memory.continuity.resolution_state.model_dump(mode="json"),
+            "active_item_id": loop_memory.continuity.active_item_id,
+            "state_patch_feedback": dict(loop_memory.continuity.state_patch_feedback),
+        },
+        "hitl": {
+            "hitl_state": loop_memory.hitl.hitl_state,
+            "pending_feedback_prompt_id": loop_memory.hitl.pending_feedback_prompt_id,
+            "pending_feedback_response": loop_memory.hitl.pending_feedback_response,
+        },
+        "telemetry": {
+            "llm_contact_count": int(loop_memory.telemetry.llm_contact_count),
+            "prompt_event_count": int(loop_memory.telemetry.prompt_event_count),
+            "last_prompt_event_id": loop_memory.telemetry.last_prompt_event_id,
+            "last_prompt_event_surface": loop_memory.telemetry.last_prompt_event_surface,
+        },
+        "execution_session": exec_wire,
+    }
+
+
+def parse_kernel_resume_snapshot(payload: Mapping[str, Any]) -> tuple[LoopMemoryState, int, str | None]:
+    """Validate snapshot; return ``(loop_memory, next_iteration, error_reason_code)``.
+
+    On failure ``error_reason_code`` is set and ``loop_memory`` / ``next_iteration`` are unusable
+    placeholders — callers must branch on the error code (do not partially trust outputs).
+    """
+    empty = LoopMemoryState()
+    if not isinstance(payload, Mapping):
+        return empty, 1, "resume_snapshot_not_object"
+
+    ver = str(payload.get("schema_version") or "").strip()
+    if ver != KERNEL_RESUME_SNAPSHOT_VERSION:
+        return empty, 1, "resume_snapshot_schema_mismatch"
+
+    try:
+        next_it = int(payload.get("next_iteration", 1))
+    except (TypeError, ValueError):
+        return empty, 1, "resume_snapshot_next_iteration_invalid"
+    if next_it < 1:
+        return empty, 1, "resume_snapshot_next_iteration_invalid"
+
+    cont = payload.get("continuity")
+    if not isinstance(cont, Mapping):
+        return empty, 1, "resume_snapshot_continuity_invalid"
+
+    try:
+        ms = MissionState.model_validate(cont.get("mission_state"))
+        rs = ResolutionState.model_validate(cont.get("resolution_state"))
+    except ValidationError:
+        return empty, 1, "resume_snapshot_mission_resolution_invalid"
+
+    ms = ms.model_copy(update={"resolution_state": rs})
+
+    if "latest_refs" in cont:
+        lr_raw = cont.get("latest_refs")
+        if not isinstance(lr_raw, Mapping):
+            return empty, 1, "resume_snapshot_continuity_latest_refs_invalid"
+        latest_refs_out: dict[str, Any] = dict(lr_raw)
+    else:
+        latest_refs_out = {}
+
+    if "state_patch_feedback" in cont:
+        sp_raw = cont.get("state_patch_feedback")
+        if not isinstance(sp_raw, Mapping):
+            return empty, 1, "resume_snapshot_continuity_state_patch_feedback_invalid"
+        state_patch_feedback_out = dict(sp_raw)
+    else:
+        state_patch_feedback_out = {}
+
+    active_item_id, ai_err = _strict_optional_resume_str_field(
+        cont,
+        "active_item_id",
+        limit=128,
+        error_code="resume_snapshot_continuity_active_item_id_invalid",
+    )
+    if ai_err:
+        return empty, 1, ai_err
+
+    continuity = OrchestrationContinuity(
+        latest_refs=latest_refs_out,
+        mission_state=ms,
+        resolution_state=rs,
+        active_item_id=active_item_id,
+        state_patch_feedback=state_patch_feedback_out,
+    )
+
+    hitl_raw = payload.get("hitl")
+    if not isinstance(hitl_raw, Mapping):
+        return empty, 1, "resume_snapshot_hitl_invalid"
+    hs = str(hitl_raw.get("hitl_state") or "no_prompt").strip()
+    if hs not in _VALID_HITL:
+        return empty, 1, "resume_snapshot_hitl_state_invalid"
+
+    if "pending_feedback_response" in hitl_raw:
+        pfr = hitl_raw.get("pending_feedback_response")
+        if pfr is not None and not isinstance(pfr, Mapping):
+            return empty, 1, "resume_snapshot_hitl_pending_feedback_response_invalid"
+        pending_response: dict[str, Any] | None = dict(pfr) if isinstance(pfr, Mapping) else None
+    else:
+        pending_response = None
+
+    prompt_id, pid_err = _strict_optional_resume_str_field(
+        hitl_raw,
+        "pending_feedback_prompt_id",
+        limit=256,
+        error_code="resume_snapshot_hitl_pending_feedback_prompt_id_invalid",
+    )
+    if pid_err:
+        return empty, 1, pid_err
+
+    hitl = HitlTransportPosture(
+        hitl_state=hs,  # type: ignore[arg-type]
+        pending_feedback_prompt_id=prompt_id,
+        pending_feedback_response=pending_response,
+    )
+
+    tel_raw = payload.get("telemetry")
+    if not isinstance(tel_raw, Mapping):
+        return empty, 1, "resume_snapshot_telemetry_invalid"
+
+    last_peid, peid_err = _strict_optional_resume_str_field(
+        tel_raw,
+        "last_prompt_event_id",
+        limit=256,
+        error_code="resume_snapshot_telemetry_last_prompt_event_id_invalid",
+    )
+    if peid_err:
+        return empty, 1, peid_err
+    last_psurf, psurf_err = _strict_optional_resume_str_field(
+        tel_raw,
+        "last_prompt_event_surface",
+        limit=256,
+        error_code="resume_snapshot_telemetry_last_prompt_event_surface_invalid",
+    )
+    if psurf_err:
+        return empty, 1, psurf_err
+
+    try:
+        telemetry = PromptContactTelemetry(
+            llm_contact_count=int(tel_raw.get("llm_contact_count", 0)),
+            prompt_event_count=int(tel_raw.get("prompt_event_count", 0)),
+            last_prompt_event_id=last_peid,
+            last_prompt_event_surface=last_psurf,
+        )
+    except (TypeError, ValueError):
+        return empty, 1, "resume_snapshot_telemetry_invalid"
+
+    memory = LoopMemoryState(
+        continuity=continuity,
+        telemetry=telemetry,
+        hitl=hitl,
+        iterations=0,
+    )
+    return memory, next_it, None
+
+
+def merge_launch_latest_refs_with_resume_continuity(
+    launch_latest_refs: Mapping[str, Any],
+    *,
+    initial_loop_memory: LoopMemoryState | None,
+) -> dict[str, Any]:
+    """For memory-only resume: seed execution ``initial_latest_refs`` from restored continuity, then launch (host) refs.
+
+    Launch keys win on collision so explicit context can still override.
+    """
+    ctx = dict(launch_latest_refs) if isinstance(launch_latest_refs, Mapping) else {}
+    if initial_loop_memory is None:
+        return ctx
+    return {**dict(initial_loop_memory.continuity.latest_refs), **ctx}
+
+
+def hydrate_session_manager_from_resume_payload(
+    payload: Mapping[str, Any],
+    *,
+    executor: ExecutionExecutor,
+) -> tuple[ExecutionSessionManager | None, str | None]:
+    """If ``execution_session`` is present, return a manager sharing ``executor`` with that session loaded.
+
+    When ``execution_session`` is JSON null / absent, returns ``(None, None)`` — caller uses ``start_session``.
+    """
+    raw = payload.get("execution_session")
+    if raw is None:
+        return None, None
+    if not isinstance(raw, Mapping):
+        return None, "resume_snapshot_execution_session_invalid"
+    session, err = execution_session_from_wire(raw)
+    if err is not None or session is None:
+        return None, err or "resume_snapshot_execution_session_invalid"
+    mgr = ExecutionSessionManager(executor=executor)
+    mgr.hydrate_session(session)
+    return mgr, None
+
+
+def load_kernel_resume_snapshot_from_path(path: Path | str) -> tuple[dict[str, Any] | None, str | None]:
+    """Read JSON file; return ``(parsed_dict, error_reason_code)``."""
+    p = Path(path)
+    try:
+        text = p.read_text(encoding="utf-8")
+    except OSError:
+        return None, "resume_snapshot_path_unreadable"
+    try:
+        doc = json.loads(text)
+    except json.JSONDecodeError:
+        return None, "resume_snapshot_json_invalid"
+    if not isinstance(doc, dict):
+        return None, "resume_snapshot_root_not_object"
+    return doc, None
+
+
+def _strict_optional_resume_str_field(
+    container: Mapping[str, Any],
+    key: str,
+    *,
+    limit: int,
+    error_code: str,
+) -> tuple[str | None, str | None]:
+    """If ``key`` is absent or null, ``(None, None)``. If present, must be a JSON string (not coerced)."""
+    if key not in container:
+        return None, None
+    val = container.get(key)
+    if val is None:
+        return None, None
+    if not isinstance(val, str):
+        return None, error_code
+    stripped = val.strip()
+    if not stripped:
+        return None, None
+    return stripped[:limit], None

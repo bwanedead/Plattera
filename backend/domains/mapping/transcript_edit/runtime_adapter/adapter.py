@@ -53,6 +53,7 @@ def _build_startup_inventory(launch_context: Mapping[str, Any]) -> TranscriptEdi
         transcription_id=transcription_id,
         segment_id=_optional_text(launch_context, "segment_id"),
         run_id=_optional_text(launch_context, "run_id"),
+        workspace_id=_optional_text(launch_context, "workspace_id"),
     )
 
 

@@ -32,12 +32,15 @@ def test_runtime_adapter_builds_turn_surface_from_opaque_launch_context() -> Non
         "transcription_id": "tx-1",
         "segment_id": "seg-1",
         "run_id": "run-1",
+        "workspace_id": None,
     }
     assert surface.payload["transcript_edit"]["tool_ids"] == [
         "load_transcript_edit_startup_inventory",
         "hydrate_t0_draft_refs",
         "hydrate_transcript_edit_working_draft",
         "load_source_image_context",
+        "save_transcript_edit",
+        "publish_transcript_edit_output",
     ]
     tool_specs = surface.payload["transcript_edit"]["tool_specs"]
     assert len(tool_specs) == len(build_transcript_edit_tool_specs())
@@ -45,7 +48,7 @@ def test_runtime_adapter_builds_turn_surface_from_opaque_launch_context() -> Non
         "tool_id": "load_transcript_edit_startup_inventory",
         "category": "observation",
         "purpose": "First-contact ref inventory: dossier scope, peer T0 draft refs, source image refs, transcript-edit draft refs, lightweight metadata only.",
-        "expected_request_shape": "dossier_id, transcription_id; optional segment_id, run_id.",
+        "expected_request_shape": "dossier_id, transcription_id; optional segment_id, run_id, workspace_id (workspace_id or run_id scopes transcript_edit artifacts under artifacts/transcript_edit/).",
         "expected_result_shape": "TranscriptEditStartupInventory: refs + descriptors; no full draft bodies; structured missing_resource entries if gaps.",
     }
     assert [binding.tool_id for binding in surface.tool_bindings] == [
@@ -53,6 +56,8 @@ def test_runtime_adapter_builds_turn_surface_from_opaque_launch_context() -> Non
         "hydrate_t0_draft_refs",
         "hydrate_transcript_edit_working_draft",
         "load_source_image_context",
+        "save_transcript_edit",
+        "publish_transcript_edit_output",
     ]
 
 

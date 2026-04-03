@@ -184,7 +184,7 @@ def test_source_image_hydration_ok_for_practice():
     assert "size_bytes" in ctx
 
 
-def test_hydrate_transcript_edit_working_not_present():
+def test_hydrate_transcript_edit_requires_workspace_key():
     from tooling.mapping.transcript_edit.draft_loading import hydrate_transcript_edit_working_draft
 
     r = hydrate_transcript_edit_working_draft(
@@ -193,7 +193,7 @@ def test_hydrate_transcript_edit_working_not_present():
         ref_id="transcript_edit:working",
     )
     assert r["status"] == "error"
-    assert r.get("code") == "not_found"
+    assert r.get("code") == "workspace_required"
 
 
 def test_pointer_only_raw_emits_structured_gap(tmp_path, monkeypatch):
@@ -225,6 +225,43 @@ def test_completed_drafts_mismatch_extra_raw_file(tmp_path, monkeypatch):
     inv = build_transcript_edit_startup_inventory(dossier_id="d1", transcription_id="t1")
     assert {d.source_file_stem for d in inv.t0_drafts} == {"stem_a"}
     assert any(m.code == "t0_raw_file_not_in_completed_drafts" and m.detail == "stem_extra" for m in inv.missing_resources)
+
+
+def test_startup_inventory_rejects_unsafe_dossier_path_segment(tmp_path, monkeypatch):
+    import config.paths as paths_mod
+
+    root = tmp_path / "dossiers_data"
+    root.mkdir(parents=True)
+    monkeypatch.setattr(paths_mod, "dossiers_root", lambda: root)
+
+    inv = build_transcript_edit_startup_inventory(
+        dossier_id="d1/../evil",
+        transcription_id="t1",
+        run_id="ws1",
+    )
+    assert inv.t0_drafts == ()
+    assert any(m.code == "launch_scope_path_invalid" for m in inv.missing_resources)
+
+
+def test_hydrate_t0_invalid_scope_path_returns_structured_error():
+    out = hydrate_t0_draft_refs(
+        dossier_id="x/y",
+        transcription_id="t1",
+        ref_ids=["t0:raw:stem"],
+        max_refs=8,
+    )
+    assert out.drafts == ()
+    assert any(e.get("code") == "invalid_scope_path" for e in out.errors)
+
+
+def test_source_image_hydration_invalid_dossier_scope():
+    ctx = hydrate_source_image_context(
+        dossier_id="../bad",
+        transcription_id="t1",
+        ref_id="image:assoc:t1:original",
+    )
+    assert ctx["status"] == "error"
+    assert ctx.get("code") == "invalid_scope_path"
 
 
 def test_missing_run_dir_structured():

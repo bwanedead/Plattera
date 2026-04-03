@@ -8,12 +8,12 @@ plan, and validates that the result is mechanically coherent.
 from __future__ import annotations
 
 import json
+import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
 from ..composition import ComposedTurnInput
-from ...mission_state import new_mission_state, new_resolution_state
 from .contracts import ActionPlan, OrchestrationAdapter, OrchestratorContext, SharedStateProjection
 
 TextModelCaller = Callable[..., Mapping[str, Any] | str]
@@ -26,6 +26,7 @@ _ALLOWED_ACTION_PLAN_KEYS = {
     "wait_for_human",
     "complete_run",
     "rationale",
+    "state_patch",
 }
 
 
@@ -49,26 +50,41 @@ class LlmTurnOrchestrationAdapter(OrchestrationAdapter):
 
     def sync(self, context: OrchestratorContext) -> SharedStateProjection:
         turn_snapshot = _turn_snapshot(self.composed_input)
-        mission_state = new_mission_state(
-            mission_id=context.session_id,
-            loop_family="orchestration_kernel",
-            session_id=context.session_id,
-            request_id=context.request_id_prefix,
-            opaque_payload={
-                "launch_context": _jsonable(self.opaque_launch_context),
-                "turn_snapshot": turn_snapshot,
-            },
-        )
-        resolution_state = new_resolution_state(
-            opaque_payload={
-                "turn_snapshot": turn_snapshot,
+        ts = time.time()
+        prior_ms = context.loop_memory.continuity.mission_state
+        prior_rs = context.loop_memory.continuity.resolution_state
+
+        mo = dict(prior_ms.opaque_payload)
+        mo["launch_context"] = _jsonable(self.opaque_launch_context)
+        mo["turn_snapshot"] = turn_snapshot
+
+        ro = dict(prior_rs.opaque_payload)
+        ro["turn_snapshot"] = turn_snapshot
+
+        resolution_state = prior_rs.model_copy(
+            update={
+                "opaque_payload": ro,
+                "updated_at_epoch_seconds": ts,
             }
         )
+        mission_state = prior_ms.model_copy(
+            update={
+                "mission_id": context.session_id,
+                "session_id": context.session_id,
+                "request_id": context.request_id_prefix,
+                "loop_family": "orchestration_kernel",
+                "updated_at_epoch_seconds": ts,
+                "opaque_payload": mo,
+                "resolution_state": resolution_state,
+            }
+        )
+        cont_active = context.loop_memory.continuity.active_item_id
+        rs_active = resolution_state.active_item_id
         return SharedStateProjection(
             mission_state=mission_state,
             resolution_state=resolution_state,
             latest_refs=dict(context.loop_memory.continuity.latest_refs),
-            active_item_id=context.loop_memory.continuity.active_item_id,
+            active_item_id=cont_active if cont_active is not None else rs_active,
         )
 
     def choose_action(
@@ -109,6 +125,7 @@ def _build_prompt(
         "turn_input": _turn_input_document(composed_input),
         "latest_refs": dict(context.loop_memory.continuity.latest_refs),
         "active_item_id": context.loop_memory.continuity.active_item_id,
+        "state_patch_feedback": dict(context.loop_memory.continuity.state_patch_feedback),
         "projection": _projection_document(projection),
     }
     instruction = (
@@ -120,8 +137,17 @@ def _build_prompt(
         '"skip_execution": boolean, '
         '"wait_for_human": boolean, '
         '"complete_run": boolean, '
-        '"rationale": string|null'
+        '"rationale": string|null, '
+        '"state_patch": object|null'
         "}\n"
+        "Optional state_patch: generic { resolution?: { active_item_id, items, relations, opaque_payload }, "
+        "mission?: { objective, active_mode, blocker_summary, verification_summary, waiting_summary, "
+        "continuity_summary, mission_mode_summary, high_signal_artifact_refs, opaque_payload } — only those keys; "
+        "do not put latest_refs_summary, terminal_summary, or prompt_observability_summary in mission (host-owned). "
+        "you author all work semantics inside allowed shapes; the runtime merges mechanically "
+        "(resolution items merge by item_id: only fields you include are overwritten). "
+        "state_patch_feedback in the envelope reports the kernel outcome of the prior patch (applied / rejected / not_applied / no_patch); "
+        "when outcome is applied but some resolution item/relation rows were dropped, look for skipped_resolution_rows and row_skips counts.\n"
         "Choose action_type only from the provided tool_ids unless complete_run or wait_for_human is true.\n"
         "Do not wrap the JSON in markdown and do not add commentary."
     )
@@ -164,6 +190,17 @@ def _coerce_action_plan(raw_response: Mapping[str, Any] | str, *, available_tool
         if available_tool_ids and action_type not in available_tool_ids:
             raise ModelActionParseError("invalid_model_action_json", f"unknown action_type: {action_type}")
 
+    state_patch_raw = payload.get("state_patch")
+    if state_patch_raw is None:
+        state_patch_out: dict[str, Any] | None = None
+    elif isinstance(state_patch_raw, dict):
+        state_patch_out = dict(state_patch_raw)
+    else:
+        raise ModelActionParseError(
+            "invalid_model_action_json",
+            "state_patch must be a JSON object or null",
+        )
+
     return ActionPlan(
         action_type=action_type or None,
         action_inputs=dict(action_inputs),
@@ -172,6 +209,7 @@ def _coerce_action_plan(raw_response: Mapping[str, Any] | str, *, available_tool
         wait_for_human=wait_for_human,
         complete_run=complete_run,
         rationale=_optional_text(payload.get("rationale")),
+        state_patch=state_patch_out,
     )
 
 
