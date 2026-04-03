@@ -117,11 +117,15 @@ python -m harness.cli.answer --run-id practice-right-of-way --prompt-id <prompt_
 
 Then call `watch` again.
 
-Operator caveat:
+Restart-resume:
 
-- the harness process can currently run one-shot uninterrupted loops
-- model-authored mission/resolution state is not yet rehydrated across a fresh
-  process restart, so restart-resume testing is not a solved capability yet
+- on completion, `result.json` includes `kernel_resume_snapshot`
+- to test resume in a fresh process, persist that snapshot and pass either
+  `kernel_resume_snapshot_path` or `kernel_resume_snapshot` in the next
+  launch-context JSON
+- resume rehydrates loop continuity and execution-session state mechanically;
+  it should restore model-authored `mission_state` / `resolution_state` without
+  semantic re-authoring by the harness
 
 ---
 
@@ -137,6 +141,12 @@ backend/dossiers_data/artifacts/harness/cli_runs/<run_id>/
   result.json
   done.json
 ```
+
+This `cli_runs/` folder is operator control-plane metadata. The transcript-edit
+domain data path itself is app-native backend plumbing, not a CLI-only sandbox:
+the CLI invokes the real `transcript_edit` domain adapter, loads dossier/T0
+inputs from `dossiers_data`, and writes transcript-edit working/output artifacts
+to the normal `artifacts/transcript_edit/...` tree below.
 
 Generic harness run/session artifacts:
 
@@ -187,14 +197,6 @@ Current code entrypoints:
 Practice deed interpretation:
 
 - [`practice_deeds/right_of_way_deed_cheatsheet.md`](../../../practice_deeds/right_of_way_deed_cheatsheet.md)
-
-Legacy/stale warning:
-
-- [`docs/architecture/harness/transcript-edit-domain-brief.md`](./transcript-edit-domain-brief.md)
-  is an older implementation brief and should not be treated as the current
-  source of truth for runtime behavior or agent-facing tool/state semantics.
-
----
 
 ## 7. What To Report After a Test Run
 

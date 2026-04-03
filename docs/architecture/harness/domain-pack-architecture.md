@@ -324,7 +324,7 @@ This keeps the domain layer standardized and slim—not a second harness.
 
 ## 8. Transcript-Edit As The First Real Domain
 
-Transcript edit is the reference implementation for the default first-cut shape. Its mission intent is spelled out in `docs/architecture/harness/transcript-edit-domain-brief.md` and aligns with the transcription/dossier artifact model (`docs/transcription-dossier-system-spec.md`).
+Transcript edit is the reference implementation for the default first-cut shape. Its mission intent is spelled out in `docs/architecture/harness/transcript-edit-domain.md` and aligns with the transcription/dossier artifact model (`docs/transcription-dossier-system-spec.md`).
 
 It owns semantic bundles only: doctrine, state contracts, projection lens, semantic tool specs, closure meaning, handoff meaning.
 

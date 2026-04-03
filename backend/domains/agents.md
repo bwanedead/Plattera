@@ -24,7 +24,7 @@
 
 - Test (harness smoke): `.venv\scripts\activate.ps1; cd backend; pytest harness/test_architecture_guardrails.py -q`
 - Test (transcript_edit pack): `.venv\scripts\activate.ps1; cd backend; pytest domains/mapping/transcript_edit/test_transcript_edit_pack.py -q`
-- Docs: `docs/architecture/harness/domain-pack-constitution.md`, `domain-pack-architecture.md`, `transcript-edit-domain-brief.md`
+- Docs: `docs/architecture/harness/domain-pack-constitution.md`, `domain-pack-architecture.md`, `transcript-edit-domain.md`
 
 ## Gotchas
 
@@ -44,6 +44,6 @@
 - Docs: `docs/architecture/harness/domain-pack-architecture.md`
 - Docs: `docs/architecture/harness/domain-runtime-adapter-architecture.md`
 - Docs: `docs/architecture/harness/domain-authoring-shape.md`
-- Docs: `docs/architecture/harness/transcript-edit-domain-brief.md`
+- Docs: `docs/architecture/harness/transcript-edit-domain.md`
 - Related code: `backend/domains/mapping/transcript_edit/`
 - Tooling home: `backend/tooling/`
