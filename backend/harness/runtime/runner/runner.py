@@ -1,18 +1,27 @@
 """Generic runtime runner.
 
 The runner owns process/lifecycle mechanics and artifact emission only.
-It resolves a surface-only adapter, composes one mechanical turn surface, and
-stops there. It must not learn domain semantics, closure doctrine, or pack-
-specific workflow language.
+It resolves a surface-only adapter, composes one mechanical turn surface,
+registers opaque tool handlers with the execution layer, and drives the
+generic orchestration loop. It must not learn domain semantics, closure
+doctrine, or pack-specific workflow language.
 """
 
 from __future__ import annotations
 
+from collections.abc import Callable, Mapping
 import json
 from pathlib import Path
-from typing import Any, Callable, Mapping
+from typing import Any
+from uuid import uuid4
 
-from ..composition import ComposedTurnInput, DefaultTurnComposer, TurnSurface
+from harness.execution.contracts import ExecutionSessionStartRequest
+from harness.execution.executor import ExecutionExecutor
+from harness.execution.session import ExecutionSessionManager
+from harness.runtime.composition import ComposedTurnInput, DefaultTurnComposer, TurnSurface
+from harness.runtime.orchestration.llm_turn_adapter import LlmTurnOrchestrationAdapter
+from harness.runtime.orchestration.orchestrator import run_orchestration_kernel_loop
+from services.llm.openai import OpenAIService
 from .contracts import RuntimeAdapter, RuntimeArtifactTargets, RuntimeRunResult
 
 
@@ -27,11 +36,13 @@ class RuntimeRunner:
         adapter: RuntimeAdapter | None = None,
         adapter_factory: Callable[[Mapping[str, Any]], RuntimeAdapter] | None = None,
         adapter_loader: Callable[[Mapping[str, Any]], RuntimeAdapter] | None = None,
+        model_caller: Callable[..., Mapping[str, Any] | str] | None = None,
         targets: RuntimeArtifactTargets | None = None,
     ) -> None:
         self._adapter = adapter
         self._adapter_factory = adapter_factory
         self._adapter_loader = adapter_loader
+        self._model_caller = model_caller
         self._targets = targets
 
     def run(self, *, launch_context: Mapping[str, Any] | None = None) -> RuntimeRunResult:
@@ -42,21 +53,23 @@ class RuntimeRunner:
             adapter = self._resolve_adapter(context)
             surface = self._resolve_turn_surface(adapter, context)
             composed = DefaultTurnComposer().compose(surface)
+            loop_result = self._run_orchestration(context=context, composed=composed)
             result = RuntimeRunResult(
-                status="completed",
-                reason_code="turn_surface_composed",
-                result_payload=_build_result_payload(surface=surface, composed=composed),
-                done_payload=_build_done_payload(surface=surface, composed=composed),
+                status=str(loop_result.terminal_class),
+                reason_code=loop_result.reason_code,
+                result_payload=_build_loop_result_payload(loop_result),
+                done_payload=_build_loop_done_payload(loop_result),
             )
         except Exception as exc:
+            reason_code = str(getattr(exc, "reason_code", "") or "runner_exception")
             result = RuntimeRunResult(
                 status="failed",
-                reason_code="runner_exception",
-                result_payload={"error": str(exc)},
-                done_payload={"error": str(exc)},
+                reason_code=reason_code,
+                result_payload={"error": str(exc), "reason_code": reason_code, "status": "failed"},
+                done_payload={"error": str(exc), "reason_code": reason_code, "status": "failed"},
             )
             self._write_artifacts(targets=targets, result=result)
-            raise RuntimeRunnerError("runtime_runner_failed") from exc
+            raise RuntimeRunnerError(f"runtime_runner_failed:{reason_code}") from exc
 
         self._write_artifacts(targets=targets, result=result)
         return result
@@ -76,6 +89,41 @@ class RuntimeRunner:
             raise RuntimeRunnerError("turn_surface_required")
         return surface
 
+    def _run_orchestration(self, *, context: Mapping[str, Any], composed: ComposedTurnInput) -> Any:
+        model_name = _select_model_name(context)
+        model_caller = self._model_caller or _build_default_model_caller(model_name=model_name)
+        executor = ExecutionExecutor()
+        for tool_id, handler in composed.tool_handlers.items():
+            executor.register(tool_id, handler)
+
+        session_manager = ExecutionSessionManager(executor=executor)
+        run_id = _select_run_id(context)
+        session_start = session_manager.start_session(
+            ExecutionSessionStartRequest(
+                run_id=run_id,
+                session_id=_select_session_id(context, run_id=run_id),
+                initial_latest_refs=_extract_initial_latest_refs(context),
+            )
+        )
+
+        orchestration_adapter = LlmTurnOrchestrationAdapter(
+            composed_input=composed,
+            text_model_caller=model_caller,
+            model_name=model_name,
+            opaque_launch_context=context,
+        )
+        max_iterations = _select_max_iterations(context)
+        request_id_prefix = _select_request_id_prefix(context, fallback=session_start.run_id)
+        return run_orchestration_kernel_loop(
+            orchestration_adapter=orchestration_adapter,
+            session_manager=session_manager,
+            session_id=session_start.session_id,
+            run_artifact_ref=session_start.run_artifact_ref,
+            request_id_prefix=request_id_prefix,
+            opaque_run_context=dict(context),
+            max_iterations=max_iterations,
+        )
+
     def _write_artifacts(self, *, targets: RuntimeArtifactTargets, result: RuntimeRunResult) -> None:
         _write_json(targets.result_file, _build_result_document(result))
         _write_json(targets.done_file, _build_done_document(result))
@@ -86,61 +134,84 @@ def run_runtime_from_env(
     adapter: RuntimeAdapter | None = None,
     adapter_factory: Callable[[Mapping[str, Any]], RuntimeAdapter] | None = None,
     adapter_loader: Callable[[Mapping[str, Any]], RuntimeAdapter] | None = None,
+    model_caller: Callable[..., Mapping[str, Any] | str] | None = None,
     opaque_launch_context: Mapping[str, Any] | None = None,
 ) -> RuntimeRunResult:
     return RuntimeRunner(
         adapter=adapter,
         adapter_factory=adapter_factory,
         adapter_loader=adapter_loader,
+        model_caller=model_caller,
     ).run(launch_context=opaque_launch_context)
 
 
-def _build_result_payload(*, surface: TurnSurface, composed: ComposedTurnInput) -> dict[str, Any]:
+def _build_loop_result_payload(loop_result: Any) -> dict[str, Any]:
     return {
-        "mechanical_surface": _surface_document(surface),
-        "mechanical_turn_input": _composition_document(composed),
+        "terminal_class": str(loop_result.terminal_class),
+        "reason_code": loop_result.reason_code,
+        "iterations": loop_result.iterations,
+        "session_id": loop_result.session_id,
+        "run_artifact_ref": loop_result.run_artifact_ref,
+        "latest_refs": dict(loop_result.latest_refs),
+        "runtime_state": _jsonable(loop_result.runtime_state),
+        "trace_events": _jsonable(loop_result.trace_events),
     }
 
 
-def _build_done_payload(*, surface: TurnSurface, composed: ComposedTurnInput) -> dict[str, Any]:
+def _build_loop_done_payload(loop_result: Any) -> dict[str, Any]:
     return {
-        "mechanical_surface": _surface_document(surface),
-        "mechanical_turn_input": {
-            "block_count": len(composed.blocks),
-            "surface_ids": tuple(composed.surface_payloads.keys()),
-            "tool_ids": tuple(composed.tool_handlers.keys()),
-        },
+        "terminal_class": str(loop_result.terminal_class),
+        "reason_code": loop_result.reason_code,
+        "iterations": loop_result.iterations,
+        "session_id": loop_result.session_id,
+        "run_artifact_ref": loop_result.run_artifact_ref,
+        "latest_refs": dict(loop_result.latest_refs),
     }
 
 
-def _surface_document(surface: TurnSurface) -> dict[str, Any]:
-    return {
-        "surface_id": surface.surface_id,
-        "blocks": [
-            {
-                "content": block.content,
-                "metadata": dict(block.metadata),
-            }
-            for block in surface.blocks
-        ],
-        "payload": dict(surface.payload),
-        "tool_ids": [binding.tool_id for binding in surface.tool_bindings],
-    }
+def _build_default_model_caller(*, model_name: str) -> Callable[[str, str], Mapping[str, Any] | str]:
+    service = OpenAIService()
+
+    def _call(prompt: str, model: str) -> Mapping[str, Any] | str:
+        return service.call_text(prompt, model or model_name)
+
+    return _call
 
 
-def _composition_document(composed: ComposedTurnInput) -> dict[str, Any]:
-    return {
-        "block_count": len(composed.blocks),
-        "blocks": [
-            {
-                "content": block.content,
-                "metadata": dict(block.metadata),
-            }
-            for block in composed.blocks
-        ],
-        "surface_payloads": dict(composed.surface_payloads),
-        "tool_ids": list(composed.tool_handlers.keys()),
-    }
+def _select_model_name(context: Mapping[str, Any]) -> str:
+    return str(context.get("model") or "gpt-5.2").strip() or "gpt-5.2"
+
+
+def _select_run_id(context: Mapping[str, Any]) -> str:
+    value = str(context.get("run_id") or context.get("session_id") or "").strip()
+    return value or f"run-{uuid4().hex}"
+
+
+def _select_session_id(context: Mapping[str, Any], *, run_id: str) -> str:
+    return str(context.get("session_id") or run_id).strip() or run_id
+
+
+def _select_request_id_prefix(context: Mapping[str, Any], *, fallback: str) -> str:
+    return str(context.get("request_id_prefix") or fallback).strip() or fallback
+
+
+def _select_max_iterations(context: Mapping[str, Any]) -> int:
+    raw = context.get("max_iterations")
+    try:
+        value = int(raw) if raw is not None else 3
+    except (TypeError, ValueError):
+        return 3
+    return max(1, value)
+
+
+def _extract_initial_latest_refs(context: Mapping[str, Any]) -> dict[str, Any]:
+    raw = context.get("latest_refs")
+    if isinstance(raw, Mapping):
+        return dict(raw)
+    raw = context.get("initial_latest_refs")
+    if isinstance(raw, Mapping):
+        return dict(raw)
+    return {}
 
 
 def _build_result_document(result: RuntimeRunResult) -> dict[str, Any]:
@@ -164,3 +235,17 @@ def _build_done_document(result: RuntimeRunResult) -> dict[str, Any]:
 def _write_json(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
+
+
+def _jsonable(value: Any) -> Any:
+    if hasattr(value, "model_dump"):
+        return _jsonable(value.model_dump(mode="python"))  # type: ignore[call-arg]
+    if isinstance(value, Mapping):
+        return {str(key): _jsonable(raw_value) for key, raw_value in value.items()}
+    if isinstance(value, list):
+        return [_jsonable(item) for item in value]
+    if isinstance(value, tuple):
+        return [_jsonable(item) for item in value]
+    if isinstance(value, set):
+        return [_jsonable(item) for item in sorted(value, key=str)]
+    return value

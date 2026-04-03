@@ -5,11 +5,11 @@ from pathlib import Path
 
 
 def test_runtime_package_does_not_import_transcript_edit_domain() -> None:
-    runtime_root = Path(__file__).resolve().parent
+    harness_root = Path(__file__).resolve().parents[1]
     forbidden_prefix = "domains.mapping.transcript_edit"
 
     violations: list[str] = []
-    for path in sorted(runtime_root.rglob("*.py")):
+    for path in sorted(harness_root.rglob("*.py")):
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
