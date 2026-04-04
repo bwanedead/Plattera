@@ -59,7 +59,7 @@ export const startTranscriptEditRun = async (
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       background: true,
-      model: 'gpt-5.2',
+      model: 'gpt-5.4-mini',
       mode: 'audit_then_repair_then_promote',
       max_iterations: 4,
       auto_promote: true,

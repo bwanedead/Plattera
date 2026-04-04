@@ -186,6 +186,16 @@ class OpenAIService(LLMService):
             "verification_required": False,
             "api_model_name": "gpt-5-mini"
         },
+        "gpt-5.4-mini": {
+            "name": "GPT-5.4 Mini",
+            "provider": "openai",
+            "cost_tier": "budget",
+            "capabilities": ["text", "vision"],
+            "description": "Successor mini model for agent/harness defaults (text + image input per OpenAI)",
+            "verification_required": False,
+            "api_model_name": "gpt-5.4-mini",
+            "default_max_tokens": 16000,
+        },
         "gpt-5.2": {
             "name": "GPT-5.2",
             "provider": "openai",
@@ -639,7 +649,13 @@ class OpenAIService(LLMService):
             
             # Validate model name for GPT-5 series
             if api_model_name.startswith('gpt-5'):
-                assert api_model_name in {"gpt-5", "gpt-5.2", "gpt-5-mini", "gpt-5-nano"}, f"Invalid GPT-5 model: {api_model_name}"
+                assert api_model_name in {
+                    "gpt-5",
+                    "gpt-5.2",
+                    "gpt-5-mini",
+                    "gpt-5.4-mini",
+                    "gpt-5-nano",
+                }, f"Invalid GPT-5 model: {api_model_name}"
             
             # Use provided schema or load default fallback (GENERIC)
             if schema:
@@ -684,7 +700,7 @@ class OpenAIService(LLMService):
                     }
                     logger.debug(f"🚀 Using GPT-5 Nano speed-optimized parameters: model={api_model_name}, max_completion_tokens=8000, no_reasoning")
                     
-                elif api_model_name == "gpt-5-mini":
+                elif api_model_name in ("gpt-5-mini", "gpt-5.4-mini"):
                     # ⚡ MINI: Balanced approach
                     completion_params = {
                         "model": api_model_name,
@@ -696,7 +712,10 @@ class OpenAIService(LLMService):
                         "max_completion_tokens": 12000,  # ⚡ Medium cap
                         "reasoning_effort": "medium"     # ⚡ Balanced reasoning
                     }
-                    logger.debug(f"⚡ Using GPT-5 Mini balanced parameters: model={api_model_name}, max_completion_tokens=12000, reasoning_effort=medium")
+                    logger.debug(
+                        f"⚡ Using GPT-5 mini-class balanced parameters: model={api_model_name}, "
+                        "max_completion_tokens=12000, reasoning_effort=medium"
+                    )
                     
                 else:  # gpt-5 full model
                     # 🧠 FULL GPT-5: Maximum quality

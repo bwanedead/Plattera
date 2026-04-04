@@ -244,7 +244,7 @@ def _build_default_model_caller(*, model_name: str) -> Callable[[str, str], Mapp
 
 
 def _select_model_name(context: Mapping[str, Any]) -> str:
-    return str(context.get("model") or "gpt-5.2").strip() or "gpt-5.2"
+    return str(context.get("model") or "gpt-5.4-mini").strip() or "gpt-5.4-mini"
 
 
 def _select_run_id(context: Mapping[str, Any]) -> str:

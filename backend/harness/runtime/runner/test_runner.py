@@ -128,7 +128,7 @@ def test_runner_invokes_orchestration_and_writes_loop_result_artifacts(tmp_path:
 
     result = runner.run(
         launch_context={
-            "model": "gpt-5.2",
+            "model": "gpt-5.4-mini",
             "run_id": "run-1",
             "session_id": "session-1",
             "request_id_prefix": "req-1",
@@ -141,7 +141,7 @@ def test_runner_invokes_orchestration_and_writes_loop_result_artifacts(tmp_path:
     assert adapter.calls == [
         {
             "max_iterations": 3,
-            "model": "gpt-5.2",
+            "model": "gpt-5.4-mini",
             "request_id_prefix": "req-1",
             "run_id": "run-1",
             "session_id": "session-1",
@@ -184,7 +184,7 @@ def test_runner_writes_mechanical_failure_for_invalid_model_json(tmp_path: Path)
     runner = RuntimeRunner(adapter=adapter, model_caller=model_caller, targets=_targets(tmp_path))
 
     with pytest.raises(RuntimeRunnerError) as exc_info:
-        runner.run(launch_context={"model": "gpt-5.2"})
+        runner.run(launch_context={"model": "gpt-5.4-mini"})
 
     assert "invalid_model_action_json" in str(exc_info.value)
     result_doc = json.loads((tmp_path / "result.json").read_text(encoding="utf-8"))
