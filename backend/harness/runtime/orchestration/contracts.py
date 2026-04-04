@@ -39,6 +39,9 @@ class ActionPlan:
     complete_run: bool = False
     rationale: str | None = None
     state_patch: dict[str, Any] | None = None
+    # LLM-authored continuity (not work-state mutation). ``LlmTurnOrchestrationAdapter`` requires a non-empty object.
+    continuity_journal_entry: dict[str, Any] | None = None
+    operator_progress_message: str | None = None
 
 
 @dataclass(frozen=True)

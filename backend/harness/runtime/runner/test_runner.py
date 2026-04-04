@@ -11,6 +11,7 @@ import config.paths as config_paths
 from harness.execution.contracts import ActionDispatchResult, ExecutionStepRequest
 from harness.runtime.composition import ToolBinding, TurnBlock, TurnSurface
 from harness.runtime.runner import RuntimeArtifactTargets, RuntimeRunner, RuntimeRunnerError
+from harness.runtime.runner import runner as runner_module
 
 
 @dataclass
@@ -263,3 +264,21 @@ def test_runner_executes_transcript_edit_tool_and_writes_artifacts(tmp_path: Pat
     assert result_doc["reason_code"] == "finished"
     assert done_doc["status"] == "completed"
     assert done_doc["reason_code"] == "finished"
+
+
+def test_default_model_caller_requests_relaxed_json_mode(monkeypatch) -> None:
+    calls: list[tuple[str, str, dict[str, object]]] = []
+
+    class FakeOpenAIService:
+        def call_text(self, prompt: str, model: str, **kwargs):
+            calls.append((prompt, model, dict(kwargs)))
+            return {"success": True, "text": '{"action_type": null}'}
+
+    monkeypatch.setattr(runner_module, "OpenAIService", FakeOpenAIService)
+
+    model_caller = runner_module._build_default_model_caller(model_name="gpt-5.4-mini")
+
+    result = model_caller("prompt text", "")
+
+    assert result == {"success": True, "text": '{"action_type": null}'}
+    assert calls == [("prompt text", "gpt-5.4-mini", {"json_mode": "relaxed"})]

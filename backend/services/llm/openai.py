@@ -133,6 +133,9 @@ class OpenAIService(LLMService):
     
     name = "openai"
     
+    # context_window_tokens / max_output_tokens: local metadata for harness compaction and budgeting.
+    # Not queried from the API at runtime. Models omitted here still work: harness uses a fixed fallback
+    # (see harness.runtime.memory.openai_model_limits).
     models = {
         "gpt-4o": {
             "name": "GPT-4o",
@@ -140,7 +143,9 @@ class OpenAIService(LLMService):
             "cost_tier": "standard",
             "capabilities": ["vision", "text"],
             "description": "Most reliable for structured outputs and vision tasks",
-            "verification_required": False
+            "verification_required": False,
+            "context_window_tokens": 128_000,
+            "max_output_tokens": 16_384,
         },
         "gpt-o4-mini": {
             "name": "GPT-o4-mini",
@@ -150,7 +155,9 @@ class OpenAIService(LLMService):
             "description": "Lightweight, fast model with reasoning capabilities",
             "verification_required": False,
             "api_model_name": "o4-mini-2025-04-16",
-            "default_max_tokens": 16000
+            "default_max_tokens": 16000,
+            "context_window_tokens": 200_000,
+            "max_output_tokens": 100_000,
         },
         "o3": {
             "name": "o3", 
@@ -158,7 +165,9 @@ class OpenAIService(LLMService):
             "cost_tier": "premium",
             "capabilities": ["vision", "text", "reasoning"],
             "description": "Most advanced reasoning model with highest accuracy",
-            "verification_required": True
+            "verification_required": True,
+            "context_window_tokens": 200_000,
+            "max_output_tokens": 100_000,
         },
         "gpt-4": {
             "name": "GPT-4",
@@ -166,7 +175,9 @@ class OpenAIService(LLMService):
             "cost_tier": "standard",
             "capabilities": ["text"],
             "description": "High-quality text processing model",
-            "verification_required": False
+            "verification_required": False,
+            "context_window_tokens": 8_192,
+            "max_output_tokens": 8_192,
         },
         "gpt-5": {
             "name": "GPT-5",
@@ -175,7 +186,9 @@ class OpenAIService(LLMService):
             "capabilities": ["text"],
             "description": "General GPT-5 model suitable for structured outputs",
             "verification_required": False,
-            "api_model_name": "gpt-5"
+            "api_model_name": "gpt-5",
+            "context_window_tokens": 400_000,
+            "max_output_tokens": 128_000,
         },
         "gpt-5-mini": {
             "name": "GPT-5 Mini",
@@ -184,7 +197,9 @@ class OpenAIService(LLMService):
             "capabilities": ["text"],
             "description": "Fast, lightweight model for structured extraction (text-only)",
             "verification_required": False,
-            "api_model_name": "gpt-5-mini"
+            "api_model_name": "gpt-5-mini",
+            "context_window_tokens": 400_000,
+            "max_output_tokens": 128_000,
         },
         "gpt-5.4-mini": {
             "name": "GPT-5.4 Mini",
@@ -195,6 +210,8 @@ class OpenAIService(LLMService):
             "verification_required": False,
             "api_model_name": "gpt-5.4-mini",
             "default_max_tokens": 16000,
+            "context_window_tokens": 400_000,
+            "max_output_tokens": 128_000,
         },
         "gpt-5.2": {
             "name": "GPT-5.2",
@@ -204,7 +221,9 @@ class OpenAIService(LLMService):
             "description": "Controller default model for agent-loop step proposals",
             "verification_required": False,
             "api_model_name": "gpt-5.2",
-            "default_max_tokens": 16000
+            "default_max_tokens": 16000,
+            "context_window_tokens": 400_000,
+            "max_output_tokens": 128_000,
         },
         "gpt-5-nano": {
             "name": "GPT-5 Nano",
@@ -213,7 +232,9 @@ class OpenAIService(LLMService):
             "capabilities": ["text"],
             "description": "Ultra-lightweight model for fast structured extraction (text-only)",
             "verification_required": False,
-            "api_model_name": "gpt-5-nano"
+            "api_model_name": "gpt-5-nano",
+            "context_window_tokens": 400_000,
+            "max_output_tokens": 32_768,
         }
     }
 
@@ -227,7 +248,9 @@ class OpenAIService(LLMService):
             "description": "Profile for LLM consensus generation (free-text)",
             "verification_required": False,
             "api_model_name": "gpt-5",
-            "default_max_tokens": 16000
+            "default_max_tokens": 16000,
+            "context_window_tokens": 400_000,
+            "max_output_tokens": 128_000,
         },
         "gpt-5-mini-consensus": {
             "name": "GPT-5 Mini (Consensus)",
@@ -237,7 +260,9 @@ class OpenAIService(LLMService):
             "description": "Profile for LLM consensus generation (balanced speed/quality)",
             "verification_required": False,
             "api_model_name": "gpt-5-mini",
-            "default_max_tokens": 12000
+            "default_max_tokens": 12000,
+            "context_window_tokens": 400_000,
+            "max_output_tokens": 128_000,
         },
         "gpt-5-nano-consensus": {
             "name": "GPT-5 Nano (Consensus)",
@@ -247,7 +272,9 @@ class OpenAIService(LLMService):
             "description": "Profile for LLM consensus generation (speed/cost optimized)",
             "verification_required": False,
             "api_model_name": "gpt-5-nano",
-            "default_max_tokens": 8000
+            "default_max_tokens": 8000,
+            "context_window_tokens": 400_000,
+            "max_output_tokens": 32_768,
         }
     })
     

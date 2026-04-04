@@ -7,6 +7,10 @@ from dataclasses import dataclass
 class PromptContactTelemetry:
     """Mechanical counts and last identifiers for model-facing observability.
 
+    ``llm_contact_count`` increments once per model contact (including contacts that are also
+    recorded as a full ``prompt_event``). ``prompt_event_count`` increments when the trace path
+    carries a structured ``prompt_event`` payload (kernel LLM turns use both).
+
     Must not gate loop control or semantic decisions (Harness Constitution).
     """
 

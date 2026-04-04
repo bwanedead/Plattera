@@ -18,6 +18,12 @@ from ...execution.session_wire import execution_session_from_wire, execution_ses
 from ...mission_state import MissionState, ResolutionState
 from ..hitl.transport import HitlTransportPosture
 from .continuity import OrchestrationContinuity
+from .continuity_journal import (
+    clamp_compacted_summary_text,
+    clamp_operator_progress_message,
+    validate_stored_journal_entry,
+    validate_stored_step_record,
+)
 from .loop_state import LoopMemoryState
 from .telemetry import PromptContactTelemetry
 
@@ -51,6 +57,14 @@ def build_kernel_resume_snapshot(
             "resolution_state": loop_memory.continuity.resolution_state.model_dump(mode="json"),
             "active_item_id": loop_memory.continuity.active_item_id,
             "state_patch_feedback": dict(loop_memory.continuity.state_patch_feedback),
+            "continuity_journal_entries": list(loop_memory.continuity.continuity_journal_entries),
+            "compacted_continuity_summary": loop_memory.continuity.compacted_continuity_summary,
+            "operator_progress_message": loop_memory.continuity.operator_progress_message,
+            "kernel_step_records": list(loop_memory.continuity.kernel_step_records),
+            "kernel_step_result_records": list(loop_memory.continuity.kernel_step_result_records),
+            "kernel_compaction_covered_through_turn_index": int(
+                loop_memory.continuity.kernel_compaction_covered_through_turn_index
+            ),
         },
         "hitl": {
             "hitl_state": loop_memory.hitl.hitl_state,
@@ -125,12 +139,81 @@ def parse_kernel_resume_snapshot(payload: Mapping[str, Any]) -> tuple[LoopMemory
     if ai_err:
         return empty, 1, ai_err
 
+    journal_entries_out: list[dict[str, Any]] = []
+    if "continuity_journal_entries" in cont:
+        jraw = cont.get("continuity_journal_entries")
+        if jraw is not None:
+            if not isinstance(jraw, list):
+                return empty, 1, "resume_snapshot_continuity_journal_entries_invalid"
+            for row in jraw:
+                norm = validate_stored_journal_entry(row)
+                if norm is None:
+                    return empty, 1, "resume_snapshot_continuity_journal_entries_invalid"
+                journal_entries_out.append(norm)
+
+    compacted_summary: str | None = None
+    if "compacted_continuity_summary" in cont:
+        cs = cont.get("compacted_continuity_summary")
+        if cs is not None:
+            if not isinstance(cs, str):
+                return empty, 1, "resume_snapshot_compacted_continuity_summary_invalid"
+            compacted_summary = clamp_compacted_summary_text(cs)
+
+    operator_progress: str | None = None
+    if "operator_progress_message" in cont:
+        op = cont.get("operator_progress_message")
+        if op is not None:
+            if not isinstance(op, str):
+                return empty, 1, "resume_snapshot_operator_progress_message_invalid"
+            operator_progress = clamp_operator_progress_message(op)
+
+    step_records_out: list[dict[str, Any]] = []
+    if "kernel_step_records" in cont:
+        sraw = cont.get("kernel_step_records")
+        if sraw is not None:
+            if not isinstance(sraw, list):
+                return empty, 1, "resume_snapshot_kernel_step_records_invalid"
+            for row in sraw:
+                norm = validate_stored_step_record(row)
+                if norm is None:
+                    return empty, 1, "resume_snapshot_kernel_step_records_invalid"
+                step_records_out.append(norm)
+
+    step_result_records_out: list[dict[str, Any]] = []
+    if "kernel_step_result_records" in cont:
+        rraw = cont.get("kernel_step_result_records")
+        if rraw is not None:
+            if not isinstance(rraw, list):
+                return empty, 1, "resume_snapshot_kernel_step_result_records_invalid"
+            for row in rraw:
+                norm = validate_stored_step_record(row)
+                if norm is None:
+                    return empty, 1, "resume_snapshot_kernel_step_result_records_invalid"
+                step_result_records_out.append(norm)
+
+    covered_through = 0
+    if "kernel_compaction_covered_through_turn_index" in cont:
+        cv = cont.get("kernel_compaction_covered_through_turn_index")
+        if cv is not None:
+            try:
+                covered_through = int(cv)
+            except (TypeError, ValueError):
+                return empty, 1, "resume_snapshot_kernel_compaction_covered_through_invalid"
+            if covered_through < 0:
+                return empty, 1, "resume_snapshot_kernel_compaction_covered_through_invalid"
+
     continuity = OrchestrationContinuity(
         latest_refs=latest_refs_out,
         mission_state=ms,
         resolution_state=rs,
         active_item_id=active_item_id,
         state_patch_feedback=state_patch_feedback_out,
+        continuity_journal_entries=journal_entries_out,
+        compacted_continuity_summary=compacted_summary,
+        operator_progress_message=operator_progress,
+        kernel_step_records=step_records_out,
+        kernel_step_result_records=step_result_records_out,
+        kernel_compaction_covered_through_turn_index=covered_through,
     )
 
     hitl_raw = payload.get("hitl")

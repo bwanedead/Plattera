@@ -236,6 +236,67 @@ class KernelTraceCollector:
             )
         )
 
+    def emit_continuity_compacted(
+        self,
+        *,
+        iteration: int,
+        prompt_char_count_estimate_before: int,
+        journal_entries_compacted_count: int,
+        kernel_step_records_compacted_count: int,
+        kernel_step_result_records_compacted_count: int = 0,
+        verbatim_keep_n: int,
+        threshold_chars: int | None = None,
+        compaction_prompt_char_count: int | None = None,
+        kernel_compaction_covered_through_turn_index_after: int | None = None,
+        compaction_trigger_mode: str | None = None,
+        estimated_prompt_tokens: int | None = None,
+        context_window_tokens: int | None = None,
+        used_context_window_fallback: bool | None = None,
+        compaction_trigger_fraction: float | None = None,
+        estimated_occupancy_fraction: float | None = None,
+    ) -> None:
+        """Mechanical record of context-window compaction (separate LLM call; not a normal action turn)."""
+        payload: dict[str, Any] = {
+            "prompt_char_count_estimate_before": int(prompt_char_count_estimate_before),
+            "journal_entries_compacted_count": int(journal_entries_compacted_count),
+            "kernel_step_records_compacted_count": int(kernel_step_records_compacted_count),
+            "kernel_step_result_records_compacted_count": int(kernel_step_result_records_compacted_count),
+            "verbatim_keep_n": int(verbatim_keep_n),
+        }
+        if threshold_chars is not None:
+            payload["threshold_chars"] = int(threshold_chars)
+        if compaction_prompt_char_count is not None:
+            payload["compaction_prompt_char_count"] = int(compaction_prompt_char_count)
+        if kernel_compaction_covered_through_turn_index_after is not None:
+            payload["kernel_compaction_covered_through_turn_index_after"] = int(
+                kernel_compaction_covered_through_turn_index_after
+            )
+        if compaction_trigger_mode is not None:
+            payload["compaction_trigger_mode"] = str(compaction_trigger_mode)
+        if estimated_prompt_tokens is not None:
+            payload["estimated_prompt_tokens"] = int(estimated_prompt_tokens)
+        if context_window_tokens is not None:
+            payload["context_window_tokens"] = int(context_window_tokens)
+        if used_context_window_fallback is not None:
+            payload["used_context_window_fallback"] = bool(used_context_window_fallback)
+        if compaction_trigger_fraction is not None:
+            payload["compaction_trigger_fraction"] = float(compaction_trigger_fraction)
+        if estimated_occupancy_fraction is not None:
+            payload["estimated_occupancy_fraction"] = float(estimated_occupancy_fraction)
+        self._append(
+            RawTraceEvent(
+                timestamp_epoch_seconds=self._now(),
+                event_kind="continuity_compacted",
+                phase="continuity",
+                iteration_index=iteration,
+                actor="kernel",
+                status="completed",
+                refs_delta={},
+                payload=payload,
+                source_origin=self._source(local_id=f"iter_{iteration}_continuity_compacted"),
+            )
+        )
+
     def emit_prompt_event(
         self,
         *,

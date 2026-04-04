@@ -1,14 +1,28 @@
 from __future__ import annotations
 
 import json
+from typing import Any
 
 import pytest
 
+from harness.runtime.composition.contracts import ComposedTurnInput, TurnBlock
+from harness.runtime.memory import LoopMemoryState
+from harness.runtime.memory.continuity_journal import (
+    kernel_turn_index_of,
+    recent_step_records_for_prompt,
+    wrap_journal_entry,
+)
+from harness.runtime.orchestration.contracts import OrchestratorContext
+from harness.runtime.orchestration.trace_collector import KernelTraceCollector
 from harness.runtime.orchestration.contracts import ActionPlan
 from harness.runtime.orchestration.llm_turn_adapter import (
+    LlmTurnOrchestrationAdapter,
     ModelActionParseError,
     _coerce_action_plan,
 )
+from harness.execution.session import ExecutionSessionManager
+
+_LLM_CJ = {"llm_continuity_turn": True}
 
 
 def test_coerce_action_plan_accepts_real_json_booleans() -> None:
@@ -23,6 +37,8 @@ def test_coerce_action_plan_accepts_real_json_booleans() -> None:
                 "complete_run": False,
                 "rationale": "ok",
                 "state_patch": None,
+                "continuity_journal_entry": _LLM_CJ,
+                "operator_progress_message": None,
             }
         ),
         available_tool_ids=("select_tool",),
@@ -48,6 +64,8 @@ def test_coerce_action_plan_accepts_state_patch_object() -> None:
                 "complete_run": False,
                 "rationale": None,
                 "state_patch": {"resolution": {"active_item_id": "x"}},
+                "continuity_journal_entry": {"patch_turn": True},
+                "operator_progress_message": None,
             }
         ),
         available_tool_ids=("select_tool",),
@@ -65,6 +83,7 @@ def test_coerce_action_plan_rejects_non_object_state_patch() -> None:
         "complete_run": False,
         "rationale": None,
         "state_patch": "nope",
+        "continuity_journal_entry": _LLM_CJ,
     }
     with pytest.raises(ModelActionParseError, match="state_patch must be"):
         _coerce_action_plan(json.dumps(payload), available_tool_ids=("select_tool",))
@@ -81,8 +100,446 @@ def test_coerce_action_plan_rejects_string_false_for_boolean_fields(field: str) 
         "complete_run": False,
         "rationale": "ok",
         "state_patch": None,
+        "continuity_journal_entry": _LLM_CJ,
     }
     payload[field] = "false"
 
     with pytest.raises(ModelActionParseError, match=f"{field} must be a JSON boolean"):
+        _coerce_action_plan(json.dumps(payload), available_tool_ids=("select_tool",))
+
+
+def _minimal_llm_adapter(**kwargs: Any) -> LlmTurnOrchestrationAdapter:
+    composed = ComposedTurnInput(
+        blocks=(TurnBlock(content="block"),),
+        surface_payloads={},
+        tool_handlers={"noop": lambda x: x},
+    )
+    return LlmTurnOrchestrationAdapter(
+        composed_input=composed,
+        text_model_caller=kwargs["caller"],
+        model_name=str(kwargs.get("model_name", "fake")),
+        opaque_launch_context=dict(kwargs.get("opaque") or {}),
+        continuity_compaction_prompt_char_threshold=kwargs.get("continuity_compaction_prompt_char_threshold"),
+        continuity_compaction_trigger_fraction=kwargs.get("continuity_compaction_trigger_fraction"),
+        continuity_compaction_max_prompt_chars=kwargs.get("continuity_compaction_max_prompt_chars"),
+        continuity_journal_verbatim_keep_n=int(kwargs.get("continuity_journal_verbatim_keep_n", 5)),
+    )
+
+
+def _orch_context(*, iterations: int = 1) -> OrchestratorContext:
+    lm = LoopMemoryState()
+    lm.iterations = iterations
+    return OrchestratorContext(
+        session_manager=ExecutionSessionManager(),
+        session_id="sess-llm",
+        loop_memory=lm,
+        request_id_prefix="req-llm",
+        opaque_run_context={},
+    )
+
+
+def test_llm_turn_adapter_emits_one_prompt_event_per_successful_choose_action() -> None:
+    payloads: list[dict[str, Any]] = []
+
+    def caller(prompt: str, model: str) -> str:
+        return json.dumps(
+            {
+                "action_type": "noop",
+                "action_inputs": {},
+                "idempotency_key": "ik-1",
+                "skip_execution": True,
+                "wait_for_human": False,
+                "complete_run": False,
+                "rationale": None,
+                "state_patch": None,
+                "continuity_journal_entry": _LLM_CJ,
+                "operator_progress_message": None,
+            }
+        )
+
+    adapter = _minimal_llm_adapter(caller=caller)
+
+    def cb(info: dict[str, Any]) -> None:
+        payloads.append(dict(info))
+
+    adapter.wire_identity_trace_cb(cb)
+    ctx = _orch_context(iterations=2)
+    plan = adapter.choose_action(ctx, projection=None)
+    assert plan.action_type == "noop"
+    assert len(payloads) == 1
+    assert payloads[0]["iteration"] == 2
+    pe = payloads[0]["prompt_event"]
+    assert pe["metadata"]["surface"] == "orchestration_kernel_llm_turn"
+    assert pe["metadata"]["model"] == "fake"
+    assert pe["metadata"]["prompt_char_count"] > 0
+    assert pe["outcome_kind"] == "kernel_action_plan_parsed"
+    assert pe["outcome_ref"] is None
+
+
+def test_llm_turn_adapter_emits_parse_failed_prompt_event_before_raising() -> None:
+    payloads: list[dict[str, Any]] = []
+
+    def caller(prompt: str, model: str) -> str:
+        return "not-json"
+
+    adapter = _minimal_llm_adapter(caller=caller)
+    adapter.wire_identity_trace_cb(lambda info: payloads.append(dict(info)))
+    ctx = _orch_context(iterations=1)
+
+    with pytest.raises(ModelActionParseError):
+        adapter.choose_action(ctx, projection=None)
+
+    assert len(payloads) == 1
+    assert payloads[0]["prompt_event"]["outcome_kind"] == "kernel_action_plan_parse_failed"
+    assert payloads[0]["prompt_event"]["outcome_ref"] == "invalid_model_action_json"
+
+
+def test_choose_action_prompt_carries_prior_journal_progress_and_compacted_summary() -> None:
+    captured: list[str] = []
+
+    def caller(prompt: str, model: str) -> str:
+        captured.append(prompt)
+        return json.dumps(
+            {
+                "action_type": "noop",
+                "action_inputs": {},
+                "idempotency_key": "ik-p",
+                "skip_execution": True,
+                "wait_for_human": False,
+                "complete_run": False,
+                "rationale": None,
+                "state_patch": None,
+                "continuity_journal_entry": _LLM_CJ,
+                "operator_progress_message": None,
+            }
+        )
+
+    adapter = _minimal_llm_adapter(caller=caller)
+    ctx = _orch_context(iterations=2)
+    ctx.loop_memory.continuity.continuity_journal_entries.append(
+        wrap_journal_entry(kernel_turn_index=1, author_payload={"turn_note": "alpha"})
+    )
+    ctx.loop_memory.continuity.operator_progress_message = "status line for operator"
+    ctx.loop_memory.continuity.compacted_continuity_summary = "prior folded block"
+    ctx.loop_memory.continuity.kernel_step_records.append(
+        {
+            "kernel_turn_index": 1,
+            "action_type": "noop",
+            "skip_execution": True,
+            "wait_for_human": False,
+            "complete_run": False,
+            "execution_state": "skipped",
+            "execution_reason_code": None,
+        }
+    )
+    adapter.choose_action(ctx, projection=None)
+    assert len(captured) == 1
+    p = captured[0]
+    assert "status line for operator" in p
+    assert "prior folded block" in p
+    assert "turn_note" in p
+    assert "recent_continuity_journal_entries" in p
+    assert "recent_kernel_step_records" in p
+    assert "recent_kernel_step_result_records" in p
+    assert "skipped" in p
+
+
+def test_run_continuity_pre_choose_action_invokes_compaction_llm_and_traces() -> None:
+    calls: list[str] = []
+
+    def caller(prompt: str, model: str) -> str:
+        calls.append(prompt)
+        if "journal_entries_to_fold" in prompt:
+            assert "kernel_step_result_records_to_fold" in prompt
+            return json.dumps({"compacted_continuity_summary": "merged-from-model"})
+        raise AssertionError("unexpected prompt branch")
+
+    adapter = _minimal_llm_adapter(
+        caller=caller,
+        continuity_compaction_prompt_char_threshold=1,
+        continuity_journal_verbatim_keep_n=2,
+    )
+    ctx = _orch_context(iterations=3)
+    for i in range(1, 6):
+        ctx.loop_memory.continuity.continuity_journal_entries.append(
+            wrap_journal_entry(kernel_turn_index=i, author_payload={"k": i})
+        )
+        ctx.loop_memory.continuity.kernel_step_records.append(
+            {
+                "kernel_turn_index": i,
+                "action_type": "noop",
+                "skip_execution": True,
+                "wait_for_human": False,
+                "complete_run": False,
+                "execution_state": "skipped",
+                "execution_reason_code": None,
+            }
+        )
+    tracer = KernelTraceCollector(session_id="s-compact", request_id="r-compact")
+    adapter.run_continuity_pre_choose_action(ctx, None, tracer=tracer)
+    assert ctx.loop_memory.continuity.compacted_continuity_summary == "merged-from-model"
+    kinds = [e["event_kind"] for e in tracer.build_raw_events()]
+    assert "continuity_compacted" in kinds
+    assert len(calls) == 1
+    assert "journal_entries_to_fold" in calls[0]
+    assert "kernel_step_result_records_to_fold" in calls[0]
+    assert "target_compacted_summary_chars" in calls[0]
+
+
+def test_run_continuity_occupancy_fraction_triggers(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "harness.runtime.orchestration.llm_turn_adapter.resolve_context_window_tokens",
+        lambda _m: (800, False),
+    )
+
+    calls: list[str] = []
+
+    def caller(prompt: str, model: str) -> str:
+        calls.append(prompt)
+        if "journal_entries_to_fold" in prompt:
+            return json.dumps({"compacted_continuity_summary": "occ-merge"})
+        raise AssertionError("unexpected prompt branch")
+
+    adapter = _minimal_llm_adapter(
+        caller=caller,
+        continuity_compaction_trigger_fraction=0.25,
+        continuity_journal_verbatim_keep_n=2,
+        model_name="gpt-5.4-mini",
+    )
+    ctx = _orch_context(iterations=3)
+    for i in range(1, 6):
+        ctx.loop_memory.continuity.continuity_journal_entries.append(
+            wrap_journal_entry(kernel_turn_index=i, author_payload={"k": i})
+        )
+        ctx.loop_memory.continuity.kernel_step_records.append(
+            {
+                "kernel_turn_index": i,
+                "action_type": "noop",
+                "skip_execution": True,
+                "wait_for_human": False,
+                "complete_run": False,
+                "execution_state": "skipped",
+                "execution_reason_code": None,
+            }
+        )
+    tracer = KernelTraceCollector(session_id="s-occ", request_id="r-occ")
+    adapter.run_continuity_pre_choose_action(ctx, None, tracer=tracer)
+    assert ctx.loop_memory.continuity.compacted_continuity_summary == "occ-merge"
+    assert len(calls) == 1
+
+
+def test_run_continuity_occupancy_fraction_does_not_trigger_when_below_threshold(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "harness.runtime.orchestration.llm_turn_adapter.resolve_context_window_tokens",
+        lambda _m: (10_000_000, False),
+    )
+
+    calls: list[str] = []
+
+    def caller(prompt: str, model: str) -> str:
+        calls.append(prompt)
+        return json.dumps({"compacted_continuity_summary": "should-not-run"})
+
+    adapter = _minimal_llm_adapter(
+        caller=caller,
+        continuity_compaction_trigger_fraction=0.99,
+        continuity_journal_verbatim_keep_n=2,
+    )
+    ctx = _orch_context(iterations=3)
+    ctx.loop_memory.continuity.continuity_journal_entries.append(
+        wrap_journal_entry(kernel_turn_index=1, author_payload={"k": 1})
+    )
+    tracer = KernelTraceCollector(session_id="s-below", request_id="r-below")
+    adapter.run_continuity_pre_choose_action(ctx, None, tracer=tracer)
+    assert calls == []
+    assert ctx.loop_memory.continuity.compacted_continuity_summary is None
+
+
+def test_run_continuity_fraction_with_unregistered_model_uses_250k_fallback_in_trace() -> None:
+    """Real ``resolve_context_window_tokens`` (no monkeypatch): missing registry entry => 250k + fallback flag."""
+
+    calls: list[str] = []
+
+    def caller(prompt: str, model: str) -> str:
+        calls.append(prompt)
+        if "journal_entries_to_fold" in prompt:
+            return json.dumps({"compacted_continuity_summary": "fb-merge"})
+        raise AssertionError("unexpected prompt branch")
+
+    adapter = _minimal_llm_adapter(
+        caller=caller,
+        continuity_compaction_trigger_fraction=0.005,
+        continuity_journal_verbatim_keep_n=1,
+        model_name="zzz-unknown-harness-model-id-99999",
+    )
+    ctx = _orch_context(iterations=2)
+    for i in range(1, 25):
+        ctx.loop_memory.continuity.continuity_journal_entries.append(
+            wrap_journal_entry(kernel_turn_index=i, author_payload={"note": "x" * 400})
+        )
+        ctx.loop_memory.continuity.kernel_step_records.append(
+            {"kernel_turn_index": i, "action_type": "noop", "execution_state": "skipped"}
+        )
+    tracer = KernelTraceCollector(session_id="s-fb", request_id="r-fb")
+    adapter.run_continuity_pre_choose_action(ctx, None, tracer=tracer)
+    assert ctx.loop_memory.continuity.compacted_continuity_summary == "fb-merge"
+    assert len(calls) == 1
+    evs = [e for e in tracer.build_raw_events() if e.get("event_kind") == "continuity_compacted"]
+    assert evs and evs[0].get("payload", {}).get("used_context_window_fallback") is True
+
+
+def test_second_compaction_does_not_resend_already_covered_turn_rows() -> None:
+    calls: list[str] = []
+
+    def caller(prompt: str, model: str) -> str:
+        calls.append(prompt)
+        if "journal_entries_to_fold" in prompt:
+            return json.dumps({"compacted_continuity_summary": "updated"})
+        raise AssertionError("unexpected prompt branch")
+
+    adapter = _minimal_llm_adapter(
+        caller=caller,
+        continuity_compaction_prompt_char_threshold=1,
+        continuity_journal_verbatim_keep_n=2,
+        continuity_compaction_max_prompt_chars=2600,
+    )
+    ctx = _orch_context(iterations=3)
+    for i in range(1, 8):
+        ctx.loop_memory.continuity.continuity_journal_entries.append(
+            wrap_journal_entry(kernel_turn_index=i, author_payload={"tag": i})
+        )
+        ctx.loop_memory.continuity.kernel_step_records.append(
+            {
+                "kernel_turn_index": i,
+                "action_type": "noop",
+                "skip_execution": True,
+                "wait_for_human": False,
+                "complete_run": False,
+                "execution_state": "skipped",
+                "execution_reason_code": None,
+            }
+        )
+        ctx.loop_memory.continuity.kernel_step_result_records.append(
+            {
+                "kernel_turn_index": i,
+                "action_type": "noop",
+                "execution_state": "executed",
+                "execution_reason_code": None,
+                "artifact_refs": [],
+                "latest_refs_snapshot": {},
+                "outputs_for_continuity": {},
+                "result_truncated": False,
+            }
+        )
+    tracer = KernelTraceCollector(session_id="s-wm", request_id="r-wm")
+    adapter.run_continuity_pre_choose_action(ctx, None, tracer=tracer)
+    adapter.run_continuity_pre_choose_action(ctx, None, tracer=tracer)
+    assert len(calls) == 2
+    assert '"tag": 1' in calls[0]
+    assert '"tag": 1' not in calls[1]
+    assert ctx.loop_memory.continuity.kernel_compaction_covered_through_turn_index >= 1
+
+
+def test_partition_continuity_turn_aligned_when_journal_sparse() -> None:
+    from harness.runtime.memory.continuity_journal import (
+        partition_continuity_for_compaction,
+        recent_journal_entries_for_prompt,
+        wrap_journal_entry,
+    )
+
+    journal = [wrap_journal_entry(kernel_turn_index=2, author_payload={"only": 2})]
+    steps = [
+        {"kernel_turn_index": 1, "execution_state": "skipped"},
+        {"kernel_turn_index": 2, "execution_state": "skipped"},
+        {"kernel_turn_index": 3, "execution_state": "skipped"},
+    ]
+    j_fold, s_fold, r_fold = partition_continuity_for_compaction(journal, steps, [], keep_n=2)
+    assert j_fold == []
+    assert r_fold == []
+    assert len(s_fold) == 1
+    assert s_fold[0]["kernel_turn_index"] == 1
+    recent = recent_journal_entries_for_prompt(journal, steps, [], keep_n=2)
+    assert len(recent) == 1
+    assert recent[0]["author_payload"]["only"] == 2
+    rsteps = recent_step_records_for_prompt(journal, steps, [], keep_n=2)
+    assert {kernel_turn_index_of(r) for r in rsteps} == {2, 3}
+
+
+def test_verbatim_tail_unions_journal_step_and_result_layers() -> None:
+    from harness.runtime.memory.continuity_journal import (
+        recent_step_result_records_for_prompt,
+        verbatim_turn_indices,
+        wrap_journal_entry,
+    )
+
+    journal = [wrap_journal_entry(kernel_turn_index=1, author_payload={"a": 1})]
+    steps: list[dict[str, Any]] = []
+    results = [
+        {
+            "kernel_turn_index": 5,
+            "action_type": "noop",
+            "execution_state": "executed",
+            "artifact_refs": [],
+            "latest_refs_snapshot": {},
+            "outputs_for_continuity": {},
+            "result_truncated": False,
+        }
+    ]
+    kept = verbatim_turn_indices(journal, steps, results, keep_n=2)
+    assert kept == {1, 5}
+    rrecent = recent_step_result_records_for_prompt(journal, steps, results, keep_n=2)
+    assert len(rrecent) == 1
+    assert rrecent[0]["kernel_turn_index"] == 5
+
+
+def test_coerce_action_plan_rejects_null_continuity_journal_entry() -> None:
+    payload = {
+        "action_type": "select_tool",
+        "action_inputs": {},
+        "idempotency_key": "ik-1",
+        "skip_execution": False,
+        "wait_for_human": False,
+        "complete_run": False,
+        "rationale": None,
+        "state_patch": None,
+        "continuity_journal_entry": None,
+        "operator_progress_message": None,
+    }
+    with pytest.raises(ModelActionParseError, match="continuity_journal_entry is required"):
+        _coerce_action_plan(json.dumps(payload), available_tool_ids=("select_tool",))
+
+
+def test_coerce_action_plan_rejects_empty_continuity_journal_entry() -> None:
+    payload = {
+        "action_type": "select_tool",
+        "action_inputs": {},
+        "idempotency_key": "ik-1",
+        "skip_execution": False,
+        "wait_for_human": False,
+        "complete_run": False,
+        "rationale": None,
+        "state_patch": None,
+        "continuity_journal_entry": {},
+        "operator_progress_message": None,
+    }
+    with pytest.raises(ModelActionParseError, match="non-empty"):
+        _coerce_action_plan(json.dumps(payload), available_tool_ids=("select_tool",))
+
+
+def test_coerce_action_plan_rejects_non_object_continuity_journal_entry() -> None:
+    payload = {
+        "action_type": "select_tool",
+        "action_inputs": {},
+        "idempotency_key": "ik-1",
+        "skip_execution": False,
+        "wait_for_human": False,
+        "complete_run": False,
+        "rationale": None,
+        "state_patch": None,
+        "continuity_journal_entry": [],
+        "operator_progress_message": None,
+    }
+    with pytest.raises(ModelActionParseError, match="continuity_journal_entry"):
         _coerce_action_plan(json.dumps(payload), available_tool_ids=("select_tool",))

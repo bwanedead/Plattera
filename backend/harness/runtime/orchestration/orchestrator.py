@@ -3,12 +3,13 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from ...execution.contracts import ExecutionState
+from ...execution.contracts import ExecutionState, ExecutionStepResult
 from ...execution.session import ExecutionSessionManager
 
 from ...terminal_taxonomy import TerminalClass
-from .contracts import KernelLoopResult, OrchestrationAdapter, OrchestratorContext
+from .contracts import ActionPlan, KernelLoopResult, OrchestrationAdapter, OrchestratorContext
 from ..memory import LoopMemoryState
+from ..memory.continuity_journal import apply_kernel_turn_continuity_carriage, build_kernel_step_result_record
 from ..memory.resume_snapshot import build_kernel_resume_snapshot
 from .orchestrator_coercion import (
     coerce_kernel_action_plan,
@@ -24,6 +25,70 @@ from .state_patch_apply import (
 from .trace_collector import KernelTraceCollector
 
 _LOG = logging.getLogger(__name__)
+
+
+def _dashboard_refs_python(step_result: ExecutionStepResult) -> dict[str, Any]:
+    dash = step_result.dashboard
+    if dash is None:
+        return {}
+    return dash.latest_refs.model_dump(mode="python")
+
+
+def _dispatch_outputs_and_artifact_refs(step_result: ExecutionStepResult) -> tuple[dict[str, Any], list[str]]:
+    rec = step_result.record
+    if rec is None or rec.result is None:
+        return {}, []
+    r = rec.result
+    return dict(r.outputs or {}), list(r.artifact_refs or ())
+
+
+def _append_kernel_step_result_continuity(
+    *,
+    loop_memory: LoopMemoryState,
+    iteration: int,
+    action_type: str | None,
+    step_result: ExecutionStepResult,
+) -> None:
+    outs, refs = _dispatch_outputs_and_artifact_refs(step_result)
+    loop_memory.continuity.kernel_step_result_records.append(
+        build_kernel_step_result_record(
+            kernel_turn_index=int(iteration),
+            action_type=action_type,
+            execution_state=step_result.execution_state.value,
+            execution_reason_code=(
+                step_result.refusal.reason_code if step_result.refusal is not None else None
+            ),
+            latest_refs_snapshot=_dashboard_refs_python(step_result),
+            outputs=outs,
+            artifact_refs=refs,
+        )
+    )
+
+
+def _record_turn_continuity(
+    *,
+    loop_memory: LoopMemoryState,
+    action_plan: ActionPlan,
+    iteration: int,
+    execution_state: str,
+    execution_reason_code: str | None,
+) -> None:
+    apply_kernel_turn_continuity_carriage(
+        loop_memory=loop_memory,
+        continuity_journal_entry=action_plan.continuity_journal_entry,
+        operator_progress_message=action_plan.operator_progress_message,
+        action_type=action_plan.action_type,
+        action_inputs=dict(action_plan.action_inputs),
+        idempotency_key=action_plan.idempotency_key,
+        rationale=action_plan.rationale,
+        latest_refs_snapshot=dict(loop_memory.continuity.latest_refs),
+        skip_execution=action_plan.skip_execution,
+        wait_for_human=action_plan.wait_for_human,
+        complete_run=action_plan.complete_run,
+        iteration=iteration,
+        execution_state=execution_state,
+        execution_reason_code=execution_reason_code,
+    )
 
 
 def _pack_id_from_prompt_metadata(metadata: dict[str, Any], info: dict[str, Any]) -> str:
@@ -49,8 +114,9 @@ def run_orchestration_kernel_loop(
     Mechanical run status is emitted only through ``KernelTraceCollector`` (see
     ``KernelLoopResult.trace_events``)—no parallel host progress callback.
 
-    Packs may optionally define ``wire_identity_trace_cb`` for LLM identity tracing; that hook is
-    not part of the protocol and is discovered via ``hasattr``.
+    Orchestration adapters may optionally define ``wire_identity_trace_cb`` for mechanical LLM
+    observability (e.g. ``LlmTurnOrchestrationAdapter``); the hook is discovered via ``hasattr``
+    and is not part of the ``OrchestrationAdapter`` protocol.
 
     For process restart, pass ``initial_loop_memory`` and ``resume_start_iteration`` from a parsed
     ``kernel_resume.v1`` snapshot (mechanical rehydration only; no semantic repair).
@@ -79,11 +145,14 @@ def run_orchestration_kernel_loop(
     )
 
     def _identity_trace_cb(info: dict[str, Any]) -> None:
+        raw_iter = info.get("iteration")
+        iteration_index: int | None = int(raw_iter) if isinstance(raw_iter, int) else None
+
         prompt_event = info.get("prompt_event")
         if isinstance(prompt_event, dict):
             metadata = prompt_event.get("metadata") if isinstance(prompt_event.get("metadata"), dict) else {}
             tracer.emit_prompt_event(
-                iteration=None,
+                iteration=iteration_index,
                 prompt_event=prompt_event,
                 surface=str(metadata.get("surface") or info.get("surface") or ""),
                 pack_id=_pack_id_from_prompt_metadata(metadata, info),
@@ -93,9 +162,11 @@ def run_orchestration_kernel_loop(
                 prompt_event_id=str(metadata.get("prompt_event_id") or ""),
                 surface=str(metadata.get("surface") or info.get("surface") or ""),
             )
+            # Same contact is an LLM call: keep llm_contact_count aligned for operators (not only legacy identity path).
+            loop_memory.telemetry.register_llm_contact()
             return
         tracer.emit_llm_call_identity(
-            iteration=None,
+            iteration=iteration_index,
             surface=str(info.get("surface") or ""),
             pack_id=_pack_id_from_prompt_metadata(info if isinstance(info, dict) else {}, info if isinstance(info, dict) else {}),
             inheritance_mode=str(info.get("inheritance_mode") or ""),
@@ -107,8 +178,6 @@ def run_orchestration_kernel_loop(
 
     if hasattr(orchestration_adapter, "wire_identity_trace_cb"):
         orchestration_adapter.wire_identity_trace_cb(_identity_trace_cb)  # type: ignore[attr-defined]
-    if hasattr(session_manager, "wire_identity_trace_cb"):
-        session_manager.wire_identity_trace_cb(_identity_trace_cb)  # type: ignore[attr-defined]
 
     _call_optional(orchestration_adapter, "initialize", context)
 
@@ -157,6 +226,10 @@ def run_orchestration_kernel_loop(
                 session_manager=session_manager,
             )
 
+        pre_compact = getattr(orchestration_adapter, "run_continuity_pre_choose_action", None)
+        if callable(pre_compact):
+            pre_compact(context, projection, tracer=tracer)  # type: ignore[misc]
+
         action_plan = coerce_kernel_action_plan(_call_optional(orchestration_adapter, "choose_action", context, projection))
         if action_plan is None:
             continue
@@ -170,6 +243,13 @@ def run_orchestration_kernel_loop(
                 tracer=tracer,
                 iteration=iterations,
                 gate="wait_for_human",
+            )
+            _record_turn_continuity(
+                loop_memory=loop_memory,
+                action_plan=action_plan,
+                iteration=iterations,
+                execution_state="wait_for_human",
+                execution_reason_code=None,
             )
             loop_memory.hitl.hitl_state = "waiting"
             return _make_result(
@@ -191,6 +271,13 @@ def run_orchestration_kernel_loop(
                 iteration=iterations,
                 gate="complete_run",
             )
+            _record_turn_continuity(
+                loop_memory=loop_memory,
+                action_plan=action_plan,
+                iteration=iterations,
+                execution_state="complete_run",
+                execution_reason_code=None,
+            )
             return _make_result(
                 loop_memory=loop_memory,
                 terminal_class="completed",
@@ -205,6 +292,12 @@ def run_orchestration_kernel_loop(
         step_request = coerce_step_request(action_plan, session_id=session_id)
         if step_request is not None and not action_plan.skip_execution:
             step_result = session_manager.step(step_request)
+            _append_kernel_step_result_continuity(
+                loop_memory=loop_memory,
+                iteration=iterations,
+                action_type=action_plan.action_type,
+                step_result=step_result,
+            )
             if step_result.execution_state != ExecutionState.EXECUTED:
                 refusal = step_result.refusal
                 reason = refusal.reason_code if refusal is not None else "step_execution_refused"
@@ -231,6 +324,13 @@ def run_orchestration_kernel_loop(
                     and not refusal.blocked_by_invariant
                 )
                 if not is_retryable:
+                    _record_turn_continuity(
+                        loop_memory=loop_memory,
+                        action_plan=action_plan,
+                        iteration=iterations,
+                        execution_state="refused",
+                        execution_reason_code=reason,
+                    )
                     return _make_result(
                         loop_memory=loop_memory,
                         terminal_class="failed",
@@ -241,6 +341,13 @@ def run_orchestration_kernel_loop(
                         tracer=tracer,
                         session_manager=session_manager,
                     )
+                _record_turn_continuity(
+                    loop_memory=loop_memory,
+                    action_plan=action_plan,
+                    iteration=iterations,
+                    execution_state="refused",
+                    execution_reason_code=reason,
+                )
                 if step_result.dashboard is not None:
                     loop_memory.continuity.latest_refs = step_result.dashboard.latest_refs.model_dump(mode="json")
             else:
@@ -261,6 +368,13 @@ def run_orchestration_kernel_loop(
                     iteration=iterations,
                     gate="step_executed",
                 )
+                _record_turn_continuity(
+                    loop_memory=loop_memory,
+                    action_plan=action_plan,
+                    iteration=iterations,
+                    execution_state="executed",
+                    execution_reason_code=None,
+                )
         else:
             sync_state_patch_when_no_step_dispatched(
                 loop_memory=loop_memory,
@@ -269,6 +383,13 @@ def run_orchestration_kernel_loop(
                 iteration=iterations,
                 patch_present=patch_present,
                 skip_execution=action_plan.skip_execution,
+            )
+            _record_turn_continuity(
+                loop_memory=loop_memory,
+                action_plan=action_plan,
+                iteration=iterations,
+                execution_state="skipped" if action_plan.skip_execution else "not_dispatched",
+                execution_reason_code=None,
             )
 
     return _make_result(
@@ -317,6 +438,12 @@ def _make_result(
         "mission_state": loop_memory.continuity.mission_state,
         "resolution_state": loop_memory.continuity.resolution_state,
         "state_patch_feedback": dict(loop_memory.continuity.state_patch_feedback),
+        "operator_progress_message": loop_memory.continuity.operator_progress_message,
+        "compacted_continuity_summary": loop_memory.continuity.compacted_continuity_summary,
+        "continuity_journal_entry_count": len(loop_memory.continuity.continuity_journal_entries),
+        "kernel_compaction_covered_through_turn_index": int(
+            loop_memory.continuity.kernel_compaction_covered_through_turn_index
+        ),
     }
     resume_snap = build_kernel_resume_snapshot(
         loop_memory=loop_memory,

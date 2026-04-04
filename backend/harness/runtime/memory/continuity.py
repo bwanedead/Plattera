@@ -30,3 +30,15 @@ class OrchestrationContinuity:
     active_item_id: str | None = None
     # Mechanical outcome of the last state_patch attempt (for prompt + traces; not semantic work).
     state_patch_feedback: dict[str, Any] = field(default_factory=dict)
+    # Append-only LLM-authored journal rows: {kernel_turn_index, author_payload}; full history kept for resume.
+    continuity_journal_entries: list[dict[str, Any]] = field(default_factory=list)
+    # LLM-authored text from a dedicated compaction call; injected into prompts instead of older journal rows.
+    compacted_continuity_summary: str | None = None
+    # Latest LLM-authored short operator-facing status line.
+    operator_progress_message: str | None = None
+    # Mechanical per-turn execution facts for compaction prompts (host does not interpret).
+    kernel_step_records: list[dict[str, Any]] = field(default_factory=list)
+    # Bounded mechanical tool-dispatch outcomes for prompt memory (not raw artifacts; host does not interpret meaning).
+    kernel_step_result_records: list[dict[str, Any]] = field(default_factory=list)
+    # Mechanical frontier: rows with ``kernel_turn_index <=`` this were already sent in a successful compaction payload.
+    kernel_compaction_covered_through_turn_index: int = 0

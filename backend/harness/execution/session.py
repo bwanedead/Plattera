@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from time import time
-from typing import Any, Callable
+from typing import Any
 from uuid import uuid4
 
 from .contracts import (
@@ -73,10 +73,6 @@ class ExecutionSessionManager:
     executor: ExecutionExecutor = field(default_factory=ExecutionExecutor)
     persistence: ExecutionPersistence | None = None
     sessions: dict[str, ExecutionSession] = field(default_factory=dict)
-    _identity_trace_cb: Callable[[dict[str, Any]], None] | None = None
-
-    def wire_identity_trace_cb(self, callback: Callable[[dict[str, Any]], None]) -> None:
-        self._identity_trace_cb = callback
 
     def hydrate_session(self, session: ExecutionSession) -> None:
         """Register a fully-built session (e.g. from a resume snapshot). Does not create a new ``RunArtifact``."""

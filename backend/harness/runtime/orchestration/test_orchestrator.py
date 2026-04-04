@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import time
 
 from harness.execution.contracts import (
@@ -21,7 +22,12 @@ from harness.runtime.orchestration.contracts import (
     SharedStateProjection,
     TerminalEvaluation,
 )
+from harness.runtime.composition.contracts import ComposedTurnInput, TurnBlock
+from harness.runtime.memory.resume_snapshot import parse_kernel_resume_snapshot
+from harness.runtime.orchestration.llm_turn_adapter import LlmTurnOrchestrationAdapter
 from harness.runtime.orchestration.orchestrator import run_orchestration_kernel_loop
+
+_PACK_CJ = {"pack_continuity_stub": True}
 
 
 def _dashboard(*, refs: dict | None = None) -> ExecutionDashboard:
@@ -82,6 +88,7 @@ class OneStepThenCompletePack:
             action_type="noop",
             action_inputs={},
             idempotency_key=f"ik-{context.loop_memory.iterations}",
+            continuity_journal_entry=_PACK_CJ,
         )
 
 
@@ -116,7 +123,7 @@ class WaitHumanPack:
         return None
 
     def choose_action(self, context: OrchestratorContext, projection: SharedStateProjection | None) -> ActionPlan:
-        return ActionPlan(wait_for_human=True)
+        return ActionPlan(wait_for_human=True, continuity_journal_entry=_PACK_CJ)
 
 
 class MechanicalInheritSyncPack:
@@ -165,6 +172,7 @@ class MechanicalInheritSyncPack:
                 action_type="noop",
                 action_inputs={},
                 idempotency_key="ik-patch-1",
+                continuity_journal_entry=_PACK_CJ,
                 state_patch={
                     "resolution": {
                         "active_item_id": "work-1",
@@ -187,6 +195,7 @@ class MechanicalInheritSyncPack:
                 action_type="noop",
                 action_inputs={},
                 idempotency_key="ik-patch-2",
+                continuity_journal_entry=_PACK_CJ,
                 state_patch={
                     "resolution": {
                         "items": [
@@ -195,7 +204,7 @@ class MechanicalInheritSyncPack:
                     }
                 },
             )
-        return ActionPlan(skip_execution=True, idempotency_key="ik-fallback")
+        return ActionPlan(skip_execution=True, idempotency_key="ik-fallback", continuity_journal_entry=_PACK_CJ)
 
 
 class BadTopLevelStatePatchPack:
@@ -215,6 +224,7 @@ class BadTopLevelStatePatchPack:
             action_type="noop",
             action_inputs={},
             idempotency_key="ik-bad",
+            continuity_journal_entry=_PACK_CJ,
             state_patch={"domain_specific_surface": {"x": 1}},
         )
 
@@ -265,6 +275,7 @@ class PatchOnNoopRefusedPack:
             action_type="noop",
             action_inputs={},
             idempotency_key="ik-ref-patch",
+            continuity_journal_entry=_PACK_CJ,
             state_patch={
                 "resolution": {
                     "items": [
@@ -300,6 +311,7 @@ class CompleteRunWithSkippedItemRowsPack:
             complete_run=True,
             rationale="done",
             idempotency_key="ik-skip-rows",
+            continuity_journal_entry=_PACK_CJ,
             state_patch={
                 "resolution": {
                     "items": [
@@ -332,7 +344,7 @@ class SkipExecutionPack:
         return None
 
     def choose_action(self, context: OrchestratorContext, projection: SharedStateProjection | None) -> ActionPlan:
-        return ActionPlan(skip_execution=True, idempotency_key="skip")
+        return ActionPlan(skip_execution=True, idempotency_key="skip", continuity_journal_entry=_PACK_CJ)
 
 
 def test_orchestrator_one_step_then_complete_trace() -> None:
@@ -463,6 +475,165 @@ def test_invalid_state_patch_is_dropped_without_terminating_loop() -> None:
     assert fb.get("reason_code") == "state_patch_unknown_keys"
     kinds = [e.get("event_kind") for e in result.trace_events]
     assert "state_patch_outcome" in kinds
+
+
+def _fake_llm_action_json(ik_suffix: str) -> str:
+    return json.dumps(
+        {
+            "action_type": "noop",
+            "action_inputs": {},
+            "idempotency_key": f"ik-{ik_suffix}",
+            "skip_execution": False,
+            "wait_for_human": False,
+            "complete_run": False,
+            "rationale": None,
+            "state_patch": None,
+            "continuity_journal_entry": {"llm_stub_turn": ik_suffix},
+            "operator_progress_message": None,
+        }
+    )
+
+
+def test_kernel_loop_llm_adapter_prompt_telemetry_and_trace_match_turns() -> None:
+    """Two iterations => two prompt_event traces; llm_contact_count and prompt_event_count both == 2."""
+    call_n = {"i": 0}
+
+    def fake_caller(prompt: str, model: str) -> str:
+        call_n["i"] += 1
+        return _fake_llm_action_json(str(call_n["i"]))
+
+    composed = ComposedTurnInput(
+        blocks=(TurnBlock(content="hi"),),
+        surface_payloads={},
+        tool_handlers={"noop": lambda x: x},
+    )
+    adapter = LlmTurnOrchestrationAdapter(
+        composed_input=composed,
+        text_model_caller=fake_caller,
+        model_name="stub-model",
+    )
+
+    sm = FakeSessionManager()
+    result = run_orchestration_kernel_loop(
+        orchestration_adapter=adapter,
+        session_manager=sm,
+        session_id="sess-telemetry",
+        run_artifact_ref=None,
+        request_id_prefix="req-tel",
+        opaque_run_context={},
+        max_iterations=2,
+    )
+
+    assert result.terminal_class == "exhausted"
+    assert call_n["i"] == 2
+    assert result.runtime_state["llm_contact_count"] == 2
+    assert result.runtime_state["prompt_event_count"] == 2
+    assert result.runtime_state["last_prompt_event_surface"] == "orchestration_kernel_llm_turn"
+    assert result.runtime_state["last_prompt_event_id"] == "req-tel:iter2:kernel_llm"
+
+    pe_events = [e for e in result.trace_events if e.get("phase") == "prompt_event"]
+    assert len(pe_events) == 2
+    assert pe_events[0]["iteration_index"] == 1
+    assert pe_events[1]["iteration_index"] == 2
+    for ev in pe_events:
+        payload = ev.get("payload") or {}
+        assert payload.get("model") == "stub-model"
+        pe = payload.get("prompt_event")
+        assert isinstance(pe, dict)
+        assert pe.get("outcome_kind") == "kernel_action_plan_parsed"
+
+    snap = result.kernel_resume_snapshot
+    assert snap["telemetry"]["prompt_event_count"] == 2
+    assert snap["telemetry"]["llm_contact_count"] == 2
+    assert snap["telemetry"]["last_prompt_event_id"] == "req-tel:iter2:kernel_llm"
+
+    restored, next_it, err = parse_kernel_resume_snapshot(snap)
+    assert err is None
+    assert next_it == 3
+    assert restored.telemetry.prompt_event_count == 2
+    assert restored.telemetry.llm_contact_count == 2
+
+
+class ContinuityJournalTwoTurnPack:
+    """First turn writes journal + progress; second turn asserts they are loop-carried, then completes."""
+
+    def initialize(self, context: OrchestratorContext) -> None:
+        pass
+
+    def sync(self, context: OrchestratorContext) -> SharedStateProjection:
+        return SharedStateProjection(
+            mission_state=new_mission_state(mission_id="mj", loop_family="orchestration_kernel"),
+            resolution_state=new_resolution_state(),
+        )
+
+    def evaluate_terminal(self, context: OrchestratorContext, projection: SharedStateProjection | None) -> TerminalEvaluation | None:
+        return None
+
+    def choose_action(self, context: OrchestratorContext, projection: SharedStateProjection | None) -> ActionPlan:
+        it = context.loop_memory.iterations
+        if it == 2:
+            assert len(context.loop_memory.continuity.continuity_journal_entries) == 1
+            assert context.loop_memory.continuity.continuity_journal_entries[0]["author_payload"].get("mark") == "t1"
+            assert context.loop_memory.continuity.operator_progress_message == "hello op"
+            return ActionPlan(
+                complete_run=True,
+                idempotency_key="ik2",
+                rationale="done",
+                continuity_journal_entry={"close_out": True},
+            )
+        return ActionPlan(
+            action_type="noop",
+            action_inputs={},
+            idempotency_key="ik1",
+            skip_execution=True,
+            continuity_journal_entry={"mark": "t1"},
+            operator_progress_message="hello op",
+        )
+
+
+def test_kernel_step_result_record_after_executed_step_roundtrips_resume() -> None:
+    sm = FakeSessionManager()
+    result = run_orchestration_kernel_loop(
+        orchestration_adapter=OneStepThenCompletePack(),
+        session_manager=sm,
+        session_id="sess-sr",
+        run_artifact_ref=None,
+        request_id_prefix="req-sr",
+        opaque_run_context={},
+        max_iterations=4,
+    )
+    assert result.terminal_class == "completed"
+    assert len(sm.steps) == 1
+    snap = result.kernel_resume_snapshot
+    assert snap is not None
+    mem, _, err = parse_kernel_resume_snapshot(snap)
+    assert err is None
+    assert len(mem.continuity.kernel_step_result_records) == 1
+    row = mem.continuity.kernel_step_result_records[0]
+    assert row["kernel_turn_index"] == 1
+    assert row["execution_state"] == "executed"
+
+
+def test_kernel_continuity_journal_carried_across_turns() -> None:
+    sm = FakeSessionManager()
+    result = run_orchestration_kernel_loop(
+        orchestration_adapter=ContinuityJournalTwoTurnPack(),
+        session_manager=sm,
+        session_id="sess-cj",
+        run_artifact_ref=None,
+        request_id_prefix="req-cj",
+        opaque_run_context={},
+        max_iterations=6,
+    )
+    assert result.terminal_class == "completed"
+    assert result.runtime_state["operator_progress_message"] == "hello op"
+    assert result.runtime_state["continuity_journal_entry_count"] == 2
+    snap = result.kernel_resume_snapshot
+    assert snap is not None
+    mem, _, err = parse_kernel_resume_snapshot(snap)
+    assert err is None
+    assert len(mem.continuity.continuity_journal_entries) == 2
+    assert len(mem.continuity.kernel_step_records) == 2
 
 
 def test_state_patch_not_applied_when_step_refused() -> None:

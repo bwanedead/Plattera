@@ -37,7 +37,7 @@
 ## Remaining convergence (when touched)
 
 - **`observability/summary/`:** Builders split per `run-summary-build-refactor-brief.md` (`build.py` = entrypoints + registration; family logic in `orchestration.py` / `payload.py`; shared coercion in `common.py`; prompt + mission-state helpers in dedicated modules).
-- **`runtime/orchestration/orchestrator.py`:** Run-scope loop driver is typed against ``OrchestrationAdapter`` from ``contracts.py``; optional ``wire_identity_trace_cb`` stays duck-typed. No ``progress_cb``—mechanical status is trace-only (``KernelTraceCollector`` / ``KernelLoopResult.trace_events``).
+- **`runtime/orchestration/orchestrator.py`:** Run-scope loop driver is typed against ``OrchestrationAdapter`` from ``contracts.py``; optional ``wire_identity_trace_cb`` on the adapter stays duck-typed (e.g. ``LlmTurnOrchestrationAdapter``). ``ExecutionSessionManager`` does not carry this hook. No ``progress_cb``—mechanical status is trace-only (``KernelTraceCollector`` / ``KernelLoopResult.trace_events``).
 - **`runtime/orchestration/mission_orchestrator.py`:** Mission-scope orchestration lives beside run orchestration; generic mode contracts/registries/transition validation live in `runtime/orchestration/`, not a separate `mission/` bucket.
 
 ## Enforcement

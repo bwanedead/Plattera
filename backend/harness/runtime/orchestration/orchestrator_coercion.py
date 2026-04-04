@@ -47,6 +47,12 @@ def coerce_kernel_action_plan(value: Any) -> ActionPlan | None:
     if isinstance(value, dict):
         raw_sp = value.get("state_patch")
         sp_coerced: dict[str, Any] | None = dict(raw_sp) if isinstance(raw_sp, dict) else None
+        raw_cje = value.get("continuity_journal_entry")
+        cje: dict[str, Any] | None = dict(raw_cje) if isinstance(raw_cje, dict) else None
+        opm = value.get("operator_progress_message")
+        opm_out: str | None = str(opm).strip() if opm is not None else None
+        if opm_out == "":
+            opm_out = None
         return ActionPlan(
             action_type=str(value.get("action_type") or "").strip() or None,
             action_inputs=dict(value.get("action_inputs") or {}),
@@ -56,10 +62,18 @@ def coerce_kernel_action_plan(value: Any) -> ActionPlan | None:
             complete_run=bool(value.get("complete_run", False)),
             rationale=str(value.get("rationale") or "").strip() or None,
             state_patch=sp_coerced,
+            continuity_journal_entry=cje,
+            operator_progress_message=opm_out,
         )
     action_inputs = getattr(value, "action_inputs", None)
     raw_sp = getattr(value, "state_patch", None)
     sp_obj = dict(raw_sp) if isinstance(raw_sp, dict) else None
+    raw_cje = getattr(value, "continuity_journal_entry", None)
+    cje_obj = dict(raw_cje) if isinstance(raw_cje, dict) else None
+    opm_raw = getattr(value, "operator_progress_message", None)
+    opm_attr: str | None = str(opm_raw).strip() if opm_raw is not None else None
+    if opm_attr == "":
+        opm_attr = None
     return ActionPlan(
         action_type=str(getattr(value, "action_type", "") or "").strip() or None,
         action_inputs=action_inputs if isinstance(action_inputs, dict) else {},
@@ -69,6 +83,8 @@ def coerce_kernel_action_plan(value: Any) -> ActionPlan | None:
         complete_run=bool(getattr(value, "complete_run", False)),
         rationale=str(getattr(value, "rationale", "") or "").strip() or None,
         state_patch=sp_obj,
+        continuity_journal_entry=cje_obj,
+        operator_progress_message=opm_attr,
     )
 
 
