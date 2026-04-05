@@ -32,6 +32,8 @@ from ..memory.openai_model_limits import (
     estimate_prompt_tokens_from_chars,
     resolve_context_window_tokens,
 )
+from ..hitl.request_shape import normalize_hitl_request, validate_hitl_consumed_prompt_ids
+from ..hitl.transport import hitl_prompt_visible_slice
 from .contracts import ActionPlan, OrchestrationAdapter, OrchestratorContext, SharedStateProjection
 from .trace_collector import KernelTraceCollector
 
@@ -39,6 +41,60 @@ from .trace_collector import KernelTraceCollector
 def _compaction_target_summary_char_budget(max_prompt_chars: int) -> int:
     """Mechanical output-size hint for compaction LLM (ties to compaction prompt budget)."""
     return min(12_000, max(800, int(max_prompt_chars) // 6))
+
+
+def _occupancy_char_estimate_for_compaction_trigger(
+    *,
+    choose_action_prompt: str,
+    compacted_continuity_summary: str | None,
+    continuity_journal_entries: list[dict[str, Any]],
+    kernel_step_records: list[dict[str, Any]],
+    kernel_step_result_records: list[dict[str, Any]],
+    keep_n: int,
+) -> int:
+    """Mechanical upper-ish bound for fraction trigger: prompt + hidden carriage minus double-counted verbatim slice.
+
+    ``choose_action_prompt`` embeds the verbatim continuity tail (and summary) inside a larger envelope.
+    ``carriage_blob`` is the full serialized continuity lists plus the same summary. Taking
+    ``len(prompt) + len(carriage) - len(overlap)`` approximates union size without requiring a provider tokenizer.
+    Re-serialization of the overlap is not a byte-identical substring of ``prompt`` (instruction prefix, other
+    envelope keys), but is intentionally aligned with ``_build_prompt`` via ``sort_keys=True`` on the overlap JSON.
+    """
+    carriage_blob = json.dumps(
+        {
+            "compacted_continuity_summary": compacted_continuity_summary,
+            "continuity_journal_entries": continuity_journal_entries,
+            "kernel_step_records": kernel_step_records,
+            "kernel_step_result_records": kernel_step_result_records,
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+        default=str,
+    )
+    overlap_payload = {
+        "compacted_continuity_summary": compacted_continuity_summary,
+        "recent_continuity_journal_entries": recent_journal_entries_for_prompt(
+            continuity_journal_entries,
+            kernel_step_records,
+            kernel_step_result_records,
+            keep_n=keep_n,
+        ),
+        "recent_kernel_step_records": recent_step_records_for_prompt(
+            continuity_journal_entries,
+            kernel_step_records,
+            kernel_step_result_records,
+            keep_n=keep_n,
+        ),
+        "recent_kernel_step_result_records": recent_step_result_records_for_prompt(
+            continuity_journal_entries,
+            kernel_step_records,
+            kernel_step_result_records,
+            keep_n=keep_n,
+        ),
+    }
+    overlap_blob = json.dumps(overlap_payload, ensure_ascii=False, sort_keys=True, default=str)
+    combined = len(choose_action_prompt) + len(carriage_blob) - len(overlap_blob)
+    return max(combined, len(choose_action_prompt))
 
 
 TextModelCaller = Callable[..., Mapping[str, Any] | str]
@@ -54,6 +110,8 @@ _ALLOWED_ACTION_PLAN_KEYS = {
     "state_patch",
     "continuity_journal_entry",
     "operator_progress_message",
+    "hitl_request",
+    "hitl_consumed_prompt_ids",
 }
 
 
@@ -119,18 +177,16 @@ class LlmTurnOrchestrationAdapter(OrchestrationAdapter):
         used_fb: bool | None = None
         occ_frac: float | None = None
         if use_fraction:
-            # Main prompt only includes the verbatim tail; full continuity still occupies context budget.
-            carriage_blob = json.dumps(
-                {
-                    "compacted_continuity_summary": cont.compacted_continuity_summary,
-                    "continuity_journal_entries": cont.continuity_journal_entries,
-                    "kernel_step_records": cont.kernel_step_records,
-                    "kernel_step_result_records": cont.kernel_step_result_records,
-                },
-                ensure_ascii=False,
-                default=str,
+            # Combine prompt size with full continuity carriage, minus verbatim tail + summary double-counted
+            # (see _occupancy_char_estimate_for_compaction_trigger).
+            est_chars = _occupancy_char_estimate_for_compaction_trigger(
+                choose_action_prompt=prompt,
+                compacted_continuity_summary=cont.compacted_continuity_summary,
+                continuity_journal_entries=cont.continuity_journal_entries,
+                kernel_step_records=cont.kernel_step_records,
+                kernel_step_result_records=cont.kernel_step_result_records,
+                keep_n=keep_n,
             )
-            est_chars = max(est_chars, len(carriage_blob))
             cw_tokens, used_fb = resolve_context_window_tokens(self.model_name)
             est_tokens = estimate_prompt_tokens_from_chars(est_chars)
             occ_frac = float(est_tokens) / float(cw_tokens)
@@ -407,6 +463,7 @@ def _build_prompt(
     journal_verbatim_keep_n: int,
 ) -> str:
     cont = context.loop_memory.continuity
+    hitl_pend, hitl_ans, hitl_st = hitl_prompt_visible_slice(context.loop_memory.hitl)
     envelope = {
         "iteration": context.loop_memory.iterations,
         "session_id": context.session_id,
@@ -436,6 +493,9 @@ def _build_prompt(
             cont.kernel_step_result_records,
             keep_n=journal_verbatim_keep_n,
         ),
+        "hitl_state": hitl_st,
+        "pending_hitl_requests": hitl_pend,
+        "answered_hitl_responses": hitl_ans,
         "projection": _projection_document(projection),
     }
     instruction = (
@@ -450,7 +510,9 @@ def _build_prompt(
         '"rationale": string|null, '
         '"state_patch": object|null, '
         '"continuity_journal_entry": object, '
-        '"operator_progress_message": string|null'
+        '"operator_progress_message": string|null, '
+        '"hitl_request": object|null, '
+        '"hitl_consumed_prompt_ids": array|null'
         "}\n"
         "continuity_journal_entry: required non-empty JSON object each turn (append-only continuity: observations, decisions, "
         "open threads, expected next). operator_progress_message: optional short user-facing status line; null keeps the prior "
@@ -467,6 +529,11 @@ def _build_prompt(
         "(resolution items merge by item_id: only fields you include are overwritten). "
         "state_patch_feedback in the envelope reports the kernel outcome of the prior patch (applied / rejected / not_applied / no_patch); "
         "when outcome is applied but some resolution item/relation rows were dropped, look for skipped_resolution_rows and row_skips counts.\n"
+        "hitl_request: optional generic human prompt transport {message (required non-empty string), choices (array), context (object), "
+        "opaque_payload (object), prompt_id (optional string)}. wait_for_human is the canonical blocking flag: true requires hitl_request "
+        "and pauses the loop until feedback arrives; false with hitl_request emits the request but the loop continues. "
+        "hitl_consumed_prompt_ids: optional array of prompt_id strings you have mechanically incorporated — host removes matching "
+        "answered_hitl_responses only. Envelope hitl_state, pending_hitl_requests, answered_hitl_responses are host-owned.\n"
         "Choose action_type only from the provided tool_ids unless complete_run or wait_for_human is true.\n"
         "Do not wrap the JSON in markdown and do not add commentary."
     )
@@ -601,6 +668,41 @@ def _coerce_action_plan(raw_response: Mapping[str, Any] | str, *, available_tool
     if complete_run and wait_for_human:
         raise ModelActionParseError("invalid_model_action_json", "complete_run and wait_for_human are mutually exclusive")
 
+    if complete_run and payload.get("hitl_request") is not None:
+        raise ModelActionParseError("invalid_model_action_json", "complete_run and hitl_request are mutually exclusive")
+
+    hitl_raw = payload.get("hitl_request")
+    if hitl_raw is None:
+        hitl_out: dict[str, Any] | None = None
+    elif isinstance(hitl_raw, dict):
+        hitl_out = dict(hitl_raw)
+    else:
+        raise ModelActionParseError("invalid_model_action_json", "hitl_request must be a JSON object or null")
+
+    if wait_for_human and hitl_out is None:
+        raise ModelActionParseError(
+            "invalid_model_action_json",
+            "wait_for_human requires a non-null hitl_request object",
+        )
+
+    if hitl_out is not None:
+        try:
+            normalize_hitl_request(hitl_out, iteration=0)
+        except ValueError as exc:
+            raise ModelActionParseError(
+                "invalid_model_action_json",
+                f"hitl_request failed canonical validation: {exc}",
+            ) from exc
+
+    cons_raw = payload.get("hitl_consumed_prompt_ids")
+    try:
+        consumed_out = validate_hitl_consumed_prompt_ids(cons_raw)
+    except ValueError as exc:
+        raise ModelActionParseError(
+            "invalid_model_action_json",
+            f"hitl_consumed_prompt_ids failed canonical validation: {exc}",
+        ) from exc
+
     if not complete_run and not wait_for_human:
         if not action_type:
             raise ModelActionParseError("invalid_model_action_json", "action_type is required unless completing or waiting")
@@ -654,6 +756,8 @@ def _coerce_action_plan(raw_response: Mapping[str, Any] | str, *, available_tool
         skip_execution=skip_execution,
         wait_for_human=wait_for_human,
         complete_run=complete_run,
+        hitl_request=hitl_out,
+        hitl_consumed_prompt_ids=consumed_out,
         rationale=_optional_text(payload.get("rationale")),
         state_patch=state_patch_out,
         continuity_journal_entry=cje_out,

@@ -19,6 +19,7 @@ EventKind = Literal[
     "blocker_transition",
     "verification",
     "hitl_escalation",
+    "hitl_request_outbound",
     "state_patch_outcome",
     "continuity_compacted",
     "terminal_outcome",

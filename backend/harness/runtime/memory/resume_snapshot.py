@@ -29,7 +29,9 @@ from .telemetry import PromptContactTelemetry
 
 KERNEL_RESUME_SNAPSHOT_VERSION = "kernel_resume.v1"
 
-_VALID_HITL: frozenset[str] = frozenset({"no_prompt", "waiting", "answered_unintegrated", "consumed"})
+_VALID_HITL: frozenset[str] = frozenset(
+    {"no_prompt", "async_prompts_pending", "waiting", "answered_unintegrated", "consumed"}
+)
 
 
 def build_kernel_resume_snapshot(
@@ -68,6 +70,9 @@ def build_kernel_resume_snapshot(
         },
         "hitl": {
             "hitl_state": loop_memory.hitl.hitl_state,
+            "blocking_prompt_id": loop_memory.hitl.blocking_prompt_id,
+            "pending_hitl_requests": list(loop_memory.hitl.pending_hitl_requests),
+            "answered_hitl_responses": list(loop_memory.hitl.answered_hitl_responses),
             "pending_feedback_prompt_id": loop_memory.hitl.pending_feedback_prompt_id,
             "pending_feedback_response": loop_memory.hitl.pending_feedback_response,
         },
@@ -240,8 +245,57 @@ def parse_kernel_resume_snapshot(payload: Mapping[str, Any]) -> tuple[LoopMemory
     if pid_err:
         return empty, 1, pid_err
 
+    blocking_id, bid_err = _strict_optional_resume_str_field(
+        hitl_raw,
+        "blocking_prompt_id",
+        limit=256,
+        error_code="resume_snapshot_hitl_blocking_prompt_id_invalid",
+    )
+    if bid_err:
+        return empty, 1, bid_err
+
+    pending_req_out: list[dict[str, Any]] = []
+    if "pending_hitl_requests" in hitl_raw:
+        pr = hitl_raw.get("pending_hitl_requests")
+        if pr is not None:
+            if not isinstance(pr, list):
+                return empty, 1, "resume_snapshot_hitl_pending_requests_invalid"
+            for row in pr:
+                if not isinstance(row, dict):
+                    return empty, 1, "resume_snapshot_hitl_pending_requests_invalid"
+                rpid = str(row.get("prompt_id") or "").strip()
+                msg = row.get("message")
+                if not rpid or not isinstance(msg, str) or not str(msg).strip():
+                    return empty, 1, "resume_snapshot_hitl_pending_requests_invalid"
+                pending_req_out.append(dict(row))
+
+    answered_out: list[dict[str, Any]] = []
+    if "answered_hitl_responses" in hitl_raw:
+        ar = hitl_raw.get("answered_hitl_responses")
+        if ar is not None:
+            if not isinstance(ar, list):
+                return empty, 1, "resume_snapshot_hitl_answered_responses_invalid"
+            for row in ar:
+                if not isinstance(row, dict):
+                    return empty, 1, "resume_snapshot_hitl_answered_responses_invalid"
+                apid = str(row.get("prompt_id") or "").strip()
+                fb = row.get("feedback")
+                if not apid or not isinstance(fb, dict):
+                    return empty, 1, "resume_snapshot_hitl_answered_responses_invalid"
+                answered_out.append({"prompt_id": apid, "feedback": dict(fb)})
+
+    if not answered_out and pending_response is not None and prompt_id:
+        answered_out.append({"prompt_id": str(prompt_id), "feedback": dict(pending_response)})
+
+    blk_out: str | None = blocking_id if blocking_id else None
+    if blk_out is None and hs == "waiting" and prompt_id:
+        blk_out = str(prompt_id).strip() or None
+
     hitl = HitlTransportPosture(
         hitl_state=hs,  # type: ignore[arg-type]
+        blocking_prompt_id=blk_out,
+        pending_hitl_requests=pending_req_out,
+        answered_hitl_responses=answered_out,
         pending_feedback_prompt_id=prompt_id,
         pending_feedback_response=pending_response,
     )

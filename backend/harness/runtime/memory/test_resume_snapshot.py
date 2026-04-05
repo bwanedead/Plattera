@@ -270,6 +270,43 @@ def test_roundtrip_kernel_step_result_records() -> None:
     assert mem2.continuity.kernel_step_result_records[0]["outputs_for_continuity"] == {"out": True}
 
 
+def test_roundtrip_hitl_pending_and_answered_lists() -> None:
+    executor = ExecutionExecutor()
+    sm = ExecutionSessionManager(executor=executor)
+    sm.start_session(ExecutionSessionStartRequest(run_id="run-h", session_id="sess-h"))
+    lm = LoopMemoryState()
+    lm.continuity.mission_state = new_mission_state(mission_id="m1", loop_family="orchestration_kernel")
+    lm.continuity.resolution_state = new_resolution_state()
+    lm.hitl.hitl_state = "async_prompts_pending"
+    lm.hitl.pending_hitl_requests.append(
+        {
+            "prompt_id": "p1",
+            "message": "m1",
+            "choices": [],
+            "context": {},
+            "opaque_payload": {},
+            "issued_at_iteration": 2,
+        }
+    )
+    lm.hitl.answered_hitl_responses.append(
+        {"prompt_id": "p0", "feedback": {"choice": "yes", "submitted_at_epoch_seconds": 99}}
+    )
+    lm.hitl.blocking_prompt_id = None
+    snap = build_kernel_resume_snapshot(
+        loop_memory=lm,
+        session_manager=sm,
+        session_id="sess-h",
+        next_iteration=3,
+    )
+    mem2, next_it, err = parse_kernel_resume_snapshot(snap)
+    assert err is None
+    assert next_it == 3
+    assert len(mem2.hitl.pending_hitl_requests) == 1
+    assert mem2.hitl.pending_hitl_requests[0]["prompt_id"] == "p1"
+    assert len(mem2.hitl.answered_hitl_responses) == 1
+    assert mem2.hitl.answered_hitl_responses[0]["prompt_id"] == "p0"
+
+
 def test_roundtrip_loop_memory_and_execution_session() -> None:
     executor = ExecutionExecutor()
     sm = ExecutionSessionManager(executor=executor)

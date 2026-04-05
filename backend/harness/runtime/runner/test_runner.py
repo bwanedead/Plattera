@@ -112,16 +112,23 @@ def test_runner_invokes_orchestration_and_writes_loop_result_artifacts(tmp_path:
                     "wait_for_human": False,
                     "complete_run": False,
                     "rationale": "execute tool",
+                    "state_patch": None,
+                    "continuity_journal_entry": {"runner_stub": True},
+                    "operator_progress_message": None,
                 }
             )
         return json.dumps(
             {
+                "action_type": "noop",
                 "action_inputs": {},
                 "idempotency_key": "plan-2",
-                "skip_execution": False,
+                "skip_execution": True,
                 "wait_for_human": False,
                 "complete_run": True,
                 "rationale": "finished",
+                "state_patch": None,
+                "continuity_journal_entry": {"runner_stub": True},
+                "operator_progress_message": None,
             }
         )
 
@@ -221,16 +228,23 @@ def test_runner_executes_transcript_edit_tool_and_writes_artifacts(tmp_path: Pat
                     "wait_for_human": False,
                     "complete_run": False,
                     "rationale": "hydrate the requested draft refs",
+                    "state_patch": None,
+                    "continuity_journal_entry": {"runner_stub": True},
+                    "operator_progress_message": None,
                 }
             )
         return json.dumps(
             {
+                "action_type": "noop",
                 "action_inputs": {},
                 "idempotency_key": "ik-2",
-                "skip_execution": False,
+                "skip_execution": True,
                 "wait_for_human": False,
                 "complete_run": True,
                 "rationale": "finished",
+                "state_patch": None,
+                "continuity_journal_entry": {"runner_stub": True},
+                "operator_progress_message": None,
             }
         )
 

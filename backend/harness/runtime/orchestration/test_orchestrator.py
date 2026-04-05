@@ -123,7 +123,11 @@ class WaitHumanPack:
         return None
 
     def choose_action(self, context: OrchestratorContext, projection: SharedStateProjection | None) -> ActionPlan:
-        return ActionPlan(wait_for_human=True, continuity_journal_entry=_PACK_CJ)
+        return ActionPlan(
+            wait_for_human=True,
+            hitl_request={"message": "Need operator input", "choices": [], "context": {}},
+            continuity_journal_entry=_PACK_CJ,
+        )
 
 
 class MechanicalInheritSyncPack:
@@ -394,6 +398,57 @@ def test_wait_for_human_no_step() -> None:
     )
     assert result.terminal_class == "waiting_human"
     assert len(sm.steps) == 0
+    assert result.runtime_state.get("pending_hitl_requests_count", 0) >= 1
+    assert result.runtime_state.get("blocking_prompt_id")
+
+
+class AsyncHitlThenCompletePack:
+    """Non-blocking HITL on turn 1, then complete_run."""
+
+    def initialize(self, context: OrchestratorContext) -> None:
+        pass
+
+    def sync(self, context: OrchestratorContext) -> SharedStateProjection:
+        return SharedStateProjection(
+            mission_state=new_mission_state(mission_id="m-async", loop_family="orchestration_kernel"),
+            resolution_state=new_resolution_state(),
+        )
+
+    def evaluate_terminal(self, context: OrchestratorContext, projection: SharedStateProjection | None) -> TerminalEvaluation | None:
+        return None
+
+    def choose_action(self, context: OrchestratorContext, projection: SharedStateProjection | None) -> ActionPlan:
+        if context.loop_memory.iterations == 1:
+            return ActionPlan(
+                action_type="noop",
+                action_inputs={},
+                idempotency_key="ik-async-hitl",
+                skip_execution=True,
+                wait_for_human=False,
+                hitl_request={"message": "FYI only", "choices": [], "context": {}},
+                continuity_journal_entry=_PACK_CJ,
+            )
+        return ActionPlan(
+            complete_run=True,
+            idempotency_key="ik-done",
+            rationale="after_async_hitl",
+            continuity_journal_entry=_PACK_CJ,
+        )
+
+
+def test_non_blocking_hitl_loop_continues() -> None:
+    sm = FakeSessionManager()
+    result = run_orchestration_kernel_loop(
+        orchestration_adapter=AsyncHitlThenCompletePack(),
+        session_manager=sm,
+        session_id="s-async-hitl",
+        run_artifact_ref=None,
+        request_id_prefix="r-async-hitl",
+        opaque_run_context={"loop_kind": "harness_cli"},
+        max_iterations=5,
+    )
+    assert result.terminal_class == "completed"
+    assert result.runtime_state.get("pending_hitl_requests_count", 0) >= 1
 
 
 def test_skip_execution_no_session_step() -> None:

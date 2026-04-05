@@ -11,6 +11,15 @@ from .contracts import ActionPlan, KernelLoopResult, OrchestrationAdapter, Orche
 from ..memory import LoopMemoryState
 from ..memory.continuity_journal import apply_kernel_turn_continuity_carriage, build_kernel_step_result_record
 from ..memory.resume_snapshot import build_kernel_resume_snapshot
+from ..hitl.request_shape import normalize_hitl_request, validate_hitl_consumed_prompt_ids
+from ..hitl.transport import (
+    apply_hitl_consumed_prompt_ids,
+    clamp_hitl_lists,
+    hitl_has_answer_for_prompt,
+    hitl_poll_feedback_store,
+    hitl_refresh_derived_state,
+)
+from ..hitl.watch import write_hitl_operator_sidecar
 from .orchestrator_coercion import (
     coerce_kernel_action_plan,
     coerce_projection,
@@ -25,6 +34,10 @@ from .state_patch_apply import (
 from .trace_collector import KernelTraceCollector
 
 _LOG = logging.getLogger(__name__)
+
+
+def _hitl_loop_kind(opaque_run_context: dict[str, Any]) -> str:
+    return str(opaque_run_context.get("hitl_loop_kind") or opaque_run_context.get("loop_kind") or "harness_cli").strip() or "harness_cli"
 
 
 def _dashboard_refs_python(step_result: ExecutionStepResult) -> dict[str, Any]:
@@ -124,8 +137,21 @@ def run_orchestration_kernel_loop(
     loop_memory = initial_loop_memory if initial_loop_memory is not None else LoopMemoryState()
     start_iteration = max(1, int(resume_start_iteration))
     if isinstance(resume_hitl_response, dict) and resume_hitl_response:
-        loop_memory.hitl.hitl_state = "answered_unintegrated"
-        loop_memory.hitl.pending_feedback_response = resume_hitl_response
+        pid = str(resume_hitl_response.get("prompt_id") or "").strip()
+        if not pid and initial_loop_memory is not None:
+            pid = str(
+                initial_loop_memory.hitl.blocking_prompt_id
+                or initial_loop_memory.hitl.pending_feedback_prompt_id
+                or ""
+            ).strip()
+        if not pid:
+            pid = "resume_injected"
+        loop_memory.hitl.answered_hitl_responses.append(
+            {"prompt_id": pid, "feedback": dict(resume_hitl_response)}
+        )
+        loop_memory.hitl.pending_feedback_response = dict(resume_hitl_response)
+        loop_memory.hitl.pending_feedback_prompt_id = pid
+        hitl_refresh_derived_state(loop_memory.hitl)
         _LOG.info("KERNEL resume_hitl_preseeded ► request_id=%s", request_id_prefix)
 
     run_ctx = dict(opaque_run_context) if isinstance(opaque_run_context, dict) else {}
@@ -186,20 +212,25 @@ def run_orchestration_kernel_loop(
         loop_memory.iterations = iterations
         tracer.emit_iteration_start(iteration=iterations, hitl_state=loop_memory.hitl.hitl_state)
 
-        if (
-            loop_memory.hitl.hitl_state == "waiting"
-            and loop_memory.hitl.pending_feedback_response is None
-        ):
-            return _make_result(
-                loop_memory=loop_memory,
-                terminal_class="waiting_human",
-                reason_code="waiting_human_feedback",
-                iterations=iterations,
-                session_id=session_id,
-                run_artifact_ref=run_artifact_ref,
-                tracer=tracer,
-                session_manager=session_manager,
-            )
+        hitl_poll_feedback_store(
+            posture=loop_memory.hitl,
+            loop_kind=_hitl_loop_kind(run_ctx),
+            run_id=request_id_prefix,
+        )
+        hitl_refresh_derived_state(loop_memory.hitl)
+
+        if loop_memory.hitl.hitl_state == "waiting" and loop_memory.hitl.blocking_prompt_id:
+            if not hitl_has_answer_for_prompt(loop_memory.hitl, loop_memory.hitl.blocking_prompt_id):
+                return _make_result(
+                    loop_memory=loop_memory,
+                    terminal_class="waiting_human",
+                    reason_code="waiting_human_feedback",
+                    iterations=iterations,
+                    session_id=session_id,
+                    run_artifact_ref=run_artifact_ref,
+                    tracer=tracer,
+                    session_manager=session_manager,
+                )
 
         projection = coerce_projection(_call_optional(orchestration_adapter, "sync", context))
         if projection is not None:
@@ -236,32 +267,75 @@ def run_orchestration_kernel_loop(
 
         patch_present = bool(action_plan.state_patch)
 
-        if action_plan.wait_for_human:
+        try:
+            consumed_ids = validate_hitl_consumed_prompt_ids(action_plan.hitl_consumed_prompt_ids)
+        except ValueError:
+            _LOG.warning("KERNEL invalid hitl_consumed_prompt_ids ► skipping iteration")
+            continue
+        apply_hitl_consumed_prompt_ids(loop_memory.hitl, consumed_ids)
+
+        if action_plan.wait_for_human and action_plan.hitl_request is None:
+            _LOG.warning("KERNEL wait_for_human without hitl_request ► skipping iteration")
+            continue
+
+        if action_plan.hitl_request is not None:
+            try:
+                norm = normalize_hitl_request(dict(action_plan.hitl_request), iteration=iterations)
+            except ValueError as exc:
+                _LOG.warning("KERNEL invalid hitl_request ► %s", exc)
+                continue
+            loop_memory.hitl.pending_hitl_requests.append(norm)
+            clamp_hitl_lists(loop_memory.hitl)
+            write_hitl_operator_sidecar(
+                run_id=request_id_prefix,
+                latest_record=norm,
+                pending_snapshot=list(loop_memory.hitl.pending_hitl_requests),
+            )
+            tracer.emit_hitl_request_outbound(
+                iteration=iterations,
+                prompt_id=str(norm["prompt_id"]),
+                blocking=action_plan.wait_for_human,
+            )
+            if action_plan.wait_for_human:
+                sync_state_patch_after_committed_gate(
+                    loop_memory=loop_memory,
+                    action_plan=action_plan,
+                    tracer=tracer,
+                    iteration=iterations,
+                    gate="wait_for_human",
+                )
+                _record_turn_continuity(
+                    loop_memory=loop_memory,
+                    action_plan=action_plan,
+                    iteration=iterations,
+                    execution_state="wait_for_human",
+                    execution_reason_code=None,
+                )
+                loop_memory.hitl.blocking_prompt_id = str(norm["prompt_id"])
+                loop_memory.hitl.pending_feedback_prompt_id = str(norm["prompt_id"])
+                hitl_refresh_derived_state(loop_memory.hitl)
+                return _make_result(
+                    loop_memory=loop_memory,
+                    terminal_class="waiting_human",
+                    reason_code="waiting_human_feedback",
+                    iterations=iterations,
+                    session_id=session_id,
+                    run_artifact_ref=run_artifact_ref,
+                    tracer=tracer,
+                    session_manager=session_manager,
+                )
+            hitl_refresh_derived_state(loop_memory.hitl)
             sync_state_patch_after_committed_gate(
                 loop_memory=loop_memory,
                 action_plan=action_plan,
                 tracer=tracer,
                 iteration=iterations,
-                gate="wait_for_human",
+                gate="hitl_request_async",
             )
-            _record_turn_continuity(
-                loop_memory=loop_memory,
-                action_plan=action_plan,
-                iteration=iterations,
-                execution_state="wait_for_human",
-                execution_reason_code=None,
-            )
-            loop_memory.hitl.hitl_state = "waiting"
-            return _make_result(
-                loop_memory=loop_memory,
-                terminal_class="waiting_human",
-                reason_code="waiting_human_feedback",
-                iterations=iterations,
-                session_id=session_id,
-                run_artifact_ref=run_artifact_ref,
-                tracer=tracer,
-                session_manager=session_manager,
-            )
+
+        if action_plan.complete_run and action_plan.hitl_request is not None:
+            _LOG.warning("KERNEL complete_run with hitl_request ► skipping iteration")
+            continue
 
         if action_plan.complete_run:
             sync_state_patch_after_committed_gate(
@@ -429,7 +503,10 @@ def _make_result(
     )
     runtime_state = {
         "hitl_state": loop_memory.hitl.hitl_state,
+        "blocking_prompt_id": loop_memory.hitl.blocking_prompt_id,
         "pending_feedback_prompt_id": loop_memory.hitl.pending_feedback_prompt_id,
+        "pending_hitl_requests_count": len(loop_memory.hitl.pending_hitl_requests),
+        "answered_hitl_responses_count": len(loop_memory.hitl.answered_hitl_responses),
         "active_item_id": loop_memory.continuity.active_item_id,
         "llm_contact_count": loop_memory.telemetry.llm_contact_count,
         "prompt_event_count": loop_memory.telemetry.prompt_event_count,

@@ -236,6 +236,28 @@ class KernelTraceCollector:
             )
         )
 
+    def emit_hitl_request_outbound(
+        self,
+        *,
+        iteration: int,
+        prompt_id: str,
+        blocking: bool,
+    ) -> None:
+        """Mechanical record of an outbound generic HITL request (transport only)."""
+        self._append(
+            RawTraceEvent(
+                timestamp_epoch_seconds=self._now(),
+                event_kind="hitl_request_outbound",
+                phase="hitl",
+                iteration_index=iteration,
+                actor="kernel",
+                status="completed",
+                refs_delta={},
+                payload={"prompt_id": str(prompt_id), "blocking": bool(blocking)},
+                source_origin=self._source(local_id=f"iter_{iteration}_hitl_out"),
+            )
+        )
+
     def emit_continuity_compacted(
         self,
         *,

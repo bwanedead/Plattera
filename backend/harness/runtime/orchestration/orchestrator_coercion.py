@@ -49,6 +49,17 @@ def coerce_kernel_action_plan(value: Any) -> ActionPlan | None:
         sp_coerced: dict[str, Any] | None = dict(raw_sp) if isinstance(raw_sp, dict) else None
         raw_cje = value.get("continuity_journal_entry")
         cje: dict[str, Any] | None = dict(raw_cje) if isinstance(raw_cje, dict) else None
+        raw_hitl = value.get("hitl_request")
+        hitl_req: dict[str, Any] | None = dict(raw_hitl) if isinstance(raw_hitl, dict) else None
+        raw_cons = value.get("hitl_consumed_prompt_ids")
+        if raw_cons is None:
+            cons = ()
+        elif isinstance(raw_cons, list):
+            cons = tuple(str(x).strip() for x in raw_cons if isinstance(x, str) and str(x).strip())
+        elif isinstance(raw_cons, tuple):
+            cons = tuple(str(x).strip() for x in raw_cons if isinstance(x, str) and str(x).strip())
+        else:
+            cons = ()
         opm = value.get("operator_progress_message")
         opm_out: str | None = str(opm).strip() if opm is not None else None
         if opm_out == "":
@@ -60,6 +71,8 @@ def coerce_kernel_action_plan(value: Any) -> ActionPlan | None:
             skip_execution=bool(value.get("skip_execution", False)),
             wait_for_human=bool(value.get("wait_for_human", False)),
             complete_run=bool(value.get("complete_run", False)),
+            hitl_request=hitl_req,
+            hitl_consumed_prompt_ids=cons,
             rationale=str(value.get("rationale") or "").strip() or None,
             state_patch=sp_coerced,
             continuity_journal_entry=cje,
@@ -70,6 +83,14 @@ def coerce_kernel_action_plan(value: Any) -> ActionPlan | None:
     sp_obj = dict(raw_sp) if isinstance(raw_sp, dict) else None
     raw_cje = getattr(value, "continuity_journal_entry", None)
     cje_obj = dict(raw_cje) if isinstance(raw_cje, dict) else None
+    raw_hitl = getattr(value, "hitl_request", None)
+    hitl_obj = dict(raw_hitl) if isinstance(raw_hitl, dict) else None
+    raw_cons = getattr(value, "hitl_consumed_prompt_ids", ())
+    cons_attr: tuple[str, ...] = ()
+    if isinstance(raw_cons, list):
+        cons_attr = tuple(str(x).strip() for x in raw_cons if isinstance(x, str) and str(x).strip())
+    elif isinstance(raw_cons, tuple):
+        cons_attr = tuple(str(x).strip() for x in raw_cons if isinstance(x, str) and str(x).strip())
     opm_raw = getattr(value, "operator_progress_message", None)
     opm_attr: str | None = str(opm_raw).strip() if opm_raw is not None else None
     if opm_attr == "":
@@ -81,6 +102,8 @@ def coerce_kernel_action_plan(value: Any) -> ActionPlan | None:
         skip_execution=bool(getattr(value, "skip_execution", False)),
         wait_for_human=bool(getattr(value, "wait_for_human", False)),
         complete_run=bool(getattr(value, "complete_run", False)),
+        hitl_request=hitl_obj,
+        hitl_consumed_prompt_ids=cons_attr,
         rationale=str(getattr(value, "rationale", "") or "").strip() or None,
         state_patch=sp_obj,
         continuity_journal_entry=cje_obj,

@@ -37,6 +37,10 @@ class ActionPlan:
     skip_execution: bool = False
     wait_for_human: bool = False
     complete_run: bool = False
+    # Generic HITL transport payload (LLM-authored). Blocking is ``wait_for_human``, not fields inside this dict.
+    hitl_request: dict[str, Any] | None = None
+    # Mechanical acknowledgment: drop matching rows from ``answered_hitl_responses`` (LLM declares integration).
+    hitl_consumed_prompt_ids: tuple[str, ...] = ()
     rationale: str | None = None
     state_patch: dict[str, Any] | None = None
     # LLM-authored continuity (not work-state mutation). ``LlmTurnOrchestrationAdapter`` requires a non-empty object.

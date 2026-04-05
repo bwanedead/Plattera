@@ -42,6 +42,23 @@ def hitl_pending_path(run_id: str) -> Path:
     return dossiers_artifacts_root() / "hitl_prompts" / f"{run_id}_pending.json"
 
 
+def write_hitl_operator_sidecar(
+    *,
+    run_id: str,
+    latest_record: dict[str, Any],
+    pending_snapshot: list[dict[str, Any]],
+) -> None:
+    """Persist latest HITL prompt + open queue for operator CLI (mechanical JSON only)."""
+    path = hitl_pending_path(run_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "run_id": str(run_id),
+        "latest": dict(latest_record),
+        "pending_hitl_requests": list(pending_snapshot),
+    }
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
 def _poll(
     *,
     run_id: str,
@@ -59,6 +76,7 @@ def _poll(
                 payload = json.loads(hitl_path.read_text(encoding="utf-8"))
             except Exception:
                 payload = {}
+            latest = payload.get("latest") if isinstance(payload.get("latest"), dict) else payload
             try:
                 hitl_path.unlink(missing_ok=True)
             except Exception:
@@ -66,10 +84,13 @@ def _poll(
             return {
                 "event": "hitl",
                 "run_id": run_id,
-                "prompt_id": payload.get("prompt_id"),
-                "message": payload.get("message"),
-                "choices": payload.get("choices") or [],
-                "context": payload.get("context") or {},
+                "prompt_id": latest.get("prompt_id"),
+                "message": latest.get("message"),
+                "choices": latest.get("choices") or [],
+                "context": latest.get("context") or {},
+                "pending_hitl_requests": payload.get("pending_hitl_requests")
+                if isinstance(payload.get("pending_hitl_requests"), list)
+                else [],
             }
 
         # Check for loop completion.

@@ -39,6 +39,7 @@ def test_coerce_action_plan_accepts_real_json_booleans() -> None:
                 "state_patch": None,
                 "continuity_journal_entry": _LLM_CJ,
                 "operator_progress_message": None,
+                "hitl_request": {"message": "operator?", "choices": [], "context": {}},
             }
         ),
         available_tool_ids=("select_tool",),
@@ -543,3 +544,80 @@ def test_coerce_action_plan_rejects_non_object_continuity_journal_entry() -> Non
     }
     with pytest.raises(ModelActionParseError, match="continuity_journal_entry"):
         _coerce_action_plan(json.dumps(payload), available_tool_ids=("select_tool",))
+
+
+def test_coerce_action_plan_rejects_wait_for_human_without_hitl_request() -> None:
+    payload = {
+        "action_type": "noop",
+        "action_inputs": {},
+        "idempotency_key": "ik-1",
+        "skip_execution": True,
+        "wait_for_human": True,
+        "complete_run": False,
+        "rationale": None,
+        "state_patch": None,
+        "continuity_journal_entry": _LLM_CJ,
+        "operator_progress_message": None,
+    }
+    with pytest.raises(ModelActionParseError, match="hitl_request"):
+        _coerce_action_plan(json.dumps(payload), available_tool_ids=("noop",))
+
+
+def test_coerce_action_plan_accepts_async_hitl_request() -> None:
+    payload = {
+        "action_type": "noop",
+        "action_inputs": {},
+        "idempotency_key": "ik-1",
+        "skip_execution": True,
+        "wait_for_human": False,
+        "complete_run": False,
+        "rationale": None,
+        "state_patch": None,
+        "continuity_journal_entry": _LLM_CJ,
+        "operator_progress_message": None,
+        "hitl_request": {"message": "heads up", "choices": [], "context": {}},
+    }
+    plan = _coerce_action_plan(json.dumps(payload), available_tool_ids=("noop",))
+    assert plan.hitl_request is not None
+    assert plan.hitl_request["message"] == "heads up"
+
+
+def test_choose_action_prompt_includes_hitl_envelope_keys() -> None:
+    captured: list[str] = []
+
+    def caller(prompt: str, model: str) -> str:
+        captured.append(prompt)
+        return json.dumps(
+            {
+                "action_type": "noop",
+                "action_inputs": {},
+                "idempotency_key": "ik-h",
+                "skip_execution": True,
+                "wait_for_human": False,
+                "complete_run": False,
+                "rationale": None,
+                "state_patch": None,
+                "continuity_journal_entry": _LLM_CJ,
+                "operator_progress_message": None,
+            }
+        )
+
+    adapter = _minimal_llm_adapter(caller=caller)
+    ctx = _orch_context(iterations=1)
+    ctx.loop_memory.hitl.pending_hitl_requests.append(
+        {
+            "prompt_id": "p-open",
+            "message": "open",
+            "choices": [],
+            "context": {},
+            "opaque_payload": {},
+            "issued_at_iteration": 1,
+        }
+    )
+    ctx.loop_memory.hitl.hitl_state = "async_prompts_pending"
+    adapter.choose_action(ctx, projection=None)
+    p = captured[0]
+    assert "pending_hitl_requests" in p
+    assert "answered_hitl_responses" in p
+    assert "hitl_state" in p
+    assert "p-open" in p
