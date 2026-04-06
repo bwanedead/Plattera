@@ -15,11 +15,11 @@ from harness.runtime.memory.continuity_journal import (
 from harness.runtime.orchestration.contracts import OrchestratorContext
 from harness.runtime.orchestration.trace_collector import KernelTraceCollector
 from harness.runtime.orchestration.contracts import ActionPlan
-from harness.runtime.orchestration.llm_turn_adapter import (
-    LlmTurnOrchestrationAdapter,
+from harness.runtime.orchestration.action_plan_parser import (
     ModelActionParseError,
-    _coerce_action_plan,
+    parse_action_plan_response as _coerce_action_plan,
 )
+from harness.runtime.orchestration.llm_turn_adapter import LlmTurnOrchestrationAdapter
 from harness.execution.session import ExecutionSessionManager
 
 _LLM_CJ = {"llm_continuity_turn": True}
@@ -289,7 +289,7 @@ def test_run_continuity_pre_choose_action_invokes_compaction_llm_and_traces() ->
 
 def test_run_continuity_occupancy_fraction_triggers(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        "harness.runtime.orchestration.llm_turn_adapter.resolve_context_window_tokens",
+        "harness.runtime.memory.continuity_compaction.resolve_context_window_tokens",
         lambda _m: (800, False),
     )
 
@@ -333,7 +333,7 @@ def test_run_continuity_occupancy_fraction_does_not_trigger_when_below_threshold
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        "harness.runtime.orchestration.llm_turn_adapter.resolve_context_window_tokens",
+        "harness.runtime.memory.continuity_compaction.resolve_context_window_tokens",
         lambda _m: (10_000_000, False),
     )
 
