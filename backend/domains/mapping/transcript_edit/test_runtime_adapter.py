@@ -1,14 +1,11 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-
 from domains.mapping.transcript_edit.runtime_adapter import composition as runtime_composition
 from domains.mapping.transcript_edit.execution.tool_specs import build_transcript_edit_tool_specs
 from domains.mapping.transcript_edit.runtime_adapter import build_transcript_edit_runtime_adapter
 from harness.execution.contracts import ExecutionStepRequest
 from harness.execution.executor import ExecutionExecutor
 from harness.runtime.composition import TurnSurface
-from tooling.mapping.transcript_edit.draft_loading import HydrateT0DraftsResult
 
 
 def test_runtime_adapter_builds_turn_surface_from_opaque_launch_context() -> None:
@@ -25,65 +22,31 @@ def test_runtime_adapter_builds_turn_surface_from_opaque_launch_context() -> Non
 
     assert isinstance(surface, TurnSurface)
     assert surface.surface_id == "transcript_edit"
-    assert len(surface.blocks) == 2
+
+    # Branch + procedural guidance + startup context block
+    assert len(surface.blocks) == 3
     assert surface.blocks[0].content.startswith("You are operating in the **transcript edit** domain")
     assert "not a hard script" in surface.blocks[1].content.lower()
-    assert surface.payload["transcript_edit"]["startup_inventory"]["scope"] == {
-        "dossier_id": "dossier-1",
-        "transcription_id": "tx-1",
-        "segment_id": "seg-1",
-        "run_id": "run-1",
-        "workspace_id": None,
-    }
-    assert surface.payload["transcript_edit"]["tool_ids"] == [
-        "load_transcript_edit_startup_inventory",
-        "hydrate_t0_draft_refs",
-        "hydrate_transcript_edit_working_draft",
-        "load_source_image_context",
-        "save_transcript_edit",
-        "publish_transcript_edit_output",
+    assert "startup artifact context" in surface.blocks[2].content.lower()
+
+    # Payload carries only tool specs and tool IDs — no startup_inventory
+    te_payload = surface.payload["transcript_edit"]
+    assert "startup_inventory" not in te_payload
+    assert te_payload["tool_ids"] == [
+        "hydrate_artifact_refs",
+        "transform_artifact",
+        "save_workspace_artifact",
+        "publish_workspace_artifact",
     ]
-    tool_specs = surface.payload["transcript_edit"]["tool_specs"]
+    tool_specs = te_payload["tool_specs"]
     assert len(tool_specs) == len(build_transcript_edit_tool_specs())
-    assert tool_specs[0] == {
-        "tool_id": "load_transcript_edit_startup_inventory",
-        "category": "observation",
-        "purpose": "First-contact ref inventory: dossier scope, peer T0 draft refs, source image refs, transcript-edit draft refs, lightweight metadata only.",
-        "expected_request_shape": "dossier_id, transcription_id; optional segment_id, run_id, workspace_id (workspace_id or run_id scopes transcript_edit artifacts under artifacts/transcript_edit/).",
-        "expected_request_json_shape": {
-            "type": "object",
-            "required": ["dossier_id", "transcription_id"],
-            "properties": {
-                "dossier_id": {"type": "string"},
-                "transcription_id": {"type": "string"},
-                "segment_id": {"type": ["string", "null"]},
-                "run_id": {"type": ["string", "null"]},
-                "workspace_id": {"type": ["string", "null"]},
-            },
-            "additionalProperties": False,
-        },
-        "expected_result_shape": "TranscriptEditStartupInventory: refs + descriptors; no full draft bodies; structured missing_resource entries if gaps.",
-    }
-    hydrate_spec = next(spec for spec in tool_specs if spec["tool_id"] == "hydrate_t0_draft_refs")
-    assert hydrate_spec["expected_request_json_shape"] == {
-        "type": "object",
-        "required": ["dossier_id", "transcription_id"],
-        "properties": {
-            "dossier_id": {"type": "string"},
-            "transcription_id": {"type": "string"},
-            "ref_ids": {"type": ["array", "null"], "items": {"type": "string"}},
-            "t0_raw_ref_ids": {"type": ["array", "null"], "items": {"type": "string"}},
-            "max_refs": {"type": "integer"},
-        },
-        "additionalProperties": False,
-    }
-    assert [binding.tool_id for binding in surface.tool_bindings] == [
-        "load_transcript_edit_startup_inventory",
-        "hydrate_t0_draft_refs",
-        "hydrate_transcript_edit_working_draft",
-        "load_source_image_context",
-        "save_transcript_edit",
-        "publish_transcript_edit_output",
+
+    # Bindings mirror tool_ids
+    assert [b.tool_id for b in surface.tool_bindings] == [
+        "hydrate_artifact_refs",
+        "transform_artifact",
+        "save_workspace_artifact",
+        "publish_workspace_artifact",
     ]
 
 
@@ -94,331 +57,129 @@ def test_runtime_adapter_factory_returns_thin_domain_owned_adapter() -> None:
     assert adapter.manifest.domain_id == "transcript_edit"
 
 
-def test_transcript_edit_tool_binding_accepts_execution_request_inputs(monkeypatch) -> None:
-    seen: dict[str, object] = {}
+def test_tool_specs_shape_matches_shared_capability_ids() -> None:
+    specs = build_transcript_edit_tool_specs()
+    ids = [s.tool_id for s in specs]
+    assert ids == [
+        "hydrate_artifact_refs",
+        "transform_artifact",
+        "save_workspace_artifact",
+        "publish_workspace_artifact",
+    ]
+    for spec in specs:
+        assert spec.category
+        assert spec.purpose
+        assert spec.expected_request_json_shape.get("type") == "object"
+        assert isinstance(spec.example_request, dict)
 
-    def fake_tool(**kwargs):
-        seen["kwargs"] = dict(kwargs)
-        return {
-            "executed": True,
-            "outputs": {"ok": True},
-            "artifact_refs": ["artifact://ok"],
-        }
 
-    monkeypatch.setattr(runtime_composition, "build_transcript_edit_startup_inventory", fake_tool)
+def test_save_handler_exception_becomes_refusal(monkeypatch) -> None:
+    def boom(*args, **kwargs):
+        raise RuntimeError("disk full")
 
-    binding = runtime_composition.build_transcript_edit_tool_bindings()[0]
-    executor = ExecutionExecutor()
-    executor.register(binding.tool_id, binding.handler)
+    monkeypatch.setattr(runtime_composition, "save_transcript_edit", boom)
 
-    result = executor.execute(
-        ExecutionStepRequest(
-            session_id="session-1",
-            action_id=binding.tool_id,
-            inputs={
-                "dossier_id": "dossier-1",
-                "transcription_id": "tx-1",
-                "segment_id": "seg-1",
-                "run_id": "run-1",
-            },
-        )
+    bindings = runtime_composition.build_transcript_edit_tool_bindings(
+        dossier_id="d1",
+        transcription_id="tx-1",
+        workspace_key="ws-key",
     )
-
-    assert seen["kwargs"] == {
-        "dossier_id": "dossier-1",
-        "transcription_id": "tx-1",
-        "segment_id": "seg-1",
-        "run_id": "run-1",
-    }
-    assert result.executed is True
-    assert result.outputs == {"ok": True}
-    assert result.artifact_refs == ("artifact://ok",)
-
-
-def test_transcript_edit_tool_binding_wraps_dataclass_payload_through_executor() -> None:
-    @dataclass
-    class FakePayload:
-        note: str
-        count: int
-
-    def fake_tool(**kwargs):
-        assert kwargs == {"dossier_id": "dossier-1", "transcription_id": "tx-1"}
-        return FakePayload(note="done", count=2)
-
-    binding = runtime_composition._tool_handler_passthrough(fake_tool)
+    save_binding = next(b for b in bindings if b.tool_id == "save_workspace_artifact")
     executor = ExecutionExecutor()
-    executor.register("hydrate_t0_draft_refs", binding)
+    executor.register(save_binding.tool_id, save_binding.handler)
 
     result = executor.execute(
         ExecutionStepRequest(
             session_id="session-1",
-            action_id="hydrate_t0_draft_refs",
-            inputs={"dossier_id": "dossier-1", "transcription_id": "tx-1"},
-        )
-    )
-
-    assert result.executed is True
-    assert result.outputs == {"result": {"note": "done", "count": 2}}
-
-
-def test_transcript_edit_tool_binding_turns_exceptions_into_refusals_through_executor() -> None:
-    def fake_tool(**kwargs):
-        assert kwargs == {"dossier_id": "dossier-1"}
-        raise RuntimeError("boom")
-
-    binding = runtime_composition._tool_handler_passthrough(fake_tool)
-    executor = ExecutionExecutor()
-    executor.register("hydrate_t0_draft_refs", binding)
-
-    result = executor.execute(
-        ExecutionStepRequest(
-            session_id="session-1",
-            action_id="hydrate_t0_draft_refs",
-            inputs={"dossier_id": "dossier-1"},
+            action_id="save_workspace_artifact",
+            inputs={"transcript_text": "test content", "rationale": "test"},
         )
     )
 
     assert result.executed is False
     assert result.refusal is not None
     assert result.refusal.reason_code == "transcript_edit_tool_error"
-    assert result.outputs == {"error": "boom"}
+    assert result.outputs == {"error": "disk full"}
 
 
-def test_hydrate_t0_binding_accepts_t0_raw_ref_ids_alias(monkeypatch) -> None:
-    """Regression: model-shaped payload uses t0_raw_ref_ids (live loop iteration 2)."""
-    captured: dict[str, object] = {}
-
-    def fake_hydrate(**kwargs):
-        captured["kwargs"] = dict(kwargs)
-        return HydrateT0DraftsResult(drafts=tuple(), errors=tuple())
-
-    monkeypatch.setattr(runtime_composition, "hydrate_t0_draft_refs", fake_hydrate)
-    binding = next(b for b in runtime_composition.build_transcript_edit_tool_bindings() if b.tool_id == "hydrate_t0_draft_refs")
-    executor = ExecutionExecutor()
-    executor.register(binding.tool_id, binding.handler)
-
-    dossier_id = "9f5eecb6-cd7e-483c-b691-b76aa7132e8e"
-    refs = [
-        "t0:raw:draft_legal_text_image_v1",
-        "t0:raw:draft_legal_text_image_v2",
-        "t0:raw:draft_legal_text_image_v3",
-    ]
-    result = executor.execute(
-        ExecutionStepRequest(
-            session_id="session-1",
-            action_id="hydrate_t0_draft_refs",
-            inputs={
-                "dossier_id": dossier_id,
-                "transcription_id": "draft_legal_text_image",
-                "t0_raw_ref_ids": refs,
-            },
-        )
+def test_publish_handler_missing_source_ref_refuses() -> None:
+    bindings = runtime_composition.build_transcript_edit_tool_bindings(
+        dossier_id="d1",
+        transcription_id="tx-1",
+        workspace_key="ws-key",
     )
-
-    assert result.executed is True
-    assert captured["kwargs"] == {
-        "dossier_id": dossier_id,
-        "transcription_id": "draft_legal_text_image",
-        "ref_ids": refs,
-    }
-
-
-def test_hydrate_t0_binding_both_keys_same_multiset_succeeds(monkeypatch) -> None:
-    captured: dict[str, object] = {}
-
-    def fake_hydrate(**kwargs):
-        captured["kwargs"] = dict(kwargs)
-        return HydrateT0DraftsResult(drafts=tuple(), errors=tuple())
-
-    monkeypatch.setattr(runtime_composition, "hydrate_t0_draft_refs", fake_hydrate)
-    binding = next(b for b in runtime_composition.build_transcript_edit_tool_bindings() if b.tool_id == "hydrate_t0_draft_refs")
+    pub_binding = next(b for b in bindings if b.tool_id == "publish_workspace_artifact")
     executor = ExecutionExecutor()
-    executor.register(binding.tool_id, binding.handler)
+    executor.register(pub_binding.tool_id, pub_binding.handler)
 
     result = executor.execute(
         ExecutionStepRequest(
             session_id="session-1",
-            action_id="hydrate_t0_draft_refs",
-            inputs={
-                "dossier_id": "d1",
-                "transcription_id": "t1",
-                "ref_ids": ["t0:raw:a", "t0:raw:b"],
-                "t0_raw_ref_ids": ["t0:raw:b", "t0:raw:a"],
-            },
-        )
-    )
-
-    assert result.executed is True
-    assert captured["kwargs"]["ref_ids"] == ["t0:raw:a", "t0:raw:b"]
-
-
-def test_hydrate_t0_binding_both_keys_conflict_refuses() -> None:
-    binding = next(b for b in runtime_composition.build_transcript_edit_tool_bindings() if b.tool_id == "hydrate_t0_draft_refs")
-    executor = ExecutionExecutor()
-    executor.register(binding.tool_id, binding.handler)
-
-    result = executor.execute(
-        ExecutionStepRequest(
-            session_id="session-1",
-            action_id="hydrate_t0_draft_refs",
-            inputs={
-                "dossier_id": "d1",
-                "transcription_id": "t1",
-                "ref_ids": ["t0:raw:a"],
-                "t0_raw_ref_ids": ["t0:raw:b"],
-            },
+            action_id="publish_workspace_artifact",
+            inputs={},  # missing source_revision_ref
         )
     )
 
     assert result.executed is False
     assert result.refusal is not None
-    assert result.refusal.reason_code == "transcript_edit_input_conflict"
+    assert result.refusal.reason_code == "source_revision_ref_required"
     assert result.refusal.blocked_by_invariant is True
-    err = result.outputs.get("error")
-    assert isinstance(err, dict)
-    assert err.get("code") == "ref_ids_t0_raw_ref_ids_conflict"
-    assert err.get("ref_ids") == ["t0:raw:a"]
-    assert err.get("t0_raw_ref_ids") == ["t0:raw:b"]
 
 
-def test_hydrate_t0_binding_rejects_string_t0_raw_ref_ids_container() -> None:
-    binding = next(b for b in runtime_composition.build_transcript_edit_tool_bindings() if b.tool_id == "hydrate_t0_draft_refs")
+def test_publish_handler_exception_becomes_refusal(monkeypatch) -> None:
+    def boom(*args, **kwargs):
+        raise RuntimeError("storage failure")
+
+    monkeypatch.setattr(runtime_composition, "publish_transcript_edit_output", boom)
+
+    bindings = runtime_composition.build_transcript_edit_tool_bindings(
+        dossier_id="d1",
+        transcription_id="tx-1",
+        workspace_key="ws-key",
+    )
+    pub_binding = next(b for b in bindings if b.tool_id == "publish_workspace_artifact")
     executor = ExecutionExecutor()
-    executor.register(binding.tool_id, binding.handler)
+    executor.register(pub_binding.tool_id, pub_binding.handler)
 
     result = executor.execute(
         ExecutionStepRequest(
             session_id="session-1",
-            action_id="hydrate_t0_draft_refs",
-            inputs={
-                "dossier_id": "d1",
-                "transcription_id": "t1",
-                "t0_raw_ref_ids": "t0:raw:draft_legal_text_image_v1",
-            },
+            action_id="publish_workspace_artifact",
+            inputs={"source_revision_ref": "transcript_edit:working:rev:0001"},
         )
     )
 
     assert result.executed is False
     assert result.refusal is not None
-    assert result.refusal.reason_code == "transcript_edit_input_conflict"
-    err = result.outputs.get("error")
-    assert isinstance(err, dict)
-    assert err.get("code") == "invalid_ref_container_type"
-    assert err.get("field") == "t0_raw_ref_ids"
-    assert err.get("got_type") == "str"
+    assert result.refusal.reason_code == "transcript_edit_tool_error"
+    assert result.outputs == {"error": "storage failure"}
 
 
-def test_hydrate_t0_binding_rejects_non_string_ref_id_elements() -> None:
-    binding = next(b for b in runtime_composition.build_transcript_edit_tool_bindings() if b.tool_id == "hydrate_t0_draft_refs")
-    executor = ExecutionExecutor()
-    executor.register(binding.tool_id, binding.handler)
-
-    result = executor.execute(
-        ExecutionStepRequest(
-            session_id="session-1",
-            action_id="hydrate_t0_draft_refs",
-            inputs={
-                "dossier_id": "d1",
-                "transcription_id": "t1",
-                "ref_ids": [123],
-            },
-        )
+def test_hydrate_refs_binding_present_with_callable_handler() -> None:
+    bindings = runtime_composition.build_transcript_edit_tool_bindings(
+        dossier_id="d1",
+        transcription_id="tx-1",
+        workspace_key=None,
     )
-    assert result.executed is False
-    err = result.outputs.get("error")
-    assert isinstance(err, dict)
-    assert err.get("code") == "invalid_ref_id_element_type"
-    assert err.get("field") == "ref_ids"
-    assert err.get("index") == 0
-    assert err.get("got_type") == "int"
+    hydrate_binding = next(b for b in bindings if b.tool_id == "hydrate_artifact_refs")
+    assert callable(hydrate_binding.handler)
 
-    result2 = executor.execute(
-        ExecutionStepRequest(
-            session_id="session-1",
-            action_id="hydrate_t0_draft_refs",
-            inputs={
-                "dossier_id": "d1",
-                "transcription_id": "t1",
-                "t0_raw_ref_ids": [{"x": 1}],
-            },
-        )
+    # Missing ref_ids returns error result
+    result = hydrate_binding.handler({"max_refs": 4})
+    assert result["executed"] is False
+    assert result["refusal"]["reason_code"] == "ref_ids_required"
+
+
+def test_transform_binding_present_with_callable_handler() -> None:
+    bindings = runtime_composition.build_transcript_edit_tool_bindings(
+        dossier_id="d1",
+        transcription_id="tx-1",
+        workspace_key=None,
     )
-    assert result2.executed is False
-    err2 = result2.outputs.get("error")
-    assert isinstance(err2, dict)
-    assert err2.get("code") == "invalid_ref_id_element_type"
-    assert err2.get("got_type") == "dict"
+    transform_binding = next(b for b in bindings if b.tool_id == "transform_artifact")
+    assert callable(transform_binding.handler)
 
-    result3 = executor.execute(
-        ExecutionStepRequest(
-            session_id="session-1",
-            action_id="hydrate_t0_draft_refs",
-            inputs={
-                "dossier_id": "d1",
-                "transcription_id": "t1",
-                "ref_ids": ["t0:raw:ok", 1],
-            },
-        )
-    )
-    assert result3.executed is False
-    err3 = result3.outputs.get("error")
-    assert isinstance(err3, dict)
-    assert err3.get("index") == 1
-
-
-def test_hydrate_t0_binding_rejects_non_array_ref_ids() -> None:
-    binding = next(b for b in runtime_composition.build_transcript_edit_tool_bindings() if b.tool_id == "hydrate_t0_draft_refs")
-    executor = ExecutionExecutor()
-    executor.register(binding.tool_id, binding.handler)
-
-    for bad in (123, {"x": 1}, 1.5):
-        result = executor.execute(
-            ExecutionStepRequest(
-                session_id="session-1",
-                action_id="hydrate_t0_draft_refs",
-                inputs={
-                    "dossier_id": "d1",
-                    "transcription_id": "t1",
-                    "ref_ids": bad,
-                },
-            )
-        )
-        assert result.executed is False, bad
-        err = result.outputs.get("error")
-        assert isinstance(err, dict)
-        assert err.get("code") == "invalid_ref_container_type"
-        assert err.get("field") == "ref_ids"
-
-
-def test_hydrate_t0_binding_ref_ids_only_still_succeeds(monkeypatch) -> None:
-    captured: dict[str, object] = {}
-
-    def fake_hydrate(**kwargs):
-        captured["kwargs"] = dict(kwargs)
-        return HydrateT0DraftsResult(drafts=tuple(), errors=tuple())
-
-    monkeypatch.setattr(runtime_composition, "hydrate_t0_draft_refs", fake_hydrate)
-    binding = next(b for b in runtime_composition.build_transcript_edit_tool_bindings() if b.tool_id == "hydrate_t0_draft_refs")
-    executor = ExecutionExecutor()
-    executor.register(binding.tool_id, binding.handler)
-
-    result = executor.execute(
-        ExecutionStepRequest(
-            session_id="session-1",
-            action_id="hydrate_t0_draft_refs",
-            inputs={
-                "dossier_id": "d1",
-                "transcription_id": "t1",
-                "ref_ids": ["t0:raw:x"],
-                "max_refs": 3,
-            },
-        )
-    )
-
-    assert result.executed is True
-    assert captured["kwargs"] == {
-        "dossier_id": "d1",
-        "transcription_id": "t1",
-        "ref_ids": ["t0:raw:x"],
-        "max_refs": 3,
-    }
+    # No workspace_key → workspace_required refusal
+    result = transform_binding.handler({"ref_id": "image:assoc:tx-1:original", "sub_action": "crop", "params": {}})
+    assert result["executed"] is False
+    assert result["refusal"]["reason_code"] == "workspace_required"

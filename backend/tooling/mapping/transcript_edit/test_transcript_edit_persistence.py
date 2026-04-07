@@ -271,7 +271,12 @@ def test_runtime_adapter_executor_runs_save_and_publish(tmp_path, monkeypatch):
     d, tx, ws = "d1", "t1", "ws-ex"
     _minimal_run_layout(root, d, tx)
 
-    bindings = runtime_composition.build_transcript_edit_tool_bindings()
+    # Scope is closed over at binding creation time — not passed per-request.
+    bindings = runtime_composition.build_transcript_edit_tool_bindings(
+        dossier_id=d,
+        transcription_id=tx,
+        workspace_key=ws,
+    )
     by_id = {b.tool_id: b for b in bindings}
     ex = ExecutionExecutor()
     for b in bindings:
@@ -280,13 +285,8 @@ def test_runtime_adapter_executor_runs_save_and_publish(tmp_path, monkeypatch):
     r_save = ex.execute(
         ExecutionStepRequest(
             session_id="s1",
-            action_id="save_transcript_edit",
-            inputs={
-                "dossier_id": d,
-                "transcription_id": tx,
-                "run_id": ws,
-                "transcript_text": "via executor",
-            },
+            action_id="save_workspace_artifact",
+            inputs={"transcript_text": "via executor"},
         )
     )
     assert r_save.executed is True
@@ -299,13 +299,8 @@ def test_runtime_adapter_executor_runs_save_and_publish(tmp_path, monkeypatch):
     r_pub = ex.execute(
         ExecutionStepRequest(
             session_id="s1",
-            action_id="publish_transcript_edit_output",
-            inputs={
-                "dossier_id": d,
-                "transcription_id": tx,
-                "run_id": ws,
-                "source_revision_ref": "transcript_edit:working:rev:0001",
-            },
+            action_id="publish_workspace_artifact",
+            inputs={"source_revision_ref": "transcript_edit:working:rev:0001"},
         )
     )
     assert r_pub.executed is True
@@ -314,7 +309,7 @@ def test_runtime_adapter_executor_runs_save_and_publish(tmp_path, monkeypatch):
         "transcript_edit:output",
         "transcript_edit:working:rev:0001",
     )
-    assert by_id["save_transcript_edit"].tool_id == "save_transcript_edit"
+    assert by_id["save_workspace_artifact"].tool_id == "save_workspace_artifact"
 
     assert transcript_edit_output_path(d, tx, ws).is_file()
 
@@ -340,7 +335,11 @@ def test_execution_session_merges_save_artifact_refs_into_latest_refs(tmp_path, 
     d, tx, ws = "d1", "t1", "sess-ws"
     _minimal_run_layout(root, d, tx)
 
-    bindings = runtime_composition.build_transcript_edit_tool_bindings()
+    bindings = runtime_composition.build_transcript_edit_tool_bindings(
+        dossier_id=d,
+        transcription_id=tx,
+        workspace_key=ws,
+    )
     ex = ExecutionExecutor()
     for b in bindings:
         ex.register(b.tool_id, b.handler)
@@ -349,14 +348,9 @@ def test_execution_session_merges_save_artifact_refs_into_latest_refs(tmp_path, 
     step = mgr.step(
         ExecutionStepRequest(
             session_id=started.session_id,
-            action_id="save_transcript_edit",
+            action_id="save_workspace_artifact",
             idempotency_key="save-1",
-            inputs={
-                "dossier_id": d,
-                "transcription_id": tx,
-                "run_id": ws,
-                "transcript_text": "session merge",
-            },
+            inputs={"transcript_text": "session merge"},
         )
     )
     assert step.execution_state == ExecutionState.EXECUTED

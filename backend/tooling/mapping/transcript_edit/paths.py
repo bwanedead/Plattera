@@ -49,6 +49,11 @@ def transcript_edit_workspace_root(dossier_id: str, transcription_id: str, works
     return dossiers_transcript_edit_artifacts_root(did) / tid / wid
 
 
+def transcript_edit_derived_images_dir(dossier_id: str, transcription_id: str, workspace_id: str) -> Path:
+    """Per-workspace directory for derived image artifacts created by ``transform_artifact``."""
+    return transcript_edit_workspace_root(dossier_id, transcription_id, workspace_id) / "derived_images"
+
+
 def transcript_edit_working_dir(dossier_id: str, transcription_id: str, workspace_id: str) -> Path:
     return transcript_edit_workspace_root(dossier_id, transcription_id, workspace_id) / "working"
 

@@ -321,9 +321,23 @@ class OpenAIService(LLMService):
             api_model_name = self._get_api_model_name(model)
             
             # Build parameters based on model type
+            image_attachments = kwargs.get("image_attachments") or []
+            if image_attachments:
+                content: list[dict] = [{"type": "text", "text": prompt}]
+                for att in image_attachments:
+                    b64 = att.get("b64", "") if isinstance(att, dict) else ""
+                    media_type = att.get("media_type", "image/jpeg") if isinstance(att, dict) else "image/jpeg"
+                    if b64:
+                        content.append({
+                            "type": "image_url",
+                            "image_url": {"url": f"data:{media_type};base64,{b64}"},
+                        })
+                user_content: Any = content
+            else:
+                user_content = prompt
             completion_params = {
                 "model": api_model_name,
-                "messages": [{"role": "user", "content": prompt}]
+                "messages": [{"role": "user", "content": user_content}],
             }
             
             # Some small models require max_completion_tokens (no temperature)

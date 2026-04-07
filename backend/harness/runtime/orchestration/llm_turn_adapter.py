@@ -170,8 +170,15 @@ class LlmTurnOrchestrationAdapter(OrchestrationAdapter):
             journal_verbatim_keep_n=max(0, int(self.continuity_journal_verbatim_keep_n)),
         )
         prompt_char_count = len(prompt)
+        # Drain accumulated image evidence from this iteration's tool calls.
+        # Clear before the call so a failed or retried call doesn't re-send the same images.
+        image_evidence = list(context.loop_memory.pending_image_evidence)
+        context.loop_memory.pending_image_evidence.clear()
+        call_kwargs: dict[str, Any] = {}
+        if image_evidence:
+            call_kwargs["image_attachments"] = image_evidence
         try:
-            raw_response = self.text_model_caller(prompt, self.model_name)
+            raw_response = self.text_model_caller(prompt, self.model_name, **call_kwargs)
             plan = parse_action_plan_response(
                 raw_response,
                 available_tool_ids=tuple(self.composed_input.tool_handlers.keys()),

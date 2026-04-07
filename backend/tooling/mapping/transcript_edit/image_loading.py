@@ -2,12 +2,34 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import re
 from pathlib import Path
 from typing import Any
 
 from .paths import UnsafeArtifactPathSegmentError, association_path
+
+_MEDIA_TYPES: dict[str, str] = {
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".tif": "image/tiff",
+    ".tiff": "image/tiff",
+    ".webp": "image/webp",
+}
+
+
+def _infer_media_type(suffix: str) -> str:
+    return _MEDIA_TYPES.get(suffix.lower(), "image/jpeg")
+
+
+def read_image_as_b64(path: Path) -> str | None:
+    """Return base64-encoded image bytes, or None on any read failure."""
+    try:
+        return base64.b64encode(path.read_bytes()).decode("ascii")
+    except Exception:
+        return None
 
 _IMAGE_REF_RE = re.compile(
     r"^image:assoc:(?P<tid>[^:]+):(?P<slot>original|processed)$",
@@ -86,11 +108,14 @@ def hydrate_source_image_context(
     p = Path(fs_path)
     exists = p.is_file()
     size_bytes: int | None = None
+    image_b64: str | None = None
+    media_type = _infer_media_type(p.suffix)
     if exists:
         try:
             size_bytes = p.stat().st_size
         except OSError:
             size_bytes = None
+        image_b64 = read_image_as_b64(p)
 
     return {
         "status": "ok",
@@ -101,4 +126,6 @@ def hydrate_source_image_context(
         "size_bytes": size_bytes,
         "width_height": _try_image_dimensions(p) if exists else None,
         "basename": p.name,
+        "image_b64": image_b64,
+        "image_media_type": media_type,
     }

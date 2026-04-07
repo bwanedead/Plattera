@@ -1,4 +1,8 @@
-"""Semantic tool menu for transcript edit—IDs, intent, and expected shapes only."""
+"""Executable shared-capability tool specs for transcript-edit.
+
+Only tools with bound handlers appear here. Fake/spec-only/LLM-reasoning tools
+are excluded — the LLM owns comparison, reconciliation, and semantic verification.
+"""
 
 from __future__ import annotations
 
@@ -14,247 +18,182 @@ class SemanticToolSpec:
     expected_request_shape: str
     expected_request_json_shape: dict[str, Any]
     expected_result_shape: str
+    example_request: dict[str, Any]
 
 
 def build_transcript_edit_tool_specs() -> tuple[SemanticToolSpec, ...]:
     return (
         SemanticToolSpec(
-            tool_id="load_transcript_edit_startup_inventory",
-            category="observation",
-            purpose="First-contact ref inventory: dossier scope, peer T0 draft refs, source image refs, transcript-edit draft refs, lightweight metadata only.",
-            expected_request_shape="dossier_id, transcription_id; optional segment_id, run_id, workspace_id (workspace_id or run_id scopes transcript_edit artifacts under artifacts/transcript_edit/).",
-            expected_request_json_shape={
-                "type": "object",
-                "required": ["dossier_id", "transcription_id"],
-                "properties": {
-                    "dossier_id": {"type": "string"},
-                    "transcription_id": {"type": "string"},
-                    "segment_id": {"type": ["string", "null"]},
-                    "run_id": {"type": ["string", "null"]},
-                    "workspace_id": {"type": ["string", "null"]},
-                },
-                "additionalProperties": False,
-            },
-            expected_result_shape="TranscriptEditStartupInventory: refs + descriptors; no full draft bodies; structured missing_resource entries if gaps.",
-        ),
-        SemanticToolSpec(
-            tool_id="hydrate_t0_draft_refs",
-            category="observation",
-            purpose="Load full text for one or more T0 raw draft refs from the startup inventory (peer inputs; no merge or ranking).",
+            tool_id="hydrate_artifact_refs",
+            category="read",
+            purpose=(
+                "Load full content for one or more artifact refs. "
+                "Supports T0 draft refs (t0:raw:*), transcript-edit workspace refs "
+                "(transcript_edit:working, transcript_edit:output, transcript_edit:working:rev:NNNN), "
+                "source image refs (image:assoc:*), and derived image refs (image:derived:*). "
+                "Comparison and reconciliation are the LLM's job after hydration."
+            ),
             expected_request_shape=(
-                "dossier_id, transcription_id, and either ref_ids or t0_raw_ref_ids (alias: same JSON array where each "
-                "element is a string t0:raw:<stem> ref, or null; non-array container or non-string elements are refused). "
-                "Optional max_refs cap."
+                "ref_ids: required non-empty array of ref_id strings. "
+                "max_refs: optional integer cap (default 8, max 32)."
             ),
             expected_request_json_shape={
                 "type": "object",
-                "required": ["dossier_id", "transcription_id"],
+                "required": ["ref_ids"],
                 "properties": {
-                    "dossier_id": {"type": "string"},
-                    "transcription_id": {"type": "string"},
-                    "ref_ids": {"type": ["array", "null"], "items": {"type": "string"}},
-                    "t0_raw_ref_ids": {"type": ["array", "null"], "items": {"type": "string"}},
-                    "max_refs": {"type": "integer"},
+                    "ref_ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "minItems": 1,
+                        "description": "Ref IDs to hydrate (t0:raw:*, transcript_edit:*, image:assoc:*, image:derived:*).",
+                    },
+                    "max_refs": {
+                        "type": ["integer", "null"],
+                        "description": "Optional cap on refs hydrated (default 8, max 32).",
+                    },
                 },
                 "additionalProperties": False,
             },
-            expected_result_shape="Per-ref bodies + metadata; explicit errors for unknown, invalid, or legacy-pointer refs; if max_refs exceeded, cap_exceeded + omitted_ref_ids (partial hydrate, never silent).",
+            example_request={
+                "ref_ids": ["t0:raw:gpt4o_pass1", "image:assoc:tx-1:original"],
+                "max_refs": 4,
+            },
+            expected_result_shape=(
+                "outputs.results: list of {ref_id, kind, ...kind-specific fields}. "
+                "outputs.errors: list of per-ref or batch errors. "
+                "outputs.cap_exceeded: bool. "
+                "outputs.hydrated_count: int. "
+                "Kind-specific fields: "
+                "t0:raw:* → {text, metadata}. "
+                "transcript_edit:* → {payload, path}. "
+                "image:assoc:* → {absolute_path, exists, size_bytes, width_height, basename, role} "
+                "— image content is also returned as model-visible evidence (not in outputs). "
+                "image:derived:* → {absolute_path, parent_ref_id, sub_action, params, basename, width_height} "
+                "— derived image content also returned as model-visible evidence."
+            ),
         ),
         SemanticToolSpec(
-            tool_id="hydrate_transcript_edit_working_draft",
-            category="observation",
-            purpose="Load latest working revision, a specific working revision, or published output (refs transcript_edit:working | transcript_edit:working:rev:NNNN | transcript_edit:output).",
-            expected_request_shape="dossier_id, transcription_id, ref_id; workspace_id or run_id required to resolve on-disk workspace.",
+            tool_id="transform_artifact",
+            category="image_transform",
+            purpose=(
+                "Apply a spatial or annotation transform to a source or derived image ref. "
+                "Returns a new image:derived:* ref that can be hydrated on later turns. "
+                "Sub-actions: crop, expand, zoom, annotate. "
+                "Use annotate to highlight, draw bounding boxes, or add labels."
+            ),
+            expected_request_shape=(
+                "ref_id: source image ref (image:assoc:* or image:derived:*). "
+                "sub_action: one of crop | expand | zoom | annotate. "
+                "params: sub-action-specific parameters object."
+            ),
             expected_request_json_shape={
                 "type": "object",
-                "required": ["dossier_id", "transcription_id", "ref_id"],
+                "required": ["ref_id", "sub_action", "params"],
                 "properties": {
-                    "dossier_id": {"type": "string"},
-                    "transcription_id": {"type": "string"},
-                    "ref_id": {"type": "string"},
-                    "workspace_id": {"type": ["string", "null"]},
-                    "run_id": {"type": ["string", "null"]},
+                    "ref_id": {
+                        "type": "string",
+                        "description": "Source image ref to transform.",
+                    },
+                    "sub_action": {
+                        "type": "string",
+                        "enum": ["crop", "expand", "zoom", "annotate"],
+                    },
+                    "params": {
+                        "type": "object",
+                        "description": (
+                            "crop: {box: [x1,y1,x2,y2]}. "
+                            "expand: {padding: [top,right,bottom,left], fill: 'white'}. "
+                            "zoom: {box: [x1,y1,x2,y2]} or {factor: 2.0}. "
+                            "annotate: {annotations: [{type: highlight|bbox|label, box: [x1,y1,x2,y2], "
+                            "color: [R,G,B], text: str}]}."
+                        ),
+                    },
                 },
                 "additionalProperties": False,
             },
-            expected_result_shape="JSON payload + path metadata, or structured workspace_required / not_found / invalid_ref.",
-        ),
-        SemanticToolSpec(
-            tool_id="load_source_image_context",
-            category="image_evidence",
-            purpose="Resolve one source image ref from the startup inventory to paths, size, optional dimensions (no image bytes in the declaration).",
-            expected_request_shape="dossier_id, transcription_id, image:assoc:<transcription_id>:original|processed ref_id.",
-            expected_request_json_shape={
-                "type": "object",
-                "required": ["dossier_id", "transcription_id", "ref_id"],
-                "properties": {
-                    "dossier_id": {"type": "string"},
-                    "transcription_id": {"type": "string"},
-                    "ref_id": {"type": "string"},
-                },
-                "additionalProperties": False,
+            example_request={
+                "ref_id": "image:assoc:tx-1:original",
+                "sub_action": "crop",
+                "params": {"box": [0, 0, 400, 200]},
             },
-            expected_result_shape="Absolute path, exists flag, size_bytes, optional width_height, basename.",
+            expected_result_shape=(
+                "outputs.derived_ref_id: new image:derived:* ref for use in hydrate_artifact_refs or HITL payloads. "
+                "outputs.parent_ref_id, sub_action, basename, width_height."
+            ),
         ),
         SemanticToolSpec(
-            tool_id="image_verify",
-            category="image_evidence",
-            purpose="Ground a textual claim in image evidence (confirm, refute, or narrow uncertainty).",
-            expected_request_shape="Image ref(s), optional crop/box, transcript span or claim under test.",
-            expected_request_json_shape={
-                "type": "object",
-                "properties": {
-                    "image_refs": {"type": "array", "items": {"type": "string"}},
-                    "crop_ref": {"type": ["string", "null"]},
-                    "crop_box": {"type": ["object", "null"]},
-                    "transcript_span": {"type": ["object", "null"]},
-                    "claim": {"type": ["string", "null"]},
-                },
-                "additionalProperties": False,
-            },
-            expected_result_shape="Visual finding narrative, confidence posture, suggested next evidence if inconclusive.",
-        ),
-        SemanticToolSpec(
-            tool_id="image_crop_refine",
-            category="image_evidence",
-            purpose="Refine the region of interest when the current crop is insufficient.",
-            expected_request_shape="Prior crop ref, adjustment intent (expand, shift, higher resolution request).",
-            expected_request_json_shape={
-                "type": "object",
-                "required": ["prior_crop_ref", "adjustment_intent"],
-                "properties": {
-                    "prior_crop_ref": {"type": "string"},
-                    "adjustment_intent": {"type": "string"},
-                    "claim_id": {"type": ["string", "null"]},
-                },
-                "additionalProperties": False,
-            },
-            expected_result_shape="New crop ref or refusal with reason; ties back to same claim id if provided.",
-        ),
-        SemanticToolSpec(
-            tool_id="compare_transcript_variants",
-            category="comparison",
-            purpose="Contrast two or more hydrated draft texts (by ref) for divergence; agent-authored reconciliation.",
-            expected_request_shape="List of t0:raw refs or hydrated spans the agent selected; no automatic best pick.",
-            expected_request_json_shape={
-                "type": "object",
-                "properties": {
-                    "ref_ids": {"type": "array", "items": {"type": "string"}},
-                    "hydrated_spans": {"type": "array", "items": {"type": "object"}},
-                },
-                "additionalProperties": False,
-            },
-            expected_result_shape="Diff-style summary of agreements/conflicts; no ranked winner unless agent states one.",
-        ),
-        SemanticToolSpec(
-            tool_id="compare_transcript_to_image",
-            category="comparison",
-            purpose="Align claimed text to pixels—spot OCR slips, line breaks, missing tokens.",
-            expected_request_shape="Transcript span ref + image ref/crop; optional character-level ask.",
-            expected_request_json_shape={
-                "type": "object",
-                "required": ["transcript_span_ref", "image_ref"],
-                "properties": {
-                    "transcript_span_ref": {"type": "string"},
-                    "image_ref": {"type": "string"},
-                    "crop_ref": {"type": ["string", "null"]},
-                    "character_level_ask": {"type": ["string", "null"]},
-                },
-                "additionalProperties": False,
-            },
-            expected_result_shape="Span-to-image mapping narrative, defect candidates, crop suggestions.",
-        ),
-        SemanticToolSpec(
-            tool_id="save_transcript_edit",
-            category="mutation",
-            purpose="Append one agent-authored working draft revision under the transcript-edit workspace (does not mutate T0 raw drafts).",
-            expected_request_shape="dossier_id, transcription_id, workspace_id or run_id; transcript_text XOR draft_payload dict; optional base_revision_ref, evidence_refs, rationale.",
-            expected_request_json_shape={
-                "type": "object",
-                "required": ["dossier_id", "transcription_id"],
-                "properties": {
-                    "dossier_id": {"type": "string"},
-                    "transcription_id": {"type": "string"},
-                    "workspace_id": {"type": ["string", "null"]},
-                    "run_id": {"type": ["string", "null"]},
-                    "transcript_text": {"type": ["string", "null"]},
-                    "draft_payload": {"type": ["object", "null"]},
-                    "base_revision_ref": {"type": ["string", "null"]},
-                    "evidence_refs": {"type": "array", "items": {"type": "string"}},
-                    "rationale": {"type": ["string", "null"]},
-                },
-                "additionalProperties": False,
-            },
-            expected_result_shape="Executor-shaped result: top-level artifact_refs include working rev + aggregate working ref for harness latest_refs; outputs carry revision metadata, hash/size.",
-        ),
-        SemanticToolSpec(
-            tool_id="publish_transcript_edit_output",
-            category="mutation",
-            purpose="Publish a chosen working revision to output/output.json (agent must pass explicit source_revision_ref; no deterministic pick).",
-            expected_request_shape="dossier_id, transcription_id, workspace_id or run_id, source_revision_ref transcript_edit:working:rev:NNNN.",
-            expected_request_json_shape={
-                "type": "object",
-                "required": ["dossier_id", "transcription_id", "source_revision_ref"],
-                "properties": {
-                    "dossier_id": {"type": "string"},
-                    "transcription_id": {"type": "string"},
-                    "workspace_id": {"type": ["string", "null"]},
-                    "run_id": {"type": ["string", "null"]},
-                    "source_revision_ref": {"type": "string"},
-                },
-                "additionalProperties": False,
-            },
-            expected_result_shape="Executor-shaped result: top-level artifact_refs include output ref + source revision ref for harness latest_refs; outputs carry published_at and paths.",
-        ),
-        SemanticToolSpec(
-            tool_id="request_alignment_refresh",
-            category="refresh_request",
-            purpose="Ask the system to re-run or refresh alignment-derived drafts for stale or ambiguous spans.",
-            expected_request_shape="Scope + span or variant refs + reason; no orchestration guarantees.",
+            tool_id="save_workspace_artifact",
+            category="write",
+            purpose=(
+                "Append one agent-authored working draft revision to the transcript-edit workspace. "
+                "Does not mutate T0 raw drafts. Use transcript_text XOR draft_payload."
+            ),
+            expected_request_shape=(
+                "transcript_text XOR draft_payload: the authored content. "
+                "base_revision_ref: optional prior revision ref. "
+                "evidence_refs: optional list of refs grounding this revision. "
+                "rationale: optional explanation."
+            ),
             expected_request_json_shape={
                 "type": "object",
                 "properties": {
-                    "scope": {"type": "object"},
-                    "span_refs": {"type": "array", "items": {"type": "string"}},
-                    "variant_refs": {"type": "array", "items": {"type": "string"}},
-                    "reason": {"type": "string"},
+                    "transcript_text": {
+                        "type": ["string", "null"],
+                        "description": "Full transcript text (plain text).",
+                    },
+                    "draft_payload": {
+                        "type": ["object", "null"],
+                        "description": "Structured draft payload (XOR with transcript_text).",
+                    },
+                    "base_revision_ref": {
+                        "type": ["string", "null"],
+                        "description": "transcript_edit:working:rev:NNNN ref this revision is based on.",
+                    },
+                    "evidence_refs": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Refs grounding this revision (image:*, t0:raw:*, image:derived:*).",
+                    },
+                    "rationale": {
+                        "type": ["string", "null"],
+                        "description": "Brief explanation of what changed and why.",
+                    },
                 },
                 "additionalProperties": False,
             },
-            expected_result_shape="Job or ticket ref, expected artifact keys when complete (semantic, not polling).",
+            example_request={
+                "transcript_text": "Section 1: beginning at the NW corner...",
+                "base_revision_ref": "transcript_edit:working:rev:0001",
+                "rationale": "Corrected section 2 per image:assoc:tx-1:original.",
+            },
+            expected_result_shape=(
+                "artifact_refs include working revision ref + aggregate working ref for harness latest_refs. "
+                "outputs carry revision metadata, hash/size."
+            ),
         ),
         SemanticToolSpec(
-            tool_id="request_consensus_refresh",
-            category="refresh_request",
-            purpose="Ask for refreshed consensus/LLM-merge output when drafts diverge materially.",
-            expected_request_shape="Variant set ref or run ref; reason tied to ambiguity or defect ids.",
+            tool_id="publish_workspace_artifact",
+            category="write",
+            purpose=(
+                "Publish a chosen working revision to the transcript-edit output. "
+                "Agent must pass an explicit source_revision_ref — no deterministic pick."
+            ),
+            expected_request_shape="source_revision_ref: required transcript_edit:working:rev:NNNN ref.",
             expected_request_json_shape={
                 "type": "object",
+                "required": ["source_revision_ref"],
                 "properties": {
-                    "variant_set_ref": {"type": ["string", "null"]},
-                    "run_ref": {"type": ["string", "null"]},
-                    "reason": {"type": "string"},
+                    "source_revision_ref": {
+                        "type": "string",
+                        "description": "The working revision to publish (transcript_edit:working:rev:NNNN).",
+                    },
                 },
                 "additionalProperties": False,
             },
-            expected_result_shape="Job or ticket ref, semantic description of pending outputs.",
-        ),
-        SemanticToolSpec(
-            tool_id="request_human_verification",
-            category="refresh_request",
-            purpose="Escalate to human verification when automated evidence is insufficient.",
-            expected_request_shape="Issue summary, minimal repro refs (image + spans), urgency note.",
-            expected_request_json_shape={
-                "type": "object",
-                "required": ["issue_summary"],
-                "properties": {
-                    "issue_summary": {"type": "string"},
-                    "image_refs": {"type": "array", "items": {"type": "string"}},
-                    "span_refs": {"type": "array", "items": {"type": "string"}},
-                    "urgency_note": {"type": ["string", "null"]},
-                },
-                "additionalProperties": False,
-            },
-            expected_result_shape="Ticket ref; semantic expectation of human response shape when it arrives.",
+            example_request={"source_revision_ref": "transcript_edit:working:rev:0003"},
+            expected_result_shape=(
+                "artifact_refs include output ref + source revision ref for harness latest_refs. "
+                "outputs carry published_at and paths."
+            ),
         ),
     )

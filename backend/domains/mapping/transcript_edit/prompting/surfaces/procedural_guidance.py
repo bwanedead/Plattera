@@ -11,13 +11,13 @@ from ..branch import (
 TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_SOURCE_REF = (
     "backend/domains/mapping/transcript_edit/prompting/surfaces/procedural_guidance.py"
 )
-TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_VERSION = "v3"
+TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_VERSION = "v4"
 
 TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_TEXT = """\
 Use this guidance to shape your movement through transcript-edit work. This is **guidance**, not a hard script. The harness still owns orchestration. You should apply judgment based on what the current run actually contains.
 
 ## Why this guidance exists
-Transcript edit often begins from a messy run reality: multiple peer t0 drafts, partial derived variants, unclear authored transcript-edit state, uneven evidence coverage, and unresolved uncertainty about what matters for mapping. Effective work usually requires establishing a baseline reality before forcing closure claims.
+Transcript edit often begins from a messy run reality: multiple peer t0 drafts, unclear authored transcript-edit state, uneven evidence coverage, and unresolved uncertainty about what matters for mapping. Effective work usually requires establishing a baseline reality before forcing closure claims.
 
 This guidance exists to help you:
 - understand the run before making local edits
@@ -31,11 +31,8 @@ Early in a run, assume your first responsibility is to understand **what is here
 That generally means establishing a baseline across the current transcript state:
 - what t0 peer drafts exist (refs + optional hydration)
 - whether t0 produced redundant parallel drafts and where they disagree once you inspect them
-- what alignment or consensus variants already exist
-- what source imagery or image regions are available (via refs)
+- what source image refs are available and what they show (hydrate to see actual image evidence)
 - whether a transcript-edit working or output draft already exists
-- what human feedback, prior notes, or prior closure judgments already exist
-- what external references or related materials are already present versus still absent
 
 Do not confuse this with a scripted orientation phase. It is a baseline-establishment responsibility that should happen whenever the run does not yet have a reliable picture of its current state.
 

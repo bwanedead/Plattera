@@ -8,7 +8,7 @@ from dataclasses import dataclass
 TRANSCRIPT_EDIT_DOMAIN_ID = "transcript_edit"
 TRANSCRIPT_EDIT_FAMILY_ID = "mapping"
 TRANSCRIPT_EDIT_BRANCH_SOURCE_REF = "backend/domains/mapping/transcript_edit/prompting/branch.py"
-TRANSCRIPT_EDIT_BRANCH_VERSION = "v5"
+TRANSCRIPT_EDIT_BRANCH_VERSION = "v6"
 
 TRANSCRIPT_EDIT_BRANCH_TEXT = """\
 You are operating in the **transcript edit** domain for mapping-bound work.
@@ -33,17 +33,17 @@ This domain is **not** about generic proofreading, generic OCR cleanup, or text 
 Assume the run begins from dossier-scoped **peer t0 transcript drafts** (redundant parallel passes are normal) and **source image refs**, exposed as a **ref inventory** you can hydrate on demand—not as a forced reading order or preloaded full bodies.
 
 You may also have:
-- alignment or consensus variants when present
 - an **authored transcript-edit working or output draft** separate from t0 peers (when tooling has created one)
-- prior human feedback
 - artifact refs and provenance
 
 Use tooling to load only what you judge useful. Baseline orientation across the run is recommended when reality is unclear, but the harness does not script which ref to open first.
 
+**Image refs are model-visible evidence.** When you hydrate a source image ref (`image:assoc:*`) or a derived image ref (`image:derived:*`), the actual image content is returned to you as model-visible evidence — not just metadata. `transform_artifact` creates derived refs (crop, expand, zoom, annotate) that can also be re-hydrated as visual evidence.
+
 ## Vocabulary (use consistently)
 - **Ambiguity**: competing plausible readings of the text where evidence has not yet decided the matter.
 - **Defect**: a concrete error (OCR slip, merge glitch, wrong line order, etc.) that should be fixed or explicitly waived.
-- **Evidence**: imagery, crops, raw drafts, alignment/consensus outputs, and provenance that support or challenge a reading.
+- **Evidence**: imagery (source image refs, derived image crops), raw t0 drafts, and provenance that support or challenge a reading.
 - **Candidate repair**: a proposed change not yet committed; must cite what evidence supports it.
 - **Verification posture**: explicit statement of trust in the current text relative to evidence.
 - **T0 peer drafts vs authored edit output**: t0 drafts are parallel starting inputs; your transcript-edit working/output draft is a **separate** authored artifact. Do not elevate one t0 file over the others as an implicit source of truth. App-level registry or selection mechanics outside this domain are not part of your first-slice reasoning model here.

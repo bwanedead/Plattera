@@ -21,7 +21,7 @@ def test_manifest_tool_ids_match_tool_specs() -> None:
     manifest = build_transcript_edit_manifest()
     specs = build_transcript_edit_tool_specs()
     assert manifest.declared_semantic_tool_ids == tuple(s.tool_id for s in specs)
-    assert len(specs) == 13
+    assert len(specs) == 4
 
 
 def test_domain_pack_wires_same_tool_count_as_manifest() -> None:
@@ -158,6 +158,18 @@ def test_prompts_avoid_first_slice_final_selection_vocabulary() -> None:
     joined = branch + "\n" + proc
     assert "selected final" not in joined
     assert "segment final" not in joined
+
+
+def test_prompts_remove_legacy_resource_claims() -> None:
+    branch = build_transcript_edit_branch_blocks()[0].text.lower()
+    proc = build_transcript_edit_domain_pack().build_prompt_branch_blocks()[1].text.lower()
+    joined = branch + "\n" + proc
+    # Legacy resource claims removed — not part of real runtime surface
+    assert "alignment or consensus variants" not in joined
+    assert "prior human feedback" not in joined
+    assert "external references or related materials" not in joined
+    # Image evidence claim must be present — images ARE model-visible
+    assert "model-visible" in joined
 
 
 def test_projection_legacy_final_selection_maps_to_authored_only() -> None:

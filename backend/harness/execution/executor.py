@@ -69,6 +69,10 @@ def _coerce_result(
     outputs = raw_result.get("outputs")
     if not isinstance(outputs, dict):
         outputs = {}
+    raw_evidence = raw_result.get("image_evidence")
+    image_evidence: tuple[dict[str, Any], ...] = ()
+    if isinstance(raw_evidence, (list, tuple)):
+        image_evidence = tuple(e for e in raw_evidence if isinstance(e, dict))
     return ActionDispatchResult(
         action_id=action_id,
         executed=bool(raw_result.get("executed", True)),
@@ -77,4 +81,5 @@ def _coerce_result(
         refusal=refusal_obj,
         artifact_refs=tuple(str(item) for item in list(raw_result.get("artifact_refs") or []) if str(item).strip()),
         idempotency_key=idempotency_key,
+        image_evidence=image_evidence,
     )

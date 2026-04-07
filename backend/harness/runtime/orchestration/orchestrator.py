@@ -55,6 +55,20 @@ def _dispatch_outputs_and_artifact_refs(step_result: ExecutionStepResult) -> tup
     return dict(r.outputs or {}), list(r.artifact_refs or ())
 
 
+def _accumulate_image_evidence(
+    *,
+    loop_memory: LoopMemoryState,
+    step_result: ExecutionStepResult,
+) -> None:
+    """Append any image evidence from this tool result to the per-iteration buffer."""
+    rec = step_result.record
+    if rec is None or rec.result is None:
+        return
+    evidence = rec.result.image_evidence
+    if evidence:
+        loop_memory.pending_image_evidence.extend(evidence)
+
+
 def _append_kernel_step_result_continuity(
     *,
     loop_memory: LoopMemoryState,
@@ -372,6 +386,7 @@ def run_orchestration_kernel_loop(
                 action_type=action_plan.action_type,
                 step_result=step_result,
             )
+            _accumulate_image_evidence(loop_memory=loop_memory, step_result=step_result)
             if step_result.execution_state != ExecutionState.EXECUTED:
                 refusal = step_result.refusal
                 reason = refusal.reason_code if refusal is not None else "step_execution_refused"

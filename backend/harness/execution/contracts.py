@@ -36,6 +36,9 @@ class ActionDispatchResult:
     refusal: ExecutionRefusal | None = None
     artifact_refs: tuple[str, ...] = ()
     idempotency_key: str = ""
+    # Mechanical side channel for model-visible image evidence (base64 payloads).
+    # NOT included in continuity text records to avoid token bloat.
+    image_evidence: tuple[dict[str, Any], ...] = field(default_factory=tuple)
 
 
 @dataclass(frozen=True)

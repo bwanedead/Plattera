@@ -217,10 +217,8 @@ def test_runner_executes_transcript_edit_tool_and_writes_artifacts(tmp_path: Pat
         if len(model_calls) == 1:
             return json.dumps(
                 {
-                    "action_type": "hydrate_t0_draft_refs",
+                    "action_type": "hydrate_artifact_refs",
                     "action_inputs": {
-                        "dossier_id": "9f5eecb6-cd7e-483c-b691-b76aa7132e8e",
-                        "transcription_id": "draft_legal_text_image",
                         "ref_ids": ["t0:raw:peer_alpha"],
                     },
                     "idempotency_key": "ik-1",
@@ -270,7 +268,7 @@ def test_runner_executes_transcript_edit_tool_and_writes_artifacts(tmp_path: Pat
 
     tool_events = [event for event in result.result_payload["trace_events"] if event.get("event_kind") == "tool_execution"]
     assert len(tool_events) == 1
-    assert tool_events[0]["payload"]["action_type"] == "hydrate_t0_draft_refs"
+    assert tool_events[0]["payload"]["action_type"] == "hydrate_artifact_refs"
 
     result_doc = json.loads((tmp_path / "result.json").read_text(encoding="utf-8"))
     done_doc = json.loads((tmp_path / "done.json").read_text(encoding="utf-8"))
