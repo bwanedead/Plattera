@@ -14,6 +14,8 @@ from typing import Any
 
 _LOG = logging.getLogger(__name__)
 
+from services.llm.call_options import LlmCallOptions
+
 from ..composition import ComposedTurnInput
 from ..memory.continuity_compaction import (
     PreparedContinuityCompaction as _PreparedContinuityCompaction,
@@ -174,23 +176,18 @@ class LlmTurnOrchestrationAdapter(OrchestrationAdapter):
         # Clear before the call so a failed or retried call doesn't re-send the same images.
         image_evidence = list(context.loop_memory.pending_image_evidence)
         context.loop_memory.pending_image_evidence.clear()
-        call_kwargs: dict[str, Any] = {}
-        if image_evidence:
-            call_kwargs["image_attachments"] = image_evidence
+        call_opts = LlmCallOptions(
+            output_mode="json_object",
+            image_attachments=tuple(image_evidence),
+            phase="choose_action",
+        )
+        available_tool_ids = tuple(self.composed_input.tool_handlers.keys())
+        parse_exc: ModelActionParseError | None = None
         try:
-            raw_response = self.text_model_caller(prompt, self.model_name, **call_kwargs)
-            plan = parse_action_plan_response(
-                raw_response,
-                available_tool_ids=tuple(self.composed_input.tool_handlers.keys()),
-            )
+            raw_response = self.text_model_caller(prompt, self.model_name, call_options=call_opts)
+            plan = parse_action_plan_response(raw_response, available_tool_ids=available_tool_ids)
         except ModelActionParseError as exc:
-            self._emit_kernel_llm_observability(
-                context=context,
-                prompt_char_count=prompt_char_count,
-                parse_ok=False,
-                parse_reason_code=exc.reason_code,
-            )
-            raise
+            parse_exc = exc
         except Exception:
             self._emit_kernel_llm_observability(
                 context=context,
@@ -199,13 +196,55 @@ class LlmTurnOrchestrationAdapter(OrchestrationAdapter):
                 parse_reason_code="model_caller_exception",
             )
             raise
+        if parse_exc is not None:
+            # One focused repair attempt before hard failure.
+            # Reuse the original call_opts.image_attachments so image-grounded turns retain
+            # their visual context even when the failure was a formatting-only parse error.
+            repair_result = _attempt_repair(
+                model_caller=self.text_model_caller,
+                model_name=self.model_name,
+                original_prompt=prompt,
+                original_exc=parse_exc,
+                available_tool_ids=available_tool_ids,
+                original_image_attachments=call_opts.image_attachments,
+            )
+            if isinstance(repair_result, ActionPlan):
+                context.loop_memory.contract_feedback = {
+                    "reason_code": parse_exc.reason_code,
+                    "message": str(parse_exc),
+                    "repair_attempted": True,
+                    "repair_outcome": "repaired",
+                }
+                self._emit_kernel_llm_observability(
+                    context=context,
+                    prompt_char_count=prompt_char_count,
+                    parse_ok=True,
+                    parse_reason_code="repaired",
+                )
+                return repair_result
+            # Repair also failed — hard failure with the repair's error.
+            context.loop_memory.contract_feedback = {
+                "reason_code": repair_result.reason_code,
+                "message": str(repair_result),
+                "repair_attempted": True,
+                "repair_outcome": "failed",
+            }
+            self._emit_kernel_llm_observability(
+                context=context,
+                prompt_char_count=prompt_char_count,
+                parse_ok=False,
+                parse_reason_code=repair_result.reason_code,
+            )
+            raise repair_result
+        # Clean turn — clear stale contract feedback.
+        context.loop_memory.contract_feedback = {}
         self._emit_kernel_llm_observability(
             context=context,
             prompt_char_count=prompt_char_count,
             parse_ok=True,
             parse_reason_code=None,
         )
-        return plan
+        return plan  # type: ignore[return-value]  # assigned in the try block
 
     def evaluate_terminal(
         self,
@@ -290,6 +329,47 @@ class LlmTurnOrchestrationAdapter(OrchestrationAdapter):
             parse_ok=parse_ok,
             parse_reason_code=parse_reason_code,
             log_label="compaction kernel llm",
+        )
+
+
+def _attempt_repair(
+    *,
+    model_caller: TextModelCaller,
+    model_name: str,
+    original_prompt: str,
+    original_exc: ModelActionParseError,
+    available_tool_ids: tuple[str, ...],
+    original_image_attachments: tuple[dict[str, Any], ...] = (),
+) -> ActionPlan | ModelActionParseError:
+    """Issue one focused repair prompt and attempt to parse the response.
+
+    Carries forward ``original_image_attachments`` so that image-grounded turns
+    retain their visual context even when the failure was a formatting-only parse error.
+
+    Returns the repaired ActionPlan on success, or a ModelActionParseError on failure.
+    """
+    repair_prompt = (
+        original_prompt
+        + f"\n\n---\nPrevious response failed action-plan parsing.\n"
+        f"reason_code: {original_exc.reason_code}\n"
+        f"detail: {original_exc}\n\n"
+        "Return exactly one corrected JSON object preserving your intended action semantics. "
+        "No markdown. No commentary. One JSON object only."
+    )
+    repair_opts = LlmCallOptions(
+        output_mode="json_object",
+        image_attachments=original_image_attachments,
+        phase="choose_action_repair",
+    )
+    try:
+        raw = model_caller(repair_prompt, model_name, call_options=repair_opts)
+        return parse_action_plan_response(raw, available_tool_ids=available_tool_ids)
+    except ModelActionParseError as exc:
+        return exc
+    except Exception:
+        return ModelActionParseError(
+            "model_caller_exception",
+            "repair attempt raised unexpected exception",
         )
 
 

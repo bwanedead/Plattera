@@ -213,3 +213,68 @@ def test_relations_truncation_reports_cap_skip() -> None:
         )
     assert len(rs2.relations) == 1
     assert skips["resolution"]["relations"]["truncated_to_cap"] == 1
+
+
+# ---------------------------------------------------------------------------
+# Summary field string shorthand tests
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("field_name", [
+    "blocker_summary",
+    "verification_summary",
+    "waiting_summary",
+    "continuity_summary",
+    "mission_mode_summary",
+])
+def test_mission_summary_field_accepts_string_shorthand(field_name: str) -> None:
+    ms, rs = _base_states()
+    ms2, _, _ = apply_state_patch(
+        mission_state=ms,
+        resolution_state=rs,
+        state_patch={"mission": {field_name: "Need clearer image evidence"}},
+    )
+    assert getattr(ms2, field_name) == {"summary": "Need clearer image evidence"}
+
+
+def test_mission_summary_string_blank_normalizes_to_empty_dict() -> None:
+    ms, rs = _base_states()
+    ms2, _, _ = apply_state_patch(
+        mission_state=ms,
+        resolution_state=rs,
+        state_patch={"mission": {"blocker_summary": "   "}},
+    )
+    assert ms2.blocker_summary == {}
+
+
+def test_mission_summary_object_behavior_unchanged() -> None:
+    ms, rs = _base_states()
+    ms = ms.model_copy(update={"blocker_summary": {"prior": "value"}})
+    ms2, _, _ = apply_state_patch(
+        mission_state=ms,
+        resolution_state=rs,
+        state_patch={"mission": {"blocker_summary": {"new": "key"}}},
+    )
+    assert ms2.blocker_summary == {"prior": "value", "new": "key"}
+
+
+def test_mission_summary_null_clears_to_empty_dict() -> None:
+    ms, rs = _base_states()
+    ms = ms.model_copy(update={"blocker_summary": {"prior": "value"}})
+    ms2, _, _ = apply_state_patch(
+        mission_state=ms,
+        resolution_state=rs,
+        state_patch={"mission": {"blocker_summary": None}},
+    )
+    assert ms2.blocker_summary == {}
+
+
+def test_mission_summary_integer_still_rejected() -> None:
+    """Non-string, non-dict, non-null values are still rejected."""
+    ms, rs = _base_states()
+    with pytest.raises(StatePatchError) as excinfo:
+        apply_state_patch(
+            mission_state=ms,
+            resolution_state=rs,
+            state_patch={"mission": {"blocker_summary": 42}},
+        )
+    assert "blocker_summary" in excinfo.value.reason_code

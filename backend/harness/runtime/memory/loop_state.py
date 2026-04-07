@@ -27,3 +27,8 @@ class LoopMemoryState:
     # Read and cleared by LlmTurnOrchestrationAdapter.choose_action before each kernel LLM call.
     # NOT persisted in resume snapshots; the model re-hydrates if needed after a resume.
     pending_image_evidence: list[dict[str, Any]] = field(default_factory=list)
+    # Host-owned contract feedback from the prior choose-action turn.
+    # Set by LlmTurnOrchestrationAdapter after any parse failure or repair attempt.
+    # Cleared to {} on a clean (no-repair) successful turn.
+    # Included in the next turn's prompt envelope so the model can self-correct.
+    contract_feedback: dict[str, Any] = field(default_factory=dict)

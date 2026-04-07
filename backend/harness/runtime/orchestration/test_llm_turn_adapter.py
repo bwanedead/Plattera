@@ -142,7 +142,7 @@ def _orch_context(*, iterations: int = 1) -> OrchestratorContext:
 def test_llm_turn_adapter_emits_one_prompt_event_per_successful_choose_action() -> None:
     payloads: list[dict[str, Any]] = []
 
-    def caller(prompt: str, model: str) -> str:
+    def caller(prompt: str, model: str, **_kwargs: Any) -> str:
         return json.dumps(
             {
                 "action_type": "noop",
@@ -180,7 +180,7 @@ def test_llm_turn_adapter_emits_one_prompt_event_per_successful_choose_action() 
 def test_llm_turn_adapter_emits_parse_failed_prompt_event_before_raising() -> None:
     payloads: list[dict[str, Any]] = []
 
-    def caller(prompt: str, model: str) -> str:
+    def caller(prompt: str, model: str, **_kwargs: Any) -> str:
         return "not-json"
 
     adapter = _minimal_llm_adapter(caller=caller)
@@ -198,7 +198,7 @@ def test_llm_turn_adapter_emits_parse_failed_prompt_event_before_raising() -> No
 def test_choose_action_prompt_carries_prior_journal_progress_and_compacted_summary() -> None:
     captured: list[str] = []
 
-    def caller(prompt: str, model: str) -> str:
+    def caller(prompt: str, model: str, **_kwargs: Any) -> str:
         captured.append(prompt)
         return json.dumps(
             {
@@ -248,7 +248,7 @@ def test_choose_action_prompt_carries_prior_journal_progress_and_compacted_summa
 def test_run_continuity_pre_choose_action_invokes_compaction_llm_and_traces() -> None:
     calls: list[str] = []
 
-    def caller(prompt: str, model: str) -> str:
+    def caller(prompt: str, model: str, **_kwargs: Any) -> str:
         calls.append(prompt)
         if "journal_entries_to_fold" in prompt:
             assert "kernel_step_result_records_to_fold" in prompt
@@ -295,7 +295,7 @@ def test_run_continuity_occupancy_fraction_triggers(monkeypatch: pytest.MonkeyPa
 
     calls: list[str] = []
 
-    def caller(prompt: str, model: str) -> str:
+    def caller(prompt: str, model: str, **_kwargs: Any) -> str:
         calls.append(prompt)
         if "journal_entries_to_fold" in prompt:
             return json.dumps({"compacted_continuity_summary": "occ-merge"})
@@ -339,7 +339,7 @@ def test_run_continuity_occupancy_fraction_does_not_trigger_when_below_threshold
 
     calls: list[str] = []
 
-    def caller(prompt: str, model: str) -> str:
+    def caller(prompt: str, model: str, **_kwargs: Any) -> str:
         calls.append(prompt)
         return json.dumps({"compacted_continuity_summary": "should-not-run"})
 
@@ -363,7 +363,7 @@ def test_run_continuity_fraction_with_unregistered_model_uses_250k_fallback_in_t
 
     calls: list[str] = []
 
-    def caller(prompt: str, model: str) -> str:
+    def caller(prompt: str, model: str, **_kwargs: Any) -> str:
         calls.append(prompt)
         if "journal_entries_to_fold" in prompt:
             return json.dumps({"compacted_continuity_summary": "fb-merge"})
@@ -394,7 +394,7 @@ def test_run_continuity_fraction_with_unregistered_model_uses_250k_fallback_in_t
 def test_second_compaction_does_not_resend_already_covered_turn_rows() -> None:
     calls: list[str] = []
 
-    def caller(prompt: str, model: str) -> str:
+    def caller(prompt: str, model: str, **_kwargs: Any) -> str:
         calls.append(prompt)
         if "journal_entries_to_fold" in prompt:
             return json.dumps({"compacted_continuity_summary": "updated"})
@@ -585,7 +585,7 @@ def test_coerce_action_plan_accepts_async_hitl_request() -> None:
 def test_choose_action_prompt_includes_hitl_envelope_keys() -> None:
     captured: list[str] = []
 
-    def caller(prompt: str, model: str) -> str:
+    def caller(prompt: str, model: str, **_kwargs: Any) -> str:
         captured.append(prompt)
         return json.dumps(
             {
@@ -621,3 +621,181 @@ def test_choose_action_prompt_includes_hitl_envelope_keys() -> None:
     assert "answered_hitl_responses" in p
     assert "hitl_state" in p
     assert "p-open" in p
+
+
+# ---------------------------------------------------------------------------
+# Repair lane tests
+# ---------------------------------------------------------------------------
+
+_VALID_PLAN_JSON = json.dumps(
+    {
+        "action_type": "noop",
+        "action_inputs": {},
+        "idempotency_key": "ik-repair",
+        "skip_execution": True,
+        "wait_for_human": False,
+        "complete_run": False,
+        "rationale": "repaired",
+        "state_patch": None,
+        "continuity_journal_entry": {"repair": True},
+        "operator_progress_message": None,
+    }
+)
+
+
+def test_choose_action_repair_succeeds_on_second_attempt() -> None:
+    """First call returns invalid JSON; second (repair) call returns valid JSON → plan returned."""
+    calls: list[str] = []
+
+    def caller(prompt: str, model: str, **_kwargs: Any) -> str:
+        calls.append(prompt)
+        if len(calls) == 1:
+            return "not-json"
+        return _VALID_PLAN_JSON
+
+    adapter = _minimal_llm_adapter(caller=caller)
+    ctx = _orch_context(iterations=1)
+    plan = adapter.choose_action(ctx, projection=None)
+
+    assert plan.action_type == "noop"
+    assert len(calls) == 2
+    # Second call should include the original prompt content and the repair instruction.
+    assert "reason_code" in calls[1]
+    assert "invalid_model_action_json" in calls[1]
+
+
+def test_choose_action_repair_sets_contract_feedback_on_success() -> None:
+    calls: list[str] = []
+
+    def caller(prompt: str, model: str, **_kwargs: Any) -> str:
+        calls.append(prompt)
+        return "not-json" if len(calls) == 1 else _VALID_PLAN_JSON
+
+    adapter = _minimal_llm_adapter(caller=caller)
+    ctx = _orch_context(iterations=1)
+    adapter.choose_action(ctx, projection=None)
+
+    fb = ctx.loop_memory.contract_feedback
+    assert fb["repair_attempted"] is True
+    assert fb["repair_outcome"] == "repaired"
+    assert fb["reason_code"] == "invalid_model_action_json"
+
+
+def test_choose_action_repair_fails_hard_on_second_failure() -> None:
+    """Both calls return invalid JSON → raises ModelActionParseError."""
+    calls: list[str] = []
+
+    def caller(prompt: str, model: str, **_kwargs: Any) -> str:
+        calls.append(prompt)
+        return "not-json"
+
+    adapter = _minimal_llm_adapter(caller=caller)
+    ctx = _orch_context(iterations=1)
+
+    with pytest.raises(ModelActionParseError):
+        adapter.choose_action(ctx, projection=None)
+
+    assert len(calls) == 2
+    fb = ctx.loop_memory.contract_feedback
+    assert fb["repair_attempted"] is True
+    assert fb["repair_outcome"] == "failed"
+
+
+def test_choose_action_clean_turn_clears_contract_feedback() -> None:
+    """A successful turn (no parse error) resets contract_feedback to empty dict."""
+
+    def caller(prompt: str, model: str, **_kwargs: Any) -> str:
+        return _VALID_PLAN_JSON
+
+    adapter = _minimal_llm_adapter(caller=caller)
+    ctx = _orch_context(iterations=1)
+    ctx.loop_memory.contract_feedback = {"repair_attempted": True, "repair_outcome": "repaired", "reason_code": "stale"}
+    adapter.choose_action(ctx, projection=None)
+
+    assert ctx.loop_memory.contract_feedback == {}
+
+
+def test_choose_action_passes_json_object_call_options() -> None:
+    """choose_action must pass call_options with output_mode='json_object' to the model caller."""
+    from services.llm.call_options import LlmCallOptions
+
+    received_opts: list[Any] = []
+
+    def caller(prompt: str, model: str, **kwargs: Any) -> str:
+        received_opts.append(kwargs.get("call_options"))
+        return _VALID_PLAN_JSON
+
+    adapter = _minimal_llm_adapter(caller=caller)
+    ctx = _orch_context(iterations=1)
+    adapter.choose_action(ctx, projection=None)
+
+    assert len(received_opts) == 1
+    opts = received_opts[0]
+    assert isinstance(opts, LlmCallOptions)
+    assert opts.output_mode == "json_object"
+    assert opts.phase == "choose_action"
+
+
+def test_choose_action_prompt_includes_contract_feedback_key() -> None:
+    """contract_feedback must be present in the prompt envelope."""
+    captured: list[str] = []
+
+    def caller(prompt: str, model: str, **_kwargs: Any) -> str:
+        captured.append(prompt)
+        return _VALID_PLAN_JSON
+
+    adapter = _minimal_llm_adapter(caller=caller)
+    ctx = _orch_context(iterations=1)
+    ctx.loop_memory.contract_feedback = {"repair_attempted": True, "repair_outcome": "repaired"}
+    adapter.choose_action(ctx, projection=None)
+
+    assert "contract_feedback" in captured[0]
+    assert "repair_outcome" in captured[0]
+
+
+def test_choose_action_prompt_includes_summary_shorthand_explanation() -> None:
+    """Prompt must explain that string values are valid shorthand for summary fields."""
+    captured: list[str] = []
+
+    def caller(prompt: str, model: str, **_kwargs: Any) -> str:
+        captured.append(prompt)
+        return _VALID_PLAN_JSON
+
+    adapter = _minimal_llm_adapter(caller=caller)
+    ctx = _orch_context(iterations=1)
+    adapter.choose_action(ctx, projection=None)
+
+    assert "blocker_summary" in captured[0]
+    assert "shorthand" in captured[0].lower() or "normalizes" in captured[0].lower()
+
+
+def test_choose_action_repair_preserves_image_attachments() -> None:
+    """Repair call must carry forward image attachments from the original turn."""
+    from services.llm.call_options import LlmCallOptions
+
+    received_opts: list[Any] = []
+    calls: list[str] = []
+
+    def caller(prompt: str, model: str, **kwargs: Any) -> str:
+        calls.append(prompt)
+        received_opts.append(kwargs.get("call_options"))
+        if len(calls) == 1:
+            return "not-json"
+        return _VALID_PLAN_JSON
+
+    adapter = _minimal_llm_adapter(caller=caller)
+    ctx = _orch_context(iterations=1)
+    # Simulate image evidence accumulated before choose_action is called.
+    ctx.loop_memory.pending_image_evidence.append({"ref_id": "image:assoc:tx-1:original", "b64": "abc", "media_type": "image/png"})
+
+    adapter.choose_action(ctx, projection=None)
+
+    assert len(received_opts) == 2
+    original_opts: LlmCallOptions = received_opts[0]
+    repair_opts: LlmCallOptions = received_opts[1]
+
+    # Both calls carry the same image attachments.
+    assert len(original_opts.image_attachments) == 1
+    assert original_opts.image_attachments[0]["ref_id"] == "image:assoc:tx-1:original"
+    assert repair_opts.image_attachments == original_opts.image_attachments
+    assert repair_opts.phase == "choose_action_repair"

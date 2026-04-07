@@ -296,20 +296,30 @@ class OpenAIService(LLMService):
     def call_text(self, prompt: str, model: str, **kwargs) -> Dict[str, Any]:
         """Make text-only API call to OpenAI"""
         try:
+            # Resolve typed call options first so phase is available for log context.
+            call_opts = kwargs.get("call_options")
+            if call_opts is not None:
+                image_attachments = list(call_opts.image_attachments) if call_opts.image_attachments else []
+                output_mode = call_opts.output_mode
+                effective_phase = call_opts.phase or kwargs.get("phase")
+            else:
+                image_attachments = list(kwargs.get("image_attachments") or [])
+                output_mode = "text"
+                effective_phase = kwargs.get("phase")
+
             run_context = kwargs.get("run_context")
             draft_index = kwargs.get("draft_index")
             draft_count = kwargs.get("draft_count")
             transcription_id = kwargs.get("transcription_id")
             dossier_id = kwargs.get("dossier_id")
-            phase = kwargs.get("phase")
             draft_label = None
             if isinstance(draft_index, int) and isinstance(draft_count, int) and draft_count > 0:
                 draft_label = f"{draft_index + 1}/{draft_count}"
             ctx_parts = []
             if run_context:
                 ctx_parts.append(f"run={run_context}")
-            if phase:
-                ctx_parts.append(f"phase={phase}")
+            if effective_phase:
+                ctx_parts.append(f"phase={effective_phase}")
             if draft_label:
                 ctx_parts.append(f"draft={draft_label}")
             if dossier_id:
@@ -319,9 +329,8 @@ class OpenAIService(LLMService):
             ctx = f" ({' '.join(ctx_parts)})" if ctx_parts else ""
 
             api_model_name = self._get_api_model_name(model)
-            
-            # Build parameters based on model type
-            image_attachments = kwargs.get("image_attachments") or []
+
+            # Build user content (multimodal when image attachments are present).
             if image_attachments:
                 content: list[dict] = [{"type": "text", "text": prompt}]
                 for att in image_attachments:
@@ -339,6 +348,9 @@ class OpenAIService(LLMService):
                 "model": api_model_name,
                 "messages": [{"role": "user", "content": user_content}],
             }
+            # Honor structured-output policy.
+            if output_mode == "json_object":
+                completion_params["response_format"] = {"type": "json_object"}
             
             # Some small models require max_completion_tokens (no temperature)
             if ("o4-mini" in api_model_name) or ("gpt-5-mini" in api_model_name) or ("gpt-5" in api_model_name) or ("gpt-5-nano" in api_model_name):

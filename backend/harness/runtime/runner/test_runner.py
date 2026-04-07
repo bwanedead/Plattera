@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -100,7 +101,7 @@ def test_runner_invokes_orchestration_and_writes_loop_result_artifacts(tmp_path:
     adapter = FakeSurfaceAdapter(calls=[], surface=_surface(tool_calls))
     model_calls: list[tuple[str, str]] = []
 
-    def model_caller(prompt: str, model: str) -> str:
+    def model_caller(prompt: str, model: str, **_kwargs: Any) -> str:
         model_calls.append((prompt, model))
         if len(model_calls) == 1:
             return json.dumps(
@@ -185,7 +186,7 @@ def test_runner_writes_mechanical_failure_for_invalid_model_json(tmp_path: Path)
         ),
     )
 
-    def model_caller(prompt: str, model: str) -> str:
+    def model_caller(prompt: str, model: str, **_kwargs: Any) -> str:
         del prompt, model
         return "not valid json"
 
@@ -212,7 +213,7 @@ def test_runner_executes_transcript_edit_tool_and_writes_artifacts(tmp_path: Pat
 
     model_calls: list[tuple[str, str]] = []
 
-    def model_caller(prompt: str, model: str) -> str:
+    def model_caller(prompt: str, model: str, **_kwargs: Any) -> str:
         model_calls.append((prompt, model))
         if len(model_calls) == 1:
             return json.dumps(
@@ -278,7 +279,10 @@ def test_runner_executes_transcript_edit_tool_and_writes_artifacts(tmp_path: Pat
     assert done_doc["reason_code"] == "finished"
 
 
-def test_default_model_caller_requests_relaxed_json_mode(monkeypatch) -> None:
+def test_default_model_caller_passes_through_call_options(monkeypatch) -> None:
+    """The runner default caller is a plain pass-through; output policy is set by the call site."""
+    from services.llm.call_options import LlmCallOptions
+
     calls: list[tuple[str, str, dict[str, object]]] = []
 
     class FakeOpenAIService:
@@ -289,8 +293,15 @@ def test_default_model_caller_requests_relaxed_json_mode(monkeypatch) -> None:
     monkeypatch.setattr(runner_module, "OpenAIService", FakeOpenAIService)
 
     model_caller = runner_module._build_default_model_caller(model_name="gpt-5.4-mini")
+    opts = LlmCallOptions(output_mode="json_object", phase="choose_action")
 
-    result = model_caller("prompt text", "")
+    result = model_caller("prompt text", "", call_options=opts)
 
     assert result == {"success": True, "text": '{"action_type": null}'}
-    assert calls == [("prompt text", "gpt-5.4-mini", {"json_mode": "relaxed"})]
+    assert len(calls) == 1
+    prompt_sent, model_sent, kwargs_sent = calls[0]
+    assert prompt_sent == "prompt text"
+    assert model_sent == "gpt-5.4-mini"
+    # call_options is passed through; no json_mode kwarg injected by the runner
+    assert "json_mode" not in kwargs_sent
+    assert kwargs_sent.get("call_options") is opts

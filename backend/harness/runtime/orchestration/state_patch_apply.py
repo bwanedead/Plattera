@@ -474,6 +474,10 @@ def _apply_mission_branch(ms: MissionState, raw: Any) -> MissionState:
         val = raw[key]
         if val is None:
             updates[key] = {}
+        elif isinstance(val, str):
+            # String shorthand: normalizes to {"summary": "<string>"} or {} if blank.
+            val_stripped = val.strip()
+            updates[key] = {"summary": val_stripped} if val_stripped else {}
         elif isinstance(val, dict):
             prior = getattr(ms, key)
             if isinstance(prior, dict):
@@ -481,7 +485,7 @@ def _apply_mission_branch(ms: MissionState, raw: Any) -> MissionState:
             else:
                 updates[key] = dict(val)
         else:
-            raise StatePatchError(f"{key}_not_object", f"mission.{key} must be an object or null")
+            raise StatePatchError(f"{key}_not_object", f"mission.{key} must be an object, string, or null")
 
     if "high_signal_artifact_refs" in raw:
         refs = raw["high_signal_artifact_refs"]

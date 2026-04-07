@@ -40,6 +40,7 @@ def build_choose_action_prompt(
         "latest_refs": dict(cont.latest_refs),
         "active_item_id": cont.active_item_id,
         "state_patch_feedback": dict(cont.state_patch_feedback),
+        "contract_feedback": jsonable(context.loop_memory.contract_feedback),
         "operator_progress_message": cont.operator_progress_message,
         "compacted_continuity_summary": cont.compacted_continuity_summary,
         "recent_continuity_journal_entries": recent_journal_entries_for_prompt(
@@ -95,13 +96,26 @@ def build_choose_action_prompt(
         "you author all work semantics inside allowed shapes; the runtime merges mechanically "
         "(resolution items merge by item_id: only fields you include are overwritten). "
         "state_patch_feedback in the envelope reports the kernel outcome of the prior patch (applied / rejected / not_applied / no_patch); "
-        "when outcome is applied but some resolution item/relation rows were dropped, look for skipped_resolution_rows and row_skips counts.\n"
+        "when outcome is applied but some resolution item/relation rows were dropped, look for skipped_resolution_rows and row_skips counts. "
+        "Summary-field shorthand: mission summary fields (blocker_summary, verification_summary, waiting_summary, "
+        'continuity_summary, mission_mode_summary) accept a plain string — it normalizes to {"summary": "..."} automatically. '
+        'Example: "blocker_summary": "Need clearer image evidence" is valid shorthand for {"summary": "Need clearer image evidence"}.\n'
+        "contract_feedback in the envelope reports the mechanical outcome of the prior choose-action parse attempt; "
+        "if repair_attempted is true, your previous response failed parsing and a repair was needed — "
+        "review the reason_code and adjust your output format accordingly.\n"
         "hitl_request: optional generic human prompt transport {message (required non-empty string), choices (array), context (object), "
         "opaque_payload (object), prompt_id (optional string)}. wait_for_human is the canonical blocking flag: true requires hitl_request "
         "and pauses the loop until feedback arrives; false with hitl_request emits the request but the loop continues. "
         "hitl_consumed_prompt_ids: optional array of prompt_id strings you have mechanically incorporated — host removes matching "
         "answered_hitl_responses only. Envelope hitl_state, pending_hitl_requests, answered_hitl_responses are host-owned.\n"
         "Choose action_type only from the provided tool_ids unless complete_run or wait_for_human is true.\n"
+        "Canonical valid example: "
+        '{"action_type": "some_tool", "action_inputs": {"key": "value"}, "idempotency_key": "ik-1", '
+        '"skip_execution": false, "wait_for_human": false, "complete_run": false, '
+        '"rationale": "doing X because Y", '
+        '"state_patch": {"mission": {"blocker_summary": "Awaiting image evidence"}}, '
+        '"continuity_journal_entry": {"step": "hydrating ref", "open_threads": ["verify section 3"]}, '
+        '"operator_progress_message": null, "hitl_request": null, "hitl_consumed_prompt_ids": null}\n'
         "Do not wrap the JSON in markdown and do not add commentary."
     )
     return instruction + "\n\n" + json.dumps(envelope, ensure_ascii=False, sort_keys=True)

@@ -238,7 +238,7 @@ def _build_default_model_caller(*, model_name: str) -> Callable[..., Mapping[str
     service = OpenAIService()
 
     def _call(prompt: str, model: str, **kwargs: Any) -> Mapping[str, Any] | str:
-        return service.call_text(prompt, model or model_name, json_mode="relaxed", **kwargs)
+        return service.call_text(prompt, model or model_name, **kwargs)
 
     return _call
 

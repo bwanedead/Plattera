@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import time
+from typing import Any
 
 from harness.execution.contracts import (
     ExecutionDashboard,
@@ -553,7 +554,7 @@ def test_kernel_loop_llm_adapter_prompt_telemetry_and_trace_match_turns() -> Non
     """Two iterations => two prompt_event traces; llm_contact_count and prompt_event_count both == 2."""
     call_n = {"i": 0}
 
-    def fake_caller(prompt: str, model: str) -> str:
+    def fake_caller(prompt: str, model: str, **_kwargs: Any) -> str:
         call_n["i"] += 1
         return _fake_llm_action_json(str(call_n["i"]))
 
