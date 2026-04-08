@@ -173,16 +173,6 @@ def harness_artifacts_root() -> Path:
     return root
 
 
-def agent_kernel_artifacts_root() -> Path:
-    """
-    Root for agent-kernel run artifacts.
-    - Dev: backend/dossiers_data/artifacts/agent_kernel
-    - Frozen: LOCALAPPDATA\\Plattera\\Data\\dossiers_data\\artifacts\\agent_kernel
-    """
-    root = dossiers_artifacts_root() / "agent_kernel"
-    root.mkdir(parents=True, exist_ok=True)
-    return root
-
 
 # ----- Assets (models, external data) -----
 

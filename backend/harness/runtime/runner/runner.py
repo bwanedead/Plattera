@@ -365,7 +365,7 @@ def _maybe_finalize_retention_and_cleanup(targets: RuntimeArtifactTargets) -> No
     try:
         from harness.audit.retention import cleanup_old_cli_runs, write_run_retention_json
         write_run_retention_json(cli_run_id)
-        cleanup_old_cli_runs(keep_n=4)
+        cleanup_old_cli_runs(keep_n=5)
     except Exception:
         import logging
         logging.getLogger(__name__).warning("retention/cleanup failed for run_id=%s", cli_run_id, exc_info=True)
