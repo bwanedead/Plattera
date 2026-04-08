@@ -259,6 +259,9 @@ tiles/
 # ========================
 backend/dossiers_data/
 
+# Harness CLI runtime artifacts (do not commit)
+backend/harness/cli_artifacts/
+
 # Legacy alignment test drafts (not part of dossier system)
 backend/saved_drafts/
 

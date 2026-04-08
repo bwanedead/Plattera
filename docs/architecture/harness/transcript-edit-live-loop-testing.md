@@ -143,7 +143,7 @@ Restart-resume:
 Harness CLI run-state and child logs:
 
 ```text
-backend/dossiers_data/artifacts/harness/cli_runs/<run_id>/
+backend/harness/cli_artifacts/cli_runs/<run_id>/
   state.json
   stdout.log
   stderr.log
@@ -171,10 +171,10 @@ the CLI invokes the real `transcript_edit` domain adapter, loads dossier/T0
 inputs from `dossiers_data`, and writes transcript-edit working/output artifacts
 to the normal `artifacts/transcript_edit/...` tree below.
 
-Generic harness run/session artifacts:
+Harness CLI run/session artifacts:
 
 ```text
-backend/dossiers_data/artifacts/harness/
+backend/harness/cli_artifacts/
 ```
 
 Retention / reset notes:

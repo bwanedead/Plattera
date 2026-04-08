@@ -24,7 +24,7 @@ from services.agent_viewer import feedback_store
 def isolated_harness_root(tmp_path, monkeypatch):
     root = tmp_path / "harness_art"
     root.mkdir()
-    monkeypatch.setattr(rs, "harness_artifacts_root", lambda: root)
+    monkeypatch.setattr(rs, "harness_cli_artifacts_root", lambda: root)
     return root
 
 

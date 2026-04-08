@@ -1,7 +1,8 @@
 """Durable run-state records for harness CLI operator flows.
 
-Each `start` creates a directory under ``harness_artifacts_root() / "cli_runs" / <run_id> /``
-with deterministic JSON metadata and sibling artifact paths (logs, done, result).
+Each ``start`` creates a directory under
+``harness_cli_artifacts_root() / "cli_runs" / <run_id> /`` with deterministic
+JSON metadata and sibling artifact paths (logs, done, result).
 """
 
 from __future__ import annotations
@@ -12,11 +13,11 @@ from pathlib import Path
 from time import time
 from typing import Any
 
-from config.paths import harness_artifacts_root
+from config.paths import harness_cli_artifacts_root
 
 
 def cli_runs_root() -> Path:
-    root = harness_artifacts_root() / "cli_runs"
+    root = harness_cli_artifacts_root() / "cli_runs"
     root.mkdir(parents=True, exist_ok=True)
     return root
 
@@ -147,4 +148,3 @@ def new_run_state(
         status=status,
         extra=extra or {},
     )
-

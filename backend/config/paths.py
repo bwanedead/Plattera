@@ -173,6 +173,22 @@ def harness_artifacts_root() -> Path:
     return root
 
 
+def harness_cli_artifacts_root() -> Path:
+    """
+    Root for operator CLI run artifacts (state, audit, logs, result/done payloads).
+    This is intentionally separate from dossiers_data because CLI runs are harness-
+    owned testing/observability artifacts, not dossier/domain artifacts.
+    - Dev: backend/harness/cli_artifacts
+    - Frozen: LOCALAPPDATA\\Plattera\\Data\\harness\\cli_artifacts
+    """
+    if is_frozen():
+        root = app_data_root() / "harness" / "cli_artifacts"
+    else:
+        root = backend_root() / "harness" / "cli_artifacts"
+    root.mkdir(parents=True, exist_ok=True)
+    return root
+
+
 
 # ----- Assets (models, external data) -----
 
