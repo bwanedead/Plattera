@@ -93,26 +93,35 @@ cd backend
 Start a run:
 
 ```powershell
-$ctx = '{"dossier_id":"9f5eecb6-cd7e-483c-b691-b76aa7132e8e","transcription_id":"draft_legal_text_image","workspace_id":"practice-right-of-way","run_id":"practice-right-of-way","model":"gpt-o4-mini","max_iterations":6}'
-python -m harness.cli.start --run-id practice-right-of-way --loop-kind transcript_edit --python-module harness.runtime.runner.entrypoint --module-arg=--domain-id --module-arg=transcript_edit --module-arg=--launch-context-json --module-arg=$ctx
+$runId = "practice-row-live-6"
+$ctx = "{""dossier_id"":""9f5eecb6-cd7e-483c-b691-b76aa7132e8e"",""transcription_id"":""draft_legal_text_image"",""workspace_id"":""$runId"",""run_id"":""$runId"",""max_iterations"":6}"
+python -m harness.cli.start --run-id $runId --loop-kind transcript_edit --python-module harness.runtime.runner.entrypoint --module-arg=--domain-id --module-arg=transcript_edit --module-arg=--launch-context-json --module-arg=$ctx
 ```
+
+Guidance:
+
+- use a fresh unique `run_id` for every live run
+- keep `workspace_id == run_id` for live testing unless you have a specific
+  reason not to
+- omit `model` from launch context unless you explicitly want to override the
+  harness default model
 
 Check status:
 
 ```powershell
-python -m harness.cli.status --run-id practice-right-of-way
+python -m harness.cli.status --run-id $runId
 ```
 
 Wait for either HITL or terminal completion:
 
 ```powershell
-python -m harness.cli.watch --run-id practice-right-of-way --timeout 60
+python -m harness.cli.watch --run-id $runId --timeout 60
 ```
 
 If `watch` returns a HITL prompt, answer it:
 
 ```powershell
-python -m harness.cli.answer --run-id practice-right-of-way --prompt-id <prompt_id_from_watch> --choice "<your answer>" --note "<optional note>"
+python -m harness.cli.answer --run-id $runId --prompt-id <prompt_id_from_watch> --choice "<your answer>" --note "<optional note>"
 ```
 
 Then call `watch` again.
@@ -140,7 +149,21 @@ backend/dossiers_data/artifacts/harness/cli_runs/<run_id>/
   stderr.log
   result.json
   done.json
+  retention.json
+  audit/index.json
+  audit/review.md
+  audit/turn_0001.json
+  audit/turn_0002.json
+  ...
 ```
+
+What the audit files are for:
+
+- `audit/review.md`: quick human-readable run summary
+- `audit/index.json`: run-level audit index
+- `audit/turn_000N.json`: exact turn ledger including prompt text, raw LLM
+  response text, repair I/O when applicable, parsed action plan, tool
+  request/result, and before/after state snapshots
 
 This `cli_runs/` folder is operator control-plane metadata. The transcript-edit
 domain data path itself is app-native backend plumbing, not a CLI-only sandbox:
@@ -153,6 +176,12 @@ Generic harness run/session artifacts:
 ```text
 backend/dossiers_data/artifacts/harness/
 ```
+
+Retention / reset notes:
+
+- normal CLI run retention keeps the latest 5 unpinned runs
+- a one-time blank-slate purge helper exists for emergency reset scenarios; do
+  not use it as part of normal testing flow
 
 Transcript-edit working/output draft artifacts:
 
