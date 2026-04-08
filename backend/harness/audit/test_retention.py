@@ -8,6 +8,7 @@ import pytest
 
 from harness.audit.retention import (
     cleanup_old_cli_runs,
+    purge_all_cli_runs,
     write_run_retention_json,
     _is_pinned,
     _is_safe_run_dir,
@@ -72,6 +73,92 @@ def test_is_safe_run_dir_nested_is_not_safe(tmp_path: Path) -> None:
     d = tmp_path / "a" / "b"
     d.mkdir(parents=True)
     assert _is_safe_run_dir(d, tmp_path) is False
+
+
+# ---------------------------------------------------------------------------
+# purge_all_cli_runs
+# ---------------------------------------------------------------------------
+
+
+def test_purge_all_cli_runs_removes_all_dirs(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    root = tmp_path / "cli_runs"
+    root.mkdir()
+    for run_id in ["r1", "r2", "r3"]:
+        _make_run_dir(root, run_id)
+
+    import harness.cli.run_state as rs_mod
+    monkeypatch.setattr(rs_mod, "cli_runs_root", lambda: root)
+
+    purged = purge_all_cli_runs()
+
+    assert set(purged) == {"r1", "r2", "r3"}
+    assert list(root.iterdir()) == []
+
+
+def test_purge_all_cli_runs_removes_pinned_too(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    root = tmp_path / "cli_runs"
+    root.mkdir()
+    _make_run_dir(root, "pinned-run", pinned=True)
+    _make_run_dir(root, "normal-run", pinned=False)
+
+    import harness.cli.run_state as rs_mod
+    monkeypatch.setattr(rs_mod, "cli_runs_root", lambda: root)
+
+    purged = purge_all_cli_runs()
+
+    assert set(purged) == {"pinned-run", "normal-run"}
+    assert list(root.iterdir()) == []
+
+
+def test_purge_all_cli_runs_cleans_linked_transcript_edit_workspaces(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    root = tmp_path / "cli_runs"
+    root.mkdir()
+    _make_run_dir(root, "run-abc")
+
+    # Simulate transcript_edit layout: transcript_edit/<dossier>/<tx>/run-abc/
+    te_root = tmp_path / "transcript_edit"
+    workspace = te_root / "dossier1" / "tx1" / "run-abc"
+    workspace.mkdir(parents=True)
+    (workspace / "draft.json").write_text("{}", encoding="utf-8")
+
+    # Unrelated workspace that must NOT be deleted
+    unrelated = te_root / "dossier1" / "tx1" / "other-run"
+    unrelated.mkdir(parents=True)
+
+    import harness.cli.run_state as rs_mod
+    monkeypatch.setattr(rs_mod, "cli_runs_root", lambda: root)
+
+    import config.paths as paths_mod
+    monkeypatch.setattr(paths_mod, "dossiers_transcript_edit_artifacts_root", lambda dossier_id=None: te_root)
+
+    purged = purge_all_cli_runs()
+
+    assert purged == ["run-abc"]
+    assert not workspace.exists()
+    assert unrelated.exists()
+
+
+def test_purge_all_cli_runs_noop_when_root_missing(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    root = tmp_path / "does_not_exist"
+
+    import harness.cli.run_state as rs_mod
+    monkeypatch.setattr(rs_mod, "cli_runs_root", lambda: root)
+
+    purged = purge_all_cli_runs()
+    assert purged == []
+
+
+def test_purge_all_cli_runs_noop_when_root_empty(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    root = tmp_path / "cli_runs"
+    root.mkdir()
+
+    import harness.cli.run_state as rs_mod
+    monkeypatch.setattr(rs_mod, "cli_runs_root", lambda: root)
+
+    purged = purge_all_cli_runs()
+    assert purged == []
 
 
 # ---------------------------------------------------------------------------

@@ -42,6 +42,46 @@ def write_run_retention_json(run_id: str, *, pinned: bool = False) -> None:
         _LOG.warning("write_run_retention_json failed for run_id=%s", run_id, exc_info=True)
 
 
+def purge_all_cli_runs() -> list[str]:
+    """Delete every CLI run directory — blank-slate reset.
+
+    Intended for one-time pre-testing resets and emergency cleanouts.
+    Ignores pinned status: all runs are removed.
+    Linked transcript-edit workspaces are cleaned up for each purged run_id.
+
+    Returns list of purged run_ids.
+    """
+    try:
+        from harness.cli.run_state import cli_runs_root
+        root = cli_runs_root()
+    except Exception:
+        _LOG.warning("purge_all_cli_runs: could not resolve cli_runs_root", exc_info=True)
+        return []
+
+    if not root.exists():
+        return []
+
+    try:
+        candidates = [d for d in root.iterdir() if d.is_dir()]
+    except Exception:
+        _LOG.warning("purge_all_cli_runs: failed to list run dirs", exc_info=True)
+        return []
+
+    purged: list[str] = []
+    for d in candidates:
+        run_id = d.name
+        if not _is_safe_run_dir(d, root):
+            _LOG.warning("purge_all_cli_runs: skipping unsafe path %s", d)
+            continue
+        if _delete_run_dir(d):
+            purged.append(run_id)
+            _cleanup_transcript_edit_workspace(run_id)
+
+    if purged:
+        _LOG.info("purge_all_cli_runs: purged %d run(s): %s", len(purged), purged)
+    return purged
+
+
 def cleanup_old_cli_runs(*, keep_n: int = 4) -> list[str]:
     """Delete old unpinned CLI run directories, keeping the latest ``keep_n`` unpinned.
 
