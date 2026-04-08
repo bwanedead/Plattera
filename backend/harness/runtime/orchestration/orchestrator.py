@@ -36,6 +36,74 @@ from .trace_collector import KernelTraceCollector
 _LOG = logging.getLogger(__name__)
 
 
+def _notify_turn_completed(
+    orchestration_adapter: OrchestrationAdapter,
+    iteration: int,
+    *,
+    action_plan: ActionPlan,
+    step_result: "ExecutionStepResult | None",
+    loop_memory: LoopMemoryState,
+    terminal_decision: str | None = None,
+) -> None:
+    """Notify adapter of turn completion for forensic audit.  Best-effort: discovery via hasattr."""
+    fn = getattr(orchestration_adapter, "on_turn_completed", None)
+    if not callable(fn):
+        return
+    tool_request: dict[str, Any] | None = None
+    if not action_plan.complete_run and not action_plan.wait_for_human and action_plan.action_type is not None:
+        tool_request = {
+            "action_type": action_plan.action_type,
+            "action_inputs": dict(action_plan.action_inputs),
+            "idempotency_key": action_plan.idempotency_key,
+            "skip_execution": action_plan.skip_execution,
+            "wait_for_human": action_plan.wait_for_human,
+            "complete_run": action_plan.complete_run,
+            "rationale": action_plan.rationale,
+        }
+    tool_result_raw: dict[str, Any] | None = None
+    if step_result is not None:
+        rec = step_result.record
+        tool_result_raw = {
+            "execution_state": step_result.execution_state.value,
+            "refusal": (
+                {
+                    "reason_code": step_result.refusal.reason_code,
+                    "retryable": step_result.refusal.retryable,
+                }
+                if step_result.refusal is not None
+                else None
+            ),
+            "outputs": (
+                dict(rec.result.outputs or {})
+                if rec is not None and rec.result is not None
+                else {}
+            ),
+            "artifact_refs": (
+                list(rec.result.artifact_refs or ())
+                if rec is not None and rec.result is not None
+                else []
+            ),
+            "image_evidence": (
+                list(rec.result.image_evidence)
+                if rec is not None and rec.result is not None and rec.result.image_evidence
+                else []
+            ),
+        }
+    try:
+        fn(
+            iteration,
+            tool_request=tool_request,
+            tool_result_raw=tool_result_raw,
+            mission_state_after=loop_memory.continuity.mission_state,
+            resolution_state_after=loop_memory.continuity.resolution_state,
+            latest_refs_after=dict(loop_memory.continuity.latest_refs),
+            state_patch_feedback=dict(loop_memory.continuity.state_patch_feedback),
+            terminal_decision=terminal_decision,
+        )
+    except Exception:
+        _LOG.warning("on_turn_completed raised; ignoring", exc_info=True)
+
+
 def _hitl_loop_kind(opaque_run_context: dict[str, Any]) -> str:
     return str(opaque_run_context.get("hitl_loop_kind") or opaque_run_context.get("loop_kind") or "harness_cli").strip() or "harness_cli"
 
@@ -328,6 +396,11 @@ def run_orchestration_kernel_loop(
                 loop_memory.hitl.blocking_prompt_id = str(norm["prompt_id"])
                 loop_memory.hitl.pending_feedback_prompt_id = str(norm["prompt_id"])
                 hitl_refresh_derived_state(loop_memory.hitl)
+                _notify_turn_completed(
+                    orchestration_adapter, iterations,
+                    action_plan=action_plan, step_result=None,
+                    loop_memory=loop_memory, terminal_decision="wait_for_human",
+                )
                 return _make_result(
                     loop_memory=loop_memory,
                     terminal_class="waiting_human",
@@ -365,6 +438,11 @@ def run_orchestration_kernel_loop(
                 iteration=iterations,
                 execution_state="complete_run",
                 execution_reason_code=None,
+            )
+            _notify_turn_completed(
+                orchestration_adapter, iterations,
+                action_plan=action_plan, step_result=None,
+                loop_memory=loop_memory, terminal_decision="complete_run",
             )
             return _make_result(
                 loop_memory=loop_memory,
@@ -420,6 +498,11 @@ def run_orchestration_kernel_loop(
                         execution_state="refused",
                         execution_reason_code=reason,
                     )
+                    _notify_turn_completed(
+                        orchestration_adapter, iterations,
+                        action_plan=action_plan, step_result=step_result,
+                        loop_memory=loop_memory, terminal_decision="refused",
+                    )
                     return _make_result(
                         loop_memory=loop_memory,
                         terminal_class="failed",
@@ -439,6 +522,11 @@ def run_orchestration_kernel_loop(
                 )
                 if step_result.dashboard is not None:
                     loop_memory.continuity.latest_refs = step_result.dashboard.latest_refs.model_dump(mode="json")
+                _notify_turn_completed(
+                    orchestration_adapter, iterations,
+                    action_plan=action_plan, step_result=step_result,
+                    loop_memory=loop_memory,
+                )
             else:
                 if step_result.dashboard is not None:
                     loop_memory.continuity.latest_refs = step_result.dashboard.latest_refs.model_dump(mode="json")
@@ -464,6 +552,11 @@ def run_orchestration_kernel_loop(
                     execution_state="executed",
                     execution_reason_code=None,
                 )
+                _notify_turn_completed(
+                    orchestration_adapter, iterations,
+                    action_plan=action_plan, step_result=step_result,
+                    loop_memory=loop_memory,
+                )
         else:
             sync_state_patch_when_no_step_dispatched(
                 loop_memory=loop_memory,
@@ -479,6 +572,11 @@ def run_orchestration_kernel_loop(
                 iteration=iterations,
                 execution_state="skipped" if action_plan.skip_execution else "not_dispatched",
                 execution_reason_code=None,
+            )
+            _notify_turn_completed(
+                orchestration_adapter, iterations,
+                action_plan=action_plan, step_result=None,
+                loop_memory=loop_memory,
             )
 
     return _make_result(

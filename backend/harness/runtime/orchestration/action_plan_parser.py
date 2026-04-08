@@ -38,6 +38,16 @@ class ModelActionParseError(ValueError):
         self.reason_code = reason_code
 
 
+# Allowlist: only these reason codes indicate failures the LLM can fix by reformatting.
+# Provider/transport codes (model_call_failed, model_caller_exception) are excluded.
+_REPAIRABLE_REASON_CODES: frozenset[str] = frozenset({"invalid_model_action_json"})
+
+
+def is_repairable_action_plan_error(reason_code: str) -> bool:
+    """True only for LLM output-contract failures the model can fix by reformatting."""
+    return reason_code in _REPAIRABLE_REASON_CODES
+
+
 def parse_action_plan_response(
     raw_response: Mapping[str, Any] | str,
     *,

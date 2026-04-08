@@ -799,3 +799,345 @@ def test_choose_action_repair_preserves_image_attachments() -> None:
     assert original_opts.image_attachments[0]["ref_id"] == "image:assoc:tx-1:original"
     assert repair_opts.image_attachments == original_opts.image_attachments
     assert repair_opts.phase == "choose_action_repair"
+
+
+# ---------------------------------------------------------------------------
+# Non-repairable provider failure tests
+# ---------------------------------------------------------------------------
+
+
+def _provider_failure_response(error: str = "Connection error.") -> dict[str, Any]:
+    """Return a failure response payload that triggers model_call_failed in the parser."""
+    return {"success": False, "error": error}
+
+
+def test_choose_action_provider_failure_does_not_trigger_repair() -> None:
+    """model_call_failed must NOT issue a repair call — only one provider call is made."""
+    calls: list[Any] = []
+
+    def caller(prompt: str, model: str, **_kwargs: Any) -> dict[str, Any]:
+        calls.append(prompt)
+        return _provider_failure_response()
+
+    adapter = _minimal_llm_adapter(caller=caller)
+    ctx = _orch_context(iterations=1)
+
+    with pytest.raises(ModelActionParseError) as exc_info:
+        adapter.choose_action(ctx, projection=None)
+
+    assert exc_info.value.reason_code == "model_call_failed"
+    assert len(calls) == 1  # repair call must NOT have been issued
+
+
+def test_choose_action_provider_failure_does_not_set_repair_contract_feedback() -> None:
+    """contract_feedback must not carry repair_attempted=True for provider failures."""
+
+    def caller(prompt: str, model: str, **_kwargs: Any) -> dict[str, Any]:
+        return _provider_failure_response()
+
+    adapter = _minimal_llm_adapter(caller=caller)
+    ctx = _orch_context(iterations=1)
+
+    with pytest.raises(ModelActionParseError):
+        adapter.choose_action(ctx, projection=None)
+
+    fb = ctx.loop_memory.contract_feedback
+    assert "repair_attempted" not in fb
+
+
+def test_choose_action_provider_failure_emits_correct_observability() -> None:
+    """Observability must reflect the provider failure reason code, not a repair outcome."""
+    payloads: list[dict[str, Any]] = []
+
+    def caller(prompt: str, model: str, **_kwargs: Any) -> dict[str, Any]:
+        return _provider_failure_response("Connection error.")
+
+    adapter = _minimal_llm_adapter(caller=caller)
+    adapter.wire_identity_trace_cb(lambda info: payloads.append(dict(info)))
+    ctx = _orch_context(iterations=1)
+
+    with pytest.raises(ModelActionParseError):
+        adapter.choose_action(ctx, projection=None)
+
+    assert len(payloads) == 1
+    pe = payloads[0]["prompt_event"]
+    assert pe["outcome_kind"] == "kernel_action_plan_parse_failed"
+    assert pe["outcome_ref"] == "model_call_failed"
+
+
+def test_choose_action_json_failure_still_repairs() -> None:
+    """Sanity: invalid_model_action_json still enters the repair lane after this change."""
+    calls: list[str] = []
+
+    def caller(prompt: str, model: str, **_kwargs: Any) -> str:
+        calls.append(prompt)
+        return "not-json" if len(calls) == 1 else _VALID_PLAN_JSON
+
+    adapter = _minimal_llm_adapter(caller=caller)
+    ctx = _orch_context(iterations=1)
+    plan = adapter.choose_action(ctx, projection=None)
+
+    assert plan.action_type == "noop"
+    assert len(calls) == 2
+    fb = ctx.loop_memory.contract_feedback
+    assert fb["repair_attempted"] is True
+    assert fb["repair_outcome"] == "repaired"
+
+
+# ---------------------------------------------------------------------------
+# Raw I/O audit callback (wire_raw_io_cb)
+# ---------------------------------------------------------------------------
+
+
+def test_choose_action_emits_raw_io_on_clean_success() -> None:
+    """Clean turn: audit cb receives prompt, response, parse_ok=True, no repair."""
+    records: list[dict[str, Any]] = []
+
+    def caller(prompt: str, model: str, **_kwargs: Any) -> str:
+        return _VALID_PLAN_JSON
+
+    adapter = _minimal_llm_adapter(caller=caller)
+    adapter.wire_raw_io_cb(records.append)
+    adapter.choose_action(_orch_context(iterations=3), projection=None)
+
+    assert len(records) == 1
+    rec = records[0]
+    assert rec["turn_index"] == 3
+    assert rec["parse_ok"] is True
+    assert rec["parse_reason_code"] is None
+    assert rec["repair_attempted"] is False
+    assert isinstance(rec["raw_prompt_text"], str) and len(rec["raw_prompt_text"]) > 0
+    assert "noop" in str(rec.get("parsed_action_plan") or "")
+
+
+def test_choose_action_emits_raw_io_on_repair_success() -> None:
+    """Repair path: audit cb reflects original failure + successful repair."""
+    calls: list[str] = []
+    records: list[dict[str, Any]] = []
+
+    def caller(prompt: str, model: str, **_kwargs: Any) -> str:
+        calls.append(prompt)
+        return "not-json" if len(calls) == 1 else _VALID_PLAN_JSON
+
+    adapter = _minimal_llm_adapter(caller=caller)
+    adapter.wire_raw_io_cb(records.append)
+    adapter.choose_action(_orch_context(iterations=2), projection=None)
+
+    assert len(records) == 1
+    rec = records[0]
+    assert rec["turn_index"] == 2
+    assert rec["parse_ok"] is False
+    assert rec["parse_reason_code"] == "invalid_model_action_json"
+    assert rec["repair_attempted"] is True
+    assert rec["repair_parse_ok"] is True
+    assert rec["repair_parse_reason_code"] is None
+
+
+def test_choose_action_emits_raw_io_on_provider_failure() -> None:
+    """Provider failure: audit cb reflects failure, no repair fields set."""
+    records: list[dict[str, Any]] = []
+
+    def caller(prompt: str, model: str, **_kwargs: Any) -> dict[str, Any]:
+        return {"success": False, "error": "Connection error."}
+
+    adapter = _minimal_llm_adapter(caller=caller)
+    adapter.wire_raw_io_cb(records.append)
+
+    with pytest.raises(ModelActionParseError):
+        adapter.choose_action(_orch_context(iterations=1), projection=None)
+
+    assert len(records) == 1
+    rec = records[0]
+    assert rec["parse_ok"] is False
+    assert rec["parse_reason_code"] == "model_call_failed"
+    assert rec["repair_attempted"] is False
+
+
+def test_choose_action_works_with_no_raw_io_cb() -> None:
+    """No cb wired → choose_action must succeed without error."""
+
+    def caller(prompt: str, model: str, **_kwargs: Any) -> str:
+        return _VALID_PLAN_JSON
+
+    adapter = _minimal_llm_adapter(caller=caller)
+    plan = adapter.choose_action(_orch_context(iterations=1), projection=None)
+    assert plan.action_type == "noop"
+
+
+def test_raw_io_cb_exception_does_not_break_choose_action() -> None:
+    """If the audit cb itself raises, choose_action must not propagate the error."""
+
+    def caller(prompt: str, model: str, **_kwargs: Any) -> str:
+        return _VALID_PLAN_JSON
+
+    def bad_cb(data: dict[str, Any]) -> None:
+        raise RuntimeError("audit cb exploded")
+
+    adapter = _minimal_llm_adapter(caller=caller)
+    adapter.wire_raw_io_cb(bad_cb)
+    plan = adapter.choose_action(_orch_context(iterations=1), projection=None)
+    assert plan.action_type == "noop"
+
+
+# ---------------------------------------------------------------------------
+# Repair I/O — full records in audit payload
+# ---------------------------------------------------------------------------
+
+
+def test_repair_audit_record_contains_prompt_and_response_texts() -> None:
+    """Repair path: audit record carries full prompt/response text for the repair call."""
+    calls: list[str] = []
+    records: list[dict[str, Any]] = []
+
+    def caller(prompt: str, model: str, **_kwargs: Any) -> str:
+        calls.append(prompt)
+        return "not-json" if len(calls) == 1 else _VALID_PLAN_JSON
+
+    adapter = _minimal_llm_adapter(caller=caller)
+    adapter.wire_raw_io_cb(records.append)
+    adapter.choose_action(_orch_context(iterations=4), projection=None)
+
+    assert len(records) == 1
+    rec = records[0]
+    assert rec["repair_attempted"] is True
+    assert len(rec["repair_records"]) == 1
+    rr = rec["repair_records"][0]
+    assert "repair_prompt_text" in rr and len(rr["repair_prompt_text"]) > 0
+    assert "repair_raw_response_text" in rr
+    assert rr["repair_parse_ok"] is True
+    assert rr["repair_parse_reason_code"] is None
+    assert rr["repair_parsed_action_plan"]["action_type"] == "noop"
+
+
+def test_repair_failed_audit_record_contains_reason_code() -> None:
+    """Both repair attempts fail: record has repair_parse_ok=False and reason_code."""
+    calls: list[str] = []
+    records: list[dict[str, Any]] = []
+
+    def caller(prompt: str, model: str, **_kwargs: Any) -> str:
+        calls.append(prompt)
+        return "not-json"  # always bad
+
+    adapter = _minimal_llm_adapter(caller=caller)
+    adapter.wire_raw_io_cb(records.append)
+
+    with pytest.raises(ModelActionParseError):
+        adapter.choose_action(_orch_context(iterations=1), projection=None)
+
+    assert len(records) == 1
+    rec = records[0]
+    assert rec["repair_attempted"] is True
+    rr = rec["repair_records"][0]
+    assert rr["repair_parse_ok"] is False
+    assert rr["repair_parse_reason_code"] == "invalid_model_action_json"
+    assert rr["repair_parsed_action_plan"] is None
+
+
+def test_clean_turn_has_empty_repair_records() -> None:
+    """No repair on clean turn: repair_records is [] and repair_attempted is False."""
+    records: list[dict[str, Any]] = []
+
+    def caller(prompt: str, model: str, **_kwargs: Any) -> str:
+        return _VALID_PLAN_JSON
+
+    adapter = _minimal_llm_adapter(caller=caller)
+    adapter.wire_raw_io_cb(records.append)
+    adapter.choose_action(_orch_context(iterations=1), projection=None)
+
+    rec = records[0]
+    assert rec["repair_attempted"] is False
+    assert rec["repair_records"] == []
+
+
+# ---------------------------------------------------------------------------
+# State before capture
+# ---------------------------------------------------------------------------
+
+
+def test_choose_action_audit_includes_state_before_snapshot() -> None:
+    """Audit record must include mission_state_before, resolution_state_before, latest_refs_before."""
+    records: list[dict[str, Any]] = []
+
+    def caller(prompt: str, model: str, **_kwargs: Any) -> str:
+        return _VALID_PLAN_JSON
+
+    adapter = _minimal_llm_adapter(caller=caller)
+    adapter.wire_raw_io_cb(records.append)
+    ctx = _orch_context(iterations=1)
+    ctx.loop_memory.continuity.latest_refs = {"existing": "ref://x"}
+    adapter.choose_action(ctx, projection=None)
+
+    rec = records[0]
+    assert "mission_state_before" in rec
+    assert "resolution_state_before" in rec
+    assert rec["latest_refs_before"] == {"existing": "ref://x"}
+
+
+# ---------------------------------------------------------------------------
+# on_turn_completed wiring
+# ---------------------------------------------------------------------------
+
+
+def test_wire_turn_result_cb_and_on_turn_completed_delivers_data() -> None:
+    """on_turn_completed fires turn_result_cb with expected keys."""
+    results: list[dict[str, Any]] = []
+
+    def caller(prompt: str, model: str, **_kwargs: Any) -> str:
+        return _VALID_PLAN_JSON
+
+    adapter = _minimal_llm_adapter(caller=caller)
+    adapter.wire_turn_result_cb(results.append)
+    adapter.on_turn_completed(
+        3,
+        tool_request={"action_type": "noop"},
+        tool_result_raw={"execution_state": "executed"},
+        mission_state_after=None,
+        resolution_state_after=None,
+        latest_refs_after={"k": "v"},
+        state_patch_feedback={},
+        terminal_decision=None,
+    )
+
+    assert len(results) == 1
+    r = results[0]
+    assert r["turn_index"] == 3
+    assert r["tool_request"]["action_type"] == "noop"
+    assert r["latest_refs_after"] == {"k": "v"}
+
+
+def test_on_turn_completed_with_no_cb_does_not_raise() -> None:
+    """on_turn_completed must be safe to call with no turn_result_cb wired."""
+
+    def caller(prompt: str, model: str, **_kwargs: Any) -> str:
+        return _VALID_PLAN_JSON
+
+    adapter = _minimal_llm_adapter(caller=caller)
+    # No wire_turn_result_cb call — must not raise.
+    adapter.on_turn_completed(
+        1,
+        tool_request=None,
+        tool_result_raw=None,
+        mission_state_after=None,
+        resolution_state_after=None,
+        latest_refs_after={},
+        state_patch_feedback={},
+        terminal_decision="complete_run",
+    )
+
+
+def test_turn_result_cb_exception_does_not_break_on_turn_completed() -> None:
+    """If turn_result_cb raises, on_turn_completed must suppress it."""
+
+    adapter = _minimal_llm_adapter(caller=lambda *a, **kw: _VALID_PLAN_JSON)
+    adapter.wire_turn_result_cb(lambda _: (_ for _ in ()).throw(RuntimeError("boom")))
+    # Should not raise.
+    adapter.on_turn_completed(
+        1,
+        tool_request=None,
+        tool_result_raw=None,
+        mission_state_after=None,
+        resolution_state_after=None,
+        latest_refs_after={},
+        state_patch_feedback={},
+        terminal_decision=None,
+    )

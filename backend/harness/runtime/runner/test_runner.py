@@ -279,6 +279,56 @@ def test_runner_executes_transcript_edit_tool_and_writes_artifacts(tmp_path: Pat
     assert done_doc["reason_code"] == "finished"
 
 
+def test_audit_writer_finalize_called_even_when_loop_raises(tmp_path: Path, monkeypatch) -> None:
+    """P1: audit artifacts must be written even if the orchestration loop raises."""
+    import json as _json
+    import os
+
+    # Set HARNESS_CLI_RUN_ID so the audit writer targets a real directory.
+    run_id = "audit-failure-test"
+    cli_run_dir = tmp_path / "cli_runs" / run_id
+    cli_run_dir.mkdir(parents=True)
+
+    monkeypatch.setenv("HARNESS_CLI_RUN_ID", run_id)
+    # Point cli_runs_root at tmp_path/cli_runs so run_dir() resolves correctly.
+    import harness.cli.run_state as rs_mod
+    monkeypatch.setattr(rs_mod, "cli_runs_root", lambda: tmp_path / "cli_runs")
+
+    call_count = 0
+
+    def exploding_caller(prompt: str, model: str, **_kwargs: Any) -> dict[str, Any]:
+        nonlocal call_count
+        call_count += 1
+        # First call records something in the audit buffer, then raises.
+        if call_count == 1:
+            return {"success": False, "error": "Connection error."}
+        raise RuntimeError("loop exploded")
+
+    tool_calls: list[ExecutionStepRequest] = []
+    surface = _surface(tool_calls)
+    adapter = FakeSurfaceAdapter(calls=[], surface=surface)
+
+    runner = RuntimeRunner(
+        adapter=adapter,
+        model_caller=exploding_caller,
+        targets=_targets(tmp_path),
+    )
+
+    with pytest.raises(Exception):
+        runner.run(launch_context={"max_iterations": 2, "run_id": run_id})
+
+    # The audit dir should exist and have at least the index.json written.
+    audit_dir = cli_run_dir / "audit"
+    assert audit_dir.exists(), "audit dir must be created even on failed run"
+    assert (audit_dir / "index.json").exists(), "index.json must be written even on failed run"
+    index = _json.loads((audit_dir / "index.json").read_text())
+    assert index["terminal_class"] == "failed"
+
+    # Turn file for the connection-error turn should also be present.
+    turn_files = list(audit_dir.glob("turn_*.json"))
+    assert len(turn_files) >= 1, "at least one turn must be recorded before the failure"
+
+
 def test_default_model_caller_passes_through_call_options(monkeypatch) -> None:
     """The runner default caller is a plain pass-through; output policy is set by the call site."""
     from services.llm.call_options import LlmCallOptions

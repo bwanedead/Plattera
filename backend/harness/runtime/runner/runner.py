@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 import json
+import os
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -173,21 +174,45 @@ class RuntimeRunner:
         )
         max_iterations = _select_max_iterations(context)
         request_id_prefix = _select_request_id_prefix(context, fallback=run_id)
-        return run_orchestration_kernel_loop(
-            orchestration_adapter=orchestration_adapter,
-            session_manager=session_manager,
-            session_id=session_id,
-            run_artifact_ref=run_artifact_ref,
-            request_id_prefix=request_id_prefix,
-            opaque_run_context=dict(context),
-            max_iterations=max_iterations,
-            initial_loop_memory=initial_loop_memory,
-            resume_start_iteration=resume_start_iteration,
-        )
+
+        # Wire per-turn raw I/O audit if a CLI run dir is available.
+        audit_writer = _build_audit_writer()
+        if hasattr(orchestration_adapter, "wire_raw_io_cb"):
+            orchestration_adapter.wire_raw_io_cb(audit_writer.on_llm_io)
+        if hasattr(orchestration_adapter, "wire_turn_result_cb"):
+            orchestration_adapter.wire_turn_result_cb(audit_writer.on_turn_completed)
+
+        loop_result: Any = None
+        try:
+            loop_result = run_orchestration_kernel_loop(
+                orchestration_adapter=orchestration_adapter,
+                session_manager=session_manager,
+                session_id=session_id,
+                run_artifact_ref=run_artifact_ref,
+                request_id_prefix=request_id_prefix,
+                opaque_run_context=dict(context),
+                max_iterations=max_iterations,
+                initial_loop_memory=initial_loop_memory,
+                resume_start_iteration=resume_start_iteration,
+            )
+            return loop_result
+        finally:
+            # Always flush audit — including when the loop raises (failed runs need
+            # forensic artifacts most urgently).  RunAuditWriter.finalize() is
+            # best-effort and never propagates exceptions.
+            audit_writer.finalize(
+                terminal_class=str(loop_result.terminal_class) if loop_result is not None else "failed",
+                reason_code=loop_result.reason_code if loop_result is not None else "runner_exception",
+                iterations=int(loop_result.iterations) if loop_result is not None else 0,
+                latest_refs=dict(loop_result.latest_refs) if loop_result is not None else {},
+                trace_events=list(loop_result.trace_events) if loop_result is not None else [],
+                run_id=run_id,
+            )
 
     def _write_artifacts(self, *, targets: RuntimeArtifactTargets, result: RuntimeRunResult) -> None:
         _write_json(targets.result_file, _build_result_document(result))
         _write_json(targets.done_file, _build_done_document(result))
+        _maybe_finalize_retention_and_cleanup(targets)
 
 
 def run_runtime_from_env(
@@ -317,6 +342,33 @@ def _build_done_document(result: RuntimeRunResult) -> dict[str, Any]:
 def _write_json(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
+
+
+def _build_audit_writer() -> Any:
+    """Return a ``RunAuditWriter`` scoped to the current CLI run dir, or a no-op if not in a CLI run."""
+    from harness.audit.run_audit_writer import RunAuditWriter
+    cli_run_id = os.environ.get("HARNESS_CLI_RUN_ID", "").strip()
+    if not cli_run_id:
+        return RunAuditWriter(None)
+    try:
+        from harness.cli.run_state import run_dir as cli_run_dir
+        return RunAuditWriter(cli_run_dir(cli_run_id))
+    except Exception:
+        return RunAuditWriter(None)
+
+
+def _maybe_finalize_retention_and_cleanup(targets: RuntimeArtifactTargets) -> None:
+    """Write retention.json and trigger latest-4 cleanup.  Best-effort; never raises."""
+    cli_run_id = os.environ.get("HARNESS_CLI_RUN_ID", "").strip()
+    if not cli_run_id:
+        return
+    try:
+        from harness.audit.retention import cleanup_old_cli_runs, write_run_retention_json
+        write_run_retention_json(cli_run_id)
+        cleanup_old_cli_runs(keep_n=4)
+    except Exception:
+        import logging
+        logging.getLogger(__name__).warning("retention/cleanup failed for run_id=%s", cli_run_id, exc_info=True)
 
 
 def _jsonable(value: Any) -> Any:

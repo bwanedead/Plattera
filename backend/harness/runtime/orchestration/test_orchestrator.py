@@ -713,3 +713,144 @@ def test_state_patch_not_applied_when_step_refused() -> None:
     assert any(e.get("event_kind") == "state_patch_outcome" for e in result.trace_events)
 
 
+# ---------------------------------------------------------------------------
+# image_evidence propagated through on_turn_completed
+# ---------------------------------------------------------------------------
+
+
+class _ImageEvidenceSessionManager(ExecutionSessionManager):
+    """Returns a step result whose ActionDispatchResult carries image_evidence."""
+
+    def step(self, request: ExecutionStepRequest) -> ExecutionStepResult:  # type: ignore[override]
+        from harness.execution.contracts import ActionDispatchResult, SessionExecutionRecord
+
+        result = ActionDispatchResult(
+            action_id=request.action_id,
+            executed=True,
+            outputs={"hydrated": True},
+            artifact_refs=("image:assoc:tx1:original",),
+            image_evidence=(
+                {"ref_id": "image:assoc:tx1:original", "media_type": "image/jpeg", "data": "b64=="},
+                {"ref_id": "image:assoc:tx1:processed", "media_type": "image/jpeg", "data": "b64proc=="},
+            ),
+        )
+        rec = SessionExecutionRecord(
+            session_id=request.session_id,
+            run_id=request.run_id or "",
+            request=request,
+            result=result,
+        )
+        return ExecutionStepResult(
+            session_id=request.session_id,
+            idempotency_key=request.idempotency_key,
+            execution_state=ExecutionState.EXECUTED,
+            dashboard=_dashboard(),
+            record=rec,
+        )
+
+
+class _OneStepImagePack:
+    """One step with image evidence, then complete."""
+
+    def initialize(self, context: OrchestratorContext) -> None: ...
+    def evaluate_terminal(self, context: OrchestratorContext, projection: Any) -> None: ...
+
+    def sync(self, context: OrchestratorContext) -> SharedStateProjection:
+        return SharedStateProjection(
+            mission_state=new_mission_state(mission_id="m-img", loop_family="orchestration_kernel"),
+            resolution_state=new_resolution_state(),
+            latest_refs={},
+        )
+
+    def choose_action(self, context: OrchestratorContext, projection: Any) -> ActionPlan:
+        if context.loop_memory.iterations == 1:
+            return ActionPlan(
+                action_type="hydrate_tool",
+                action_inputs={"ref_ids": ["image:assoc:tx1:original"]},
+                idempotency_key="ik-img",
+                continuity_journal_entry={"img_turn": True},
+            )
+        return ActionPlan(complete_run=True, continuity_journal_entry={"done": True})
+
+    def on_turn_completed(self, turn_index: int, **kwargs: Any) -> None:
+        self._last_turn_result = {"turn_index": turn_index, **kwargs}
+
+
+def test_image_evidence_in_tool_result_raw_via_on_turn_completed() -> None:
+    """image_evidence from the execution result must appear in on_turn_completed tool_result_raw."""
+    pack = _OneStepImagePack()
+    sm = _ImageEvidenceSessionManager()
+    sm.start_session(
+        __import__("harness.execution.contracts", fromlist=["ExecutionSessionStartRequest"])
+        .ExecutionSessionStartRequest(run_id="r-img", session_id="sess-img")
+    )
+    run_orchestration_kernel_loop(
+        orchestration_adapter=pack,
+        session_manager=sm,
+        session_id="sess-img",
+        run_artifact_ref=None,
+        request_id_prefix="req-img",
+        opaque_run_context={},
+        max_iterations=3,
+    )
+    # The image step is turn 1; _last_turn_result should be from the complete_run turn.
+    # For the tool execution turn, we need to check via a recorder.
+    # Re-run with a recording adapter that captures all on_turn_completed calls.
+    results: list[dict[str, Any]] = []
+
+    class _RecordingPack(_OneStepImagePack):
+        def on_turn_completed(self, turn_index: int, **kwargs: Any) -> None:  # type: ignore[override]
+            results.append({"turn_index": turn_index, **kwargs})
+
+    pack2 = _RecordingPack()
+    sm2 = _ImageEvidenceSessionManager()
+    sm2.start_session(
+        __import__("harness.execution.contracts", fromlist=["ExecutionSessionStartRequest"])
+        .ExecutionSessionStartRequest(run_id="r-img2", session_id="sess-img2")
+    )
+    run_orchestration_kernel_loop(
+        orchestration_adapter=pack2,
+        session_manager=sm2,
+        session_id="sess-img2",
+        run_artifact_ref=None,
+        request_id_prefix="req-img2",
+        opaque_run_context={},
+        max_iterations=3,
+    )
+
+    # Turn 1 is the tool execution turn.
+    tool_turn = next(r for r in results if r["turn_index"] == 1)
+    tool_result = tool_turn["tool_result_raw"]
+    assert tool_result is not None
+    evidence = tool_result["image_evidence"]
+    assert len(evidence) == 2
+    assert evidence[0]["ref_id"] == "image:assoc:tx1:original"
+    assert evidence[1]["ref_id"] == "image:assoc:tx1:processed"
+
+
+def test_image_evidence_empty_list_when_no_evidence() -> None:
+    """When image_evidence is empty, tool_result_raw.image_evidence should be []."""
+    results: list[dict[str, Any]] = []
+
+    class _NoEvidencePack(OneStepThenCompletePack):
+        def on_turn_completed(self, turn_index: int, **kwargs: Any) -> None:  # type: ignore[override]
+            results.append({"turn_index": turn_index, **kwargs})
+
+    sm = FakeSessionManager()
+    sm.start_session(
+        __import__("harness.execution.contracts", fromlist=["ExecutionSessionStartRequest"])
+        .ExecutionSessionStartRequest(run_id="r-ne", session_id="sess-ne")
+    )
+    run_orchestration_kernel_loop(
+        orchestration_adapter=_NoEvidencePack(),
+        session_manager=sm,
+        session_id="sess-ne",
+        run_artifact_ref=None,
+        request_id_prefix="req-ne",
+        opaque_run_context={},
+        max_iterations=3,
+    )
+
+    tool_turn = next((r for r in results if r.get("tool_request") is not None), None)
+    assert tool_turn is not None
+    assert tool_turn["tool_result_raw"]["image_evidence"] == []
