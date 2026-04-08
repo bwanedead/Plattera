@@ -19,6 +19,9 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from .event_log import AuditEventLog
+from .normalize import audit_jsonable
+
 _LOG = logging.getLogger(__name__)
 
 
@@ -33,6 +36,7 @@ class RunAuditWriter:
         self._turns: list[dict[str, Any]] = []
         # Index: turn_index → position in _turns list for O(1) supplement lookup.
         self._turn_index_map: dict[int, int] = {}
+        self._event_log = AuditEventLog(run_dir)
 
     # ------------------------------------------------------------------
     # Callback wired to LlmTurnOrchestrationAdapter.wire_raw_io_cb()
@@ -42,11 +46,13 @@ class RunAuditWriter:
         """Receive one raw I/O record per choose-action turn from the adapter."""
         if self._dir is None:
             return
-        record = dict(data)
+        record = _normalize_turn_record(data)
         turn_index = int(record.get("turn_index") or 0)
         pos = len(self._turns)
         self._turns.append(record)
         self._turn_index_map[turn_index] = pos
+        self._event_log.append("llm_io", record, turn_index=turn_index)
+        self._write_turn_record(turn_index, record)
 
     # ------------------------------------------------------------------
     # Callback wired to LlmTurnOrchestrationAdapter.wire_turn_result_cb()
@@ -56,17 +62,22 @@ class RunAuditWriter:
         """Supplement the matching LLM I/O turn record with post-execution data."""
         if self._dir is None:
             return
-        turn_index = int(data.get("turn_index") or 0)
+        record = _normalize_turn_record(data)
+        turn_index = int(record.get("turn_index") or 0)
         pos = self._turn_index_map.get(turn_index)
         if pos is None:
             # No matching LLM I/O record (e.g. turn was skipped before choose_action).
             # Create a minimal stub so we don't lose the tool/state data.
             stub: dict[str, Any] = {"turn_index": turn_index}
-            stub.update({k: v for k, v in data.items() if k != "turn_index"})
+            stub.update({k: v for k, v in record.items() if k != "turn_index"})
             self._turns.append(stub)
             self._turn_index_map[turn_index] = len(self._turns) - 1
+            self._event_log.append("turn_completed", stub, turn_index=turn_index)
+            self._write_turn_record(turn_index, stub)
             return
-        self._turns[pos].update({k: v for k, v in data.items() if k != "turn_index"})
+        self._turns[pos].update({k: v for k, v in record.items() if k != "turn_index"})
+        self._event_log.append("turn_completed", record, turn_index=turn_index)
+        self._write_turn_record(turn_index, self._turns[pos])
 
     # ------------------------------------------------------------------
     # Finalization (call once, at run completion or failure)
@@ -87,7 +98,6 @@ class RunAuditWriter:
             return
         try:
             self._dir.mkdir(parents=True, exist_ok=True)
-            self._write_turns()
             self._write_index(run_id, terminal_class, reason_code, iterations, latest_refs)
             self._write_review(terminal_class, reason_code, iterations, trace_events, latest_refs)
         except Exception:
@@ -100,7 +110,10 @@ class RunAuditWriter:
     def _write_turns(self) -> None:
         for rec in self._turns:
             turn_idx = int(rec.get("turn_index") or 0)
-            _write_json_atomic(self._dir / f"turn_{turn_idx:04d}.json", rec)  # type: ignore[arg-type]
+            self._write_turn_record(turn_idx, rec)
+
+    def _write_turn_record(self, turn_idx: int, record: dict[str, Any]) -> None:
+        _write_json_atomic(self._dir / f"turn_{turn_idx:04d}.json", record)  # type: ignore[arg-type]
 
     def _write_index(
         self,
@@ -198,7 +211,7 @@ def _extract_tool_sequence(trace_events: list[dict[str, Any]]) -> list[str]:
 def _write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
     """Atomic JSON write: temp file → os.replace to avoid partial files."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    text = json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True)
+    text = json.dumps(audit_jsonable(payload), ensure_ascii=False, indent=2, sort_keys=True)
     fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".tmp_", suffix=".json")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
@@ -210,3 +223,8 @@ def _write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
         except OSError:
             pass
         raise
+
+
+def _normalize_turn_record(data: dict[str, Any]) -> dict[str, Any]:
+    """Normalize turn records to JSON-safe primitives before persistence."""
+    return dict(audit_jsonable(dict(data)))

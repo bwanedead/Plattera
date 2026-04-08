@@ -7,6 +7,7 @@ from typing import Any
 import pytest
 
 from harness.audit.run_audit_writer import RunAuditWriter, _extract_tool_sequence
+from harness.runtime.orchestration.contracts import ActionPlan
 
 
 # ---------------------------------------------------------------------------
@@ -47,6 +48,45 @@ def test_on_llm_io_buffers_turns(tmp_path: Path) -> None:
     assert len(writer._turns) == 2
     assert writer._turns[0]["turn_index"] == 1
     assert writer._turns[1]["raw_prompt_text"] == "prompt2"
+
+
+def test_on_llm_io_writes_turn_file_immediately(tmp_path: Path) -> None:
+    writer = RunAuditWriter(tmp_path / "run1")
+    writer.on_llm_io({
+        "turn_index": 1,
+        "raw_prompt_text": "prompt1",
+        "repair_records": [],
+    })
+
+    turn_path = tmp_path / "run1" / "audit" / "turn_0001.json"
+    assert turn_path.exists()
+    turn = json.loads(turn_path.read_text())
+    assert turn["raw_prompt_text"] == "prompt1"
+
+
+def test_on_llm_io_normalizes_non_json_payloads(tmp_path: Path) -> None:
+    writer = RunAuditWriter(tmp_path / "run1")
+    writer.on_llm_io({
+        "turn_index": 1,
+        "repair_attempted": True,
+        "repair_records": [
+            {
+                "repair_prompt_text": "prompt",
+                "repair_raw_response_text": "response",
+                "repair_parse_ok": True,
+                "repair_parse_reason_code": None,
+                "repair_parsed_action_plan": ActionPlan(
+                    action_type="noop",
+                    continuity_journal_entry={"kind": "test"},
+                ),
+            }
+        ],
+    })
+
+    turn = json.loads((tmp_path / "run1" / "audit" / "turn_0001.json").read_text())
+    rec = turn["repair_records"][0]
+    assert rec["repair_parsed_action_plan"]["action_type"] == "noop"
+    assert rec["repair_parsed_action_plan"]["continuity_journal_entry"] == {"kind": "test"}
 
 
 def test_finalize_writes_turn_files(tmp_path: Path) -> None:
@@ -235,6 +275,49 @@ def test_tool_request_and_result_written_via_on_turn_completed(tmp_path: Path) -
     assert turn["tool_result_raw"]["execution_state"] == "executed"
     assert turn["tool_result_raw"]["outputs"] == {"y": 2}
     assert turn["latest_refs_after"] == {"ref_a": "artifact://a"}
+
+
+def test_on_turn_completed_writes_turn_file_immediately(tmp_path: Path) -> None:
+    writer = RunAuditWriter(tmp_path / "run1")
+    writer.on_llm_io({"turn_index": 2, "parse_ok": True})
+    writer.on_turn_completed({
+        "turn_index": 2,
+        "tool_request": {"action_type": "my_tool", "action_inputs": {}},
+        "tool_result_raw": {"execution_state": "executed"},
+        "mission_state_after": {"mission_id": "m1"},
+        "resolution_state_after": {"items": []},
+        "latest_refs_after": {"ref_a": "artifact://a"},
+        "state_patch_feedback": {"outcome": "applied"},
+        "terminal_decision": None,
+    })
+
+    turn = json.loads((tmp_path / "run1" / "audit" / "turn_0002.json").read_text())
+    assert turn["mission_state_after"]["mission_id"] == "m1"
+    assert turn["state_patch_feedback"]["outcome"] == "applied"
+
+
+def test_finalize_failure_does_not_erase_earlier_turn_files(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    writer = RunAuditWriter(tmp_path / "run1")
+    writer.on_llm_io({"turn_index": 1, "raw_prompt_text": "p1"})
+    writer.on_llm_io({"turn_index": 2, "raw_prompt_text": "p2"})
+
+    def boom(*args: Any, **kwargs: Any) -> None:
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(writer, "_write_index", boom)
+
+    writer.finalize(
+        terminal_class="failed",
+        reason_code="runner_exception",
+        iterations=2,
+        latest_refs={},
+        trace_events=[],
+    )
+
+    audit_dir = tmp_path / "run1" / "audit"
+    assert (audit_dir / "turn_0001.json").exists()
+    assert (audit_dir / "turn_0002.json").exists()
+    assert (audit_dir / "events.jsonl").exists()
 
 
 def test_on_turn_completed_without_prior_llm_io_creates_stub(tmp_path: Path) -> None:

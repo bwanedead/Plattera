@@ -72,6 +72,8 @@ class ProgressDelta:
 class TerminalEvaluation:
     terminal_class: TerminalClass
     reason_code: str
+    # Optional long-form explanation for observers/audit. ``reason_code`` stays short and bounded.
+    terminal_summary: str | None = None
 
 
 @dataclass(frozen=True)
@@ -86,6 +88,8 @@ class KernelLoopResult:
     trace_events: list[dict[str, Any]] = field(default_factory=list)
     # Mechanical persistence blob for process restart (``kernel_resume.v1``); no semantic authoring.
     kernel_resume_snapshot: dict[str, Any] | None = None
+    # Optional long-form explanation for the terminal outcome. Kept separate from the short code.
+    terminal_summary: str | None = None
 
     @property
     def opaque_runtime_payload(self) -> dict[str, Any]:

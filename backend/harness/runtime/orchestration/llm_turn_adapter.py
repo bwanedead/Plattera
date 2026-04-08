@@ -6,7 +6,6 @@ parser, and the continuity compaction subsystem. Does not own any of their inter
 
 from __future__ import annotations
 
-import dataclasses
 import logging
 import time
 from collections.abc import Callable, Mapping
@@ -311,7 +310,7 @@ class LlmTurnOrchestrationAdapter(OrchestrationAdapter):
                 "repair_parse_ok": repair_attempt.repair_parse_ok,
                 "repair_parse_reason_code": repair_attempt.repair_parse_reason_code,
                 "repair_parsed_action_plan": (
-                    dataclasses.asdict(repair_attempt.repair_parsed_action_plan)
+                    jsonable(repair_attempt.repair_parsed_action_plan)
                     if repair_attempt.repair_parsed_action_plan is not None else None
                 ),
             }

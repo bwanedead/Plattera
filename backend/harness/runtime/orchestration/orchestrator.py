@@ -332,6 +332,7 @@ def run_orchestration_kernel_loop(
                 loop_memory=loop_memory,
                 terminal_class=terminal.terminal_class,
                 reason_code=terminal.reason_code,
+                terminal_summary=terminal.terminal_summary,
                 iterations=iterations,
                 session_id=session_id,
                 run_artifact_ref=run_artifact_ref,
@@ -447,7 +448,8 @@ def run_orchestration_kernel_loop(
             return _make_result(
                 loop_memory=loop_memory,
                 terminal_class="completed",
-                reason_code=str(action_plan.rationale or "complete_run"),
+                reason_code="complete_run",
+                terminal_summary=str(action_plan.rationale) if action_plan.rationale is not None else None,
                 iterations=iterations,
                 session_id=session_id,
                 run_artifact_ref=run_artifact_ref,
@@ -608,11 +610,13 @@ def _make_result(
     run_artifact_ref: str | None,
     tracer: KernelTraceCollector,
     session_manager: ExecutionSessionManager,
+    terminal_summary: str | None = None,
 ) -> KernelLoopResult:
     tracer.emit_terminal(
         iteration=iterations,
         terminal_class=terminal_class,
         reason_code=reason_code,
+        terminal_summary=terminal_summary,
     )
     runtime_state = {
         "hitl_state": loop_memory.hitl.hitl_state,
@@ -644,6 +648,7 @@ def _make_result(
     return KernelLoopResult(
         terminal_class=terminal_class,
         reason_code=reason_code,
+        terminal_summary=terminal_summary,
         iterations=iterations,
         session_id=session_id,
         run_artifact_ref=run_artifact_ref,

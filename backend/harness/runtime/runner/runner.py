@@ -210,9 +210,12 @@ class RuntimeRunner:
             )
 
     def _write_artifacts(self, *, targets: RuntimeArtifactTargets, result: RuntimeRunResult) -> None:
-        _write_json(targets.result_file, _build_result_document(result))
-        _write_json(targets.done_file, _build_done_document(result))
-        _maybe_finalize_retention_and_cleanup(targets)
+        try:
+            _write_json(targets.result_file, _build_result_document(result))
+            _write_json(targets.done_file, _build_done_document(result))
+        finally:
+            _maybe_update_cli_run_state(result.status)
+            _maybe_finalize_retention_and_cleanup(targets)
 
 
 def run_runtime_from_env(
@@ -235,6 +238,7 @@ def _build_loop_result_payload(loop_result: Any) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "terminal_class": str(loop_result.terminal_class),
         "reason_code": loop_result.reason_code,
+        "terminal_summary": getattr(loop_result, "terminal_summary", None),
         "iterations": loop_result.iterations,
         "session_id": loop_result.session_id,
         "run_artifact_ref": loop_result.run_artifact_ref,
@@ -252,6 +256,7 @@ def _build_loop_done_payload(loop_result: Any) -> dict[str, Any]:
     return {
         "terminal_class": str(loop_result.terminal_class),
         "reason_code": loop_result.reason_code,
+        "terminal_summary": getattr(loop_result, "terminal_summary", None),
         "iterations": loop_result.iterations,
         "session_id": loop_result.session_id,
         "run_artifact_ref": loop_result.run_artifact_ref,
@@ -357,8 +362,23 @@ def _build_audit_writer() -> Any:
         return RunAuditWriter(None)
 
 
+def _maybe_update_cli_run_state(status: str) -> None:
+    """Best-effort update of the CLI run-state record after a run completes."""
+    cli_run_id = os.environ.get("HARNESS_CLI_RUN_ID", "").strip()
+    if not cli_run_id:
+        return
+    try:
+        from harness.cli.run_state import update_state_fields
+
+        update_state_fields(cli_run_id, status=str(status))
+    except Exception:
+        import logging
+
+        logging.getLogger(__name__).warning("run-state update failed for run_id=%s", cli_run_id, exc_info=True)
+
+
 def _maybe_finalize_retention_and_cleanup(targets: RuntimeArtifactTargets) -> None:
-    """Write retention.json and trigger latest-4 cleanup.  Best-effort; never raises."""
+    """Write retention.json and trigger latest-5 cleanup.  Best-effort; never raises."""
     cli_run_id = os.environ.get("HARNESS_CLI_RUN_ID", "").strip()
     if not cli_run_id:
         return

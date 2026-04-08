@@ -437,6 +437,33 @@ class AsyncHitlThenCompletePack:
         )
 
 
+class LongRationaleCompleteRunPack:
+    """complete_run with a long terminal rationale that must stay out of reason_code."""
+
+    def initialize(self, context: OrchestratorContext) -> None:
+        pass
+
+    def sync(self, context: OrchestratorContext) -> SharedStateProjection:
+        return SharedStateProjection(
+            mission_state=new_mission_state(mission_id="m-terminal", loop_family="orchestration_kernel"),
+            resolution_state=new_resolution_state(),
+        )
+
+    def evaluate_terminal(self, context: OrchestratorContext, projection: SharedStateProjection | None) -> TerminalEvaluation | None:
+        return None
+
+    def choose_action(self, context: OrchestratorContext, projection: SharedStateProjection | None) -> ActionPlan:
+        return ActionPlan(
+            complete_run=True,
+            idempotency_key="ik-terminal",
+            rationale=(
+                "The focused lower-page crop still leaves the second parcel unresolved, "
+                "so the run should stop with that limitation explicit."
+            ),
+            continuity_journal_entry=_PACK_CJ,
+        )
+
+
 def test_non_blocking_hitl_loop_continues() -> None:
     sm = FakeSessionManager()
     result = run_orchestration_kernel_loop(
@@ -450,6 +477,30 @@ def test_non_blocking_hitl_loop_continues() -> None:
     )
     assert result.terminal_class == "completed"
     assert result.runtime_state.get("pending_hitl_requests_count", 0) >= 1
+
+
+def test_complete_run_uses_short_reason_code_and_preserves_summary() -> None:
+    sm = FakeSessionManager()
+    result = run_orchestration_kernel_loop(
+        orchestration_adapter=LongRationaleCompleteRunPack(),
+        session_manager=sm,
+        session_id="s-long-terminal",
+        run_artifact_ref=None,
+        request_id_prefix="r-long-terminal",
+        opaque_run_context={},
+        max_iterations=3,
+    )
+
+    assert result.terminal_class == "completed"
+    assert result.reason_code == "complete_run"
+    assert result.terminal_summary == (
+        "The focused lower-page crop still leaves the second parcel unresolved, "
+        "so the run should stop with that limitation explicit."
+    )
+    assert len(sm.steps) == 0
+    terminal_event = next(e for e in result.trace_events if e.get("event_kind") == "terminal_outcome")
+    assert terminal_event["reason_code"] == "complete_run"
+    assert terminal_event["payload"]["terminal_summary"] == result.terminal_summary
 
 
 def test_skip_execution_no_session_step() -> None:

@@ -181,8 +181,15 @@ class KernelTraceCollector:
         iteration: int,
         terminal_class: str,
         reason_code: str,
+        terminal_summary: str | None = None,
     ) -> None:
         """Emitted immediately before the kernel loop returns."""
+        payload: dict[str, Any] = {
+            "terminal_class": terminal_class,
+            "reason_code": reason_code,
+        }
+        if terminal_summary is not None:
+            payload["terminal_summary"] = terminal_summary
         self._append(
             RawTraceEvent(
                 timestamp_epoch_seconds=self._now(),
@@ -193,10 +200,7 @@ class KernelTraceCollector:
                 status="completed",
                 reason_code=reason_code,
                 refs_delta={},
-                payload={
-                    "terminal_class": terminal_class,
-                    "reason_code": reason_code,
-                },
+                payload=payload,
                 source_origin=self._source(local_id=f"iter_{iteration}_terminal"),
             )
         )

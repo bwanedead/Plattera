@@ -6,6 +6,7 @@ Shared JSON serialization helper ``jsonable`` is also exported for adapter-side 
 
 from __future__ import annotations
 
+import dataclasses
 import json
 from collections.abc import Mapping
 from typing import Any
@@ -125,6 +126,8 @@ def jsonable(value: Any) -> Any:
     """Recursively convert a value to a JSON-serializable form."""
     if hasattr(value, "model_dump"):
         return jsonable(value.model_dump(mode="python"))  # type: ignore[call-arg]
+    if dataclasses.is_dataclass(value):
+        return jsonable(dataclasses.asdict(value))
     if isinstance(value, Mapping):
         return {str(key): jsonable(raw_value) for key, raw_value in value.items()}
     if isinstance(value, list):

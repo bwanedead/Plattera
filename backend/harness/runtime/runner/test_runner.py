@@ -7,6 +7,7 @@ from typing import Any
 
 import pytest
 
+import harness.cli.run_state as cli_run_state
 from domains.mapping.transcript_edit.runtime_adapter import build_transcript_edit_runtime_adapter
 import config.paths as config_paths
 from harness.execution.contracts import ActionDispatchResult, ExecutionStepRequest
@@ -27,6 +28,21 @@ class FakeSurfaceAdapter:
 
 def _targets(tmp_path: Path) -> RuntimeArtifactTargets:
     return RuntimeArtifactTargets(done_file=tmp_path / "done.json", result_file=tmp_path / "result.json")
+
+
+def _seed_cli_run_state(tmp_path: Path, monkeypatch, run_id: str) -> None:
+    monkeypatch.setenv("HARNESS_CLI_RUN_ID", run_id)
+    monkeypatch.setattr(cli_run_state, "cli_runs_root", lambda: tmp_path / "cli_runs")
+    cli_run_state.write_state(
+        cli_run_state.new_run_state(
+            run_id=run_id,
+            pid=4242,
+            loop_kind="harness_cli",
+            mode="stub",
+            spawn_argv=["python", "-m", "harness.cli.stub_worker"],
+            status="started",
+        )
+    )
 
 
 def _surface(tool_calls: list[ExecutionStepRequest]) -> TurnSurface:
@@ -96,10 +112,12 @@ def _write_transcript_edit_fixture(root: Path) -> None:
     )
 
 
-def test_runner_invokes_orchestration_and_writes_loop_result_artifacts(tmp_path: Path) -> None:
+def test_runner_invokes_orchestration_and_writes_loop_result_artifacts(tmp_path: Path, monkeypatch) -> None:
     tool_calls: list[ExecutionStepRequest] = []
     adapter = FakeSurfaceAdapter(calls=[], surface=_surface(tool_calls))
     model_calls: list[tuple[str, str]] = []
+    run_id = "run-1"
+    _seed_cli_run_state(tmp_path, monkeypatch, run_id)
 
     def model_caller(prompt: str, model: str, **_kwargs: Any) -> str:
         model_calls.append((prompt, model))
@@ -138,7 +156,7 @@ def test_runner_invokes_orchestration_and_writes_loop_result_artifacts(tmp_path:
     result = runner.run(
         launch_context={
             "model": "gpt-5.4-mini",
-            "run_id": "run-1",
+            "run_id": run_id,
             "session_id": "session-1",
             "request_id_prefix": "req-1",
             "max_iterations": 3,
@@ -146,7 +164,8 @@ def test_runner_invokes_orchestration_and_writes_loop_result_artifacts(tmp_path:
     )
 
     assert result.status == "completed"
-    assert result.reason_code == "finished"
+    assert result.reason_code == "complete_run"
+    assert result.result_payload["terminal_summary"] == "finished"
     assert adapter.calls == [
         {
             "max_iterations": 3,
@@ -165,17 +184,22 @@ def test_runner_invokes_orchestration_and_writes_loop_result_artifacts(tmp_path:
     result_doc = json.loads((tmp_path / "result.json").read_text(encoding="utf-8"))
     done_doc = json.loads((tmp_path / "done.json").read_text(encoding="utf-8"))
     assert result_doc["status"] == "completed"
-    assert result_doc["reason_code"] == "finished"
+    assert result_doc["reason_code"] == "complete_run"
     assert result_doc["terminal_class"] == "completed"
+    assert result_doc["terminal_summary"] == "finished"
     assert result_doc["iterations"] == 2
     assert result_doc["latest_refs"] == {"artifact://selected": "artifact://selected"}
     assert done_doc["status"] == "completed"
-    assert done_doc["reason_code"] == "finished"
+    assert done_doc["reason_code"] == "complete_run"
     assert done_doc["terminal_class"] == "completed"
+    assert done_doc["terminal_summary"] == "finished"
     assert done_doc["latest_refs"] == {"artifact://selected": "artifact://selected"}
+    state = cli_run_state.read_state(run_id)
+    assert state is not None
+    assert state.status == "completed"
 
 
-def test_runner_writes_mechanical_failure_for_invalid_model_json(tmp_path: Path) -> None:
+def test_runner_writes_mechanical_failure_for_invalid_model_json(tmp_path: Path, monkeypatch) -> None:
     adapter = FakeSurfaceAdapter(
         calls=[],
         surface=TurnSurface(
@@ -185,6 +209,8 @@ def test_runner_writes_mechanical_failure_for_invalid_model_json(tmp_path: Path)
             tool_bindings=(),
         ),
     )
+    run_id = "run-invalid-json"
+    _seed_cli_run_state(tmp_path, monkeypatch, run_id)
 
     def model_caller(prompt: str, model: str, **_kwargs: Any) -> str:
         del prompt, model
@@ -193,7 +219,7 @@ def test_runner_writes_mechanical_failure_for_invalid_model_json(tmp_path: Path)
     runner = RuntimeRunner(adapter=adapter, model_caller=model_caller, targets=_targets(tmp_path))
 
     with pytest.raises(RuntimeRunnerError) as exc_info:
-        runner.run(launch_context={"model": "gpt-5.4-mini"})
+        runner.run(launch_context={"model": "gpt-5.4-mini", "run_id": run_id})
 
     assert "invalid_model_action_json" in str(exc_info.value)
     result_doc = json.loads((tmp_path / "result.json").read_text(encoding="utf-8"))
@@ -203,6 +229,9 @@ def test_runner_writes_mechanical_failure_for_invalid_model_json(tmp_path: Path)
     assert result_doc["error"] == "model output was not valid JSON"
     assert done_doc["status"] == "failed"
     assert done_doc["reason_code"] == "invalid_model_action_json"
+    state = cli_run_state.read_state(run_id)
+    assert state is not None
+    assert state.status == "failed"
 
 
 def test_runner_executes_transcript_edit_tool_and_writes_artifacts(tmp_path: Path, monkeypatch) -> None:
@@ -210,6 +239,8 @@ def test_runner_executes_transcript_edit_tool_and_writes_artifacts(tmp_path: Pat
     dossier_root.mkdir()
     _write_transcript_edit_fixture(dossier_root)
     monkeypatch.setattr(config_paths, "dossiers_root", lambda: dossier_root)
+    run_id = "practice-live-smoke-1"
+    _seed_cli_run_state(tmp_path, monkeypatch, run_id)
 
     model_calls: list[tuple[str, str]] = []
 
@@ -257,14 +288,15 @@ def test_runner_executes_transcript_edit_tool_and_writes_artifacts(tmp_path: Pat
         launch_context={
             "dossier_id": "9f5eecb6-cd7e-483c-b691-b76aa7132e8e",
             "transcription_id": "draft_legal_text_image",
-            "run_id": "practice-live-smoke-1",
+            "run_id": run_id,
             "model": "gpt-o4-mini",
             "max_iterations": 2,
         }
     )
 
     assert result.status == "completed"
-    assert result.reason_code == "finished"
+    assert result.reason_code == "complete_run"
+    assert result.result_payload["terminal_summary"] == "finished"
     assert len(model_calls) == 2
 
     tool_events = [event for event in result.result_payload["trace_events"] if event.get("event_kind") == "tool_execution"]
@@ -274,9 +306,14 @@ def test_runner_executes_transcript_edit_tool_and_writes_artifacts(tmp_path: Pat
     result_doc = json.loads((tmp_path / "result.json").read_text(encoding="utf-8"))
     done_doc = json.loads((tmp_path / "done.json").read_text(encoding="utf-8"))
     assert result_doc["status"] == "completed"
-    assert result_doc["reason_code"] == "finished"
+    assert result_doc["reason_code"] == "complete_run"
+    assert result_doc["terminal_summary"] == "finished"
     assert done_doc["status"] == "completed"
-    assert done_doc["reason_code"] == "finished"
+    assert done_doc["reason_code"] == "complete_run"
+    assert done_doc["terminal_summary"] == "finished"
+    state = cli_run_state.read_state(run_id)
+    assert state is not None
+    assert state.status == "completed"
 
 
 def test_audit_writer_finalize_called_even_when_loop_raises(tmp_path: Path, monkeypatch) -> None:
