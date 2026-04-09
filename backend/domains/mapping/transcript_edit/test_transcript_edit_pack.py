@@ -28,6 +28,10 @@ def test_manifest_tool_ids_match_tool_specs() -> None:
     assert manifest.declared_semantic_tool_ids == tuple(s.tool_id for s in specs)
     assert len(specs) == 4
     assert manifest.closure_policy.hard_enforced is True
+    assert manifest.closure_policy.minimum_resolution_items_for_save == 1
+    assert manifest.closure_policy.minimum_resolution_items_for_wait == 1
+    assert manifest.closure_policy.minimum_resolution_items_for_publish == 1
+    assert manifest.closure_policy.minimum_resolution_items_for_complete == 1
     assert len(manifest.closure_policy.standards) == 4
 
 
@@ -59,6 +63,8 @@ def test_prompt_branch_block_shape_and_doctrine_markers() -> None:
     assert "layer 4 classifies" in text.lower()
     assert "closure ledger requirement" in text.lower()
     assert "mission.closure_state" in text
+    assert "empty item ledger" in text.lower()
+    assert "saved working draft" in text.lower()
 
 
 def test_domain_pack_includes_procedural_guidance_block() -> None:
@@ -81,6 +87,8 @@ def test_domain_pack_includes_procedural_guidance_block() -> None:
     assert "mapping-critical" in text
     assert "recommended transcript-edit movement" in text
     assert "same broad set of refs" in text
+    assert "saved working draft as proof" in text
+    assert "empty work ledger" in text
     assert "heads/finals" not in text
     assert "peer t0" in text
     assert "closure ledger" in text
@@ -228,6 +236,10 @@ def test_transcript_edit_closure_policy_stable_contract() -> None:
     assert policy.hard_enforced is True
     assert policy.enforce_on_publish is True
     assert policy.enforce_on_complete is True
+    assert policy.minimum_resolution_items_for_save == 1
+    assert policy.minimum_resolution_items_for_wait == 1
+    assert policy.minimum_resolution_items_for_publish == 1
+    assert policy.minimum_resolution_items_for_complete == 1
     assert len(policy.required_dimension_ids) == 4
     assert len(policy.standards) == 4
     assert policy.standards[0].dimension_id == "layer_1_delta_convergence"

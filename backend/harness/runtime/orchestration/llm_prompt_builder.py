@@ -20,6 +20,8 @@ from ..memory.continuity_journal import (
 )
 from .contracts import OrchestratorContext, SharedStateProjection
 
+_HIDDEN_LAUNCH_CONTEXT_KEYS = frozenset({"max_iterations"})
+
 
 def build_choose_action_prompt(
     *,
@@ -36,7 +38,7 @@ def build_choose_action_prompt(
         "iteration": context.loop_memory.iterations,
         "session_id": context.session_id,
         "request_id_prefix": context.request_id_prefix,
-        "launch_context": jsonable(opaque_launch_context),
+        "launch_context": prompt_visible_launch_context(opaque_launch_context),
         "turn_input": _turn_input_document(composed_input),
         "latest_refs": dict(cont.latest_refs),
         "active_item_id": cont.active_item_id,
@@ -145,6 +147,19 @@ def jsonable(value: Any) -> Any:
     if isinstance(value, set):
         return [jsonable(item) for item in sorted(value, key=str)]
     return value
+
+
+def prompt_visible_launch_context(value: Mapping[str, Any]) -> dict[str, Any]:
+    """Return the launch-context slice that should be visible to the model.
+
+    Host budget mechanics such as ``max_iterations`` are intentionally withheld so
+    the model optimizes for truthful progress, not turn-count compression.
+    """
+    return {
+        str(key): jsonable(raw_value)
+        for key, raw_value in value.items()
+        if str(key) not in _HIDDEN_LAUNCH_CONTEXT_KEYS
+    }
 
 
 def _projection_document(projection: SharedStateProjection | None) -> dict[str, Any]:

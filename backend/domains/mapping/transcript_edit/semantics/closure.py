@@ -22,6 +22,10 @@ def build_transcript_edit_closure_policy() -> DomainClosurePolicy:
         hard_enforced=True,
         enforce_on_publish=True,
         enforce_on_complete=True,
+        minimum_resolution_items_for_save=1,
+        minimum_resolution_items_for_wait=1,
+        minimum_resolution_items_for_publish=1,
+        minimum_resolution_items_for_complete=1,
         required_dimension_ids=(
             "layer_1_delta_convergence",
             "layer_2_intrinsic_source_integrity",

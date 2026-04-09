@@ -285,13 +285,23 @@ def test_runner_executes_transcript_edit_tool_and_writes_artifacts(tmp_path: Pat
                 "skip_execution": True,
                 "wait_for_human": False,
                 "complete_run": True,
-                "rationale": "finished",
-                "state_patch": {
-                    "mission": {
-                        "closure_state": {
-                            "overall_status": "complete_ready",
-                            "ready_to_close": True,
-                            "dimensions": [
+                    "rationale": "finished",
+                    "state_patch": {
+                        "resolution": {
+                            "items": [
+                                {
+                                    "item_id": "peer_alpha_review",
+                                    "title": "Peer alpha review",
+                                    "kind": "work_unit",
+                                    "status": "closed",
+                                }
+                            ]
+                        },
+                        "mission": {
+                            "closure_state": {
+                                "overall_status": "complete_ready",
+                                "ready_to_close": True,
+                                "dimensions": [
                                 {
                                     "dimension_id": "layer_1_delta_convergence",
                                     "title": "Layer 1",

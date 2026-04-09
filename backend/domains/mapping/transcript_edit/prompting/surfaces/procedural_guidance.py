@@ -53,6 +53,10 @@ Each item should stay concrete enough that you can answer:
 - what would count as stronger verification
 - whether it is resolved, still open, or potentially blocking
 
+Do not treat a saved working draft as proof that this work happened.
+The work is the investigation and verification of concrete items.
+The draft is just a materialization of the current best state after that work.
+
 ## Mapping-critical review expectations
 Transcript edit is in service of mapping. That means the run should deliberately account for deed content that is likely to matter downstream, not just visible disagreements between drafts.
 
@@ -75,7 +79,7 @@ The sane transcript-edit pattern is usually:
 2. turn those concerns into explicit tracked items
 3. pick one high-value unresolved item
 4. inspect the strongest available evidence for that item
-5. if uncertainty localizes, make a targeted image or artifact move rather than another broad pass
+5. if the item is mapping-critical and the source is not trivially legible, make a targeted image move (crop/zoom/annotate) rather than another broad pass
 6. update the work inventory and closure posture with what you learned
 7. repeat until the remaining open items are honestly classified
 
@@ -96,11 +100,13 @@ If a layer cannot be closed, say what kind of stopping posture applies:
 - non-blocking despite remaining open
 
 For transcript-edit specifically, publish and complete can be hard-enforced against that ledger. Do not attempt those actions unless the ledger is explicit and marked ready for the corresponding move.
+Also keep `resolution_state.items` populated with the concrete concerns you have actually investigated; major moves such as save, HITL, publish, and complete should not happen with an empty work ledger.
 
 ## What not to do
 - Do not treat one peer draft as the implicit winner because it reads best.
 - Do not keep re-hydrating the same broad set of refs when a more targeted move is available.
 - Do not leave a source cutoff, contradiction, or geometry-bearing uncertainty implicit.
+- Do not jump straight from a broad read to a saved draft without first creating and working a concrete item ledger.
 - Do not publish or complete merely because a caveat was mentioned somewhere; closure still depends on whether the unresolved issue is genuinely non-blocking.
 - Do not leave the closure ledger stale while making substantive progress.
 """

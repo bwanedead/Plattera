@@ -90,18 +90,21 @@ By the time you save, publish, request HITL, or complete the run, the transcript
 
 The harness does not decide those meanings for you. You author them.
 This domain hard-enforces closure readiness for publish and complete actions: if the closure ledger is missing required layer dispositions or not marked ready, those actions can be refused mechanically.
+This domain also expects an explicit `resolution_state.items` ledger for the concrete concerns you have investigated. Saving, requesting HITL, publishing, or completing with an empty item ledger is not a credible transcript-edit posture.
 
 ## Good evidence
 - Compare peer drafts as evidence inputs, not as implicit truth sources.
 - Tie textual claims to **specific image regions** or draft ids when material.
 - Prefer smallest disambiguating checks before large rewrites.
 - When a concern localizes to one claim, one line, or one region, investigate that target directly rather than reopening the entire corpus.
+- For geometry-bearing or mapping-critical claims, the strongest available verification usually means a direct source-image check and, if needed, a targeted derived image before you call the claim resolved.
 - When drafts disagree, explain the conflict and what evidence would break the tie.
 - If outside information is required, name the missing dependency explicitly instead of hiding it inside vague uncertainty.
 
 ## Dangerous mistakes
 - Treating one peer t0 draft as the default winner before comparing it against other peers and source evidence.
 - Polishing prose while **geometry-bearing language** (calls, bearings, curves, ties, acreage) is still uncertain.
+- Treating a saved working draft as if it proves the underlying investigation has already been done.
 - Accepting a draft because it reads smoothly without **pixel or provenance** support.
 - Treating unresolved source defects as if they were solved merely because the transcript now matches the source.
 - Guessing missing outside meaning instead of explicitly classifying it as an external dependency.

@@ -470,12 +470,32 @@ def _closure_policy_ctx() -> dict[str, Any]:
             "hard_enforced": True,
             "enforce_on_publish": True,
             "enforce_on_complete": True,
+            "minimum_resolution_items_for_save": 0,
+            "minimum_resolution_items_for_wait": 0,
+            "minimum_resolution_items_for_publish": 0,
+            "minimum_resolution_items_for_complete": 0,
             "required_dimension_ids": [
                 "layer_1_delta_convergence",
                 "layer_2_intrinsic_source_integrity",
                 "layer_3_external_dependency_completeness",
                 "layer_4_mapping_blocking_relevance",
             ],
+            "standards": [],
+        }
+    }
+
+
+def _resolution_items_policy_ctx(*, save: int = 0, wait: int = 0, publish: int = 0, complete: int = 0) -> dict[str, Any]:
+    return {
+        "domain_closure_policy": {
+            "hard_enforced": True,
+            "enforce_on_publish": False,
+            "enforce_on_complete": False,
+            "minimum_resolution_items_for_save": save,
+            "minimum_resolution_items_for_wait": wait,
+            "minimum_resolution_items_for_publish": publish,
+            "minimum_resolution_items_for_complete": complete,
+            "required_dimension_ids": [],
             "standards": [],
         }
     }
@@ -502,6 +522,93 @@ def _inherit_projection_from_context(context: OrchestratorContext) -> SharedStat
         latest_refs=dict(context.loop_memory.continuity.latest_refs),
         active_item_id=context.loop_memory.continuity.active_item_id,
     )
+
+
+class ResolutionGatedSavePack:
+    def initialize(self, context: OrchestratorContext) -> None:
+        pass
+
+    def sync(self, context: OrchestratorContext) -> SharedStateProjection:
+        return _inherit_projection_from_context(context)
+
+    def evaluate_terminal(self, context: OrchestratorContext, projection: SharedStateProjection | None) -> TerminalEvaluation | None:
+        return None
+
+    def choose_action(self, context: OrchestratorContext, projection: SharedStateProjection | None) -> ActionPlan:
+        if context.loop_memory.iterations == 1:
+            return ActionPlan(
+                action_type="save_workspace_artifact",
+                action_inputs={"transcript_text": "draft"},
+                idempotency_key="ik-save-blocked",
+                rationale="too early save",
+                continuity_journal_entry=_PACK_CJ,
+            )
+        if context.loop_memory.iterations == 2:
+            return ActionPlan(
+                action_type="save_workspace_artifact",
+                action_inputs={"transcript_text": "draft"},
+                idempotency_key="ik-save-executed",
+                rationale="save after itemization",
+                continuity_journal_entry=_PACK_CJ,
+                state_patch={
+                    "resolution": {
+                        "items": [
+                            {
+                                "item_id": "claim-1",
+                                "title": "Bearing verification",
+                                "kind": "work_unit",
+                                "status": "open",
+                            }
+                        ],
+                    }
+                },
+            )
+        return ActionPlan(
+            complete_run=True,
+            idempotency_key="ik-save-done",
+            rationale="done",
+            continuity_journal_entry=_PACK_CJ,
+        )
+
+
+class ResolutionGatedWaitPack:
+    def initialize(self, context: OrchestratorContext) -> None:
+        pass
+
+    def sync(self, context: OrchestratorContext) -> SharedStateProjection:
+        return _inherit_projection_from_context(context)
+
+    def evaluate_terminal(self, context: OrchestratorContext, projection: SharedStateProjection | None) -> TerminalEvaluation | None:
+        return None
+
+    def choose_action(self, context: OrchestratorContext, projection: SharedStateProjection | None) -> ActionPlan:
+        if context.loop_memory.iterations == 1:
+            return ActionPlan(
+                wait_for_human=True,
+                idempotency_key="ik-wait-blocked",
+                hitl_request={"message": "Need human input", "choices": [], "context": {}},
+                rationale="wait too early",
+                continuity_journal_entry=_PACK_CJ,
+            )
+        return ActionPlan(
+            wait_for_human=True,
+            idempotency_key="ik-wait-executed",
+            hitl_request={"message": "Need human input", "choices": [], "context": {}},
+            rationale="wait after itemization",
+            continuity_journal_entry=_PACK_CJ,
+            state_patch={
+                "resolution": {
+                    "items": [
+                        {
+                            "item_id": "cutoff-1",
+                            "title": "Second parcel continuation missing",
+                            "kind": "work_unit",
+                            "status": "open",
+                        }
+                    ],
+                }
+            },
+        )
 
 
 def _closure_dimensions(*, layer4_status: str = "blocking") -> list[dict[str, Any]]:
@@ -749,6 +856,55 @@ def test_publish_is_blocked_until_closure_state_is_publish_ready() -> None:
         if e.get("event_kind") == "tool_execution" and e.get("reason_code") == "closure_publish_not_ready"
     )
     assert blocked_event["payload"]["execution_state"] == "refused"
+
+
+def test_save_is_blocked_until_resolution_items_exist() -> None:
+    sm = FakeSessionManager()
+    result = run_orchestration_kernel_loop(
+        orchestration_adapter=ResolutionGatedSavePack(),
+        session_manager=sm,
+        session_id="s-save-gated",
+        run_artifact_ref=None,
+        request_id_prefix="r-save-gated",
+        opaque_run_context=_resolution_items_policy_ctx(save=1),
+        max_iterations=4,
+    )
+
+    assert result.terminal_class == "completed"
+    assert result.reason_code == "complete_run"
+    assert len(sm.steps) == 1
+    assert sm.steps[0].action_id == "save_workspace_artifact"
+    assert len(result.runtime_state["resolution_state"].items) == 1
+    blocked_event = next(
+        e
+        for e in result.trace_events
+        if e.get("event_kind") == "tool_execution" and e.get("reason_code") == "resolution_items_save_required"
+    )
+    assert blocked_event["payload"]["execution_state"] == "refused"
+
+
+def test_wait_for_human_is_blocked_until_resolution_items_exist() -> None:
+    sm = FakeSessionManager()
+    result = run_orchestration_kernel_loop(
+        orchestration_adapter=ResolutionGatedWaitPack(),
+        session_manager=sm,
+        session_id="s-wait-gated",
+        run_artifact_ref=None,
+        request_id_prefix="r-wait-gated",
+        opaque_run_context=_resolution_items_policy_ctx(wait=1),
+        max_iterations=3,
+    )
+
+    assert result.terminal_class == "waiting_human"
+    assert result.reason_code == "waiting_human_feedback"
+    assert len(result.runtime_state["resolution_state"].items) == 1
+    blocked_event = next(
+        e
+        for e in result.trace_events
+        if e.get("event_kind") == "tool_execution" and e.get("reason_code") == "resolution_items_wait_required"
+    )
+    assert blocked_event["payload"]["execution_state"] == "refused"
+    assert result.runtime_state.get("pending_hitl_requests_count", 0) >= 1
 
 
 def test_skip_execution_no_session_step() -> None:

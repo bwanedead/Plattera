@@ -93,8 +93,8 @@ cd backend
 Start a run:
 
 ```powershell
-$runId = "practice-row-live-6"
-$ctx = "{""dossier_id"":""9f5eecb6-cd7e-483c-b691-b76aa7132e8e"",""transcription_id"":""draft_legal_text_image"",""workspace_id"":""$runId"",""run_id"":""$runId"",""max_iterations"":6}"
+$runId = "practice-row-live-20"
+$ctx = "{""dossier_id"":""9f5eecb6-cd7e-483c-b691-b76aa7132e8e"",""transcription_id"":""draft_legal_text_image"",""workspace_id"":""$runId"",""run_id"":""$runId"",""max_iterations"":20}"
 python -m harness.cli.start --run-id $runId --loop-kind transcript_edit --python-module harness.runtime.runner.entrypoint --module-arg=--domain-id --module-arg=transcript_edit --module-arg=--launch-context-json --module-arg=$ctx
 ```
 
@@ -103,6 +103,9 @@ Guidance:
 - use a fresh unique `run_id` for every live run
 - keep `workspace_id == run_id` for live testing unless you have a specific
   reason not to
+- for transcript-edit live behavior testing, prefer a roomier turn budget such
+  as `max_iterations: 20` so the model has space to orient, itemize, verify,
+  and escalate honestly instead of compressing everything into a few turns
 - omit `model` from launch context unless you explicitly want to override the
   harness default model
 

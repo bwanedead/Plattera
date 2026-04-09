@@ -25,7 +25,7 @@ from ..memory.continuity_compaction import (
 )
 from .action_plan_parser import ModelActionParseError, is_repairable_action_plan_error, parse_action_plan_response
 from .contracts import ActionPlan, OrchestrationAdapter, OrchestratorContext, SharedStateProjection
-from .llm_prompt_builder import build_choose_action_prompt, jsonable
+from .llm_prompt_builder import build_choose_action_prompt, jsonable, prompt_visible_launch_context
 from .trace_collector import KernelTraceCollector
 
 
@@ -152,7 +152,7 @@ class LlmTurnOrchestrationAdapter(OrchestrationAdapter):
         prior_rs = context.loop_memory.continuity.resolution_state
 
         mo = dict(prior_ms.opaque_payload)
-        mo["launch_context"] = jsonable(self.opaque_launch_context)
+        mo["launch_context"] = prompt_visible_launch_context(self.opaque_launch_context)
         mo["turn_snapshot"] = turn_snapshot
 
         ro = dict(prior_rs.opaque_payload)

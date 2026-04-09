@@ -787,6 +787,39 @@ def test_choose_action_prompt_includes_closure_state_contract() -> None:
     assert "generic run-level closure ledger" in prompt
 
 
+def test_choose_action_prompt_hides_max_iterations_from_model_visible_launch_context() -> None:
+    captured: list[str] = []
+
+    def caller(prompt: str, model: str, **_kwargs: Any) -> str:
+        captured.append(prompt)
+        return _VALID_PLAN_JSON
+
+    adapter = _minimal_llm_adapter(
+        caller=caller,
+        opaque={"run_id": "r1", "max_iterations": 99, "dossier_id": "d1"},
+    )
+    ctx = _orch_context(iterations=1)
+    adapter.choose_action(ctx, projection=None)
+
+    prompt = captured[0]
+    assert '"run_id": "r1"' in prompt
+    assert '"dossier_id": "d1"' in prompt
+    assert "max_iterations" not in prompt
+
+
+def test_sync_projection_hides_max_iterations_from_mission_state_launch_context() -> None:
+    adapter = _minimal_llm_adapter(
+        caller=lambda *_args, **_kwargs: _VALID_PLAN_JSON,
+        opaque={"run_id": "r2", "max_iterations": 7, "workspace_id": "w2"},
+    )
+    projection = adapter.sync(_orch_context(iterations=1))
+
+    launch_context = projection.mission_state.opaque_payload["launch_context"]
+    assert launch_context["run_id"] == "r2"
+    assert launch_context["workspace_id"] == "w2"
+    assert "max_iterations" not in launch_context
+
+
 def test_choose_action_repair_preserves_image_attachments() -> None:
     """Repair call must carry forward image attachments from the original turn."""
     from services.llm.call_options import LlmCallOptions

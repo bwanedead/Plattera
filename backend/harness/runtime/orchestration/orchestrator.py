@@ -38,6 +38,7 @@ from .trace_collector import KernelTraceCollector
 _LOG = logging.getLogger(__name__)
 
 _PUBLISH_ACTION_IDS = frozenset({"publish_workspace_artifact"})
+_SAVE_ACTION_IDS = frozenset({"save_workspace_artifact"})
 
 
 def _notify_turn_completed(
@@ -200,6 +201,24 @@ def _closure_policy(run_ctx: dict[str, Any]) -> dict[str, Any] | None:
     return dict(raw) if isinstance(raw, dict) else None
 
 
+def _effective_resolution_state(
+    *,
+    loop_memory: LoopMemoryState,
+    action_plan: ActionPlan,
+) -> Any:
+    if not action_plan.state_patch:
+        return loop_memory.continuity.resolution_state
+    try:
+        _, resolution_state, _ = apply_state_patch(
+            mission_state=loop_memory.continuity.mission_state,
+            resolution_state=loop_memory.continuity.resolution_state,
+            state_patch=action_plan.state_patch,
+        )
+        return resolution_state
+    except StatePatchError:
+        return loop_memory.continuity.resolution_state
+
+
 def _effective_closure_state(
     *,
     loop_memory: LoopMemoryState,
@@ -216,6 +235,61 @@ def _effective_closure_state(
         return mission_state.closure_state
     except StatePatchError:
         return loop_memory.continuity.mission_state.closure_state
+
+
+def _minimum_resolution_items_required(
+    *,
+    policy: dict[str, Any],
+    action_plan: ActionPlan,
+) -> tuple[int, str | None]:
+    is_publish = str(action_plan.action_type or "").strip() in _PUBLISH_ACTION_IDS
+    is_save = str(action_plan.action_type or "").strip() in _SAVE_ACTION_IDS
+    is_complete = bool(action_plan.complete_run)
+    is_hitl = bool(action_plan.wait_for_human) or action_plan.hitl_request is not None
+
+    if is_complete:
+        return int(policy.get("minimum_resolution_items_for_complete") or 0), "complete"
+    if is_publish:
+        return int(policy.get("minimum_resolution_items_for_publish") or 0), "publish"
+    if is_hitl:
+        return int(policy.get("minimum_resolution_items_for_wait") or 0), "wait"
+    if is_save:
+        return int(policy.get("minimum_resolution_items_for_save") or 0), "save"
+    return 0, None
+
+
+def _resolution_inventory_enforcement_failure(
+    *,
+    run_ctx: dict[str, Any],
+    loop_memory: LoopMemoryState,
+    action_plan: ActionPlan,
+) -> tuple[str, str] | None:
+    policy = _closure_policy(run_ctx)
+    if not policy or not bool(policy.get("hard_enforced")):
+        return None
+
+    minimum_items, target = _minimum_resolution_items_required(
+        policy=policy,
+        action_plan=action_plan,
+    )
+    if minimum_items <= 0 or target is None:
+        return None
+
+    resolution_state = _effective_resolution_state(
+        loop_memory=loop_memory,
+        action_plan=action_plan,
+    )
+    item_count = len(getattr(resolution_state, "items", ()) or ())
+    if item_count >= minimum_items:
+        return None
+
+    return (
+        f"resolution_items_{target}_required",
+        (
+            f"domain policy requires at least {minimum_items} resolution items before {target}; "
+            f"current item count is {item_count}"
+        ),
+    )
 
 
 def _closure_enforcement_failure(
@@ -282,7 +356,15 @@ def _closure_enforcement_failure(
     return None
 
 
-def _handle_closure_enforcement_block(
+def _action_id_for_plan(action_plan: ActionPlan) -> str:
+    if action_plan.complete_run:
+        return "complete_run"
+    if action_plan.wait_for_human:
+        return "wait_for_human"
+    return str(action_plan.action_type or "no_action")
+
+
+def _handle_policy_block(
     *,
     orchestration_adapter: OrchestrationAdapter,
     tracer: KernelTraceCollector,
@@ -291,10 +373,9 @@ def _handle_closure_enforcement_block(
     iteration: int,
     reason_code: str,
 ) -> None:
-    action_id = "complete_run" if action_plan.complete_run else str(action_plan.action_type or "no_action")
     tracer.emit_execution_result(
         iteration=iteration,
-        action_type=action_id,
+        action_type=_action_id_for_plan(action_plan),
         execution_state="refused",
         reason_code=reason_code,
         retryable=False,
@@ -494,6 +575,24 @@ def run_orchestration_kernel_loop(
             _LOG.warning("KERNEL wait_for_human without hitl_request ► skipping iteration")
             continue
 
+        resolution_failure = _resolution_inventory_enforcement_failure(
+            run_ctx=run_ctx,
+            loop_memory=loop_memory,
+            action_plan=action_plan,
+        )
+        if resolution_failure is not None:
+            reason_code, message = resolution_failure
+            _LOG.info("KERNEL resolution_inventory_blocked ► reason_code=%s message=%s", reason_code, message)
+            _handle_policy_block(
+                orchestration_adapter=orchestration_adapter,
+                tracer=tracer,
+                loop_memory=loop_memory,
+                action_plan=action_plan,
+                iteration=iterations,
+                reason_code=reason_code,
+            )
+            continue
+
         if action_plan.hitl_request is not None:
             try:
                 norm = normalize_hitl_request(dict(action_plan.hitl_request), iteration=iterations)
@@ -566,7 +665,7 @@ def run_orchestration_kernel_loop(
         if closure_failure is not None:
             reason_code, message = closure_failure
             _LOG.info("KERNEL closure_enforcement_blocked ► reason_code=%s message=%s", reason_code, message)
-            _handle_closure_enforcement_block(
+            _handle_policy_block(
                 orchestration_adapter=orchestration_adapter,
                 tracer=tracer,
                 loop_memory=loop_memory,

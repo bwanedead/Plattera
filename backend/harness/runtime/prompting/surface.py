@@ -71,12 +71,15 @@ Bad state is:
 - Prefer the smallest disambiguating check that can move an important item.
 - If you already have the relevant evidence in recent context, do not reload the same broad bundle without a concrete reason.
 - If uncertainty localizes to a region, artifact, or claim, use a targeted move rather than another broad pass.
+- Treat each important unresolved item as a mini-mission: orient to that item, inspect the strongest evidence, verify it as hard as the run allows, then update its disposition explicitly.
+- A saved or published artifact is only a materialization of current beliefs; it is not proof that the underlying investigation was adequate.
 
 ## Verification and closure discipline
 - Treat “resolved” as a verification claim, not a vibe.
 - Use the strongest available verification path in the current run.
 - If only your own review is available, be explicit about that limitation.
 - If a stronger direct check is available through evidence or tooling, prefer that before closing the item.
+- For evidence-bearing claims, say what actually verified the claim rather than merely asserting a conclusion.
 - Do not complete or hand off while material blockers remain implicit.
 - If an important issue cannot be resolved with available evidence, consider HITL rather than pretending closure exists.
 
