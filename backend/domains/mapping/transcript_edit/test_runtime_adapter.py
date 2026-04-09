@@ -28,6 +28,7 @@ def test_runtime_adapter_builds_turn_surface_from_opaque_launch_context() -> Non
     assert len(surface.blocks) == 4
     assert "mapping family" in surface.blocks[0].content.lower()
     assert surface.blocks[0].metadata["transcript_edit.prompt_block"]["version"] == MAPPING_FAMILY_BRANCH_VERSION
+    assert "text" not in surface.blocks[0].metadata["transcript_edit.prompt_block"]
     assert surface.blocks[1].content.startswith("You are operating in the **transcript edit** domain")
     assert "not a hard script" in surface.blocks[2].content.lower()
     assert "startup artifact context" in surface.blocks[3].content.lower()

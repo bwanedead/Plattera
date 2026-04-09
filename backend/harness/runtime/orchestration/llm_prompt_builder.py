@@ -21,6 +21,19 @@ from ..memory.continuity_journal import (
 from .contracts import OrchestratorContext, SharedStateProjection
 
 _HIDDEN_LAUNCH_CONTEXT_KEYS = frozenset({"max_iterations"})
+_PROMPT_VISIBLE_DOMAIN_CLOSURE_POLICY_KEYS = frozenset(
+    {
+        "hard_enforced",
+        "enforce_on_publish",
+        "enforce_on_complete",
+        "minimum_resolution_items_for_save",
+        "minimum_resolution_items_for_wait",
+        "minimum_resolution_items_for_publish",
+        "minimum_resolution_items_for_complete",
+        "required_dimension_ids",
+    }
+)
+_PROJECTION_OPAQUE_KEYS_STRIPPED_FROM_PROMPT = frozenset({"launch_context", "turn_snapshot"})
 
 
 def build_choose_action_prompt(
@@ -155,19 +168,28 @@ def prompt_visible_launch_context(value: Mapping[str, Any]) -> dict[str, Any]:
     Host budget mechanics such as ``max_iterations`` are intentionally withheld so
     the model optimizes for truthful progress, not turn-count compression.
     """
-    return {
-        str(key): jsonable(raw_value)
-        for key, raw_value in value.items()
-        if str(key) not in _HIDDEN_LAUNCH_CONTEXT_KEYS
-    }
+    visible: dict[str, Any] = {}
+    for key, raw_value in value.items():
+        skey = str(key)
+        if skey in _HIDDEN_LAUNCH_CONTEXT_KEYS:
+            continue
+        if skey == "domain_closure_policy" and isinstance(raw_value, Mapping):
+            visible[skey] = {
+                str(inner_key): jsonable(inner_value)
+                for inner_key, inner_value in raw_value.items()
+                if str(inner_key) in _PROMPT_VISIBLE_DOMAIN_CLOSURE_POLICY_KEYS
+            }
+            continue
+        visible[skey] = jsonable(raw_value)
+    return visible
 
 
 def _projection_document(projection: SharedStateProjection | None) -> dict[str, Any]:
     if projection is None:
         return {}
     return {
-        "mission_state": jsonable(projection.mission_state),
-        "resolution_state": jsonable(projection.resolution_state),
+        "mission_state": _prompt_visible_projection_state(projection.mission_state),
+        "resolution_state": _prompt_visible_projection_state(projection.resolution_state),
         "latest_refs": dict(projection.latest_refs),
         "active_item_id": projection.active_item_id,
     }
@@ -176,12 +198,70 @@ def _projection_document(projection: SharedStateProjection | None) -> dict[str, 
 def _turn_input_document(composed_input: ComposedTurnInput) -> dict[str, Any]:
     return {
         "blocks": [
-            {"content": block.content, "metadata": jsonable(block.metadata)}
+            {"content": block.content, "metadata": _prompt_visible_block_metadata(block.metadata)}
             for block in composed_input.blocks
         ],
-        "surface_payloads": {
-            surface_id: jsonable(payload)
-            for surface_id, payload in composed_input.surface_payloads.items()
-        },
+        "surface_payloads": _prompt_visible_surface_payloads(composed_input.surface_payloads),
         "tool_ids": list(composed_input.tool_handlers.keys()),
     }
+
+
+def _prompt_visible_projection_state(state: Any) -> Any:
+    return _strip_projection_opaque_duplicates(jsonable(state))
+
+
+def _prompt_visible_block_metadata(metadata: Mapping[str, Any]) -> dict[str, Any]:
+    payload = jsonable(metadata)
+    if not isinstance(payload, dict):
+        return {}
+    return payload
+
+
+def _prompt_visible_surface_payloads(surface_payloads: Mapping[str, dict[str, Any]]) -> dict[str, Any]:
+    visible: dict[str, Any] = {}
+    for surface_id, payload in surface_payloads.items():
+        visible[str(surface_id)] = _prompt_visible_payload_node(jsonable(payload))
+    return visible
+
+
+def _prompt_visible_payload_node(value: Any) -> Any:
+    if isinstance(value, list):
+        return [_prompt_visible_payload_node(item) for item in value]
+    if not isinstance(value, dict):
+        return value
+
+    if {"tool_id", "category", "purpose", "expected_request_shape"}.issubset(value.keys()):
+        return {
+            "tool_id": value.get("tool_id"),
+            "category": value.get("category"),
+            "purpose": value.get("purpose"),
+            "expected_request_shape": value.get("expected_request_shape"),
+        }
+
+    filtered: dict[str, Any] = {}
+    for key, raw in value.items():
+        skey = str(key)
+        if skey in {"tool_ids", "closure_policy"}:
+            continue
+        filtered[skey] = _prompt_visible_payload_node(raw)
+    return filtered
+
+
+def _strip_projection_opaque_duplicates(value: Any) -> Any:
+    if isinstance(value, list):
+        return [_strip_projection_opaque_duplicates(item) for item in value]
+    if not isinstance(value, dict):
+        return value
+
+    filtered: dict[str, Any] = {}
+    for key, raw in value.items():
+        skey = str(key)
+        if skey == "opaque_payload" and isinstance(raw, dict):
+            filtered[skey] = {
+                str(inner_key): _strip_projection_opaque_duplicates(inner_value)
+                for inner_key, inner_value in raw.items()
+                if str(inner_key) not in _PROJECTION_OPAQUE_KEYS_STRIPPED_FROM_PROMPT
+            }
+            continue
+        filtered[skey] = _strip_projection_opaque_duplicates(raw)
+    return filtered

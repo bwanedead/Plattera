@@ -807,6 +807,34 @@ def test_choose_action_prompt_hides_max_iterations_from_model_visible_launch_con
     assert "max_iterations" not in prompt
 
 
+def test_choose_action_prompt_compacts_domain_closure_policy_to_requirements_only() -> None:
+    captured: list[str] = []
+
+    def caller(prompt: str, model: str, **_kwargs: Any) -> str:
+        captured.append(prompt)
+        return _VALID_PLAN_JSON
+
+    adapter = _minimal_llm_adapter(
+        caller=caller,
+        opaque={
+            "run_id": "r1",
+            "domain_closure_policy": {
+                "hard_enforced": True,
+                "required_dimension_ids": ["layer_1"],
+                "standards": [{"dimension_id": "layer_1", "question": "long semantic text"}],
+            },
+        },
+    )
+    ctx = _orch_context(iterations=1)
+    adapter.choose_action(ctx, projection=None)
+
+    prompt = captured[0]
+    assert '"domain_closure_policy"' in prompt
+    assert '"required_dimension_ids": ["layer_1"]' in prompt
+    assert '"standards"' not in prompt
+    assert "long semantic text" not in prompt
+
+
 def test_sync_projection_hides_max_iterations_from_mission_state_launch_context() -> None:
     adapter = _minimal_llm_adapter(
         caller=lambda *_args, **_kwargs: _VALID_PLAN_JSON,
@@ -818,6 +846,86 @@ def test_sync_projection_hides_max_iterations_from_mission_state_launch_context(
     assert launch_context["run_id"] == "r2"
     assert launch_context["workspace_id"] == "w2"
     assert "max_iterations" not in launch_context
+
+
+def test_choose_action_prompt_omits_projection_turn_snapshot_and_nested_launch_context() -> None:
+    captured: list[str] = []
+
+    def caller(prompt: str, model: str, **_kwargs: Any) -> str:
+        captured.append(prompt)
+        return _VALID_PLAN_JSON
+
+    adapter = _minimal_llm_adapter(caller=caller, opaque={"run_id": "r3", "workspace_id": "w3"})
+    ctx = _orch_context(iterations=1)
+    projection = adapter.sync(ctx)
+
+    adapter.choose_action(ctx, projection=projection)
+
+    prompt = captured[0]
+    assert "turn_snapshot" not in prompt
+    assert '"opaque_payload": {"launch_context"' not in prompt
+
+
+def test_choose_action_prompt_uses_slim_tool_cards_in_surface_payloads() -> None:
+    captured: list[str] = []
+    valid_plan = json.dumps(
+        {
+            "action_type": "hydrate_artifact_refs",
+            "action_inputs": {},
+            "idempotency_key": "ik-1",
+            "skip_execution": True,
+            "wait_for_human": False,
+            "complete_run": False,
+            "rationale": None,
+            "state_patch": None,
+            "continuity_journal_entry": _LLM_CJ,
+            "operator_progress_message": None,
+        }
+    )
+
+    def caller(prompt: str, model: str, **_kwargs: Any) -> str:
+        captured.append(prompt)
+        return valid_plan
+
+    composed = ComposedTurnInput(
+        blocks=(TurnBlock(content="block"),),
+        surface_payloads={
+            "domain": {
+                "domain": {
+                    "tool_ids": ["hydrate_artifact_refs"],
+                    "closure_policy": {"hard_enforced": True},
+                    "tool_specs": [
+                        {
+                            "tool_id": "hydrate_artifact_refs",
+                            "category": "read",
+                            "purpose": "Load refs.",
+                            "expected_request_shape": "ref_ids array",
+                            "expected_request_json_shape": {"type": "object"},
+                            "expected_result_shape": "big result blob",
+                            "example_request": {"ref_ids": ["a"]},
+                        }
+                    ],
+                }
+            }
+        },
+        tool_handlers={"hydrate_artifact_refs": lambda x: x},
+    )
+    adapter = LlmTurnOrchestrationAdapter(
+        composed_input=composed,
+        text_model_caller=caller,
+        model_name="fake",
+        opaque_launch_context={},
+    )
+    ctx = _orch_context(iterations=1)
+    adapter.choose_action(ctx, projection=None)
+
+    prompt = captured[0]
+    assert '"tool_id": "hydrate_artifact_refs"' in prompt
+    assert '"expected_request_shape": "ref_ids array"' in prompt
+    assert "expected_request_json_shape" not in prompt
+    assert "expected_result_shape" not in prompt
+    assert "example_request" not in prompt
+    assert '"closure_policy"' not in prompt
 
 
 def test_choose_action_repair_preserves_image_attachments() -> None:

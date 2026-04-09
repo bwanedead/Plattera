@@ -184,7 +184,15 @@ def _build_turn_blocks(prompt_blocks: Sequence[PromptBlock]) -> tuple[TurnBlock,
     return tuple(
         TurnBlock(
             content=block.text,
-            metadata={_PROMPT_BLOCK_NAMESPACE: asdict(block)},
+            metadata={
+                _PROMPT_BLOCK_NAMESPACE: {
+                    "block_id": block.block_id,
+                    "layer": block.layer,
+                    "owner": block.owner,
+                    "source_path": block.source_path,
+                    "version": block.version,
+                }
+            },
         )
         for block in prompt_blocks
     )

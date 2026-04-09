@@ -101,6 +101,18 @@ try:
 except ImportError:
     OPENAI_AVAILABLE = False
 
+
+_PHASE_JSON_ACTION_BUDGETS: dict[str, dict[str, Any]] = {
+    "choose_action": {
+        "min_max_tokens": 32_000,
+        "reasoning_effort": "medium",
+    },
+    "choose_action_repair": {
+        "min_max_tokens": 32_000,
+        "reasoning_effort": "medium",
+    },
+}
+
 # Remove the hardcoded Pydantic models (lines 103-133)
 # class ParcelOrigin(BaseModel):  # DELETE THESE
 # class ParcelLeg(BaseModel):     # DELETE THESE  
@@ -292,6 +304,38 @@ class OpenAIService(LLMService):
         """Get the actual API model name (some models have different display vs API names)"""
         model_info = self.models.get(model, {})
         return model_info.get("api_model_name", model)
+
+    def _resolve_text_call_budget(
+        self,
+        *,
+        model: str,
+        api_model_name: str,
+        effective_phase: str | None,
+        output_mode: str,
+        kwargs: dict[str, Any],
+    ) -> tuple[int, str | None]:
+        """Resolve phase-sensitive output budget / reasoning settings for text calls.
+
+        choose_action-style JSON responses are mechanically small, but the prompt can be
+        large and reasoning-token heavy. Give those phases a larger completion budget and
+        avoid wasting it on maximum reasoning effort.
+        """
+        model_info = self.models.get(model, {})
+        default_max = int(model_info.get("default_max_tokens", 4000))
+        if "max_tokens" in kwargs and kwargs["max_tokens"] is not None:
+            return int(kwargs["max_tokens"]), None
+
+        if output_mode == "json_object" and effective_phase in _PHASE_JSON_ACTION_BUDGETS:
+            phase_budget = _PHASE_JSON_ACTION_BUDGETS[effective_phase]
+            provider_cap = int(model_info.get("max_output_tokens", default_max))
+            min_max = int(phase_budget["min_max_tokens"])
+            tuned_max = min(provider_cap, max(default_max, min_max))
+            return tuned_max, str(phase_budget.get("reasoning_effort") or "medium")
+
+        if ("o4-mini" in api_model_name) or ("gpt-5-mini" in api_model_name) or ("gpt-5" in api_model_name) or ("gpt-5-nano" in api_model_name):
+            return default_max, "high"
+
+        return default_max, None
     
     def call_text(self, prompt: str, model: str, **kwargs) -> Dict[str, Any]:
         """Make text-only API call to OpenAI"""
@@ -352,18 +396,24 @@ class OpenAIService(LLMService):
             if output_mode == "json_object":
                 completion_params["response_format"] = {"type": "json_object"}
             
+            budget_max_tokens, tuned_reasoning_effort = self._resolve_text_call_budget(
+                model=model,
+                api_model_name=api_model_name,
+                effective_phase=effective_phase,
+                output_mode=output_mode,
+                kwargs=kwargs,
+            )
+
             # Some small models require max_completion_tokens (no temperature)
             if ("o4-mini" in api_model_name) or ("gpt-5-mini" in api_model_name) or ("gpt-5" in api_model_name) or ("gpt-5-nano" in api_model_name):
                 # o4-mini only supports default temperature (1), so don't include it
-                default_max = self.models.get(model, {}).get("default_max_tokens", 4000)
-                completion_params["max_completion_tokens"] = kwargs.get("max_tokens", default_max)
-                # Set reasoning effort to high for maximum accuracy
-                completion_params["reasoning_effort"] = "high"
+                completion_params["max_completion_tokens"] = budget_max_tokens
+                if tuned_reasoning_effort is not None:
+                    completion_params["reasoning_effort"] = tuned_reasoning_effort
             else:
                 # Other models use standard parameters
                 completion_params["temperature"] = kwargs.get("temperature", 0.1)
-                default_max = self.models.get(model, {}).get("default_max_tokens", 4000)
-                completion_params["max_tokens"] = kwargs.get("max_tokens", default_max)
+                completion_params["max_tokens"] = budget_max_tokens
             max_tokens = completion_params.get("max_completion_tokens") or completion_params.get("max_tokens")
             logger.info(f"🧠 TEXT CALL ► model={model} max_tokens={max_tokens}{ctx}")
             
