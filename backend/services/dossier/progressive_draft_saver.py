@@ -19,9 +19,9 @@ Provides real-time persistence of draft results without waiting for all parallel
 📁 FILE STRUCTURE MAINTAINED:
 dossiers_data/views/transcriptions/{dossier_id}/{transcription_id}/
 ├── raw/
-│   ├── {transcription_id}_v1.json  # Saved progressively
-│   ├── {transcription_id}_v2.json  # Saved progressively
-│   └── {transcription_id}_v3.json  # Saved progressively
+│   ├── {transcription_id}_draft_1.json  # Saved progressively (peer T0 pass 1)
+│   ├── {transcription_id}_draft_2.json  # Saved progressively (peer T0 pass 2)
+│   └── {transcription_id}_draft_3.json  # Saved progressively (peer T0 pass 3)
 └── run.json                        # Updated with completion status
 """
 
@@ -73,12 +73,12 @@ class ProgressiveDraftSaver:
             bool: Success status
         """
         try:
-            logger.debug(f"🔥 PROGRESSIVE SAVER CALLED: Draft v{draft_index + 1} for {transcription_id} in dossier {dossier_id}")
+            logger.debug(f"🔥 PROGRESSIVE SAVER CALLED: Draft {draft_index + 1} for {transcription_id} in dossier {dossier_id}")
             logger.debug(f"📊 Result success: {result.get('success', False)}, extracted_text length: {len(result.get('extracted_text', '')) if result.get('extracted_text') else 0}")
 
             # Build file paths
             drafts_dir = self._get_drafts_dir(dossier_id, transcription_id)
-            version_file = drafts_dir / f"{transcription_id}_v{draft_index + 1}.json"
+            version_file = drafts_dir / f"{transcription_id}_draft_{draft_index + 1}.json"
 
             # Prepare content for saving
             content = self._prepare_draft_content(
@@ -102,15 +102,15 @@ class ProgressiveDraftSaver:
 
             logger.info(f"✅ Draft saved: {version_file}")
 
-            # Create immutable v1 snapshot once (never overwrite)
+            # Create immutable snapshot once (never overwrite)
             try:
-                v1_snapshot = drafts_dir / f"{transcription_id}_v{draft_index + 1}.v1.json"
+                v1_snapshot = drafts_dir / f"{transcription_id}_draft_{draft_index + 1}.v1.json"
                 if not v1_snapshot.exists():
                     with open(v1_snapshot, 'w', encoding='utf-8') as vf:
                         json.dump(content, vf, indent=2, ensure_ascii=False)
                     logger.debug(f"📌 Created immutable v1 snapshot: {v1_snapshot}")
             except Exception as snap_err:
-                logger.warning(f"⚠️ Failed to write v1 snapshot for v{draft_index + 1}: {snap_err}")
+                logger.warning(f"⚠️ Failed to write snapshot for draft_{draft_index + 1}: {snap_err}")
 
             # ALSO SAVE BASE FILE so frontend can find it by transcription_id
             base_file = drafts_dir / f"{transcription_id}.json"
@@ -128,7 +128,7 @@ class ProgressiveDraftSaver:
             return True
 
         except Exception as e:
-            logger.error(f"❌ Failed to save draft v{draft_index + 1}: {e}")
+            logger.error(f"❌ Failed to save draft_{draft_index + 1}: {e}")
             return False
 
     def _prepare_draft_content(
@@ -219,18 +219,18 @@ class ProgressiveDraftSaver:
             from .management_service import DossierManagementService
 
             management_service = DossierManagementService()
-            version_id = f"{transcription_id}_v{draft_index + 1}"
+            version_id = f"{transcription_id}_draft_{draft_index + 1}"
             success = result.get("success", False)
 
             # Update run metadata
             updates = {
                 "completed_drafts": version_id,
-                f"draft_v{draft_index + 1}_status": "completed" if success else "failed"
+                f"draft_{draft_index + 1}_status": "completed" if success else "failed"
             }
 
             # Add timing information
             if success:
-                updates[f"draft_v{draft_index + 1}_completed_at"] = datetime.now().isoformat()
+                updates[f"draft_{draft_index + 1}_completed_at"] = datetime.now().isoformat()
 
             management_service.update_run_metadata(
                 dossier_id=dossier_id,
@@ -238,7 +238,7 @@ class ProgressiveDraftSaver:
                 updates=updates
             )
 
-            logger.info(f"📝 Updated run metadata for draft v{draft_index + 1}")
+            logger.info(f"📝 Updated run metadata for draft_{draft_index + 1}")
 
             # If all drafts have completed, mark the run as completed here as well
             # This ensures the UI transitions out of the processing state even if

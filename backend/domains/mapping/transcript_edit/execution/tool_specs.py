@@ -30,10 +30,8 @@ def build_transcript_edit_tool_specs() -> tuple[SemanticToolSpec, ...]:
                 "Load full content for one or more artifact refs. "
                 "Supports T0 draft refs (t0:raw:*), transcript-edit workspace refs "
                 "(transcript_edit:working, transcript_edit:output, transcript_edit:working:rev:NNNN), "
-                "source image refs (image:assoc:*), and derived image refs (image:derived:*). "
-                "image:assoc:*:original and image:assoc:*:processed are two variants of the same source image "
-                "— not two separate documents. "
-                ":original is the raw captured image; :processed is a legacy enhanced variant. "
+                "source image refs (image:assoc:*:original), and derived image refs (image:derived:*). "
+                "Startup exposes only the original captured source image as the canonical source-image ref. "
                 "Comparison and reconciliation are the LLM's job after hydration."
             ),
             expected_request_shape=(
@@ -70,8 +68,7 @@ def build_transcript_edit_tool_specs() -> tuple[SemanticToolSpec, ...]:
                 "t0:raw:* → {text, metadata}. "
                 "transcript_edit:* → {payload, path}. "
                 "image:assoc:*:original → raw captured source image; "
-                "image:assoc:*:processed → legacy enhanced variant of the same source (same document, different processing). "
-                "Both return {absolute_path, exists, size_bytes, width_height, basename, role} "
+                "returns {absolute_path, exists, size_bytes, width_height, basename, role} "
                 "— image content is also returned as model-visible evidence (not in outputs). "
                 "image:derived:* → {absolute_path, parent_ref_id, sub_action, params, basename, width_height} "
                 "— derived image content also returned as model-visible evidence."

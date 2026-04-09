@@ -187,3 +187,24 @@ def test_image_evidence_not_in_outputs_keys(tmp_path, monkeypatch):
     for res in outputs.get("results", []):
         assert "image_b64" not in res
         assert "image_evidence" not in res
+
+
+def test_processed_source_image_ref_rejected(tmp_path, monkeypatch):
+    root = _dossiers_root(tmp_path)
+    monkeypatch.setattr(te_paths_mod, "dossiers_root", lambda: root)
+
+    d, tx = "d1", "tx-1"
+    img_dir = tmp_path / "images"
+    img_dir.mkdir()
+    img_file = img_dir / "scan.png"
+    img_file.write_bytes(_tiny_png_bytes())
+    _write_association(root, d, tx, img_file)
+
+    handler = make_hydrate_artifact_refs_handler(dossier_id=d, transcription_id=tx, workspace_key=None)
+    result = handler({"ref_ids": [f"image:assoc:{tx}:processed"]})
+
+    assert result["executed"] is True
+    errors = result["outputs"]["errors"]
+    assert any(e["code"] == "invalid_ref" for e in errors)
+    assert result["outputs"]["hydrated_count"] == 0
+    assert not result.get("image_evidence")

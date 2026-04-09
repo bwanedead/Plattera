@@ -162,17 +162,6 @@ def _source_image_descriptors(
                 storage_hint="dossiers_images_original",
             )
         )
-    if images.get("processed_path") or images.get("processed_url"):
-        proc_path = str(images.get("processed_path") or "")
-        base = Path(proc_path).name if proc_path else None
-        out.append(
-            SourceImageRefDescriptor(
-                ref_id=f"image:assoc:{transcription_id}:processed",
-                role="source_processed",
-                basename=base,
-                storage_hint="dossiers_images_processed_or_temp",
-            )
-        )
     return tuple(out)
 
 
@@ -186,7 +175,20 @@ def _peer_json_paths(raw_dir: Path) -> list[Path]:
     ]
 
 
-def _descriptor_for_peer_path(path: Path, *, listed_in_run_json: bool) -> T0DraftDescriptor | None:
+def _peer_alias_ref_id(index_1_based: int) -> str:
+    return f"{_T0_REF_PREFIX}draft_{int(index_1_based)}"
+
+
+def _peer_variant_label(index_1_based: int) -> str:
+    return f"draft {int(index_1_based)}"
+
+
+def _descriptor_for_peer_path(
+    path: Path,
+    *,
+    listed_in_run_json: bool,
+    ordinal_1_based: int,
+) -> T0DraftDescriptor | None:
     data = _load_json(path)
     if not isinstance(data, dict):
         return None
@@ -196,8 +198,8 @@ def _descriptor_for_peer_path(path: Path, *, listed_in_run_json: bool) -> T0Draf
     except OSError:
         byte_length = None
     return T0DraftDescriptor(
-        ref_id=f"{_T0_REF_PREFIX}{stem}",
-        variant_label=stem,
+        ref_id=_peer_alias_ref_id(ordinal_1_based),
+        variant_label=_peer_variant_label(ordinal_1_based),
         source_file_stem=stem,
         listed_in_run_json=listed_in_run_json,
         byte_length=byte_length,
@@ -226,6 +228,7 @@ def _discover_t0_descriptors(
     completed_set = set(completed_ordered)
 
     if completed_is_authoritative and completed_ordered:
+        ordinal = 0
         for did in completed_ordered:
             if _is_legacy_pointer_stem(did, transcription_id):
                 missing.append(
@@ -246,7 +249,12 @@ def _discover_t0_descriptors(
                     )
                 )
                 continue
-            desc = _descriptor_for_peer_path(path, listed_in_run_json=True)
+            ordinal += 1
+            desc = _descriptor_for_peer_path(
+                path,
+                listed_in_run_json=True,
+                ordinal_1_based=ordinal,
+            )
             if desc:
                 descriptors.append(desc)
 
@@ -288,8 +296,12 @@ def _discover_t0_descriptors(
                 )
             )
 
-    for path in candidates:
-        desc = _descriptor_for_peer_path(path, listed_in_run_json=path.stem in completed_set)
+    for ordinal, path in enumerate(candidates, start=1):
+        desc = _descriptor_for_peer_path(
+            path,
+            listed_in_run_json=path.stem in completed_set,
+            ordinal_1_based=ordinal,
+        )
         if desc:
             descriptors.append(desc)
 

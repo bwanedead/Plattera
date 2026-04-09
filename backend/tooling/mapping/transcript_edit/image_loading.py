@@ -32,7 +32,7 @@ def read_image_as_b64(path: Path) -> str | None:
         return None
 
 _IMAGE_REF_RE = re.compile(
-    r"^image:assoc:(?P<tid>[^:]+):(?P<slot>original|processed)$",
+    r"^image:assoc:(?P<tid>[^:]+):(?P<slot>original)$",
 )
 
 
@@ -52,15 +52,14 @@ def hydrate_source_image_context(
     transcription_id: str,
     ref_id: str,
 ) -> dict[str, Any]:
-    """Return structured context for one ``image:assoc:<transcription_id>:original|processed`` ref."""
+    """Return structured context for one ``image:assoc:<transcription_id>:original`` ref."""
     dossier_id = str(dossier_id).strip()
     transcription_id = str(transcription_id).strip()
     rid = str(ref_id).strip()
     m = _IMAGE_REF_RE.match(rid)
     if not m:
-        return {"status": "error", "code": "invalid_ref", "message": "Expected image:assoc:<transcription_id>:original|processed."}
+        return {"status": "error", "code": "invalid_ref", "message": "Expected image:assoc:<transcription_id>:original."}
     tid = m.group("tid")
-    slot = m.group("slot")
     if tid != transcription_id:
         return {
             "status": "error",
@@ -100,7 +99,7 @@ def hydrate_source_image_context(
     if not isinstance(images, dict):
         return {"status": "error", "code": "images_missing", "message": transcription_id}
 
-    key = "original_path" if slot == "original" else "processed_path"
+    key = "original_path"
     fs_path = images.get(key)
     if not fs_path or not isinstance(fs_path, str):
         return {"status": "error", "code": "path_missing", "message": key}
@@ -120,7 +119,7 @@ def hydrate_source_image_context(
     return {
         "status": "ok",
         "ref_id": rid,
-        "role": "source_original" if slot == "original" else "source_processed",
+        "role": "source_original",
         "absolute_path": str(p.resolve()) if exists else fs_path,
         "exists": exists,
         "size_bytes": size_bytes,

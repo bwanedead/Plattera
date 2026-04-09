@@ -592,7 +592,7 @@ async def _handle_dossier_association(
                 drafts_dir = run_root / "raw"
                 drafts_dir.mkdir(parents=True, exist_ok=True)
 
-                v1_path = drafts_dir / f"{transcription_id}_v1.json"
+                v1_path = drafts_dir / f"{transcription_id}_draft_1.json"
                 base_path = drafts_dir / f"{transcription_id}.json"
 
                 extracted_text = result.get("extracted_text", "")
@@ -624,12 +624,12 @@ async def _handle_dossier_association(
                 with open(base_path, 'w', encoding='utf-8') as bf:
                     _json.dump(content, bf, indent=2, ensure_ascii=False)
 
-                # Mark v1 completed in run metadata
+                # Mark draft_1 completed in run metadata
                 management_service.update_run_metadata(
                     dossier_id=dossier_id,
                     transcription_id=transcription_id,
                     updates={
-                        "completed_drafts": f"{transcription_id}_v1",
+                        "completed_drafts": f"{transcription_id}_draft_1",
                         "timestamps": {"last_update_at": _DT2.now().isoformat()}
                     }
                 )

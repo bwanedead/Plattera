@@ -28,7 +28,7 @@ async def set_final_selection(
     Args:
         dossier_id: The dossier ID
         transcription_id: The transcription ID
-        draft_id: The exact versioned draft ID (e.g., {tid}_v2_v2, {tid}_draft_1_v1)
+        draft_id: The exact versioned draft ID (e.g., {tid}_draft_1, {tid}_draft_2_v1)
 
     Returns:
         Success response with the selected draft_id

@@ -189,12 +189,12 @@ def test_projection_legacy_final_selection_maps_to_authored_only() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Image-ref doctrine: original vs processed
+# Source-image doctrine: original only
 # ---------------------------------------------------------------------------
 
 
-def test_startup_context_explains_original_vs_processed_variants() -> None:
-    """Startup context must tell the LLM that original and processed are the same source image."""
+def test_startup_context_lists_only_original_source_image_ref() -> None:
+    """Startup context should surface only the canonical original source-image ref."""
     from domains.mapping.transcript_edit.payloads import (
         TranscriptEditStartupInventory,
         TranscriptEditScope,
@@ -205,40 +205,30 @@ def test_startup_context_explains_original_vs_processed_variants() -> None:
     inventory = TranscriptEditStartupInventory(
         scope=TranscriptEditScope(dossier_id="d1", transcription_id="tx1"),
         source_images=(
-            SourceImageRefDescriptor(ref_id="image:assoc:tx1:original", role="original"),
-            SourceImageRefDescriptor(ref_id="image:assoc:tx1:processed", role="processed"),
+            SourceImageRefDescriptor(ref_id="image:assoc:tx1:original", role="source_original"),
         ),
     )
     block = build_startup_context_block(inventory)
     text = block.text.lower()
 
-    # Must mention both variant names
-    assert "original" in text
-    assert "processed" in text
-    # Must clarify they are variants of the same source, not separate documents
-    assert "same" in text
-    assert "variant" in text or "same source" in text or "same underlying" in text
-    # Must not suggest they are separate documents
-    assert "two different documents" not in text or "not two" in text
+    assert "image:assoc:tx1:original" in text
+    assert ":processed" not in text
 
 
-def test_tool_spec_hydrate_explains_original_vs_processed() -> None:
-    """hydrate_artifact_refs purpose must clarify original/processed are same-source variants."""
+def test_tool_spec_hydrate_exposes_original_source_only() -> None:
+    """hydrate_artifact_refs should describe only the canonical original source-image ref."""
     specs = build_transcript_edit_tool_specs()
     hydrate = next(s for s in specs if s.tool_id == "hydrate_artifact_refs")
     purpose_lower = hydrate.purpose.lower()
     result_lower = hydrate.expected_result_shape.lower()
 
-    # Both fields should reference the variant distinction
     assert "original" in purpose_lower or "original" in result_lower
-    assert "processed" in purpose_lower or "processed" in result_lower
-    # Must express that they are the same source
-    combined = purpose_lower + "\n" + result_lower
-    assert "same" in combined
+    assert "processed" not in purpose_lower
+    assert "processed" not in result_lower
 
 
-def test_startup_context_artifact_description_names_both_variants() -> None:
-    """The artifact kind table at the bottom of startup context must describe both :original and :processed."""
+def test_startup_context_artifact_description_names_original_only() -> None:
+    """The artifact kind table at the bottom of startup context must describe only :original."""
     from domains.mapping.transcript_edit.payloads import (
         TranscriptEditStartupInventory,
         TranscriptEditScope,
@@ -253,4 +243,4 @@ def test_startup_context_artifact_description_names_both_variants() -> None:
     text = block.text
 
     assert ":original" in text
-    assert ":processed" in text
+    assert ":processed" not in text

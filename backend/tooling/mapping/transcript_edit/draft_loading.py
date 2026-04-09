@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
+import re
 from typing import Any
 
 from .draft_persistence import parse_working_revision_ref, resolve_workspace_key
@@ -19,6 +20,8 @@ from .paths import (
 )
 from .startup_inventory import _OUTPUT_REF, _T0_REF_PREFIX, _WORKING_REF
 
+_DRAFT_ALIAS_RE = re.compile(r"^draft_(?P<ordinal>[1-9]\d*)$", re.IGNORECASE)
+
 
 def _safe_stem_from_t0_ref(ref_id: str) -> str | None:
     rid = str(ref_id).strip()
@@ -30,6 +33,77 @@ def _safe_stem_from_t0_ref(ref_id: str) -> str | None:
     if ".." in stem:
         return None
     return stem
+
+
+def _ordered_peer_stems(raw_dir: Path, *, transcription_id: str, run_payload: dict[str, Any] | None) -> tuple[str, ...]:
+    completed: list[str] = []
+    completed_is_authoritative = False
+    if isinstance(run_payload, dict) and isinstance(run_payload.get("completed_drafts"), list):
+        completed = [str(x).strip() for x in run_payload.get("completed_drafts") or [] if str(x).strip()]
+        completed_is_authoritative = len(completed) > 0
+
+    if completed_is_authoritative:
+        out: list[str] = []
+        for stem in completed:
+            if stem == transcription_id:
+                continue
+            if (raw_dir / f"{stem}.json").is_file():
+                out.append(stem)
+        return tuple(out)
+
+    stems: list[str] = []
+    for path in sorted(raw_dir.glob("*.json")):
+        if not path.is_file():
+            continue
+        stem = path.stem
+        if stem == transcription_id:
+            continue
+        stems.append(stem)
+    return tuple(stems)
+
+
+def _resolve_source_stem_for_ref(
+    *,
+    ref_id: str,
+    raw_dir: Path,
+    dossier_id: str,
+    transcription_id: str,
+) -> tuple[str | None, dict[str, Any] | None]:
+    stem = _safe_stem_from_t0_ref(ref_id)
+    if stem is None:
+        return None, {"ref_id": ref_id, "code": "invalid_ref", "message": "Expected t0:raw:draft_N alias or t0:raw:<file_stem>."}
+    if stem == transcription_id:
+        return None, {
+            "ref_id": ref_id,
+            "code": "legacy_pointer_alias",
+            "message": "This stem is the legacy raw pointer copy, not a peer T0 pass; use peer draft refs.",
+        }
+
+    alias = _DRAFT_ALIAS_RE.match(stem)
+    if alias is None:
+        return stem, None
+
+    run_payload: dict[str, Any] | None = None
+    try:
+        from .paths import run_json_path
+
+        run_path = run_json_path(dossier_id, transcription_id)
+        if run_path.is_file():
+            loaded = json.loads(run_path.read_text(encoding="utf-8"))
+            if isinstance(loaded, dict):
+                run_payload = loaded
+    except Exception:
+        run_payload = None
+
+    ordered = _ordered_peer_stems(raw_dir, transcription_id=transcription_id, run_payload=run_payload)
+    ordinal = int(alias.group("ordinal"))
+    if ordinal > len(ordered):
+        return None, {
+            "ref_id": ref_id,
+            "code": "not_found",
+            "message": f"Peer draft alias draft_{ordinal} is out of range for this transcription.",
+        }
+    return ordered[ordinal - 1], None
 
 
 @dataclass(frozen=True)
@@ -107,18 +181,14 @@ def hydrate_t0_draft_refs(
         )
 
     for ref_id in to_process:
-        stem = _safe_stem_from_t0_ref(ref_id)
-        if stem is None:
-            errors.append({"ref_id": ref_id, "code": "invalid_ref", "message": "Expected t0:raw:<file_stem>."})
-            continue
-        if stem == transcription_id:
-            errors.append(
-                {
-                    "ref_id": ref_id,
-                    "code": "legacy_pointer_alias",
-                    "message": "This stem is the legacy raw pointer copy, not a peer T0 pass; use completed_drafts peer refs.",
-                }
-            )
+        stem, err = _resolve_source_stem_for_ref(
+            ref_id=ref_id,
+            raw_dir=raw_dir,
+            dossier_id=dossier_id,
+            transcription_id=transcription_id,
+        )
+        if err is not None:
+            errors.append(err)
             continue
         path = raw_dir / f"{stem}.json"
         if not path.is_file():

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from ..branch import TRANSCRIPT_EDIT_DOMAIN_ID, PromptBlock
 
-TRANSCRIPT_EDIT_STARTUP_CONTEXT_VERSION = "v2"
+TRANSCRIPT_EDIT_STARTUP_CONTEXT_VERSION = "v3"
 _STARTUP_CONTEXT_SOURCE_PATH = "backend/domains/mapping/transcript_edit/prompting/surfaces/startup_context.py"
 
 
@@ -41,16 +41,6 @@ def _format_startup_context(inventory: object) -> str:
     source_images = getattr(inventory, "source_images", ()) or ()
     if source_images:
         lines.append("### Source Image Refs")
-        lines.append(
-            "**Note on `original` vs `processed` refs:** "
-            "When both `image:assoc:<tx>:original` and `image:assoc:<tx>:processed` appear, "
-            "they are two variants of the **same underlying source image** — not two different documents. "
-            "`original` is the raw captured image. "
-            "`processed` is a legacy enhanced/pre-processed variant intended to improve readability. "
-            "Use whichever is clearer for reading, or hydrate both to compare. "
-            "Do not treat them as separate source documents."
-        )
-        lines.append("")
         for img in source_images:
             role = getattr(img, "role", "")
             ref_id = getattr(img, "ref_id", "")
@@ -127,8 +117,6 @@ def _format_startup_context(inventory: object) -> str:
         "- `t0:raw:*` → full transcript text + metadata\n"
         "- `transcript_edit:*` → saved draft payload + path/metadata\n"
         "- `image:assoc:*:original` → raw captured source image (model-visible pixels) + metadata\n"
-        "- `image:assoc:*:processed` → legacy enhanced variant of the same source image (model-visible pixels) + metadata; "
-        "same document as `:original`, different processing\n"
         "- `image:derived:*` → model-visible derived image evidence (actual pixels) + provenance/metadata\n\n"
         "**Capabilities:** `hydrate_artifact_refs` loads any of the above refs. "
         "`transform_artifact` applies crop/expand/zoom/annotate to image refs and returns a new `image:derived:*` ref "

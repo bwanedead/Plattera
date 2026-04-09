@@ -150,8 +150,8 @@ class ImageToTextQueueService:
                         content["_json_repair_snapshot_ref"] = _jx.get("repair_snapshot_ref")
                         content["_json_raw_output_ref"] = _jx.get("raw_output_ref")
 
-                    # Write v1 and base files
-                    v1_path = drafts_dir / f"{transcription_id}_v1.json"
+                    # Write draft_1 and base files
+                    v1_path = drafts_dir / f"{transcription_id}_draft_1.json"
                     base_path = drafts_dir / f"{transcription_id}.json"
                     with open(v1_path, 'w', encoding='utf-8') as vf:
                         _json.dump(content, vf, indent=2, ensure_ascii=False)
@@ -166,7 +166,7 @@ class ImageToTextQueueService:
                             dossier_id=str(dossier_id),
                             transcription_id=str(transcription_id),
                             updates={
-                                "completed_drafts": f"{transcription_id}_v1",
+                                "completed_drafts": f"{transcription_id}_draft_1",
                                 "status": "completed",
                                 "timestamps": {"finished_at": _dt.now().isoformat()},
                             },

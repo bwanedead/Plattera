@@ -441,7 +441,7 @@ async def _process_image_to_text(
                             if total_versions <= 0:
                                 total_versions = 1
                             for idx in range(total_versions):
-                                version_id = f"{transcription_id}_v{idx+1}"
+                                version_id = f"{transcription_id}_draft_{idx+1}"
                                 version_file = drafts_dir / f"{version_id}.json"
                                 try:
                                     item = indiv[idx] if idx < len(indiv) else None
