@@ -121,12 +121,6 @@ def parse_action_plan_response(
             f"hitl_consumed_prompt_ids failed canonical validation: {exc}",
         ) from exc
 
-    if not complete_run and not wait_for_human:
-        if not action_type:
-            raise ModelActionParseError("invalid_model_action_json", "action_type is required unless completing or waiting")
-        if available_tool_ids and action_type not in available_tool_ids:
-            raise ModelActionParseError("invalid_model_action_json", f"unknown action_type: {action_type}")
-
     state_patch_raw = payload.get("state_patch")
     if state_patch_raw is None:
         state_patch_out: dict[str, Any] | None = None
@@ -137,6 +131,26 @@ def parse_action_plan_response(
             "invalid_model_action_json",
             "state_patch must be a JSON object or null",
         )
+
+    if not complete_run and not wait_for_human:
+        if not action_type:
+            if not skip_execution:
+                raise ModelActionParseError(
+                    "invalid_model_action_json",
+                    "action_type is required unless completing, waiting, or authoring an explicit skip_execution state_patch turn",
+                )
+            if action_inputs:
+                raise ModelActionParseError(
+                    "invalid_model_action_json",
+                    "action_inputs must be empty when action_type is null on a skip_execution turn",
+                )
+            if state_patch_out is None:
+                raise ModelActionParseError(
+                    "invalid_model_action_json",
+                    "state_patch is required when action_type is null on a skip_execution turn",
+                )
+        elif available_tool_ids and action_type not in available_tool_ids:
+            raise ModelActionParseError("invalid_model_action_json", f"unknown action_type: {action_type}")
 
     cje_raw = payload.get("continuity_journal_entry")
     if cje_raw is None:

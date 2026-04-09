@@ -74,6 +74,36 @@ def test_coerce_action_plan_accepts_state_patch_object() -> None:
     assert plan.state_patch == {"resolution": {"active_item_id": "x"}}
 
 
+def test_coerce_action_plan_accepts_explicit_state_authoring_skip_turn() -> None:
+    plan = _coerce_action_plan(
+        json.dumps(
+            {
+                "action_type": None,
+                "action_inputs": {},
+                "idempotency_key": "ik-investigate",
+                "skip_execution": True,
+                "wait_for_human": False,
+                "complete_run": False,
+                "rationale": "First itemize the work and enter an investigation posture.",
+                "state_patch": {
+                    "mission": {"active_mode": "investigating"},
+                    "resolution": {
+                        "active_item_id": "item-1",
+                        "items": [{"item_id": "item-1", "title": "Unverified claim", "status": "open"}],
+                    },
+                },
+                "continuity_journal_entry": {"investigation_turn": True},
+                "operator_progress_message": "Clarifying investigation state.",
+            }
+        ),
+        available_tool_ids=("select_tool",),
+    )
+    assert plan.action_type is None
+    assert plan.skip_execution is True
+    assert plan.state_patch is not None
+    assert plan.state_patch["mission"]["active_mode"] == "investigating"
+
+
 def test_coerce_action_plan_rejects_non_object_state_patch() -> None:
     payload = {
         "action_type": "select_tool",
@@ -87,6 +117,54 @@ def test_coerce_action_plan_rejects_non_object_state_patch() -> None:
         "continuity_journal_entry": _LLM_CJ,
     }
     with pytest.raises(ModelActionParseError, match="state_patch must be"):
+        _coerce_action_plan(json.dumps(payload), available_tool_ids=("select_tool",))
+
+
+def test_coerce_action_plan_rejects_null_action_type_without_skip_execution() -> None:
+    payload = {
+        "action_type": None,
+        "action_inputs": {},
+        "idempotency_key": "ik-1",
+        "skip_execution": False,
+        "wait_for_human": False,
+        "complete_run": False,
+        "rationale": None,
+        "state_patch": {"mission": {"active_mode": "investigating"}},
+        "continuity_journal_entry": _LLM_CJ,
+    }
+    with pytest.raises(ModelActionParseError, match="action_type is required unless completing, waiting, or authoring an explicit skip_execution state_patch turn"):
+        _coerce_action_plan(json.dumps(payload), available_tool_ids=("select_tool",))
+
+
+def test_coerce_action_plan_rejects_null_action_type_without_state_patch() -> None:
+    payload = {
+        "action_type": None,
+        "action_inputs": {},
+        "idempotency_key": "ik-1",
+        "skip_execution": True,
+        "wait_for_human": False,
+        "complete_run": False,
+        "rationale": None,
+        "state_patch": None,
+        "continuity_journal_entry": _LLM_CJ,
+    }
+    with pytest.raises(ModelActionParseError, match="state_patch is required when action_type is null on a skip_execution turn"):
+        _coerce_action_plan(json.dumps(payload), available_tool_ids=("select_tool",))
+
+
+def test_coerce_action_plan_rejects_action_inputs_on_state_authoring_skip_turn() -> None:
+    payload = {
+        "action_type": None,
+        "action_inputs": {"ref_ids": ["x"]},
+        "idempotency_key": "ik-1",
+        "skip_execution": True,
+        "wait_for_human": False,
+        "complete_run": False,
+        "rationale": None,
+        "state_patch": {"mission": {"active_mode": "investigating"}},
+        "continuity_journal_entry": _LLM_CJ,
+    }
+    with pytest.raises(ModelActionParseError, match="action_inputs must be empty when action_type is null on a skip_execution turn"):
         _coerce_action_plan(json.dumps(payload), available_tool_ids=("select_tool",))
 
 
@@ -642,6 +720,27 @@ _VALID_PLAN_JSON = json.dumps(
     }
 )
 
+_VALID_STATE_AUTHORING_PLAN_JSON = json.dumps(
+    {
+        "action_type": None,
+        "action_inputs": {},
+        "idempotency_key": "ik-state-turn",
+        "skip_execution": True,
+        "wait_for_human": False,
+        "complete_run": False,
+        "rationale": "First clarify the unresolved work before selecting another tool action.",
+        "state_patch": {
+            "mission": {"active_mode": "investigating"},
+            "resolution": {
+                "active_item_id": "item-1",
+                "items": [{"item_id": "item-1", "title": "Unverified claim", "status": "open"}],
+            },
+        },
+        "continuity_journal_entry": {"repair": True, "investigation_turn": True},
+        "operator_progress_message": "Clarifying investigation state.",
+    }
+)
+
 
 def test_choose_action_repair_succeeds_on_second_attempt() -> None:
     """First call returns invalid JSON; second (repair) call returns valid JSON → plan returned."""
@@ -662,6 +761,26 @@ def test_choose_action_repair_succeeds_on_second_attempt() -> None:
     # Second call should include the original prompt content and the repair instruction.
     assert "reason_code" in calls[1]
     assert "invalid_model_action_json" in calls[1]
+
+
+def test_choose_action_repair_accepts_state_authoring_skip_turn() -> None:
+    calls: list[str] = []
+
+    def caller(prompt: str, model: str, **_kwargs: Any) -> str:
+        calls.append(prompt)
+        if len(calls) == 1:
+            return "not-json"
+        return _VALID_STATE_AUTHORING_PLAN_JSON
+
+    adapter = _minimal_llm_adapter(caller=caller)
+    ctx = _orch_context(iterations=1)
+    plan = adapter.choose_action(ctx, projection=None)
+
+    assert plan.action_type is None
+    assert plan.skip_execution is True
+    assert plan.state_patch is not None
+    assert plan.state_patch["mission"]["active_mode"] == "investigating"
+    assert len(calls) == 2
 
 
 def test_choose_action_repair_sets_contract_feedback_on_success() -> None:
@@ -785,6 +904,23 @@ def test_choose_action_prompt_includes_closure_state_contract() -> None:
     assert "closure_state" in prompt
     assert "closure_state dimensions merge by dimension_id" in prompt
     assert "generic run-level closure ledger" in prompt
+
+
+def test_choose_action_prompt_explicitly_allows_state_authoring_skip_turns() -> None:
+    captured: list[str] = []
+
+    def caller(prompt: str, model: str, **_kwargs: Any) -> str:
+        captured.append(prompt)
+        return _VALID_PLAN_JSON
+
+    adapter = _minimal_llm_adapter(caller=caller)
+    ctx = _orch_context(iterations=1)
+    adapter.choose_action(ctx, projection=None)
+
+    prompt = captured[0]
+    assert "no-dispatch turn" in prompt
+    assert "action_type null" in prompt
+    assert "Do not emit mission or resolution as top-level keys" in prompt
 
 
 def test_choose_action_prompt_hides_max_iterations_from_model_visible_launch_context() -> None:
