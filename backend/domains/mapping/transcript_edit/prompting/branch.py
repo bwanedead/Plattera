@@ -7,7 +7,7 @@ from domains.prompting import PromptBlock
 TRANSCRIPT_EDIT_DOMAIN_ID = "transcript_edit"
 TRANSCRIPT_EDIT_FAMILY_ID = "mapping"
 TRANSCRIPT_EDIT_BRANCH_SOURCE_REF = "backend/domains/mapping/transcript_edit/prompting/branch.py"
-TRANSCRIPT_EDIT_BRANCH_VERSION = "v8"
+TRANSCRIPT_EDIT_BRANCH_VERSION = "v9"
 
 TRANSCRIPT_EDIT_BRANCH_TEXT = """\
 You are operating in the **transcript edit** domain for mapping-bound work.
@@ -89,6 +89,7 @@ By the time you save, publish, request HITL, or complete the run, the transcript
 - mapping-blocking or non-blocking when that judgment is available
 
 The harness does not decide those meanings for you. You author them.
+This domain hard-enforces closure readiness for publish and complete actions: if the closure ledger is missing required layer dispositions or not marked ready, those actions can be refused mechanically.
 
 ## Good evidence
 - Compare peer drafts as evidence inputs, not as implicit truth sources.

@@ -48,6 +48,7 @@ def build_transcript_edit_turn_surface(
     *,
     prompt_blocks: Sequence[PromptBlock],
     startup_inventory: TranscriptEditStartupInventory,
+    closure_policy: Mapping[str, Any] | None = None,
 ) -> TurnSurface:
     """Package transcript-edit prompt blocks (including startup context) and tool bindings."""
     scope = startup_inventory.scope
@@ -69,6 +70,7 @@ def build_transcript_edit_turn_surface(
             _PAYLOAD_NAMESPACE: {
                 "tool_specs": _build_tool_specs(),
                 "tool_ids": [binding.tool_id for binding in tool_bindings],
+                "closure_policy": _jsonable(dict(closure_policy or {})),
             },
         },
         tool_bindings=tool_bindings,

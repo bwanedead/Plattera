@@ -554,6 +554,7 @@ def _apply_closure_state(current: ClosureState, raw: Any) -> ClosureState:
     allowed = {
         "overall_status",
         "summary",
+        "ready_to_publish",
         "ready_to_close",
         "requires_hitl",
         "no_further_progress",
@@ -574,7 +575,7 @@ def _apply_closure_state(current: ClosureState, raw: Any) -> ClosureState:
     if "summary" in raw:
         v = raw["summary"]
         updates["summary"] = None if v is None else (str(v).strip()[:500] or None)
-    for key in ("ready_to_close", "requires_hitl", "no_further_progress"):
+    for key in ("ready_to_publish", "ready_to_close", "requires_hitl", "no_further_progress"):
         if key not in raw:
             continue
         val = raw[key]

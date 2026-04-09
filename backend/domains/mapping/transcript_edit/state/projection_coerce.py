@@ -267,7 +267,7 @@ def coerce_closure_ledger(m: Mapping[str, Any] | None) -> TranscriptEditClosureL
 
     overall_status = pick_str(m, "overall_status")
     summary = pick_str(m, "summary")
-    publish_ready = bool(opaque.get("publish_ready"))
+    publish_ready = bool(m.get("ready_to_publish") or opaque.get("publish_ready"))
     complete_ready = bool(m.get("ready_to_close") or opaque.get("complete_ready"))
     requires_hitl = bool(m.get("requires_hitl"))
     no_further_progress = bool(m.get("no_further_progress"))

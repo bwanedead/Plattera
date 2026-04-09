@@ -16,7 +16,11 @@ from .prompting import (
     build_transcript_edit_branch_blocks,
     build_transcript_edit_procedural_guidance_blocks,
 )
-from .semantics.closure import TranscriptEditClosureSemantics, transcript_edit_closure_semantics
+from .semantics.closure import (
+    TranscriptEditClosureSemantics,
+    build_transcript_edit_closure_policy,
+    transcript_edit_closure_semantics,
+)
 from .semantics.handoff import TranscriptEditHandoffSemantics, transcript_edit_handoff_semantics
 from .state import (
     CandidateRepair,
@@ -60,6 +64,7 @@ __all__ = [
     "build_transcript_edit_branch_blocks",
     "build_transcript_edit_domain_pack",
     "build_transcript_edit_manifest",
+    "build_transcript_edit_closure_policy",
     "build_transcript_edit_procedural_guidance_blocks",
     "build_transcript_edit_tool_specs",
     "project_transcript_edit_view",

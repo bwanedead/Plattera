@@ -145,6 +145,7 @@ def test_mission_patch_accepts_closure_state_and_merges_dimensions() -> None:
                 "closure_state": {
                     "overall_status": "open",
                     "summary": "Closure still in progress",
+                    "ready_to_publish": False,
                     "ready_to_close": False,
                     "dimensions": [
                         {
@@ -184,6 +185,7 @@ def test_mission_patch_accepts_closure_state_and_merges_dimensions() -> None:
                         },
                     ],
                     "opaque_payload": {"publish_ready": True},
+                    "ready_to_publish": True,
                 }
             }
         },
@@ -192,6 +194,7 @@ def test_mission_patch_accepts_closure_state_and_merges_dimensions() -> None:
     dim1 = next(d for d in ms3.closure_state.dimensions if d.dimension_id == "layer_1_delta_convergence")
     assert dim1.status == "closed"
     assert dim1.evidence_refs == ["image:assoc:tx:original"]
+    assert ms3.closure_state.ready_to_publish is True
     assert ms3.closure_state.opaque_payload["publish_ready"] is True
 
 

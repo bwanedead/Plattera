@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from domains.mapping.transcript_edit import (
+    build_transcript_edit_closure_policy,
     build_transcript_edit_branch_blocks,
     build_transcript_edit_domain_pack,
     build_transcript_edit_manifest,
@@ -26,6 +27,8 @@ def test_manifest_tool_ids_match_tool_specs() -> None:
     specs = build_transcript_edit_tool_specs()
     assert manifest.declared_semantic_tool_ids == tuple(s.tool_id for s in specs)
     assert len(specs) == 4
+    assert manifest.closure_policy.hard_enforced is True
+    assert len(manifest.closure_policy.standards) == 4
 
 
 def test_domain_pack_wires_same_tool_count_as_manifest() -> None:
@@ -218,6 +221,16 @@ def test_closure_semantics_stable_contract() -> None:
     assert len(c.must_remain_explicit_if_unresolved) >= 2
     assert len(c.anti_patterns) >= 2
     assert "Closure means" in c.summary
+
+
+def test_transcript_edit_closure_policy_stable_contract() -> None:
+    policy = build_transcript_edit_closure_policy()
+    assert policy.hard_enforced is True
+    assert policy.enforce_on_publish is True
+    assert policy.enforce_on_complete is True
+    assert len(policy.required_dimension_ids) == 4
+    assert len(policy.standards) == 4
+    assert policy.standards[0].dimension_id == "layer_1_delta_convergence"
 
 
 def test_handoff_semantics_stable_contract() -> None:

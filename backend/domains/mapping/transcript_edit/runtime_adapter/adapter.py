@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from typing import Any
 
 from domains.mapping.prompting import build_mapping_family_branch_blocks
@@ -38,6 +38,7 @@ class TranscriptEditRuntimeAdapter:
         return build_transcript_edit_turn_surface(
             prompt_blocks=prompt_blocks,
             startup_inventory=startup_inventory,
+            closure_policy=asdict(self.manifest.closure_policy),
         )
 
 

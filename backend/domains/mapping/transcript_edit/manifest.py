@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+
+from domains.closure_policy import DomainClosurePolicy
+from .semantics.closure import build_transcript_edit_closure_policy
 
 
 @dataclass(frozen=True)
@@ -19,6 +22,7 @@ class TranscriptEditManifest:
     projection_module_ref: str = "domains.mapping.transcript_edit.state.projection"
     closure_module_ref: str = "domains.mapping.transcript_edit.semantics.closure"
     handoff_module_ref: str = "domains.mapping.transcript_edit.semantics.handoff"
+    closure_policy: DomainClosurePolicy = field(default_factory=build_transcript_edit_closure_policy)
     semantic_surfaces: tuple[str, ...] = (
         "prompting.branch",
         "prompting.surfaces.procedural_guidance",

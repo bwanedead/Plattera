@@ -10,7 +10,7 @@ from ..branch import TRANSCRIPT_EDIT_DOMAIN_ID
 TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_SOURCE_REF = (
     "backend/domains/mapping/transcript_edit/prompting/surfaces/procedural_guidance.py"
 )
-TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_VERSION = "v6"
+TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_VERSION = "v7"
 
 TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_TEXT = """\
 Use this guidance to shape your movement through transcript-edit work. This is **guidance**, not a hard script. The harness still owns orchestration. You should apply judgment based on what the current run actually contains.
@@ -94,6 +94,8 @@ If a layer cannot be closed, say what kind of stopping posture applies:
 - requires HITL
 - no further progress from current evidence
 - non-blocking despite remaining open
+
+For transcript-edit specifically, publish and complete can be hard-enforced against that ledger. Do not attempt those actions unless the ledger is explicit and marked ready for the corresponding move.
 
 ## What not to do
 - Do not treat one peer draft as the implicit winner because it reads best.

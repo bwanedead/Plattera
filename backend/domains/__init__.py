@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from .closure_policy import ClosureDimensionStandard, DomainClosurePolicy
 from .mapping import build_mapping_domain_adapter_registry
 from .registry import (
     DomainAdapterFactory,
@@ -30,10 +31,12 @@ def require_domain_adapter_factory(domain_id: str) -> DomainAdapterFactory:
 
 
 __all__ = [
+    "ClosureDimensionStandard",
     "DomainAdapterFactory",
     "DomainAdapterLookupError",
     "DomainAdapterRegistration",
     "DomainAdapterRegistry",
+    "DomainClosurePolicy",
     "DomainRuntimeAdapter",
     "build_domain_adapter_registry",
     "get_domain_adapter_factory",

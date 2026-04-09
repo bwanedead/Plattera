@@ -4,10 +4,12 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from types import SimpleNamespace
 
 import pytest
 
 import harness.cli.run_state as cli_run_state
+from domains import ClosureDimensionStandard, DomainClosurePolicy
 from domains.mapping.transcript_edit.runtime_adapter import build_transcript_edit_runtime_adapter
 import config.paths as config_paths
 from harness.execution.contracts import ActionDispatchResult, ExecutionStepRequest
@@ -24,6 +26,17 @@ class FakeSurfaceAdapter:
     def build_turn_surface(self, launch_context: dict[str, object]) -> TurnSurface:
         self.calls.append(dict(launch_context))
         return self.surface
+
+
+@dataclass
+class FakePolicyManifest:
+    domain_id: str
+    closure_policy: DomainClosurePolicy
+
+
+@dataclass
+class FakePolicyAdapter(FakeSurfaceAdapter):
+    manifest: FakePolicyManifest
 
 
 def _targets(tmp_path: Path) -> RuntimeArtifactTargets:
@@ -273,7 +286,37 @@ def test_runner_executes_transcript_edit_tool_and_writes_artifacts(tmp_path: Pat
                 "wait_for_human": False,
                 "complete_run": True,
                 "rationale": "finished",
-                "state_patch": None,
+                "state_patch": {
+                    "mission": {
+                        "closure_state": {
+                            "overall_status": "complete_ready",
+                            "ready_to_close": True,
+                            "dimensions": [
+                                {
+                                    "dimension_id": "layer_1_delta_convergence",
+                                    "title": "Layer 1",
+                                    "status": "closed",
+                                },
+                                {
+                                    "dimension_id": "layer_2_intrinsic_source_integrity",
+                                    "title": "Layer 2",
+                                    "status": "open",
+                                },
+                                {
+                                    "dimension_id": "layer_3_external_dependency_completeness",
+                                    "title": "Layer 3",
+                                    "status": "no_further_progress",
+                                },
+                                {
+                                    "dimension_id": "layer_4_mapping_blocking_relevance",
+                                    "title": "Layer 4",
+                                    "status": "non_blocking",
+                                    "blocking": False,
+                                },
+                            ],
+                        }
+                    }
+                },
                 "continuity_journal_entry": {"runner_stub": True},
                 "operator_progress_message": None,
             }
@@ -393,3 +436,49 @@ def test_default_model_caller_passes_through_call_options(monkeypatch) -> None:
     # call_options is passed through; no json_mode kwarg injected by the runner
     assert "json_mode" not in kwargs_sent
     assert kwargs_sent.get("call_options") is opts
+
+
+def test_runner_injects_domain_closure_policy_into_orchestration_context(tmp_path: Path, monkeypatch) -> None:
+    captured: dict[str, Any] = {}
+    policy = DomainClosurePolicy(
+        hard_enforced=True,
+        enforce_on_complete=True,
+        required_dimension_ids=("layer_a",),
+        standards=(
+            ClosureDimensionStandard(
+                dimension_id="layer_a",
+                title="Layer A",
+                question="Is layer A closed?",
+            ),
+        ),
+    )
+    adapter = FakePolicyAdapter(
+        calls=[],
+        surface=TurnSurface(surface_id="surface-a", blocks=(), payload={}, tool_bindings=()),
+        manifest=FakePolicyManifest(domain_id="fake_domain", closure_policy=policy),
+    )
+
+    def fake_loop(**kwargs: Any) -> Any:
+        captured.update(kwargs["opaque_run_context"])
+        return SimpleNamespace(
+            terminal_class="completed",
+            reason_code="complete_run",
+            terminal_summary="done",
+            iterations=1,
+            session_id="sess",
+            run_artifact_ref=None,
+            latest_refs={},
+            runtime_state={},
+            trace_events=[],
+            kernel_resume_snapshot=None,
+        )
+
+    monkeypatch.setattr(runner_module, "run_orchestration_kernel_loop", fake_loop)
+
+    runner = RuntimeRunner(adapter=adapter, model_caller=lambda *args, **kwargs: "", targets=_targets(tmp_path))
+    result = runner.run(launch_context={"run_id": "r1", "session_id": "s1", "request_id_prefix": "req1"})
+
+    assert result.status == "completed"
+    assert captured["domain_id"] == "fake_domain"
+    assert captured["domain_closure_policy"]["hard_enforced"] is True
+    assert captured["domain_closure_policy"]["required_dimension_ids"] == ["layer_a"]

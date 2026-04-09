@@ -41,6 +41,16 @@ def test_runtime_adapter_builds_turn_surface_from_opaque_launch_context() -> Non
         "save_workspace_artifact",
         "publish_workspace_artifact",
     ]
+    assert te_payload["closure_policy"]["hard_enforced"] is True
+    assert te_payload["closure_policy"]["enforce_on_publish"] is True
+    assert te_payload["closure_policy"]["enforce_on_complete"] is True
+    assert te_payload["closure_policy"]["required_dimension_ids"] == [
+        "layer_1_delta_convergence",
+        "layer_2_intrinsic_source_integrity",
+        "layer_3_external_dependency_completeness",
+        "layer_4_mapping_blocking_relevance",
+    ]
+    assert len(te_payload["closure_policy"]["standards"]) == 4
     tool_specs = te_payload["tool_specs"]
     assert len(tool_specs) == len(build_transcript_edit_tool_specs())
 
@@ -58,6 +68,7 @@ def test_runtime_adapter_factory_returns_thin_domain_owned_adapter() -> None:
 
     assert adapter.domain_id == "transcript_edit"
     assert adapter.manifest.domain_id == "transcript_edit"
+    assert adapter.manifest.closure_policy.hard_enforced is True
 
 
 def test_tool_specs_shape_matches_shared_capability_ids() -> None:

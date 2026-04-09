@@ -464,6 +464,203 @@ class LongRationaleCompleteRunPack:
         )
 
 
+def _closure_policy_ctx() -> dict[str, Any]:
+    return {
+        "domain_closure_policy": {
+            "hard_enforced": True,
+            "enforce_on_publish": True,
+            "enforce_on_complete": True,
+            "required_dimension_ids": [
+                "layer_1_delta_convergence",
+                "layer_2_intrinsic_source_integrity",
+                "layer_3_external_dependency_completeness",
+                "layer_4_mapping_blocking_relevance",
+            ],
+            "standards": [],
+        }
+    }
+
+
+def _inherit_projection_from_context(context: OrchestratorContext) -> SharedStateProjection:
+    prior_ms = context.loop_memory.continuity.mission_state
+    prior_rs = context.loop_memory.continuity.resolution_state
+    ts = time.time()
+    rs = prior_rs.model_copy(update={"updated_at_epoch_seconds": ts})
+    ms = prior_ms.model_copy(
+        update={
+            "mission_id": context.session_id,
+            "session_id": context.session_id,
+            "request_id": context.request_id_prefix,
+            "loop_family": "orchestration_kernel",
+            "updated_at_epoch_seconds": ts,
+            "resolution_state": rs,
+        }
+    )
+    return SharedStateProjection(
+        mission_state=ms,
+        resolution_state=rs,
+        latest_refs=dict(context.loop_memory.continuity.latest_refs),
+        active_item_id=context.loop_memory.continuity.active_item_id,
+    )
+
+
+def _closure_dimensions(*, layer4_status: str = "blocking") -> list[dict[str, Any]]:
+    return [
+        {
+            "dimension_id": "layer_1_delta_convergence",
+            "title": "Layer 1",
+            "status": "closed",
+            "summary": "Transcript matches visible source",
+        },
+        {
+            "dimension_id": "layer_2_intrinsic_source_integrity",
+            "title": "Layer 2",
+            "status": "open",
+            "summary": "Source contradiction remains explicit",
+        },
+        {
+            "dimension_id": "layer_3_external_dependency_completeness",
+            "title": "Layer 3",
+            "status": "no_further_progress",
+            "summary": "Current image cannot recover the missing continuation",
+            "no_further_progress": True,
+        },
+        {
+            "dimension_id": "layer_4_mapping_blocking_relevance",
+            "title": "Layer 4",
+            "status": layer4_status,
+            "summary": "Mapping relevance has been explicitly classified",
+            "blocking": layer4_status != "non_blocking",
+        },
+    ]
+
+
+class ClosureGatedCompletePack:
+    def initialize(self, context: OrchestratorContext) -> None:
+        pass
+
+    def sync(self, context: OrchestratorContext) -> SharedStateProjection:
+        return _inherit_projection_from_context(context)
+
+    def evaluate_terminal(self, context: OrchestratorContext, projection: SharedStateProjection | None) -> TerminalEvaluation | None:
+        return None
+
+    def choose_action(self, context: OrchestratorContext, projection: SharedStateProjection | None) -> ActionPlan:
+        if context.loop_memory.iterations == 1:
+            return ActionPlan(
+                complete_run=True,
+                idempotency_key="ik-close-1",
+                rationale="trying too early",
+                continuity_journal_entry=_PACK_CJ,
+                state_patch={
+                    "mission": {
+                        "closure_state": {
+                            "overall_status": "open",
+                            "ready_to_close": False,
+                            "dimensions": _closure_dimensions(),
+                        }
+                    }
+                },
+            )
+        return ActionPlan(
+            complete_run=True,
+            idempotency_key="ik-close-2",
+            rationale="now explicit and ready",
+            continuity_journal_entry=_PACK_CJ,
+            state_patch={
+                "mission": {
+                    "closure_state": {
+                        "overall_status": "complete_ready",
+                        "ready_to_close": True,
+                        "dimensions": [
+                            {
+                                "dimension_id": "layer_4_mapping_blocking_relevance",
+                                "status": "non_blocking",
+                                "summary": "Remaining caveat does not block mapping",
+                                "blocking": False,
+                            }
+                        ],
+                    }
+                }
+            },
+        )
+
+
+class ClosureGatedPublishPack:
+    def initialize(self, context: OrchestratorContext) -> None:
+        pass
+
+    def sync(self, context: OrchestratorContext) -> SharedStateProjection:
+        return _inherit_projection_from_context(context)
+
+    def evaluate_terminal(self, context: OrchestratorContext, projection: SharedStateProjection | None) -> TerminalEvaluation | None:
+        return None
+
+    def choose_action(self, context: OrchestratorContext, projection: SharedStateProjection | None) -> ActionPlan:
+        if context.loop_memory.iterations == 1:
+            return ActionPlan(
+                action_type="publish_workspace_artifact",
+                action_inputs={"source_revision_ref": "transcript_edit:working:rev:0001"},
+                idempotency_key="ik-publish-1",
+                rationale="publish before closure is ready",
+                continuity_journal_entry=_PACK_CJ,
+                state_patch={
+                    "mission": {
+                        "closure_state": {
+                            "overall_status": "investigating",
+                            "ready_to_publish": False,
+                            "dimensions": _closure_dimensions(),
+                        }
+                    }
+                },
+            )
+        if context.loop_memory.iterations == 2:
+            return ActionPlan(
+                action_type="publish_workspace_artifact",
+                action_inputs={"source_revision_ref": "transcript_edit:working:rev:0001"},
+                idempotency_key="ik-publish-2",
+                rationale="publish once ledger is explicit",
+                continuity_journal_entry=_PACK_CJ,
+                state_patch={
+                    "mission": {
+                        "closure_state": {
+                            "overall_status": "publish_ready",
+                            "ready_to_publish": True,
+                            "dimensions": [
+                                {
+                                    "dimension_id": "layer_4_mapping_blocking_relevance",
+                                    "status": "non_blocking",
+                                    "summary": "Remaining caveat is non-blocking",
+                                    "blocking": False,
+                                }
+                            ],
+                        }
+                    }
+                },
+            )
+        return ActionPlan(
+            complete_run=True,
+            idempotency_key="ik-publish-done",
+            rationale="close after publish",
+            continuity_journal_entry=_PACK_CJ,
+            state_patch={
+                "mission": {
+                    "closure_state": {
+                        "ready_to_close": True,
+                        "dimensions": [
+                            {
+                                "dimension_id": "layer_4_mapping_blocking_relevance",
+                                "status": "non_blocking",
+                                "summary": "Handoff is explicit and non-blocking",
+                                "blocking": False,
+                            }
+                        ],
+                    }
+                }
+            },
+        )
+
+
 def test_non_blocking_hitl_loop_continues() -> None:
     sm = FakeSessionManager()
     result = run_orchestration_kernel_loop(
@@ -501,6 +698,57 @@ def test_complete_run_uses_short_reason_code_and_preserves_summary() -> None:
     terminal_event = next(e for e in result.trace_events if e.get("event_kind") == "terminal_outcome")
     assert terminal_event["reason_code"] == "complete_run"
     assert terminal_event["payload"]["terminal_summary"] == result.terminal_summary
+
+
+def test_complete_run_is_blocked_until_closure_state_is_ready() -> None:
+    sm = FakeSessionManager()
+    result = run_orchestration_kernel_loop(
+        orchestration_adapter=ClosureGatedCompletePack(),
+        session_manager=sm,
+        session_id="s-close-gated",
+        run_artifact_ref=None,
+        request_id_prefix="r-close-gated",
+        opaque_run_context=_closure_policy_ctx(),
+        max_iterations=3,
+    )
+
+    assert result.terminal_class == "completed"
+    assert result.reason_code == "complete_run"
+    assert len(sm.steps) == 0
+    closure = result.runtime_state["mission_state"].closure_state
+    assert closure.ready_to_close is True
+    blocked_event = next(
+        e
+        for e in result.trace_events
+        if e.get("event_kind") == "tool_execution" and e.get("reason_code") == "closure_complete_not_ready"
+    )
+    assert blocked_event["payload"]["execution_state"] == "refused"
+
+
+def test_publish_is_blocked_until_closure_state_is_publish_ready() -> None:
+    sm = FakeSessionManager()
+    result = run_orchestration_kernel_loop(
+        orchestration_adapter=ClosureGatedPublishPack(),
+        session_manager=sm,
+        session_id="s-publish-gated",
+        run_artifact_ref=None,
+        request_id_prefix="r-publish-gated",
+        opaque_run_context=_closure_policy_ctx(),
+        max_iterations=4,
+    )
+
+    assert result.terminal_class == "completed"
+    assert result.reason_code == "complete_run"
+    assert len(sm.steps) == 1
+    assert sm.steps[0].action_id == "publish_workspace_artifact"
+    closure = result.runtime_state["mission_state"].closure_state
+    assert closure.ready_to_publish is True
+    blocked_event = next(
+        e
+        for e in result.trace_events
+        if e.get("event_kind") == "tool_execution" and e.get("reason_code") == "closure_publish_not_ready"
+    )
+    assert blocked_event["payload"]["execution_state"] == "refused"
 
 
 def test_skip_execution_no_session_step() -> None:

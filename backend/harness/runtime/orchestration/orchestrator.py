@@ -27,6 +27,8 @@ from .orchestrator_coercion import (
     coerce_terminal_evaluation,
 )
 from .state_patch_apply import (
+    StatePatchError,
+    apply_state_patch,
     sync_state_patch_after_committed_gate,
     sync_state_patch_after_step_refusal,
     sync_state_patch_when_no_step_dispatched,
@@ -34,6 +36,8 @@ from .state_patch_apply import (
 from .trace_collector import KernelTraceCollector
 
 _LOG = logging.getLogger(__name__)
+
+_PUBLISH_ACTION_IDS = frozenset({"publish_workspace_artifact"})
 
 
 def _notify_turn_completed(
@@ -189,6 +193,135 @@ def _record_turn_continuity(
 def _pack_id_from_prompt_metadata(metadata: dict[str, Any], info: dict[str, Any]) -> str:
     """Prompt-pack identifier from metadata (``pack_id`` only)."""
     return str(metadata.get("pack_id") or info.get("pack_id") or "")
+
+
+def _closure_policy(run_ctx: dict[str, Any]) -> dict[str, Any] | None:
+    raw = run_ctx.get("domain_closure_policy")
+    return dict(raw) if isinstance(raw, dict) else None
+
+
+def _effective_closure_state(
+    *,
+    loop_memory: LoopMemoryState,
+    action_plan: ActionPlan,
+) -> Any:
+    if not action_plan.state_patch:
+        return loop_memory.continuity.mission_state.closure_state
+    try:
+        mission_state, _, _ = apply_state_patch(
+            mission_state=loop_memory.continuity.mission_state,
+            resolution_state=loop_memory.continuity.resolution_state,
+            state_patch=action_plan.state_patch,
+        )
+        return mission_state.closure_state
+    except StatePatchError:
+        return loop_memory.continuity.mission_state.closure_state
+
+
+def _closure_enforcement_failure(
+    *,
+    run_ctx: dict[str, Any],
+    loop_memory: LoopMemoryState,
+    action_plan: ActionPlan,
+) -> tuple[str, str] | None:
+    policy = _closure_policy(run_ctx)
+    if not policy or not bool(policy.get("hard_enforced")):
+        return None
+
+    is_publish = str(action_plan.action_type or "").strip() in _PUBLISH_ACTION_IDS
+    is_complete = bool(action_plan.complete_run)
+    if not ((is_publish and bool(policy.get("enforce_on_publish"))) or (is_complete and bool(policy.get("enforce_on_complete")))):
+        return None
+
+    closure_state = _effective_closure_state(loop_memory=loop_memory, action_plan=action_plan)
+    required_dimension_ids = tuple(
+        str(value).strip()
+        for value in (policy.get("required_dimension_ids") or ())
+        if str(value).strip()
+    )
+    dimensions = {
+        str(getattr(dim, "dimension_id", "") or ""): dim
+        for dim in getattr(closure_state, "dimensions", ()) or ()
+        if str(getattr(dim, "dimension_id", "") or "")
+    }
+    missing = [
+        dim_id
+        for dim_id in required_dimension_ids
+        if dim_id not in dimensions or not str(getattr(dimensions[dim_id], "status", "") or "").strip()
+    ]
+    if missing:
+        target = "publish" if is_publish else "complete"
+        return (
+            f"closure_{target}_dimensions_missing",
+            f"closure enforcement missing required dimensions: {missing}",
+        )
+
+    if bool(getattr(closure_state, "requires_hitl", False)) or any(
+        bool(getattr(dimensions[dim_id], "requires_hitl", False))
+        for dim_id in required_dimension_ids
+        if dim_id in dimensions
+    ):
+        target = "publish" if is_publish else "complete"
+        return (
+            f"closure_{target}_requires_hitl",
+            "closure enforcement requires HITL before this action",
+        )
+
+    if is_publish and not bool(getattr(closure_state, "ready_to_publish", False)):
+        return (
+            "closure_publish_not_ready",
+            "closure enforcement requires ready_to_publish before publish_workspace_artifact",
+        )
+
+    if is_complete and not bool(getattr(closure_state, "ready_to_close", False)):
+        return (
+            "closure_complete_not_ready",
+            "closure enforcement requires ready_to_close before complete_run",
+        )
+
+    return None
+
+
+def _handle_closure_enforcement_block(
+    *,
+    orchestration_adapter: OrchestrationAdapter,
+    tracer: KernelTraceCollector,
+    loop_memory: LoopMemoryState,
+    action_plan: ActionPlan,
+    iteration: int,
+    reason_code: str,
+) -> None:
+    action_id = "complete_run" if action_plan.complete_run else str(action_plan.action_type or "no_action")
+    tracer.emit_execution_result(
+        iteration=iteration,
+        action_type=action_id,
+        execution_state="refused",
+        reason_code=reason_code,
+        retryable=False,
+        refs_delta=None,
+    )
+    sync_state_patch_after_committed_gate(
+        loop_memory=loop_memory,
+        action_plan=action_plan,
+        tracer=tracer,
+        iteration=iteration,
+        gate="closure_enforcement_blocked",
+    )
+    _record_turn_continuity(
+        loop_memory=loop_memory,
+        action_plan=action_plan,
+        iteration=iteration,
+        execution_state="refused",
+        execution_reason_code=reason_code,
+    )
+    _notify_turn_completed(
+        orchestration_adapter,
+        iteration,
+        action_plan=action_plan,
+        step_result=None,
+        loop_memory=loop_memory,
+        terminal_decision="closure_enforcement_blocked",
+    )
 
 
 def run_orchestration_kernel_loop(
@@ -423,6 +556,24 @@ def run_orchestration_kernel_loop(
 
         if action_plan.complete_run and action_plan.hitl_request is not None:
             _LOG.warning("KERNEL complete_run with hitl_request ► skipping iteration")
+            continue
+
+        closure_failure = _closure_enforcement_failure(
+            run_ctx=run_ctx,
+            loop_memory=loop_memory,
+            action_plan=action_plan,
+        )
+        if closure_failure is not None:
+            reason_code, message = closure_failure
+            _LOG.info("KERNEL closure_enforcement_blocked ► reason_code=%s message=%s", reason_code, message)
+            _handle_closure_enforcement_block(
+                orchestration_adapter=orchestration_adapter,
+                tracer=tracer,
+                loop_memory=loop_memory,
+                action_plan=action_plan,
+                iteration=iterations,
+                reason_code=reason_code,
+            )
             continue
 
         if action_plan.complete_run:

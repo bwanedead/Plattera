@@ -82,6 +82,7 @@ class ClosureState(BaseModel):
     updated_at_epoch_seconds: float = Field(default=0.0, ge=0.0)
     overall_status: str | None = Field(default=None, max_length=64)
     summary: str | None = Field(default=None, max_length=500)
+    ready_to_publish: bool = False
     ready_to_close: bool = False
     requires_hitl: bool = False
     no_further_progress: bool = False
@@ -145,6 +146,7 @@ def new_closure_state(
     *,
     overall_status: str | None = None,
     summary: str | None = None,
+    ready_to_publish: bool = False,
     ready_to_close: bool = False,
     requires_hitl: bool = False,
     no_further_progress: bool = False,
@@ -160,6 +162,7 @@ def new_closure_state(
     return ClosureState(
         overall_status=_clean_text(overall_status, limit=64),
         summary=_clean_text(summary, limit=500),
+        ready_to_publish=bool(ready_to_publish),
         ready_to_close=bool(ready_to_close),
         requires_hitl=bool(requires_hitl),
         no_further_progress=bool(no_further_progress),

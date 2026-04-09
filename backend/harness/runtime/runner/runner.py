@@ -10,6 +10,7 @@ doctrine, or pack-specific workflow language.
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+from dataclasses import asdict, is_dataclass
 import json
 import os
 from pathlib import Path
@@ -65,7 +66,8 @@ class RuntimeRunner:
             adapter = self._resolve_adapter(context)
             surface = self._resolve_turn_surface(adapter, context)
             composed = DefaultTurnComposer().compose(build_harness_turn_surface(), surface)
-            loop_result = self._run_orchestration(context=context, composed=composed)
+            orchestration_context = _with_domain_policy_context(context, adapter)
+            loop_result = self._run_orchestration(context=orchestration_context, composed=composed)
             result = RuntimeRunResult(
                 status=str(loop_result.terminal_class),
                 reason_code=loop_result.reason_code,
@@ -395,6 +397,8 @@ def _maybe_finalize_retention_and_cleanup(targets: RuntimeArtifactTargets) -> No
 def _jsonable(value: Any) -> Any:
     if hasattr(value, "model_dump"):
         return _jsonable(value.model_dump(mode="python"))  # type: ignore[call-arg]
+    if is_dataclass(value):
+        return _jsonable(asdict(value))
     if isinstance(value, Mapping):
         return {str(key): _jsonable(raw_value) for key, raw_value in value.items()}
     if isinstance(value, list):
@@ -404,3 +408,20 @@ def _jsonable(value: Any) -> Any:
     if isinstance(value, set):
         return [_jsonable(item) for item in sorted(value, key=str)]
     return value
+
+
+def _with_domain_policy_context(
+    launch_context: Mapping[str, Any],
+    adapter: RuntimeAdapter,
+) -> dict[str, Any]:
+    merged = dict(launch_context)
+    manifest = getattr(adapter, "manifest", None)
+    if manifest is None:
+        return merged
+    domain_id = str(getattr(manifest, "domain_id", "") or "").strip()
+    if domain_id and "domain_id" not in merged:
+        merged["domain_id"] = domain_id
+    closure_policy = getattr(manifest, "closure_policy", None)
+    if closure_policy is not None:
+        merged["domain_closure_policy"] = _jsonable(closure_policy)
+    return merged
