@@ -6,7 +6,9 @@ what artifact refs are available without exposing storage internals.
 
 from __future__ import annotations
 
-from ..branch import TRANSCRIPT_EDIT_DOMAIN_ID, PromptBlock
+from domains.prompting import PromptBlock
+
+from ..branch import TRANSCRIPT_EDIT_DOMAIN_ID
 
 TRANSCRIPT_EDIT_STARTUP_CONTEXT_VERSION = "v3"
 _STARTUP_CONTEXT_SOURCE_PATH = "backend/domains/mapping/transcript_edit/prompting/surfaces/startup_context.py"

@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
+from domains.mapping.prompting import build_mapping_family_branch_blocks
 from harness.runtime.composition import TurnSurface
 
 from ..manifest import TranscriptEditManifest, build_transcript_edit_manifest
@@ -30,6 +31,7 @@ class TranscriptEditRuntimeAdapter:
         context = _require_launch_context(launch_context)
         startup_inventory = _build_startup_inventory(context)
         prompt_blocks = (
+            *build_mapping_family_branch_blocks(),
             *build_transcript_edit_branch_blocks(),
             *build_transcript_edit_procedural_guidance_blocks(),
         )

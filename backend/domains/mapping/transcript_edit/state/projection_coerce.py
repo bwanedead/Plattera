@@ -9,10 +9,19 @@ from .contracts import (
     DownstreamReadinessPosture,
     EvidencePosture,
     TranscriptAmbiguity,
+    TranscriptEditClosureLayerPosture,
+    TranscriptEditClosureLedger,
     TranscriptDefect,
     TranscriptEditAuthoredDraftPosture,
     VerificationPosture,
 )
+
+_TRANSCRIPT_EDIT_LAYER_TITLES = {
+    "layer_1_delta_convergence": "Layer 1 — Delta convergence",
+    "layer_2_intrinsic_source_integrity": "Layer 2 — Intrinsic source integrity",
+    "layer_3_external_dependency_completeness": "Layer 3 — External dependency completeness",
+    "layer_4_mapping_blocking_relevance": "Layer 4 — Mapping-blocking relevance",
+}
 
 
 def pick_str(m: Mapping[str, Any], *keys: str) -> str | None:
@@ -192,4 +201,102 @@ def coerce_downstream(m: Mapping[str, Any] | None) -> DownstreamReadinessPosture
         narrative=narrative,
         ready_for_mapping=bool(m.get("ready_for_mapping")),
         explicit_blockers=tuple_strs(m.get("explicit_blockers")),
+    )
+
+
+def coerce_closure_layer(
+    m: Mapping[str, Any] | None,
+    *,
+    layer_id: str,
+) -> TranscriptEditClosureLayerPosture | None:
+    if not m:
+        return None
+    status = pick_str(m, "status")
+    summary = pick_str(m, "summary", "description", "narrative")
+    if not status and not summary:
+        return None
+    return TranscriptEditClosureLayerPosture(
+        layer_id=layer_id,
+        title=pick_str(m, "title") or _TRANSCRIPT_EDIT_LAYER_TITLES.get(layer_id, layer_id),
+        status=status or "open",
+        summary=summary or "",
+        mapping_blocking=(
+            bool(m.get("mapping_blocking"))
+            if "mapping_blocking" in m
+            else bool(m.get("blocking"))
+            if "blocking" in m
+            else None
+        ),
+        requires_hitl=bool(m.get("requires_hitl")),
+        no_further_progress=bool(m.get("no_further_progress")),
+        evidence_refs=tuple_strs(m.get("evidence_refs")),
+        verification_basis=pick_str(m, "verification_basis"),
+        next_needed_step=pick_str(m, "next_needed_step"),
+    )
+
+
+def coerce_closure_ledger(m: Mapping[str, Any] | None) -> TranscriptEditClosureLedger | None:
+    if not m:
+        return None
+    dims_raw = m.get("dimensions")
+    dims: dict[str, Mapping[str, Any]] = {}
+    if isinstance(dims_raw, list):
+        for row in dims_raw:
+            row_map = as_mapping(row)
+            if not row_map:
+                continue
+            dim_id = pick_str(row_map, "dimension_id")
+            if not dim_id:
+                continue
+            dims[dim_id] = row_map
+
+    opaque = as_mapping(m.get("opaque_payload")) or {}
+    layer_1 = coerce_closure_layer(dims.get("layer_1_delta_convergence"), layer_id="layer_1_delta_convergence")
+    layer_2 = coerce_closure_layer(
+        dims.get("layer_2_intrinsic_source_integrity"),
+        layer_id="layer_2_intrinsic_source_integrity",
+    )
+    layer_3 = coerce_closure_layer(
+        dims.get("layer_3_external_dependency_completeness"),
+        layer_id="layer_3_external_dependency_completeness",
+    )
+    layer_4 = coerce_closure_layer(
+        dims.get("layer_4_mapping_blocking_relevance"),
+        layer_id="layer_4_mapping_blocking_relevance",
+    )
+
+    overall_status = pick_str(m, "overall_status")
+    summary = pick_str(m, "summary")
+    publish_ready = bool(opaque.get("publish_ready"))
+    complete_ready = bool(m.get("ready_to_close") or opaque.get("complete_ready"))
+    requires_hitl = bool(m.get("requires_hitl"))
+    no_further_progress = bool(m.get("no_further_progress"))
+
+    if not any(
+        (
+            overall_status,
+            summary,
+            publish_ready,
+            complete_ready,
+            requires_hitl,
+            no_further_progress,
+            layer_1,
+            layer_2,
+            layer_3,
+            layer_4,
+        )
+    ):
+        return None
+
+    return TranscriptEditClosureLedger(
+        overall_status=overall_status,
+        summary=summary,
+        publish_ready=publish_ready,
+        complete_ready=complete_ready,
+        requires_hitl=requires_hitl,
+        no_further_progress=no_further_progress,
+        layer_1_delta_convergence=layer_1,
+        layer_2_intrinsic_source_integrity=layer_2,
+        layer_3_external_dependency_completeness=layer_3,
+        layer_4_mapping_blocking_relevance=layer_4,
     )

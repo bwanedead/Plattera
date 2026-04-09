@@ -135,6 +135,106 @@ def test_mission_patch_rejects_host_owned_telemetry_keys() -> None:
         assert excinfo.value.reason_code == "mission_unknown_keys"
 
 
+def test_mission_patch_accepts_closure_state_and_merges_dimensions() -> None:
+    ms, rs = _base_states()
+    ms2, _, _ = apply_state_patch(
+        mission_state=ms,
+        resolution_state=rs,
+        state_patch={
+            "mission": {
+                "closure_state": {
+                    "overall_status": "open",
+                    "summary": "Closure still in progress",
+                    "ready_to_close": False,
+                    "dimensions": [
+                        {
+                            "dimension_id": "layer_1_delta_convergence",
+                            "title": "Layer 1",
+                            "status": "open",
+                            "summary": "Need image verification",
+                            "evidence_refs": ["image:assoc:tx:original"],
+                        }
+                    ],
+                }
+            }
+        },
+    )
+    assert ms2.closure_state.overall_status == "open"
+    assert len(ms2.closure_state.dimensions) == 1
+    assert ms2.closure_state.dimensions[0].dimension_id == "layer_1_delta_convergence"
+
+    ms3, _, _ = apply_state_patch(
+        mission_state=ms2,
+        resolution_state=rs,
+        state_patch={
+            "mission": {
+                "closure_state": {
+                    "dimensions": [
+                        {
+                            "dimension_id": "layer_1_delta_convergence",
+                            "status": "closed",
+                            "summary": "Image check complete",
+                        },
+                        {
+                            "dimension_id": "layer_4_mapping_blocking_relevance",
+                            "title": "Layer 4",
+                            "status": "non_blocking",
+                            "summary": "No remaining blocker",
+                            "blocking": False,
+                        },
+                    ],
+                    "opaque_payload": {"publish_ready": True},
+                }
+            }
+        },
+    )
+    assert len(ms3.closure_state.dimensions) == 2
+    dim1 = next(d for d in ms3.closure_state.dimensions if d.dimension_id == "layer_1_delta_convergence")
+    assert dim1.status == "closed"
+    assert dim1.evidence_refs == ["image:assoc:tx:original"]
+    assert ms3.closure_state.opaque_payload["publish_ready"] is True
+
+
+def test_mission_patch_rejects_invalid_closure_state_shape() -> None:
+    ms, rs = _base_states()
+    with pytest.raises(StatePatchError) as excinfo:
+        apply_state_patch(
+            mission_state=ms,
+            resolution_state=rs,
+            state_patch={"mission": {"closure_state": {"dimensions": [{"title": "missing id"}]}}},
+        )
+    assert excinfo.value.reason_code == "closure_dimension_missing_id"
+
+
+def test_mission_patch_null_closure_state_resets_ledger() -> None:
+    ms, rs = _base_states()
+    ms, _, _ = apply_state_patch(
+        mission_state=ms,
+        resolution_state=rs,
+        state_patch={
+            "mission": {
+                "closure_state": {
+                    "overall_status": "blocked",
+                    "dimensions": [
+                        {
+                            "dimension_id": "layer_1_delta_convergence",
+                            "title": "Layer 1",
+                            "status": "open",
+                        }
+                    ],
+                }
+            }
+        },
+    )
+    ms2, _, _ = apply_state_patch(
+        mission_state=ms,
+        resolution_state=rs,
+        state_patch={"mission": {"closure_state": None}},
+    )
+    assert ms2.closure_state.overall_status is None
+    assert ms2.closure_state.dimensions == []
+
+
 def test_invalid_item_rows_skipped() -> None:
     ms, rs = _base_states()
     _, rs2, skips = apply_state_patch(

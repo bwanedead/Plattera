@@ -15,6 +15,8 @@ from typing import Any
 from pydantic import ValidationError
 
 from ...mission_state import (
+    ClosureDimension,
+    ClosureState,
     MissionState,
     ResolutionItem,
     ResolutionItemHistoryEntry,
@@ -47,6 +49,7 @@ ALLOWED_MISSION_KEYS = frozenset(
         "waiting_summary",
         "continuity_summary",
         "mission_mode_summary",
+        "closure_state",
         "opaque_payload",
     }
 )
@@ -487,6 +490,9 @@ def _apply_mission_branch(ms: MissionState, raw: Any) -> MissionState:
         else:
             raise StatePatchError(f"{key}_not_object", f"mission.{key} must be an object, string, or null")
 
+    if "closure_state" in raw:
+        updates["closure_state"] = _apply_closure_state(ms.closure_state, raw["closure_state"])
+
     if "high_signal_artifact_refs" in raw:
         refs = raw["high_signal_artifact_refs"]
         if refs is None:
@@ -516,3 +522,107 @@ def _apply_mission_branch(ms: MissionState, raw: Any) -> MissionState:
     updates["updated_at_epoch_seconds"] = time.time()
     return ms.model_copy(update=updates)
 
+
+def _merge_closure_dimension_row(
+    existing: ClosureDimension | None,
+    row: dict[str, Any],
+) -> ClosureDimension | None:
+    base: dict[str, Any] = existing.model_dump(mode="json") if existing is not None else {}
+    field_names = ClosureDimension.model_fields.keys()
+
+    for key, val in row.items():
+        if key not in field_names:
+            continue
+        if key == "opaque_payload" and isinstance(val, dict):
+            prior = base.get("opaque_payload") if isinstance(base.get("opaque_payload"), dict) else {}
+            base["opaque_payload"] = {**prior, **val}
+        else:
+            base[key] = val
+
+    try:
+        return ClosureDimension.model_validate(base)
+    except ValidationError:
+        return None
+
+
+def _apply_closure_state(current: ClosureState, raw: Any) -> ClosureState:
+    if raw is None:
+        return ClosureState(updated_at_epoch_seconds=time.time())
+    if not isinstance(raw, dict):
+        raise StatePatchError("closure_state_not_object", "mission.closure_state must be an object or null")
+
+    allowed = {
+        "overall_status",
+        "summary",
+        "ready_to_close",
+        "requires_hitl",
+        "no_further_progress",
+        "dimensions",
+        "opaque_payload",
+    }
+    unknown = set(raw.keys()) - allowed
+    if unknown:
+        raise StatePatchError(
+            "closure_state_unknown_keys",
+            f"unknown mission.closure_state keys: {sorted(unknown)}",
+        )
+
+    updates: dict[str, Any] = {}
+    if "overall_status" in raw:
+        v = raw["overall_status"]
+        updates["overall_status"] = None if v is None else (str(v).strip()[:64] or None)
+    if "summary" in raw:
+        v = raw["summary"]
+        updates["summary"] = None if v is None else (str(v).strip()[:500] or None)
+    for key in ("ready_to_close", "requires_hitl", "no_further_progress"):
+        if key not in raw:
+            continue
+        val = raw[key]
+        if not isinstance(val, bool):
+            raise StatePatchError(f"{key}_not_boolean", f"mission.closure_state.{key} must be a boolean")
+        updates[key] = val
+
+    if "dimensions" in raw:
+        dims = raw["dimensions"]
+        if not isinstance(dims, list):
+            raise StatePatchError("closure_dimensions_not_array", "mission.closure_state.dimensions must be an array")
+        by_id: dict[str, ClosureDimension] = {d.dimension_id: d for d in current.dimensions}
+        next_order: list[str] = [d.dimension_id for d in current.dimensions]
+        for row in dims:
+            if not isinstance(row, dict):
+                raise StatePatchError(
+                    "closure_dimension_not_object",
+                    "mission.closure_state.dimensions rows must be objects",
+                )
+            dim_id_raw = row.get("dimension_id")
+            dim_id = str(dim_id_raw).strip() if dim_id_raw is not None else ""
+            if not dim_id:
+                raise StatePatchError(
+                    "closure_dimension_missing_id",
+                    "mission.closure_state.dimensions rows require dimension_id",
+                )
+            merged = _merge_closure_dimension_row(by_id.get(dim_id), row)
+            if merged is None:
+                raise StatePatchError(
+                    "closure_dimension_validation_failed",
+                    f"mission.closure_state.dimensions[{dim_id}] failed validation",
+                )
+            by_id[dim_id] = merged
+            if dim_id not in next_order:
+                next_order.append(dim_id)
+        updates["dimensions"] = [by_id[dim_id] for dim_id in next_order]
+
+    if "opaque_payload" in raw:
+        op = raw["opaque_payload"]
+        if op is None:
+            updates["opaque_payload"] = {}
+        elif isinstance(op, dict):
+            updates["opaque_payload"] = {**current.opaque_payload, **op}
+        else:
+            raise StatePatchError(
+                "closure_state_opaque_not_object",
+                "mission.closure_state.opaque_payload must be an object or null",
+            )
+
+    updates["updated_at_epoch_seconds"] = time.time()
+    return current.model_copy(update=updates)

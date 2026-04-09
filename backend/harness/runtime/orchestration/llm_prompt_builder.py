@@ -68,6 +68,9 @@ def build_choose_action_prompt(
         "projection": _projection_document(projection),
     }
     instruction = (
+        "You are operating inside the Plattera harness. "
+        "The JSON envelope below contains doctrine blocks in turn_input.blocks, the current run context and memory, "
+        "and the executable tool surface for this turn. Read those blocks and choose one next move that makes truthful, cumulative progress.\n"
         "Return exactly one JSON object matching this schema:\n"
         "{"
         '"action_type": string|null, '
@@ -92,10 +95,12 @@ def build_choose_action_prompt(
         "author replacements only via continuity_journal_entry / compaction, not by editing those envelope keys.\n"
         "Optional state_patch: generic { resolution?: { active_item_id, items, relations, opaque_payload }, "
         "mission?: { objective, active_mode, blocker_summary, verification_summary, waiting_summary, "
-        "continuity_summary, mission_mode_summary, high_signal_artifact_refs, opaque_payload } — only those keys; "
+        "continuity_summary, mission_mode_summary, high_signal_artifact_refs, closure_state, opaque_payload } — only those keys; "
         "do not put latest_refs_summary, terminal_summary, or prompt_observability_summary in mission (host-owned). "
         "you author all work semantics inside allowed shapes; the runtime merges mechanically "
-        "(resolution items merge by item_id: only fields you include are overwritten). "
+        "(resolution items merge by item_id; closure_state dimensions merge by dimension_id: only fields you include are overwritten). "
+        "closure_state is a generic run-level closure ledger when the domain uses explicit closure dimensions; "
+        "the harness persists its structure but domains define the actual semantics of those dimensions. "
         "state_patch_feedback in the envelope reports the kernel outcome of the prior patch (applied / rejected / not_applied / no_patch); "
         "when outcome is applied but some resolution item/relation rows were dropped, look for skipped_resolution_rows and row_skips counts. "
         "Summary-field shorthand: mission summary fields (blocker_summary, verification_summary, waiting_summary, "

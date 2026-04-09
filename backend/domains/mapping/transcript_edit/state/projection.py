@@ -11,6 +11,7 @@ from .projection_coerce import (
     coerce_ambiguities,
     coerce_authored_draft_posture,
     coerce_authored_draft_posture_from_legacy_final_selection,
+    coerce_closure_ledger,
     coerce_defects,
     coerce_downstream,
     coerce_evidence,
@@ -99,6 +100,12 @@ def project_transcript_edit_view(
     downstream = coerce_downstream(as_mapping(s.get("downstream"))) or coerce_downstream(
         as_mapping(d.get("downstream"))
     )
+    closure = (
+        coerce_closure_ledger(as_mapping(s.get("closure_state")))
+        or coerce_closure_ledger(as_mapping(s.get("closure")))
+        or coerce_closure_ledger(as_mapping(d.get("closure_state")))
+        or coerce_closure_ledger(as_mapping(d.get("closure")))
+    )
 
     hf = s.get("human_feedback_notes", d.get("human_feedback_notes"))
     human_notes = tuple_strs(hf)
@@ -115,6 +122,7 @@ def project_transcript_edit_view(
         verification=verification,
         authored_draft_posture=authored_draft_posture,
         downstream=downstream,
+        closure=closure,
         human_feedback_notes=human_notes,
     )
 

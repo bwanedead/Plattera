@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from domains.mapping.transcript_edit.runtime_adapter import composition as runtime_composition
 from domains.mapping.transcript_edit.execution.tool_specs import build_transcript_edit_tool_specs
+from domains.mapping.prompting.family_branch import MAPPING_FAMILY_BRANCH_VERSION
 from domains.mapping.transcript_edit.runtime_adapter import build_transcript_edit_runtime_adapter
 from harness.execution.contracts import ExecutionStepRequest
 from harness.execution.executor import ExecutionExecutor
@@ -23,11 +24,13 @@ def test_runtime_adapter_builds_turn_surface_from_opaque_launch_context() -> Non
     assert isinstance(surface, TurnSurface)
     assert surface.surface_id == "transcript_edit"
 
-    # Branch + procedural guidance + startup context block
-    assert len(surface.blocks) == 3
-    assert surface.blocks[0].content.startswith("You are operating in the **transcript edit** domain")
-    assert "not a hard script" in surface.blocks[1].content.lower()
-    assert "startup artifact context" in surface.blocks[2].content.lower()
+    # Family branch + domain branch + procedural guidance + startup context block
+    assert len(surface.blocks) == 4
+    assert "mapping family" in surface.blocks[0].content.lower()
+    assert surface.blocks[0].metadata["transcript_edit.prompt_block"]["version"] == MAPPING_FAMILY_BRANCH_VERSION
+    assert surface.blocks[1].content.startswith("You are operating in the **transcript edit** domain")
+    assert "not a hard script" in surface.blocks[2].content.lower()
+    assert "startup artifact context" in surface.blocks[3].content.lower()
 
     # Payload carries only tool specs and tool IDs — no startup_inventory
     te_payload = surface.payload["transcript_edit"]

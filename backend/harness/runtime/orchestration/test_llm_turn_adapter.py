@@ -769,6 +769,24 @@ def test_choose_action_prompt_includes_summary_shorthand_explanation() -> None:
     assert "shorthand" in captured[0].lower() or "normalizes" in captured[0].lower()
 
 
+def test_choose_action_prompt_includes_closure_state_contract() -> None:
+    """Prompt must explain generic mission.closure_state support and dimension merging."""
+    captured: list[str] = []
+
+    def caller(prompt: str, model: str, **_kwargs: Any) -> str:
+        captured.append(prompt)
+        return _VALID_PLAN_JSON
+
+    adapter = _minimal_llm_adapter(caller=caller)
+    ctx = _orch_context(iterations=1)
+    adapter.choose_action(ctx, projection=None)
+
+    prompt = captured[0]
+    assert "closure_state" in prompt
+    assert "closure_state dimensions merge by dimension_id" in prompt
+    assert "generic run-level closure ledger" in prompt
+
+
 def test_choose_action_repair_preserves_image_attachments() -> None:
     """Repair call must carry forward image attachments from the original turn."""
     from services.llm.call_options import LlmCallOptions

@@ -11,6 +11,10 @@ from domains.mapping.transcript_edit import (
     transcript_edit_closure_semantics,
     transcript_edit_handoff_semantics,
 )
+from domains.mapping.prompting.family_branch import (
+    MAPPING_FAMILY_BRANCH_VERSION,
+    build_mapping_family_branch_blocks,
+)
 from domains.mapping.transcript_edit.prompting.branch import TRANSCRIPT_EDIT_BRANCH_VERSION
 from domains.mapping.transcript_edit.prompting.surfaces.procedural_guidance import (
     TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_VERSION,
@@ -39,19 +43,19 @@ def test_prompt_branch_block_shape_and_doctrine_markers() -> None:
     assert branch.version == TRANSCRIPT_EDIT_BRANCH_VERSION
     text = branch.text
     assert "transcript edit" in text.lower()
-    assert "semantic" in text.lower() and "facet" in text.lower()
-    assert "harness orchestrates" in text.lower()
-    assert "head / final" not in text.lower()
-    assert "mapping-family mission" in text.lower()
+    assert "source evidence" in text.lower()
+    assert "four layers of closure" in text.lower()
     assert "peer t0" in text.lower() or "t0" in text.lower()
-    assert "ref inventory" in text.lower()
-    assert "deed-to-ir" in text.lower()
+    assert "do not elevate one t0 file" in text.lower()
+    assert "head / final" not in text.lower()
     assert "layer 1 — delta convergence" in text.lower()
     assert "layer 2 — intrinsic source integrity" in text.lower()
     assert "layer 3 — external dependency completeness" in text.lower()
     assert "layer 4 — mapping-blocking relevance" in text.lower()
     assert "layers 1–3 classify" in text.lower()
     assert "layer 4 classifies" in text.lower()
+    assert "closure ledger requirement" in text.lower()
+    assert "mission.closure_state" in text
 
 
 def test_domain_pack_includes_procedural_guidance_block() -> None:
@@ -68,13 +72,30 @@ def test_domain_pack_includes_procedural_guidance_block() -> None:
     assert guidance.version == TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_VERSION
     text = guidance.text.lower()
     assert "not a hard script" in text
-    assert "mission state" in text
+    assert "targeted move" in text
+    assert "peer draft" in text
     assert "t0" in text
     assert "mapping-critical" in text
-    assert "recommended movement pattern" in text
-    assert "baseline closure accounting" in text
+    assert "recommended transcript-edit movement" in text
+    assert "same broad set of refs" in text
     assert "heads/finals" not in text
     assert "peer t0" in text
+    assert "closure ledger" in text
+    assert "mission.closure_state" in text
+
+
+def test_mapping_family_branch_shape_and_doctrine_markers() -> None:
+    blocks = build_mapping_family_branch_blocks()
+    assert len(blocks) == 1
+    block = blocks[0]
+    assert block.block_id == "mapping_family_branch"
+    assert block.layer == "family_branch"
+    assert block.version == MAPPING_FAMILY_BRANCH_VERSION
+    text = block.text.lower()
+    assert "mapping family" in text
+    assert "truthful source-grounded understanding" in text
+    assert "mapping-critical posture" in text
+    assert "not every unresolved issue blocks mapping" in text
 
 
 def test_projection_empty_inputs() -> None:
@@ -129,6 +150,65 @@ def test_projection_human_feedback_and_fingerprint() -> None:
     )
     assert view.semantic_state.human_feedback_notes == ("note-a", "note-b")
     assert view.artifact_fingerprint == "fp-1"
+
+
+def test_projection_closure_state_maps_four_layers() -> None:
+    view = project_transcript_edit_view(
+        mission_opaque_state={
+            "closure_state": {
+                "overall_status": "blocked",
+                "summary": "Need explicit classification before close",
+                "ready_to_close": False,
+                "requires_hitl": True,
+                "opaque_payload": {"publish_ready": False},
+                "dimensions": [
+                    {
+                        "dimension_id": "layer_1_delta_convergence",
+                        "title": "Layer 1",
+                        "status": "closed",
+                        "summary": "Transcript matches visible source",
+                        "evidence_refs": ["image:assoc:tx:original"],
+                    },
+                    {
+                        "dimension_id": "layer_2_intrinsic_source_integrity",
+                        "title": "Layer 2",
+                        "status": "open",
+                        "summary": "Range contradiction remains in source",
+                        "blocking": True,
+                    },
+                    {
+                        "dimension_id": "layer_3_external_dependency_completeness",
+                        "title": "Layer 3",
+                        "status": "no_further_progress",
+                        "summary": "Second parcel continues off image",
+                        "no_further_progress": True,
+                    },
+                    {
+                        "dimension_id": "layer_4_mapping_blocking_relevance",
+                        "title": "Layer 4",
+                        "status": "requires_hitl",
+                        "summary": "Need human judgment on whether cutoff blocks mapping",
+                        "requires_hitl": True,
+                        "blocking": True,
+                    },
+                ],
+            }
+        },
+    )
+    closure = view.semantic_state.closure
+    assert closure is not None
+    assert closure.overall_status == "blocked"
+    assert closure.requires_hitl is True
+    assert closure.publish_ready is False
+    assert closure.complete_ready is False
+    assert closure.layer_1_delta_convergence is not None
+    assert closure.layer_1_delta_convergence.status == "closed"
+    assert closure.layer_2_intrinsic_source_integrity is not None
+    assert closure.layer_2_intrinsic_source_integrity.mapping_blocking is True
+    assert closure.layer_3_external_dependency_completeness is not None
+    assert closure.layer_3_external_dependency_completeness.no_further_progress is True
+    assert closure.layer_4_mapping_blocking_relevance is not None
+    assert closure.layer_4_mapping_blocking_relevance.requires_hitl is True
 
 
 def test_closure_semantics_stable_contract() -> None:

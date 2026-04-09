@@ -176,6 +176,7 @@ def test_runner_invokes_orchestration_and_writes_loop_result_artifacts(tmp_path:
         }
     ]
     assert len(model_calls) == 2
+    assert "Plattera harness" in model_calls[0][0]
     assert "select_tool" in model_calls[0][0]
     assert len(tool_calls) == 1
     assert tool_calls[0].action_id == "select_tool"

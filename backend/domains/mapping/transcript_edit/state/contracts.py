@@ -79,6 +79,38 @@ class DownstreamReadinessPosture:
 
 
 @dataclass(frozen=True)
+class TranscriptEditClosureLayerPosture:
+    """Explicit authored posture for one transcript-edit closure layer."""
+
+    layer_id: str
+    title: str
+    status: str
+    summary: str
+    mapping_blocking: bool | None = None
+    requires_hitl: bool = False
+    no_further_progress: bool = False
+    evidence_refs: tuple[str, ...] = ()
+    verification_basis: str | None = None
+    next_needed_step: str | None = None
+
+
+@dataclass(frozen=True)
+class TranscriptEditClosureLedger:
+    """Holistic transcript-edit closure posture across the four domain layers."""
+
+    overall_status: str | None = None
+    summary: str | None = None
+    publish_ready: bool = False
+    complete_ready: bool = False
+    requires_hitl: bool = False
+    no_further_progress: bool = False
+    layer_1_delta_convergence: TranscriptEditClosureLayerPosture | None = None
+    layer_2_intrinsic_source_integrity: TranscriptEditClosureLayerPosture | None = None
+    layer_3_external_dependency_completeness: TranscriptEditClosureLayerPosture | None = None
+    layer_4_mapping_blocking_relevance: TranscriptEditClosureLayerPosture | None = None
+
+
+@dataclass(frozen=True)
 class TranscriptEditSemanticState:
     """Single bundle for domain-local semantic truth (authoritative for this pack)."""
 
@@ -89,4 +121,5 @@ class TranscriptEditSemanticState:
     verification: VerificationPosture | None = None
     authored_draft_posture: TranscriptEditAuthoredDraftPosture | None = None
     downstream: DownstreamReadinessPosture | None = None
+    closure: TranscriptEditClosureLedger | None = None
     human_feedback_notes: tuple[str, ...] = ()

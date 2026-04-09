@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 MISSION_STATE_VERSION = "mission_state.v1"
 RESOLUTION_STATE_VERSION = "resolution_state.v1"
+CLOSURE_STATE_VERSION = "closure_state.v1"
 
 
 class ResolutionItemHistoryEntry(BaseModel):
@@ -58,6 +59,36 @@ class ResolutionState(BaseModel):
     opaque_payload: dict[str, Any] = Field(default_factory=dict)
 
 
+class ClosureDimension(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    dimension_id: str = Field(min_length=1, max_length=128)
+    title: str = Field(min_length=1, max_length=240)
+    status: str = Field(min_length=1, max_length=64)
+    summary: str | None = Field(default=None, max_length=500)
+    blocking: bool | None = None
+    requires_hitl: bool = False
+    no_further_progress: bool = False
+    evidence_refs: list[str] = Field(default_factory=list, max_length=24)
+    verification_basis: str | None = Field(default=None, max_length=240)
+    next_needed_step: str | None = Field(default=None, max_length=240)
+    opaque_payload: dict[str, Any] = Field(default_factory=dict)
+
+
+class ClosureState(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: str = Field(default=CLOSURE_STATE_VERSION, min_length=1, max_length=64)
+    updated_at_epoch_seconds: float = Field(default=0.0, ge=0.0)
+    overall_status: str | None = Field(default=None, max_length=64)
+    summary: str | None = Field(default=None, max_length=500)
+    ready_to_close: bool = False
+    requires_hitl: bool = False
+    no_further_progress: bool = False
+    dimensions: list[ClosureDimension] = Field(default_factory=list)
+    opaque_payload: dict[str, Any] = Field(default_factory=dict)
+
+
 class MissionState(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -78,6 +109,7 @@ class MissionState(BaseModel):
     continuity_summary: dict[str, Any] = Field(default_factory=dict)
     mission_mode_summary: dict[str, Any] = Field(default_factory=dict)
     prompt_observability_summary: dict[str, Any] = Field(default_factory=dict)
+    closure_state: ClosureState = Field(default_factory=ClosureState)
     resolution_state: ResolutionState = Field(default_factory=ResolutionState)
     opaque_payload: dict[str, Any] = Field(default_factory=dict)
 
@@ -109,6 +141,34 @@ def new_resolution_state(
     )
 
 
+def new_closure_state(
+    *,
+    overall_status: str | None = None,
+    summary: str | None = None,
+    ready_to_close: bool = False,
+    requires_hitl: bool = False,
+    no_further_progress: bool = False,
+    dimensions: list[ClosureDimension | dict[str, Any]] | None = None,
+    updated_at_epoch_seconds: float = 0.0,
+    opaque_payload: Mapping[str, Any] | None = None,
+) -> ClosureState:
+    dims_out: list[ClosureDimension] = []
+    for row in dimensions or []:
+        dim = _coerce_closure_dimension(row)
+        if dim is not None:
+            dims_out.append(dim)
+    return ClosureState(
+        overall_status=_clean_text(overall_status, limit=64),
+        summary=_clean_text(summary, limit=500),
+        ready_to_close=bool(ready_to_close),
+        requires_hitl=bool(requires_hitl),
+        no_further_progress=bool(no_further_progress),
+        dimensions=dims_out,
+        updated_at_epoch_seconds=float(updated_at_epoch_seconds or 0.0),
+        opaque_payload=dict(opaque_payload) if isinstance(opaque_payload, Mapping) else {},
+    )
+
+
 def new_mission_state(
     *,
     mission_id: str,
@@ -127,6 +187,7 @@ def new_mission_state(
     continuity_summary: Mapping[str, Any] | None = None,
     mission_mode_summary: Mapping[str, Any] | None = None,
     prompt_observability_summary: Mapping[str, Any] | None = None,
+    closure_state: ClosureState | dict[str, Any] | None = None,
     resolution_state: ResolutionState | dict[str, Any] | None = None,
     opaque_payload: Mapping[str, Any] | None = None,
 ) -> MissionState:
@@ -148,6 +209,11 @@ def new_mission_state(
         mission_mode_summary=dict(mission_mode_summary) if isinstance(mission_mode_summary, Mapping) else {},
         prompt_observability_summary=(
             dict(prompt_observability_summary) if isinstance(prompt_observability_summary, Mapping) else {}
+        ),
+        closure_state=(
+            closure_state if isinstance(closure_state, ClosureState) else ClosureState(**closure_state)
+            if isinstance(closure_state, dict)
+            else ClosureState()
         ),
         resolution_state=(
             resolution_state if isinstance(resolution_state, ResolutionState) else ResolutionState(**resolution_state)
@@ -178,6 +244,19 @@ def _coerce_resolution_relation(
         return None
     try:
         return ResolutionRelation.model_validate(row)
+    except ValidationError:
+        return None
+
+
+def _coerce_closure_dimension(
+    row: ClosureDimension | dict[str, Any],
+) -> ClosureDimension | None:
+    if isinstance(row, ClosureDimension):
+        return row
+    if not isinstance(row, dict):
+        return None
+    try:
+        return ClosureDimension.model_validate(row)
     except ValidationError:
         return None
 

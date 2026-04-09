@@ -26,6 +26,7 @@ from harness.runtime.memory.resume_snapshot import (
     merge_launch_latest_refs_with_resume_continuity,
     parse_kernel_resume_snapshot,
 )
+from harness.runtime.prompting import build_harness_turn_surface
 from harness.runtime.orchestration.llm_turn_adapter import LlmTurnOrchestrationAdapter
 from harness.runtime.orchestration.orchestrator import run_orchestration_kernel_loop
 from services.llm.openai import OpenAIService
@@ -63,7 +64,7 @@ class RuntimeRunner:
         try:
             adapter = self._resolve_adapter(context)
             surface = self._resolve_turn_surface(adapter, context)
-            composed = DefaultTurnComposer().compose(surface)
+            composed = DefaultTurnComposer().compose(build_harness_turn_surface(), surface)
             loop_result = self._run_orchestration(context=context, composed=composed)
             result = RuntimeRunResult(
                 status=str(loop_result.terminal_class),

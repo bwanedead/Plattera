@@ -1,23 +1,31 @@
 from .contracts import (
+    CLOSURE_STATE_VERSION,
     MISSION_STATE_VERSION,
     RESOLUTION_STATE_VERSION,
+    ClosureDimension,
+    ClosureState,
     MissionState,
     ResolutionItem,
     ResolutionItemHistoryEntry,
     ResolutionRelation,
     ResolutionState,
+    new_closure_state,
     new_mission_state,
     new_resolution_state,
 )
 
 __all__ = [
+    "CLOSURE_STATE_VERSION",
     "MISSION_STATE_VERSION",
     "RESOLUTION_STATE_VERSION",
+    "ClosureDimension",
+    "ClosureState",
     "MissionState",
     "ResolutionItem",
     "ResolutionItemHistoryEntry",
     "ResolutionRelation",
     "ResolutionState",
+    "new_closure_state",
     "new_mission_state",
     "new_resolution_state",
 ]
