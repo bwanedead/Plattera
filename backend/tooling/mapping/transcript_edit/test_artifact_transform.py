@@ -135,6 +135,16 @@ def test_crop_box_norm_inverted_is_retryable(tmp_path, monkeypatch):
     assert result["refusal"]["blocked_by_invariant"] is False
 
 
+def test_crop_box_inverted_is_retryable(tmp_path, monkeypatch):
+    """Inverted pixel box [x1, y1, x2, y2] where x1 >= x2 is a fixable mistake, not a fatal failure."""
+    handler, ref_id = _make_handler(tmp_path, monkeypatch)
+    result = handler({"ref_id": ref_id, "sub_action": "crop", "params": {"box": [50, 0, 10, 40]}})
+
+    assert result["executed"] is False
+    assert result["refusal"]["retryable"] is True
+    assert result["refusal"]["blocked_by_invariant"] is False
+
+
 # ---------------------------------------------------------------------------
 # Successful transforms — verify box and box_norm both produce derived refs
 # ---------------------------------------------------------------------------

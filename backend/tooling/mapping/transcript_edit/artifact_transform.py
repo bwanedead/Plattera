@@ -133,9 +133,11 @@ def _validate_box(box: Any, *, field: str = "params.box") -> str | None:
     if not isinstance(box, (list, tuple)) or len(box) != 4:
         return f"{field} must be a list of exactly 4 numbers [x1, y1, x2, y2]."
     try:
-        [int(v) for v in box]
+        vals = [int(v) for v in box]
     except (TypeError, ValueError):
         return f"{field} values must be numeric integers."
+    if vals[0] >= vals[2] or vals[1] >= vals[3]:
+        return f"{field} requires x1 < x2 and y1 < y2; got {vals}."
     return None
 
 
