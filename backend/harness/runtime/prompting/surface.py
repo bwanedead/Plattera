@@ -111,7 +111,6 @@ def build_harness_turn_surface() -> TurnSurface:
                         "owner": "harness",
                         "source_path": _HARNESS_TRUNK_SOURCE_REF,
                         "version": _HARNESS_TRUNK_VERSION,
-                        "text": _HARNESS_TRUNK_TEXT,
                     }
                 },
             ),

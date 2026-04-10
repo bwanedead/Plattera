@@ -1285,6 +1285,182 @@ def test_image_evidence_in_tool_result_raw_via_on_turn_completed() -> None:
     assert evidence[1]["ref_id"] == "image:assoc:tx1:processed"
 
 
+# ---------------------------------------------------------------------------
+# Retryable transform-param refusal: loop continues, next-turn recovery
+# ---------------------------------------------------------------------------
+
+
+class _RetryableRefuseOnceSessionManager(ExecutionSessionManager):
+    """First ``step`` returns a retryable param refusal; subsequent steps execute normally."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.steps: list[ExecutionStepRequest] = []
+        self._calls = 0
+
+    def step(self, request: ExecutionStepRequest) -> ExecutionStepResult:  # type: ignore[override]
+        self.steps.append(request)
+        self._calls += 1
+        if self._calls == 1:
+            from harness.execution.contracts import ActionDispatchResult, SessionExecutionRecord
+
+            dispatch_result = ActionDispatchResult(
+                action_id=request.action_id,
+                executed=False,
+                outputs={
+                    "error": {
+                        "code": "invalid_transform_params",
+                        "message": "crop requires params.box or params.box_norm",
+                        "repair_hint": "Use params.box = [x1, y1, x2, y2] with pixel coordinates.",
+                    }
+                },
+                refusal=ExecutionRefusal(
+                    reason_code="invalid_transform_params",
+                    retryable=True,
+                    blocked_by_invariant=False,
+                    blocked_by_budget=False,
+                ),
+            )
+            rec = SessionExecutionRecord(
+                session_id=request.session_id,
+                run_id=request.run_id or "",
+                request=request,
+                result=dispatch_result,
+            )
+            return ExecutionStepResult(
+                session_id=request.session_id,
+                idempotency_key=request.idempotency_key,
+                execution_state=ExecutionState.REFUSED,
+                dashboard=_dashboard(),
+                refusal=dispatch_result.refusal,
+                record=rec,
+            )
+        return ExecutionStepResult(
+            session_id=request.session_id,
+            idempotency_key=request.idempotency_key,
+            execution_state=ExecutionState.EXECUTED,
+            dashboard=_dashboard(refs={"transform_ref": "image:derived:abc123"}),
+        )
+
+
+class _TransformRetryRecoverPack:
+    """
+    Turn 1: dispatch transform_artifact with bad params → gets retryable refusal.
+    Turn 2: sees the refusal in step records, dispatches corrected call → executes.
+    Turn 3: complete_run.
+    """
+
+    def __init__(self) -> None:
+        self._turn2_saw_refusal = False
+        self._turn2_saw_repair_hint = False
+
+    def initialize(self, context: OrchestratorContext) -> None:
+        pass
+
+    def sync(self, context: OrchestratorContext) -> SharedStateProjection:
+        return SharedStateProjection(
+            mission_state=new_mission_state(mission_id="m-transform-retry", loop_family="orchestration_kernel"),
+            resolution_state=new_resolution_state(),
+        )
+
+    def evaluate_terminal(self, context: OrchestratorContext, projection: SharedStateProjection | None) -> TerminalEvaluation | None:
+        return None
+
+    def choose_action(self, context: OrchestratorContext, projection: SharedStateProjection | None) -> ActionPlan:
+        it = context.loop_memory.iterations
+        if it == 1:
+            # Turn 1: bad crop params (no box / box_norm)
+            return ActionPlan(
+                action_type="transform_artifact",
+                action_inputs={"ref_id": "image:assoc:tx-1:original", "sub_action": "crop", "params": {}},
+                idempotency_key="ik-transform-bad",
+                continuity_journal_entry={"step": "crop attempt with missing params"},
+            )
+        if it == 2:
+            # Turn 2: verify the refusal is visible in step result records
+            step_records = context.loop_memory.continuity.kernel_step_result_records
+            if step_records:
+                last = step_records[-1]
+                self._turn2_saw_refusal = last.get("execution_state") == "refused"
+                self._turn2_saw_repair_hint = (
+                    "repair_hint" in str(last.get("outputs_for_continuity", {}))
+                )
+            # Dispatch corrected request
+            return ActionPlan(
+                action_type="transform_artifact",
+                action_inputs={"ref_id": "image:assoc:tx-1:original", "sub_action": "crop", "params": {"box": [0, 0, 400, 200]}},
+                idempotency_key="ik-transform-good",
+                continuity_journal_entry={"step": "corrected crop with explicit box"},
+            )
+        return ActionPlan(
+            complete_run=True,
+            idempotency_key="ik-done",
+            rationale="transform recovered",
+            continuity_journal_entry={"step": "done"},
+        )
+
+
+def test_retryable_transform_param_refusal_does_not_terminate_loop() -> None:
+    """A retryable crop-param refusal must NOT kill the run; loop continues to next turn."""
+    sm = _RetryableRefuseOnceSessionManager()
+    result = run_orchestration_kernel_loop(
+        orchestration_adapter=_TransformRetryRecoverPack(),
+        session_manager=sm,
+        session_id="sess-transform-retry",
+        run_artifact_ref=None,
+        request_id_prefix="req-transform-retry",
+        opaque_run_context={},
+        max_iterations=5,
+    )
+
+    # Run must complete normally, not fail with transform param error
+    assert result.terminal_class == "completed", (
+        f"Expected completed, got terminal_class={result.terminal_class!r} reason_code={result.reason_code!r}"
+    )
+    assert result.reason_code == "complete_run"
+
+    # Both steps must have been dispatched (bad params on turn 1, corrected on turn 2)
+    assert len(sm.steps) == 2
+    assert sm.steps[0].action_id == "transform_artifact"
+    assert sm.steps[1].action_id == "transform_artifact"
+
+    # Trace must record the refused turn (not skip it)
+    refused_events = [
+        e for e in result.trace_events
+        if e.get("event_kind") == "tool_execution" and e.get("reason_code") == "invalid_transform_params"
+    ]
+    assert refused_events, "Expected a trace event for the retryable transform param refusal"
+    assert refused_events[0]["payload"]["execution_state"] == "refused"
+
+    # The second dispatch must have executed
+    executed_events = [
+        e for e in result.trace_events
+        if e.get("event_kind") == "tool_execution"
+        and (e.get("payload") or {}).get("execution_state") == "executed"
+    ]
+    assert executed_events, "Expected at least one executed transform step"
+
+
+def test_retryable_refusal_info_is_visible_in_next_turn_step_records() -> None:
+    """After a retryable refusal, the prior step record and repair_hint are visible to the adapter on the next turn."""
+    pack = _TransformRetryRecoverPack()
+    sm = _RetryableRefuseOnceSessionManager()
+    result = run_orchestration_kernel_loop(
+        orchestration_adapter=pack,
+        session_manager=sm,
+        session_id="sess-repair-visible",
+        run_artifact_ref=None,
+        request_id_prefix="req-repair-visible",
+        opaque_run_context={},
+        max_iterations=5,
+    )
+
+    assert result.terminal_class == "completed"
+    # Pack.choose_action at turn 2 should have seen the refused step record
+    assert pack._turn2_saw_refusal, "Turn 2 did not see the prior refused step in kernel_step_result_records"
+    assert pack._turn2_saw_repair_hint, "Turn 2 did not see the repair_hint in the prior refused step outputs"
+
+
 def test_image_evidence_empty_list_when_no_evidence() -> None:
     """When image_evidence is empty, tool_result_raw.image_evidence should be []."""
     results: list[dict[str, Any]] = []

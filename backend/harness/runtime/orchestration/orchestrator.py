@@ -9,7 +9,6 @@ from ...execution.session import ExecutionSessionManager
 from ...terminal_taxonomy import TerminalClass
 from .contracts import ActionPlan, KernelLoopResult, OrchestrationAdapter, OrchestratorContext
 from ..memory import LoopMemoryState
-from ..memory.continuity_journal import apply_kernel_turn_continuity_carriage, build_kernel_step_result_record
 from ..memory.resume_snapshot import build_kernel_resume_snapshot
 from ..hitl.request_shape import normalize_hitl_request, validate_hitl_consumed_prompt_ids
 from ..hitl.transport import (
@@ -26,14 +25,22 @@ from .orchestrator_coercion import (
     coerce_step_request,
     coerce_terminal_evaluation,
 )
+from .orchestrator_policy import (
+    closure_enforcement_failure,
+    resolution_inventory_enforcement_failure,
+)
+from .orchestrator_turn import (
+    accumulate_image_evidence,
+    append_kernel_step_result_continuity,
+    dashboard_refs_python,
+    notify_turn_completed,
+    record_turn_continuity,
+)
 from .state_patch_apply import (
-    StatePatchError,
-    apply_state_patch,
     sync_state_patch_after_committed_gate,
     sync_state_patch_after_step_refusal,
     sync_state_patch_when_no_step_dispatched,
 )
-from .loop_health_summary import build_prompt_observability_summary
 from .trace_collector import KernelTraceCollector
 
 _LOG = logging.getLogger(__name__)
@@ -42,319 +49,13 @@ _PUBLISH_ACTION_IDS = frozenset({"publish_workspace_artifact"})
 _SAVE_ACTION_IDS = frozenset({"save_workspace_artifact"})
 
 
-def _notify_turn_completed(
-    orchestration_adapter: OrchestrationAdapter,
-    iteration: int,
-    *,
-    action_plan: ActionPlan,
-    step_result: "ExecutionStepResult | None",
-    loop_memory: LoopMemoryState,
-    terminal_decision: str | None = None,
-) -> None:
-    """Notify adapter of turn completion for forensic audit.  Best-effort: discovery via hasattr."""
-    fn = getattr(orchestration_adapter, "on_turn_completed", None)
-    if not callable(fn):
-        return
-    tool_request: dict[str, Any] | None = None
-    if not action_plan.complete_run and not action_plan.wait_for_human and action_plan.action_type is not None:
-        tool_request = {
-            "action_type": action_plan.action_type,
-            "action_inputs": dict(action_plan.action_inputs),
-            "idempotency_key": action_plan.idempotency_key,
-            "skip_execution": action_plan.skip_execution,
-            "wait_for_human": action_plan.wait_for_human,
-            "complete_run": action_plan.complete_run,
-            "rationale": action_plan.rationale,
-        }
-    tool_result_raw: dict[str, Any] | None = None
-    if step_result is not None:
-        rec = step_result.record
-        tool_result_raw = {
-            "execution_state": step_result.execution_state.value,
-            "refusal": (
-                {
-                    "reason_code": step_result.refusal.reason_code,
-                    "retryable": step_result.refusal.retryable,
-                }
-                if step_result.refusal is not None
-                else None
-            ),
-            "outputs": (
-                dict(rec.result.outputs or {})
-                if rec is not None and rec.result is not None
-                else {}
-            ),
-            "artifact_refs": (
-                list(rec.result.artifact_refs or ())
-                if rec is not None and rec.result is not None
-                else []
-            ),
-            "image_evidence": (
-                list(rec.result.image_evidence)
-                if rec is not None and rec.result is not None and rec.result.image_evidence
-                else []
-            ),
-        }
-    try:
-        fn(
-            iteration,
-            tool_request=tool_request,
-            tool_result_raw=tool_result_raw,
-            mission_state_after=loop_memory.continuity.mission_state,
-            resolution_state_after=loop_memory.continuity.resolution_state,
-            latest_refs_after=dict(loop_memory.continuity.latest_refs),
-            state_patch_feedback=dict(loop_memory.continuity.state_patch_feedback),
-            terminal_decision=terminal_decision,
-        )
-    except Exception:
-        _LOG.warning("on_turn_completed raised; ignoring", exc_info=True)
-
-
 def _hitl_loop_kind(opaque_run_context: dict[str, Any]) -> str:
     return str(opaque_run_context.get("hitl_loop_kind") or opaque_run_context.get("loop_kind") or "harness_cli").strip() or "harness_cli"
-
-
-def _dashboard_refs_python(step_result: ExecutionStepResult) -> dict[str, Any]:
-    dash = step_result.dashboard
-    if dash is None:
-        return {}
-    return dash.latest_refs.model_dump(mode="python")
-
-
-def _dispatch_outputs_and_artifact_refs(step_result: ExecutionStepResult) -> tuple[dict[str, Any], list[str]]:
-    rec = step_result.record
-    if rec is None or rec.result is None:
-        return {}, []
-    r = rec.result
-    return dict(r.outputs or {}), list(r.artifact_refs or ())
-
-
-def _accumulate_image_evidence(
-    *,
-    loop_memory: LoopMemoryState,
-    step_result: ExecutionStepResult,
-) -> None:
-    """Append any image evidence from this tool result to the per-iteration buffer."""
-    rec = step_result.record
-    if rec is None or rec.result is None:
-        return
-    evidence = rec.result.image_evidence
-    if evidence:
-        loop_memory.pending_image_evidence.extend(evidence)
-
-
-def _append_kernel_step_result_continuity(
-    *,
-    loop_memory: LoopMemoryState,
-    iteration: int,
-    action_type: str | None,
-    step_result: ExecutionStepResult,
-) -> None:
-    outs, refs = _dispatch_outputs_and_artifact_refs(step_result)
-    loop_memory.continuity.kernel_step_result_records.append(
-        build_kernel_step_result_record(
-            kernel_turn_index=int(iteration),
-            action_type=action_type,
-            execution_state=step_result.execution_state.value,
-            execution_reason_code=(
-                step_result.refusal.reason_code if step_result.refusal is not None else None
-            ),
-            latest_refs_snapshot=_dashboard_refs_python(step_result),
-            outputs=outs,
-            artifact_refs=refs,
-        )
-    )
-
-
-def _record_turn_continuity(
-    *,
-    loop_memory: LoopMemoryState,
-    action_plan: ActionPlan,
-    iteration: int,
-    execution_state: str,
-    execution_reason_code: str | None,
-) -> None:
-    apply_kernel_turn_continuity_carriage(
-        loop_memory=loop_memory,
-        continuity_journal_entry=action_plan.continuity_journal_entry,
-        operator_progress_message=action_plan.operator_progress_message,
-        action_type=action_plan.action_type,
-        action_inputs=dict(action_plan.action_inputs),
-        idempotency_key=action_plan.idempotency_key,
-        rationale=action_plan.rationale,
-        latest_refs_snapshot=dict(loop_memory.continuity.latest_refs),
-        skip_execution=action_plan.skip_execution,
-        wait_for_human=action_plan.wait_for_human,
-        complete_run=action_plan.complete_run,
-        iteration=iteration,
-        execution_state=execution_state,
-        execution_reason_code=execution_reason_code,
-    )
 
 
 def _pack_id_from_prompt_metadata(metadata: dict[str, Any], info: dict[str, Any]) -> str:
     """Prompt-pack identifier from metadata (``pack_id`` only)."""
     return str(metadata.get("pack_id") or info.get("pack_id") or "")
-
-
-def _closure_policy(run_ctx: dict[str, Any]) -> dict[str, Any] | None:
-    raw = run_ctx.get("domain_closure_policy")
-    return dict(raw) if isinstance(raw, dict) else None
-
-
-def _effective_resolution_state(
-    *,
-    loop_memory: LoopMemoryState,
-    action_plan: ActionPlan,
-) -> Any:
-    if not action_plan.state_patch:
-        return loop_memory.continuity.resolution_state
-    try:
-        _, resolution_state, _ = apply_state_patch(
-            mission_state=loop_memory.continuity.mission_state,
-            resolution_state=loop_memory.continuity.resolution_state,
-            state_patch=action_plan.state_patch,
-        )
-        return resolution_state
-    except StatePatchError:
-        return loop_memory.continuity.resolution_state
-
-
-def _effective_closure_state(
-    *,
-    loop_memory: LoopMemoryState,
-    action_plan: ActionPlan,
-) -> Any:
-    if not action_plan.state_patch:
-        return loop_memory.continuity.mission_state.closure_state
-    try:
-        mission_state, _, _ = apply_state_patch(
-            mission_state=loop_memory.continuity.mission_state,
-            resolution_state=loop_memory.continuity.resolution_state,
-            state_patch=action_plan.state_patch,
-        )
-        return mission_state.closure_state
-    except StatePatchError:
-        return loop_memory.continuity.mission_state.closure_state
-
-
-def _minimum_resolution_items_required(
-    *,
-    policy: dict[str, Any],
-    action_plan: ActionPlan,
-) -> tuple[int, str | None]:
-    is_publish = str(action_plan.action_type or "").strip() in _PUBLISH_ACTION_IDS
-    is_save = str(action_plan.action_type or "").strip() in _SAVE_ACTION_IDS
-    is_complete = bool(action_plan.complete_run)
-    is_hitl = bool(action_plan.wait_for_human) or action_plan.hitl_request is not None
-
-    if is_complete:
-        return int(policy.get("minimum_resolution_items_for_complete") or 0), "complete"
-    if is_publish:
-        return int(policy.get("minimum_resolution_items_for_publish") or 0), "publish"
-    if is_hitl:
-        return int(policy.get("minimum_resolution_items_for_wait") or 0), "wait"
-    if is_save:
-        return int(policy.get("minimum_resolution_items_for_save") or 0), "save"
-    return 0, None
-
-
-def _resolution_inventory_enforcement_failure(
-    *,
-    run_ctx: dict[str, Any],
-    loop_memory: LoopMemoryState,
-    action_plan: ActionPlan,
-) -> tuple[str, str] | None:
-    policy = _closure_policy(run_ctx)
-    if not policy or not bool(policy.get("hard_enforced")):
-        return None
-
-    minimum_items, target = _minimum_resolution_items_required(
-        policy=policy,
-        action_plan=action_plan,
-    )
-    if minimum_items <= 0 or target is None:
-        return None
-
-    resolution_state = _effective_resolution_state(
-        loop_memory=loop_memory,
-        action_plan=action_plan,
-    )
-    item_count = len(getattr(resolution_state, "items", ()) or ())
-    if item_count >= minimum_items:
-        return None
-
-    return (
-        f"resolution_items_{target}_required",
-        (
-            f"domain policy requires at least {minimum_items} resolution items before {target}; "
-            f"current item count is {item_count}"
-        ),
-    )
-
-
-def _closure_enforcement_failure(
-    *,
-    run_ctx: dict[str, Any],
-    loop_memory: LoopMemoryState,
-    action_plan: ActionPlan,
-) -> tuple[str, str] | None:
-    policy = _closure_policy(run_ctx)
-    if not policy or not bool(policy.get("hard_enforced")):
-        return None
-
-    is_publish = str(action_plan.action_type or "").strip() in _PUBLISH_ACTION_IDS
-    is_complete = bool(action_plan.complete_run)
-    if not ((is_publish and bool(policy.get("enforce_on_publish"))) or (is_complete and bool(policy.get("enforce_on_complete")))):
-        return None
-
-    closure_state = _effective_closure_state(loop_memory=loop_memory, action_plan=action_plan)
-    required_dimension_ids = tuple(
-        str(value).strip()
-        for value in (policy.get("required_dimension_ids") or ())
-        if str(value).strip()
-    )
-    dimensions = {
-        str(getattr(dim, "dimension_id", "") or ""): dim
-        for dim in getattr(closure_state, "dimensions", ()) or ()
-        if str(getattr(dim, "dimension_id", "") or "")
-    }
-    missing = [
-        dim_id
-        for dim_id in required_dimension_ids
-        if dim_id not in dimensions or not str(getattr(dimensions[dim_id], "status", "") or "").strip()
-    ]
-    if missing:
-        target = "publish" if is_publish else "complete"
-        return (
-            f"closure_{target}_dimensions_missing",
-            f"closure enforcement missing required dimensions: {missing}",
-        )
-
-    if bool(getattr(closure_state, "requires_hitl", False)) or any(
-        bool(getattr(dimensions[dim_id], "requires_hitl", False))
-        for dim_id in required_dimension_ids
-        if dim_id in dimensions
-    ):
-        target = "publish" if is_publish else "complete"
-        return (
-            f"closure_{target}_requires_hitl",
-            "closure enforcement requires HITL before this action",
-        )
-
-    if is_publish and not bool(getattr(closure_state, "ready_to_publish", False)):
-        return (
-            "closure_publish_not_ready",
-            "closure enforcement requires ready_to_publish before publish_workspace_artifact",
-        )
-
-    if is_complete and not bool(getattr(closure_state, "ready_to_close", False)):
-        return (
-            "closure_complete_not_ready",
-            "closure enforcement requires ready_to_close before complete_run",
-        )
-
-    return None
 
 
 def _action_id_for_plan(action_plan: ActionPlan) -> str:
@@ -389,14 +90,14 @@ def _handle_policy_block(
         iteration=iteration,
         gate="closure_enforcement_blocked",
     )
-    _record_turn_continuity(
+    record_turn_continuity(
         loop_memory=loop_memory,
         action_plan=action_plan,
         iteration=iteration,
         execution_state="refused",
         execution_reason_code=reason_code,
     )
-    _notify_turn_completed(
+    notify_turn_completed(
         orchestration_adapter,
         iteration,
         action_plan=action_plan,
@@ -485,7 +186,6 @@ def run_orchestration_kernel_loop(
                 prompt_event_id=str(metadata.get("prompt_event_id") or ""),
                 surface=str(metadata.get("surface") or info.get("surface") or ""),
             )
-            # Same contact is an LLM call: keep llm_contact_count aligned for operators (not only legacy identity path).
             loop_memory.telemetry.register_llm_contact()
             return
         tracer.emit_llm_call_identity(
@@ -576,7 +276,7 @@ def run_orchestration_kernel_loop(
             _LOG.warning("KERNEL wait_for_human without hitl_request ► skipping iteration")
             continue
 
-        resolution_failure = _resolution_inventory_enforcement_failure(
+        resolution_failure = resolution_inventory_enforcement_failure(
             run_ctx=run_ctx,
             loop_memory=loop_memory,
             action_plan=action_plan,
@@ -620,7 +320,7 @@ def run_orchestration_kernel_loop(
                     iteration=iterations,
                     gate="wait_for_human",
                 )
-                _record_turn_continuity(
+                record_turn_continuity(
                     loop_memory=loop_memory,
                     action_plan=action_plan,
                     iteration=iterations,
@@ -630,7 +330,7 @@ def run_orchestration_kernel_loop(
                 loop_memory.hitl.blocking_prompt_id = str(norm["prompt_id"])
                 loop_memory.hitl.pending_feedback_prompt_id = str(norm["prompt_id"])
                 hitl_refresh_derived_state(loop_memory.hitl)
-                _notify_turn_completed(
+                notify_turn_completed(
                     orchestration_adapter, iterations,
                     action_plan=action_plan, step_result=None,
                     loop_memory=loop_memory, terminal_decision="wait_for_human",
@@ -658,7 +358,7 @@ def run_orchestration_kernel_loop(
             _LOG.warning("KERNEL complete_run with hitl_request ► skipping iteration")
             continue
 
-        closure_failure = _closure_enforcement_failure(
+        closure_failure = closure_enforcement_failure(
             run_ctx=run_ctx,
             loop_memory=loop_memory,
             action_plan=action_plan,
@@ -684,14 +384,14 @@ def run_orchestration_kernel_loop(
                 iteration=iterations,
                 gate="complete_run",
             )
-            _record_turn_continuity(
+            record_turn_continuity(
                 loop_memory=loop_memory,
                 action_plan=action_plan,
                 iteration=iterations,
                 execution_state="complete_run",
                 execution_reason_code=None,
             )
-            _notify_turn_completed(
+            notify_turn_completed(
                 orchestration_adapter, iterations,
                 action_plan=action_plan, step_result=None,
                 loop_memory=loop_memory, terminal_decision="complete_run",
@@ -711,13 +411,13 @@ def run_orchestration_kernel_loop(
         step_request = coerce_step_request(action_plan, session_id=session_id)
         if step_request is not None and not action_plan.skip_execution:
             step_result = session_manager.step(step_request)
-            _append_kernel_step_result_continuity(
+            append_kernel_step_result_continuity(
                 loop_memory=loop_memory,
                 iteration=iterations,
                 action_type=action_plan.action_type,
                 step_result=step_result,
             )
-            _accumulate_image_evidence(loop_memory=loop_memory, step_result=step_result)
+            accumulate_image_evidence(loop_memory=loop_memory, step_result=step_result)
             if step_result.execution_state != ExecutionState.EXECUTED:
                 refusal = step_result.refusal
                 reason = refusal.reason_code if refusal is not None else "step_execution_refused"
@@ -744,14 +444,14 @@ def run_orchestration_kernel_loop(
                     and not refusal.blocked_by_invariant
                 )
                 if not is_retryable:
-                    _record_turn_continuity(
+                    record_turn_continuity(
                         loop_memory=loop_memory,
                         action_plan=action_plan,
                         iteration=iterations,
                         execution_state="refused",
                         execution_reason_code=reason,
                     )
-                    _notify_turn_completed(
+                    notify_turn_completed(
                         orchestration_adapter, iterations,
                         action_plan=action_plan, step_result=step_result,
                         loop_memory=loop_memory, terminal_decision="refused",
@@ -766,7 +466,7 @@ def run_orchestration_kernel_loop(
                         tracer=tracer,
                         session_manager=session_manager,
                     )
-                _record_turn_continuity(
+                record_turn_continuity(
                     loop_memory=loop_memory,
                     action_plan=action_plan,
                     iteration=iterations,
@@ -775,7 +475,7 @@ def run_orchestration_kernel_loop(
                 )
                 if step_result.dashboard is not None:
                     loop_memory.continuity.latest_refs = step_result.dashboard.latest_refs.model_dump(mode="json")
-                _notify_turn_completed(
+                notify_turn_completed(
                     orchestration_adapter, iterations,
                     action_plan=action_plan, step_result=step_result,
                     loop_memory=loop_memory,
@@ -798,14 +498,14 @@ def run_orchestration_kernel_loop(
                     iteration=iterations,
                     gate="step_executed",
                 )
-                _record_turn_continuity(
+                record_turn_continuity(
                     loop_memory=loop_memory,
                     action_plan=action_plan,
                     iteration=iterations,
                     execution_state="executed",
                     execution_reason_code=None,
                 )
-                _notify_turn_completed(
+                notify_turn_completed(
                     orchestration_adapter, iterations,
                     action_plan=action_plan, step_result=step_result,
                     loop_memory=loop_memory,
@@ -819,14 +519,14 @@ def run_orchestration_kernel_loop(
                 patch_present=patch_present,
                 skip_execution=action_plan.skip_execution,
             )
-            _record_turn_continuity(
+            record_turn_continuity(
                 loop_memory=loop_memory,
                 action_plan=action_plan,
                 iteration=iterations,
                 execution_state="skipped" if action_plan.skip_execution else "not_dispatched",
                 execution_reason_code=None,
             )
-            _notify_turn_completed(
+            notify_turn_completed(
                 orchestration_adapter, iterations,
                 action_plan=action_plan, step_result=None,
                 loop_memory=loop_memory,
@@ -880,7 +580,6 @@ def _make_result(
         "prompt_event_count": loop_memory.telemetry.prompt_event_count,
         "last_prompt_event_id": loop_memory.telemetry.last_prompt_event_id,
         "last_prompt_event_surface": loop_memory.telemetry.last_prompt_event_surface,
-        "prompt_observability_summary": build_prompt_observability_summary(loop_memory),
         "mission_state": loop_memory.continuity.mission_state,
         "resolution_state": loop_memory.continuity.resolution_state,
         "state_patch_feedback": dict(loop_memory.continuity.state_patch_feedback),
@@ -891,7 +590,7 @@ def _make_result(
             loop_memory.continuity.kernel_compaction_covered_through_turn_index
         ),
     }
-    resume_snap = build_kernel_resume_snapshot(
+    snap = build_kernel_resume_snapshot(
         loop_memory=loop_memory,
         session_manager=session_manager,
         session_id=session_id,
@@ -907,5 +606,5 @@ def _make_result(
         latest_refs=dict(loop_memory.continuity.latest_refs),
         runtime_state=runtime_state,
         trace_events=tracer.build_raw_events(),
-        kernel_resume_snapshot=resume_snap,
+        kernel_resume_snapshot=snap,
     )

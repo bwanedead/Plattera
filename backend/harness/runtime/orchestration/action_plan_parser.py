@@ -15,18 +15,10 @@ from ..hitl.request_shape import normalize_hitl_request, validate_hitl_consumed_
 from .contracts import ActionPlan
 
 _ALLOWED_ACTION_PLAN_KEYS = {
-    "action_type",
-    "action_inputs",
-    "idempotency_key",
-    "skip_execution",
-    "wait_for_human",
-    "complete_run",
-    "rationale",
-    "state_patch",
-    "continuity_journal_entry",
-    "operator_progress_message",
-    "hitl_request",
-    "hitl_consumed_prompt_ids",
+    "action_type", "action_inputs", "idempotency_key",
+    "skip_execution", "wait_for_human", "complete_run",
+    "rationale", "state_patch", "continuity_journal_entry",
+    "operator_progress_message", "hitl_request", "hitl_consumed_prompt_ids",
 }
 
 

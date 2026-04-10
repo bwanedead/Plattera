@@ -80,13 +80,30 @@ def build_transcript_edit_tool_specs() -> tuple[SemanticToolSpec, ...]:
             purpose=(
                 "Apply a spatial or annotation transform to a source or derived image ref. "
                 "Returns a new image:derived:* ref that can be hydrated on later turns. "
-                "Sub-actions: crop, expand, zoom, annotate. "
-                "Use annotate to highlight, draw bounding boxes, or add labels."
+                "Sub-actions: crop, expand, zoom, annotate, reference_overlay. "
+                "Use annotate to highlight, draw bounding boxes, or add labels. "
+                "Use reference_overlay to obtain a grid-labeled version of the image so you can "
+                "identify precise subregions and then supply explicit box or box_norm coordinates "
+                "to a subsequent crop."
             ),
             expected_request_shape=(
                 "ref_id: source image ref (image:assoc:* or image:derived:*). "
-                "sub_action: one of crop | expand | zoom | annotate. "
-                "params: sub-action-specific parameters object."
+                "sub_action: one of crop | expand | zoom | annotate | reference_overlay. "
+                "params: sub-action-specific parameters object. "
+                "CROP GEOMETRY — two explicit forms accepted: "
+                "(1) params.box = [x1, y1, x2, y2] — absolute pixel coordinates from the top-left corner. "
+                "(2) params.box_norm = [x1, y1, x2, y2] — normalized coordinates in [0.0, 1.0] relative "
+                "to source image dimensions (x1/x2 scale to width, y1/y2 scale to height). "
+                "x1 < x2 and y1 < y2 required. "
+                "Example box_norm values: [0.0, 0.5, 1.0, 1.0] = bottom half; "
+                "[0.5, 0.0, 1.0, 0.5] = top-right quadrant. "
+                "Vague region descriptions are NOT accepted — you must supply explicit geometry. "
+                "REFERENCE_OVERLAY — draws a labeled coordinate grid over the image so you can read "
+                "exact normalized bounds for any cell and use them in a subsequent crop. "
+                "params: {cols: int (default 4), rows: int (default 4), "
+                "line_color: [R,G,B] (default [200,200,200]), label_color: [R,G,B] (default [255,0,0])}. "
+                "Each cell label shows (col,row) and its exact box_norm bounds. "
+                "Typical workflow: reference_overlay → hydrate to see the grid → crop with explicit box_norm."
             ),
             expected_request_json_shape={
                 "type": "object",
@@ -98,16 +115,17 @@ def build_transcript_edit_tool_specs() -> tuple[SemanticToolSpec, ...]:
                     },
                     "sub_action": {
                         "type": "string",
-                        "enum": ["crop", "expand", "zoom", "annotate"],
+                        "enum": ["crop", "expand", "zoom", "annotate", "reference_overlay"],
                     },
                     "params": {
                         "type": "object",
                         "description": (
-                            "crop: {box: [x1,y1,x2,y2]}. "
+                            "crop: {box: [x1,y1,x2,y2]} (pixel) OR {box_norm: [x1,y1,x2,y2]} (normalized 0..1). "
                             "expand: {padding: [top,right,bottom,left], fill: 'white'}. "
                             "zoom: {box: [x1,y1,x2,y2]} or {factor: 2.0}. "
                             "annotate: {annotations: [{type: highlight|bbox|label, box: [x1,y1,x2,y2], "
-                            "color: [R,G,B], text: str}]}."
+                            "color: [R,G,B], text: str}]}. "
+                            "reference_overlay: {cols: int, rows: int, line_color: [R,G,B], label_color: [R,G,B]}."
                         ),
                     },
                 },
@@ -115,12 +133,14 @@ def build_transcript_edit_tool_specs() -> tuple[SemanticToolSpec, ...]:
             },
             example_request={
                 "ref_id": "image:assoc:tx-1:original",
-                "sub_action": "crop",
-                "params": {"box": [0, 0, 400, 200]},
+                "sub_action": "reference_overlay",
+                "params": {"cols": 4, "rows": 6},
             },
             expected_result_shape=(
                 "outputs.derived_ref_id: new image:derived:* ref for use in hydrate_artifact_refs or HITL payloads. "
-                "outputs.parent_ref_id, sub_action, basename, width_height."
+                "outputs.parent_ref_id, sub_action, basename, width_height. "
+                "On retryable param error: outputs.error.code = invalid_transform_params, "
+                "outputs.error.repair_hint contains the corrected shape to use."
             ),
         ),
         SemanticToolSpec(
