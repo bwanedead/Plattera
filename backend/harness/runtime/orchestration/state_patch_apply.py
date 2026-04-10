@@ -152,10 +152,15 @@ def apply_action_plan_state_patch_to_loop_memory(
         if row_skip_report_has_skips(row_skips):
             fb_applied["row_skips"] = row_skips
             fb_applied["skipped_resolution_rows"] = True
+            hint = _row_skip_feedback_hint(row_skips)
+            if hint is not None:
+                fb_applied["repair_hint"] = hint
         loop_memory.continuity.state_patch_feedback = fb_applied
         trace_detail: dict[str, Any] | None = None
         if row_skip_report_has_skips(row_skips):
             trace_detail = {"row_skips": row_skips, "skipped_resolution_rows": True}
+            if fb_applied.get("repair_hint") is not None:
+                trace_detail["repair_hint"] = fb_applied["repair_hint"]
         if tracer is not None:
             tracer.emit_state_patch_outcome(
                 iteration=iteration, outcome="applied", gate=gate, detail=trace_detail
@@ -179,6 +184,23 @@ def apply_action_plan_state_patch_to_loop_memory(
             exc.reason_code,
             str(exc),
         )
+
+
+def _row_skip_feedback_hint(row_skips: Mapping[str, Any]) -> str | None:
+    resolution = row_skips.get("resolution")
+    if not isinstance(resolution, Mapping):
+        return None
+    item_skips = resolution.get("items")
+    if not isinstance(item_skips, Mapping):
+        return None
+    if int(item_skips.get("missing_item_id") or 0) > 0:
+        return "Each resolution item row must include a non-empty item_id."
+    if int(item_skips.get("validation_failed") or 0) > 0:
+        return (
+            "Resolution item rows failed validation. Each item should usually include "
+            "item_id, title, kind, and status with bounded field types."
+        )
+    return None
 
 
 def sync_state_patch_after_committed_gate(

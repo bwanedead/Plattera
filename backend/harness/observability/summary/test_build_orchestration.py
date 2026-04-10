@@ -105,11 +105,19 @@ def test_prompt_observability_fallback_without_prompt_in_trace() -> None:
             "prompt_event_count": 2,
             "last_prompt_event_id": "from-payload",
             "last_prompt_event_surface": "payload_surface",
+            "consecutive_no_dispatch_turns": 3,
+            "turns_since_last_tool_execution": 4,
+            "turns_since_latest_refs_change": 2,
+            "last_state_patch_outcome": "rejected",
+            "last_state_patch_reason_code": "mission_unknown_keys",
         },
     }
     env = build_orchestration_kernel_run_summary(orchestration_kernel_payload=p)
     assert env.prompt_observability_summary.prompt_event_count == 2
     assert env.prompt_observability_summary.last_prompt_event_id == "from-payload"
+    assert env.prompt_observability_summary.consecutive_no_dispatch_turns == 3
+    assert env.prompt_observability_summary.turns_since_last_tool_execution == 4
+    assert env.prompt_observability_summary.last_state_patch_reason_code == "mission_unknown_keys"
 
 
 def test_malformed_not_dict_raises() -> None:

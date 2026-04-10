@@ -19,6 +19,11 @@ def _prompt_observability_summary_from_payload(
             prompt_event_count=_as_int(summary.get("prompt_event_count")) or 0,
             last_prompt_event_id=_as_str(summary.get("last_prompt_event_id")),
             last_prompt_event_surface=_as_str(summary.get("last_prompt_event_surface")) or _as_str(default_surface),
+            consecutive_no_dispatch_turns=_as_int(summary.get("consecutive_no_dispatch_turns")) or 0,
+            turns_since_last_tool_execution=_as_int(summary.get("turns_since_last_tool_execution")),
+            turns_since_latest_refs_change=_as_int(summary.get("turns_since_latest_refs_change")),
+            last_state_patch_outcome=_as_str(summary.get("last_state_patch_outcome")),
+            last_state_patch_reason_code=_as_str(summary.get("last_state_patch_reason_code")),
         )
     return PromptObservabilitySummary(last_prompt_event_surface=_as_str(default_surface))
 

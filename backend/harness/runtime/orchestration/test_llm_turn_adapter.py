@@ -89,7 +89,7 @@ def test_coerce_action_plan_accepts_explicit_state_authoring_skip_turn() -> None
                     "mission": {"active_mode": "investigating"},
                     "resolution": {
                         "active_item_id": "item-1",
-                        "items": [{"item_id": "item-1", "title": "Unverified claim", "status": "open"}],
+                        "items": [{"item_id": "item-1", "title": "Unverified claim", "kind": "open_question", "status": "open"}],
                     },
                 },
                 "continuity_journal_entry": {"investigation_turn": True},
@@ -733,7 +733,7 @@ _VALID_STATE_AUTHORING_PLAN_JSON = json.dumps(
             "mission": {"active_mode": "investigating"},
             "resolution": {
                 "active_item_id": "item-1",
-                "items": [{"item_id": "item-1", "title": "Unverified claim", "status": "open"}],
+                "items": [{"item_id": "item-1", "title": "Unverified claim", "kind": "open_question", "status": "open"}],
             },
         },
         "continuity_journal_entry": {"repair": True, "investigation_turn": True},
@@ -921,6 +921,79 @@ def test_choose_action_prompt_explicitly_allows_state_authoring_skip_turns() -> 
     assert "no-dispatch turn" in prompt
     assert "action_type null" in prompt
     assert "Do not emit mission or resolution as top-level keys" in prompt
+    assert '"kind": "open_question"' in prompt
+
+
+def test_choose_action_prompt_teaches_commitment_after_item_exists() -> None:
+    captured: list[str] = []
+
+    def caller(prompt: str, model: str, **_kwargs: Any) -> str:
+        captured.append(prompt)
+        return _VALID_PLAN_JSON
+
+    adapter = _minimal_llm_adapter(caller=caller)
+    ctx = _orch_context(iterations=1)
+    adapter.choose_action(ctx, projection=None)
+
+    prompt = captured[0]
+    assert "Once an actionable item exists" in prompt
+    assert "normal next move is to take that check" in prompt
+
+
+def test_choose_action_prompt_includes_host_owned_prompt_observability_summary() -> None:
+    captured: list[str] = []
+
+    def caller(prompt: str, model: str, **_kwargs: Any) -> str:
+        captured.append(prompt)
+        return _VALID_PLAN_JSON
+
+    adapter = _minimal_llm_adapter(caller=caller)
+    ctx = _orch_context(iterations=4)
+    ctx.loop_memory.telemetry.prompt_event_count = 7
+    ctx.loop_memory.telemetry.last_prompt_event_id = "pe-7"
+    ctx.loop_memory.telemetry.last_prompt_event_surface = "orchestration_kernel_llm_turn"
+    ctx.loop_memory.continuity.kernel_step_records.extend(
+        [
+            {
+                "kernel_turn_index": 1,
+                "action_type": "hydrate_artifact_refs",
+                "action_inputs": {},
+                "idempotency_key": "ik-1",
+                "rationale": "load refs",
+                "latest_refs_snapshot": {"working": "ref-1"},
+                "skip_execution": False,
+                "wait_for_human": False,
+                "complete_run": False,
+                "execution_state": "executed",
+                "execution_reason_code": None,
+            },
+            {
+                "kernel_turn_index": 2,
+                "action_type": None,
+                "action_inputs": {},
+                "idempotency_key": "ik-2",
+                "rationale": "record posture",
+                "latest_refs_snapshot": {"working": "ref-1"},
+                "skip_execution": True,
+                "wait_for_human": False,
+                "complete_run": False,
+                "execution_state": "skipped",
+                "execution_reason_code": None,
+            },
+        ]
+    )
+    ctx.loop_memory.continuity.state_patch_feedback = {
+        "outcome": "rejected",
+        "reason_code": "mission_unknown_keys",
+    }
+    adapter.choose_action(ctx, projection=None)
+
+    prompt = captured[0]
+    assert '"prompt_observability_summary"' in prompt
+    assert '"consecutive_no_dispatch_turns": 1' in prompt
+    assert '"turns_since_last_tool_execution": 1' in prompt
+    assert '"turns_since_latest_refs_change": 1' in prompt
+    assert '"last_state_patch_outcome": "rejected"' in prompt
 
 
 def test_choose_action_prompt_hides_max_iterations_from_model_visible_launch_context() -> None:

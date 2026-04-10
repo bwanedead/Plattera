@@ -10,7 +10,7 @@ from ..branch import TRANSCRIPT_EDIT_DOMAIN_ID
 TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_SOURCE_REF = (
     "backend/domains/mapping/transcript_edit/prompting/surfaces/procedural_guidance.py"
 )
-TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_VERSION = "v7"
+TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_VERSION = "v8"
 
 TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_TEXT = """\
 Use this guidance to shape your movement through transcript-edit work. This is **guidance**, not a hard script. The harness still owns orchestration. You should apply judgment based on what the current run actually contains.
@@ -53,6 +53,8 @@ Each item should stay concrete enough that you can answer:
 - what would count as stronger verification
 - whether it is resolved, still open, or potentially blocking
 
+The generic harness already teaches the universal work method: build the work universe, choose an active item, get the next discriminating truth, and update durable state from that work. Transcript-edit adds what those items typically are and what kinds of evidence/closure matter here.
+
 Do not treat a saved working draft as proof that this work happened.
 The work is the investigation and verification of concrete items.
 The draft is just a materialization of the current best state after that work.
@@ -73,17 +75,15 @@ The exact list depends on the deed, but mapping-critical content commonly includ
 You do not need to force a deterministic review order for these. But the run should not claim transcript readiness while mapping-critical content remains effectively unexamined.
 
 ## Recommended transcript-edit movement
-The sane transcript-edit pattern is usually:
+The transcript-edit-specific inflection on top of the generic harness method is usually:
 
-1. establish just enough baseline reality to see where the real concerns are
-2. turn those concerns into explicit tracked items
-3. pick one high-value unresolved item
-4. inspect the strongest available evidence for that item
-5. if the item is mapping-critical and the source is not trivially legible, make a targeted image move (crop/zoom/annotate) rather than another broad pass
-6. update the work inventory and closure posture with what you learned
-7. repeat until the remaining open items are honestly classified
+1. surface peer-draft disagreements, geometry-bearing claims, source cutoffs, and likely source contradictions as explicit items
+2. treat peer draft agreement as a clue, not proof, when the point is material
+3. inspect the strongest available transcript-edit evidence for the active item
+4. if the item is mapping-critical and the source is not trivially legible, make a targeted move (crop/zoom/annotate) rather than another broad pass
+5. update the work inventory and the four-layer closure posture with what that evidence actually supports
 
-This is a recommended movement pattern, not a hard-coded controller pipeline.
+This is transcript-edit guidance, not a hard-coded controller pipeline.
 
 ## Use the closure ledger explicitly
 Transcript-edit should not rely on a vague final rationale to explain closure.
@@ -109,6 +109,7 @@ Also keep `resolution_state.items` populated with the concrete concerns you have
 - Do not jump straight from a broad read to a saved draft without first creating and working a concrete item ledger.
 - Do not publish or complete merely because a caveat was mentioned somewhere; closure still depends on whether the unresolved issue is genuinely non-blocking.
 - Do not leave the closure ledger stale while making substantive progress.
+- Do not let generic posture maintenance replace transcript-edit-specific evidence work on peer drafts, source imagery, or closure layers.
 """
 
 

@@ -962,9 +962,11 @@ def test_complete_run_patch_surfaces_skipped_item_rows_in_feedback_and_trace() -
     assert fb.get("outcome") == "applied"
     assert fb.get("skipped_resolution_rows") is True
     assert fb.get("row_skips") == {"resolution": {"items": {"missing_item_id": 1}, "relations": {}}}
+    assert "item_id" in str(fb.get("repair_hint"))
     patch_events = [e for e in result.trace_events if e.get("event_kind") == "state_patch_outcome"]
     assert patch_events
     assert patch_events[-1]["payload"].get("detail", {}).get("skipped_resolution_rows") is True
+    assert "item_id" in str(patch_events[-1]["payload"].get("detail", {}).get("repair_hint"))
 
 
 def test_invalid_state_patch_is_dropped_without_terminating_loop() -> None:

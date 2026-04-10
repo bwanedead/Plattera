@@ -7,7 +7,7 @@ from domains.prompting import PromptBlock
 
 MAPPING_FAMILY_ID = "mapping"
 MAPPING_FAMILY_BRANCH_SOURCE_REF = "backend/domains/mapping/prompting/family_branch.py"
-MAPPING_FAMILY_BRANCH_VERSION = "v1"
+MAPPING_FAMILY_BRANCH_VERSION = "v2"
 
 MAPPING_FAMILY_BRANCH_TEXT = """\
 You are operating inside the **mapping** family of work.
@@ -30,6 +30,15 @@ Good mapping-family progress usually means:
 - identifying when outside or missing source material is required
 - classifying whether an unresolved issue is actually mapping-blocking
 
+## Mapping-family truth categories
+When work is still open, make the category of truth problem explicit. Common categories include:
+- transcript/source delta
+- intrinsic source contradiction or defect
+- missing external dependency or missing source continuation
+- unresolved issue that is mapping-blocking vs non-blocking
+
+The family layer does not prescribe a fixed workflow for these. It defines the kinds of truth posture that later mapping consumers care about.
+
 ## Mapping-critical posture
 When you work inside the mapping family, treat meaning-bearing deed details as deserving deliberate attention.
 Common examples include:
@@ -51,6 +60,7 @@ The important distinction is:
 - whether it blocks trustworthy downstream mapping
 
 When uncertainty remains, preserve it explicitly. Do not erase it by choosing the cleanest-looking reading.
+Mapping readiness depends on item-level truth about these unresolved categories, not on clean prose alone.
 
 ## Family anti-patterns
 - treating peer draft agreement as proof without checking the source when the point is material

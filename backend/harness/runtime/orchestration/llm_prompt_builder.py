@@ -19,6 +19,7 @@ from ..memory.continuity_journal import (
     recent_step_result_records_for_prompt,
 )
 from .contracts import OrchestratorContext, SharedStateProjection
+from .loop_health_summary import build_prompt_observability_summary
 
 _HIDDEN_LAUNCH_CONTEXT_KEYS = frozenset({"max_iterations"})
 _PROMPT_VISIBLE_DOMAIN_CLOSURE_POLICY_KEYS = frozenset(
@@ -77,6 +78,7 @@ def build_choose_action_prompt(
             cont.kernel_step_result_records,
             keep_n=journal_verbatim_keep_n,
         ),
+        "prompt_observability_summary": build_prompt_observability_summary(context.loop_memory),
         "hitl_state": hitl_st,
         "pending_hitl_requests": hitl_pend,
         "answered_hitl_responses": hitl_ans,
@@ -104,14 +106,20 @@ def build_choose_action_prompt(
         "continuity_journal_entry: required non-empty JSON object each turn (append-only continuity: observations, decisions, "
         "open threads, expected next). operator_progress_message: optional short user-facing status line; null keeps the prior "
         "message.\n"
-        "Investigation-first turns are valid. If the most justified progress is to clarify focus, itemize unresolved work, or "
-        "record closure posture before dispatching another tool, you may return an explicit no-dispatch turn with "
+        "Investigation-first turns are valid. Use them mainly to orient, itemize the real work, repair malformed durable state, "
+        "or preserve new understanding that would otherwise be lost before another dispatch. If the most justified progress is to "
+        "clarify focus, itemize unresolved work, or record closure posture before dispatching another tool, you may return an explicit no-dispatch turn with "
         "action_type null, action_inputs {}, skip_execution true, wait_for_human false, complete_run false, and a non-null "
         "state_patch.\n"
+        "Once an actionable item exists and a bounded discriminating check is available through current tools or evidence, the "
+        "normal next move is to take that check rather than restating the same posture.\n"
         "Envelope fields compacted_continuity_summary, recent_continuity_journal_entries, recent_kernel_step_records, "
         "and recent_kernel_step_result_records are host-labeled memory: the three recent_* lists cover the same last N "
         "distinct kernel turns (journal author payloads, mechanical step rows, and bounded mechanical tool-result rows); "
         "author replacements only via continuity_journal_entry / compaction, not by editing those envelope keys.\n"
+        "prompt_observability_summary is host-authored loop-health context (for example repeated no-dispatch turns or turns "
+        "since the last tool execution). Treat it as mechanical context that may reveal drift or stall risk; it does not decide "
+        "what matters for you.\n"
         "Optional state_patch: generic { resolution?: { active_item_id, items, relations, opaque_payload }, "
         "mission?: { objective, active_mode, blocker_summary, verification_summary, waiting_summary, "
         "continuity_summary, mission_mode_summary, high_signal_artifact_refs, closure_state, opaque_payload } — only those keys; "
@@ -139,20 +147,29 @@ def build_choose_action_prompt(
         "answered_hitl_responses only. Envelope hitl_state, pending_hitl_requests, answered_hitl_responses are host-owned.\n"
         "Choose action_type only from the provided tool_ids when dispatching a tool. For an explicit no-dispatch investigation/state turn, "
         "action_type may be null only for the skip_execution shape described above.\n"
-        "Canonical valid no-dispatch example: "
+        "Canonical valid active-item tool-dispatch example: "
+        '{"action_type": "some_tool", "action_inputs": {"key": "value"}, "idempotency_key": "ik-active-item-check-1", '
+        '"skip_execution": false, "wait_for_human": false, "complete_run": false, '
+        '"rationale": "The active item already exists, and this bounded check can materially change what I know about it.", '
+        '"state_patch": {"mission": {"active_mode": "<domain_mode>", "verification_summary": "Running the strongest available check for the active item."}, '
+        '"resolution": {"active_item_id": "<item-id>", "items": [{"item_id": "<item-id>", "title": "<item-title>", "kind": "claim_verification", "status": "open", "summary": "Needs one more bounded check before resolution."}]}} , '
+        '"continuity_journal_entry": {"step": "dispatching bounded active-item check", "open_threads": ["interpret the returned evidence for <item-id>"]}, '
+        '"operator_progress_message": "Running the next verification check.", "hitl_request": null, "hitl_consumed_prompt_ids": null}\n'
+        "Canonical valid no-dispatch opening-itemization example: "
         '{"action_type": null, "action_inputs": {}, "idempotency_key": "ik-investigate-1", '
         '"skip_execution": true, "wait_for_human": false, "complete_run": false, '
         '"rationale": "I should first record the real unresolved items before choosing another tool action.", '
-        '"state_patch": {"mission": {"active_mode": "<domain_mode>"}, "resolution": {"active_item_id": "<item-id>", "items": [{"item_id": "<item-id>", "title": "<item-title>", "status": "open"}]}}, '
+        '"state_patch": {"mission": {"active_mode": "<domain_mode>"}, "resolution": {"active_item_id": "<item-id>", "items": [{"item_id": "<item-id>", "title": "<item-title>", "kind": "open_question", "status": "open"}]}}, '
         '"continuity_journal_entry": {"step": "itemized unresolved work", "open_threads": ["verify the active item"]}, '
         '"operator_progress_message": "Clarifying investigation state.", "hitl_request": null, "hitl_consumed_prompt_ids": null}\n'
-        "Canonical valid tool-dispatch example: "
-        '{"action_type": "some_tool", "action_inputs": {"key": "value"}, "idempotency_key": "ik-1", '
-        '"skip_execution": false, "wait_for_human": false, "complete_run": false, '
-        '"rationale": "doing X because Y", '
-        '"state_patch": {"mission": {"blocker_summary": "Awaiting image evidence"}}, '
-        '"continuity_journal_entry": {"step": "hydrating ref", "open_threads": ["verify section 3"]}, '
-        '"operator_progress_message": null, "hitl_request": null, "hitl_consumed_prompt_ids": null}\n'
+        "Canonical valid HITL-after-exhaustion example: "
+        '{"action_type": null, "action_inputs": {}, "idempotency_key": "ik-hitl-1", '
+        '"skip_execution": true, "wait_for_human": true, "complete_run": false, '
+        '"rationale": "The remaining issue is material, the current run has exhausted its strongest in-run checks, and human input is now the most justified next move.", '
+        '"state_patch": {"mission": {"waiting_summary": "Awaiting human clarification on the remaining blocker."}, '
+        '"resolution": {"active_item_id": "<item-id>", "items": [{"item_id": "<item-id>", "title": "<item-title>", "kind": "blocking_dependency", "status": "blocked", "summary": "In-run evidence is exhausted; awaiting HITL."}]}} , '
+        '"continuity_journal_entry": {"step": "escalating to human", "open_threads": ["integrate the answered prompt when it arrives"]}, '
+        '"operator_progress_message": "Waiting for human clarification.", "hitl_request": {"message": "<question for operator>", "choices": [], "context": {}}, "hitl_consumed_prompt_ids": null}\n'
         "Do not force a tool action or artifact mutation merely to appear active. Prefer the most justified move."
         " Do not wrap the JSON in markdown and do not add commentary."
     )

@@ -33,6 +33,7 @@ from .state_patch_apply import (
     sync_state_patch_after_step_refusal,
     sync_state_patch_when_no_step_dispatched,
 )
+from .loop_health_summary import build_prompt_observability_summary
 from .trace_collector import KernelTraceCollector
 
 _LOG = logging.getLogger(__name__)
@@ -879,6 +880,7 @@ def _make_result(
         "prompt_event_count": loop_memory.telemetry.prompt_event_count,
         "last_prompt_event_id": loop_memory.telemetry.last_prompt_event_id,
         "last_prompt_event_surface": loop_memory.telemetry.last_prompt_event_surface,
+        "prompt_observability_summary": build_prompt_observability_summary(loop_memory),
         "mission_state": loop_memory.continuity.mission_state,
         "resolution_state": loop_memory.continuity.resolution_state,
         "state_patch_feedback": dict(loop_memory.continuity.state_patch_feedback),
