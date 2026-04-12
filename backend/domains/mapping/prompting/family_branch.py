@@ -7,7 +7,7 @@ from domains.prompting import PromptBlock
 
 MAPPING_FAMILY_ID = "mapping"
 MAPPING_FAMILY_BRANCH_SOURCE_REF = "backend/domains/mapping/prompting/family_branch.py"
-MAPPING_FAMILY_BRANCH_VERSION = "v2"
+MAPPING_FAMILY_BRANCH_VERSION = "v3"
 
 MAPPING_FAMILY_BRANCH_TEXT = """\
 You are operating inside the **mapping** family of work.
@@ -50,6 +50,8 @@ Common examples include:
 - references to external exhibits, plats, prior deeds, or schedules
 
 The exact list depends on the case. The point is that mapping-critical content should become explicit work, not remain an implicit background assumption.
+Visible mapping-critical claims deserve explicit review coverage even when peer drafts happen to agree about them.
+Peer agreement is a clue about where the truth may be easier to confirm; it is not proof that the claim has already been adequately reviewed.
 
 ## Family doctrine for unresolved issues
 Not every unresolved issue blocks mapping.
@@ -61,9 +63,11 @@ The important distinction is:
 
 When uncertainty remains, preserve it explicitly. Do not erase it by choosing the cleanest-looking reading.
 Mapping readiness depends on item-level truth about these unresolved categories, not on clean prose alone.
+Mapping-blocking judgment is not credible while large portions of visible operative deed content remain effectively unreviewed.
 
 ## Family anti-patterns
 - treating peer draft agreement as proof without checking the source when the point is material
+- compressing a deed into only disagreement items while agreed-but-operative mapping content remains unreviewed
 - silently normalizing a contradiction that may actually belong to the source
 - assuming incomplete source text is good enough for mapping without explicit classification
 - handing off as mapping-ready while material uncertainties remain unnamed

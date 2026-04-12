@@ -86,6 +86,7 @@ class TranscriptEditClosureLayerPosture:
     title: str
     status: str
     summary: str
+    determination: str | None = None
     mapping_blocking: bool | None = None
     requires_hitl: bool = False
     no_further_progress: bool = False

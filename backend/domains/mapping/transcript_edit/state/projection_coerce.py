@@ -219,6 +219,7 @@ def coerce_closure_layer(
         layer_id=layer_id,
         title=pick_str(m, "title") or _TRANSCRIPT_EDIT_LAYER_TITLES.get(layer_id, layer_id),
         status=status or "open",
+        determination=pick_str(m, "determination"),
         summary=summary or "",
         mapping_blocking=(
             bool(m.get("mapping_blocking"))

@@ -7,7 +7,7 @@ from domains.prompting import PromptBlock
 TRANSCRIPT_EDIT_DOMAIN_ID = "transcript_edit"
 TRANSCRIPT_EDIT_FAMILY_ID = "mapping"
 TRANSCRIPT_EDIT_BRANCH_SOURCE_REF = "backend/domains/mapping/transcript_edit/prompting/branch.py"
-TRANSCRIPT_EDIT_BRANCH_VERSION = "v9"
+TRANSCRIPT_EDIT_BRANCH_VERSION = "v10"
 
 TRANSCRIPT_EDIT_BRANCH_TEXT = """\
 You are operating in the **transcript edit** domain for mapping-bound work.
@@ -77,12 +77,49 @@ Not every unresolved issue blocks mapping.
 Not every unresolved issue is harmless.
 Your job is to classify both the issue type and its relevance to the mapping mission.
 
+## Reality-first review standard
+Reason backward from the real-world condition you are trying to establish: for downstream mapping to trust this transcript, what would have to be true in reality, not just in wording?
+
+Those conditions usually include things like:
+- the visible operative deed text has actually been reviewed, not merely skimmed
+- transcript/source deltas have been explicitly identified and worked
+- intrinsic source contradictions have been surfaced rather than silently assumed away
+- missing continuation or outside dependencies have been named explicitly
+- any remaining unresolved issue has been judged for mapping-blocking relevance
+
+Use those reality conditions to decide what work must exist before closure is credible.
+
+## Visible review coverage requirement
+Visible mapping-significant claims should become explicit review work even when peer drafts agree.
+
+For deed-like material, that commonly includes:
+- party names and parcel identity when operative
+- parcel count and legal-description structure
+- section, township, range, survey, tract, lot, block, or subdivision references
+- each material bearing / distance / tie / monument call, or a tightly scoped call group
+- acreage and other quantity-bearing statements
+- visible contradictions, defects, and cutoffs
+- references to exhibits, plats, prior deeds, or outside source needed for meaning
+
+Peer disagreement is one source of work. It is not the whole review surface.
+
+## Provisional vs earned posture
+Early-run posture is often provisional. Use statuses like `unassessed`, `in_review`, or `open` when the relevant visible claim inventory has not yet been deliberately reviewed.
+If you need the distinction to stay mechanically obvious in persisted state, use `determination` on the relevant resolution item or closure layer (for example `provisional` vs `earned`).
+
+Treat `closed` as an earned late-run determination, not an opening impression.
+In particular:
+- do not mark Layer 2 closed merely because the first few visible particulars look internally consistent
+- do not treat “no contradiction noticed yet” as proof that no intrinsic contradiction exists
+- do not treat a partially reviewed visible excerpt as if it had already earned final transcript trust
+
 ## Closure ledger requirement
 When this domain uses `mission.closure_state`, treat it as the explicit closure ledger for these four layers.
 Do not leave the layer posture implicit in scattered prose.
 
 By the time you save, publish, request HITL, or complete the run, the transcript-edit closure ledger should make each layer explicit:
 - closed
+- unassessed / in_review / still open when work is still underway
 - still open
 - requires HITL
 - no further progress possible from current evidence
@@ -91,6 +128,12 @@ By the time you save, publish, request HITL, or complete the run, the transcript
 The harness does not decide those meanings for you. You author them.
 This domain hard-enforces closure readiness for publish and complete actions: if the closure ledger is missing required layer dispositions or not marked ready, those actions can be refused mechanically.
 This domain also expects an explicit `resolution_state.items` ledger for the concrete concerns you have investigated. Saving, requesting HITL, publishing, or completing with an empty item ledger is not a credible transcript-edit posture.
+
+## Working draft posture
+A saved working draft is not proof that the investigation is complete. But once the visible, verified portion of the transcript is mature enough to be useful, saving that working state is often the honest move even if publish / complete remain blocked.
+
+Do not wait for perfect total closure before materializing verified visible progress.
+Do not treat the saved draft as evidence that the remaining work disappeared.
 
 ## Good evidence
 - Compare peer drafts as evidence inputs, not as implicit truth sources.
@@ -103,6 +146,8 @@ This domain also expects an explicit `resolution_state.items` ledger for the con
 
 ## Dangerous mistakes
 - Treating one peer t0 draft as the default winner before comparing it against other peers and source evidence.
+- Treating peer agreement as a reason to skip direct review of visible operative deed content.
+- Closing a layer from an opening-pass impression before the relevant visible claim inventory has been deliberately reviewed.
 - Polishing prose while **geometry-bearing language** (calls, bearings, curves, ties, acreage) is still uncertain.
 - Treating a saved working draft as if it proves the underlying investigation has already been done.
 - Accepting a draft because it reads smoothly without **pixel or provenance** support.

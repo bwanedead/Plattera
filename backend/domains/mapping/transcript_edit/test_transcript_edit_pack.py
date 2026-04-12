@@ -65,6 +65,11 @@ def test_prompt_branch_block_shape_and_doctrine_markers() -> None:
     assert "mission.closure_state" in text
     assert "empty item ledger" in text.lower()
     assert "saved working draft" in text.lower()
+    assert "what would have to be true in reality" in text.lower()
+    assert "visible mapping-significant claims" in text.lower()
+    assert "`unassessed`, `in_review`, or `open`" in text
+    assert "treat `closed` as an earned late-run determination" in text.lower()
+    assert "use `determination`" in text.lower()
 
 
 def test_domain_pack_includes_procedural_guidance_block() -> None:
@@ -93,6 +98,10 @@ def test_domain_pack_includes_procedural_guidance_block() -> None:
     assert "peer t0" in text
     assert "closure ledger" in text
     assert "mission.closure_state" in text
+    assert "inventory the visible mapping-significant claims" in text
+    assert "`unassessed`, `in_review`, or `open`" in guidance.text
+    assert "verified visible portion" in text
+    assert "use `determination`" in text
 
 
 def test_mapping_family_branch_shape_and_doctrine_markers() -> None:
@@ -107,6 +116,41 @@ def test_mapping_family_branch_shape_and_doctrine_markers() -> None:
     assert "truthful source-grounded understanding" in text
     assert "mapping-critical posture" in text
     assert "not every unresolved issue blocks mapping" in text
+    assert "visible mapping-critical claims deserve explicit review coverage" in text
+    assert "peer agreement is a clue" in text
+
+
+def test_projection_closure_state_preserves_provisional_status_strings() -> None:
+    view = project_transcript_edit_view(
+        mission_opaque_state={
+            "closure_state": {
+                "dimensions": [
+                    {
+                        "dimension_id": "layer_1_delta_convergence",
+                        "title": "Layer 1",
+                        "status": "in_review",
+                        "determination": "provisional",
+                        "summary": "Visible call review is underway.",
+                    },
+                    {
+                        "dimension_id": "layer_2_intrinsic_source_integrity",
+                        "title": "Layer 2",
+                        "status": "unassessed",
+                        "determination": "provisional",
+                        "summary": "Intrinsic source contradictions have not been fully reviewed yet.",
+                    },
+                ]
+            }
+        },
+    )
+    closure = view.semantic_state.closure
+    assert closure is not None
+    assert closure.layer_1_delta_convergence is not None
+    assert closure.layer_1_delta_convergence.status == "in_review"
+    assert closure.layer_1_delta_convergence.determination == "provisional"
+    assert closure.layer_2_intrinsic_source_integrity is not None
+    assert closure.layer_2_intrinsic_source_integrity.status == "unassessed"
+    assert closure.layer_2_intrinsic_source_integrity.determination == "provisional"
 
 
 def test_projection_empty_inputs() -> None:

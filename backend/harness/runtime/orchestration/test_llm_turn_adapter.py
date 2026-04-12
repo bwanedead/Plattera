@@ -922,6 +922,8 @@ def test_choose_action_prompt_explicitly_allows_state_authoring_skip_turns() -> 
     assert "action_type null" in prompt
     assert "Do not emit mission or resolution as top-level keys" in prompt
     assert '"kind": "open_question"' in prompt
+    assert "provisional investigation posture" in prompt
+    assert "record closure posture before dispatching another tool" not in prompt
 
 
 def test_choose_action_prompt_teaches_commitment_after_item_exists() -> None:
@@ -938,6 +940,9 @@ def test_choose_action_prompt_teaches_commitment_after_item_exists() -> None:
     prompt = captured[0]
     assert "Once an actionable item exists" in prompt
     assert "normal next move is to take that check" in prompt
+    assert "what would have to be true in reality" in prompt
+    assert "Do not use closed merely because no contradiction has been noticed yet." in prompt
+    assert '"determination" field on resolution items or closure dimensions' in prompt
 
 
 def test_choose_action_prompt_includes_host_owned_prompt_observability_summary() -> None:

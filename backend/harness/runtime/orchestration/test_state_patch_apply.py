@@ -104,6 +104,34 @@ def test_item_partial_update_preserves_evidence_refs() -> None:
     assert rs3.items[0].status == "closed"
 
 
+def test_item_partial_update_preserves_determination() -> None:
+    ms, rs = _base_states()
+    _, rs2, _ = apply_state_patch(
+        mission_state=ms,
+        resolution_state=rs,
+        state_patch={
+            "resolution": {
+                "items": [
+                    {
+                        "item_id": "i1",
+                        "title": "First",
+                        "kind": "work_unit",
+                        "status": "in_review",
+                        "determination": "provisional",
+                    }
+                ],
+            }
+        },
+    )
+    _, rs3, _ = apply_state_patch(
+        mission_state=ms,
+        resolution_state=rs2,
+        state_patch={"resolution": {"items": [{"item_id": "i1", "status": "closed"}]}},
+    )
+    assert rs3.items[0].determination == "provisional"
+    assert rs3.items[0].status == "closed"
+
+
 def test_mission_objective_shallow_summary_merge() -> None:
     ms, rs = _base_states()
     ms = ms.model_copy(update={"blocker_summary": {"a": 1}})
@@ -207,6 +235,47 @@ def test_mission_patch_rejects_invalid_closure_state_shape() -> None:
             state_patch={"mission": {"closure_state": {"dimensions": [{"title": "missing id"}]}}},
         )
     assert excinfo.value.reason_code == "closure_dimension_missing_id"
+
+
+def test_closure_dimension_partial_update_preserves_determination() -> None:
+    ms, rs = _base_states()
+    ms2, _, _ = apply_state_patch(
+        mission_state=ms,
+        resolution_state=rs,
+        state_patch={
+            "mission": {
+                "closure_state": {
+                    "dimensions": [
+                        {
+                            "dimension_id": "layer_1_delta_convergence",
+                            "title": "Layer 1",
+                            "status": "in_review",
+                            "determination": "provisional",
+                        }
+                    ]
+                }
+            }
+        },
+    )
+    ms3, _, _ = apply_state_patch(
+        mission_state=ms2,
+        resolution_state=rs,
+        state_patch={
+            "mission": {
+                "closure_state": {
+                    "dimensions": [
+                        {
+                            "dimension_id": "layer_1_delta_convergence",
+                            "status": "closed",
+                        }
+                    ]
+                }
+            }
+        },
+    )
+    dim1 = next(d for d in ms3.closure_state.dimensions if d.dimension_id == "layer_1_delta_convergence")
+    assert dim1.status == "closed"
+    assert dim1.determination == "provisional"
 
 
 def test_mission_patch_null_closure_state_resets_ledger() -> None:

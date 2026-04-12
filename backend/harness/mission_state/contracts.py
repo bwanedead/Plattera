@@ -36,6 +36,7 @@ class ResolutionItem(BaseModel):
     title: str = Field(min_length=1, max_length=240)
     kind: str = Field(min_length=1, max_length=128)
     status: str = Field(min_length=1, max_length=64)
+    determination: str | None = Field(default=None, max_length=32)
     summary: str | None = Field(default=None, max_length=500)
     dependencies: list[str] = Field(default_factory=list, max_length=16)
     evidence_refs: list[str] = Field(default_factory=list, max_length=24)
@@ -65,6 +66,7 @@ class ClosureDimension(BaseModel):
     dimension_id: str = Field(min_length=1, max_length=128)
     title: str = Field(min_length=1, max_length=240)
     status: str = Field(min_length=1, max_length=64)
+    determination: str | None = Field(default=None, max_length=32)
     summary: str | None = Field(default=None, max_length=500)
     blocking: bool | None = None
     requires_hitl: bool = False
