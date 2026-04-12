@@ -3,16 +3,14 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from typing import Any
 
-from domains.mapping.prompting import build_mapping_family_branch_blocks
 from harness.runtime.composition import TurnSurface
 
-from ..manifest import TranscriptEditManifest, build_transcript_edit_manifest
+from ..domain_pack import TranscriptEditDomainPack, build_transcript_edit_domain_pack
+from ..manifest import TranscriptEditManifest
 from ..payloads import TranscriptEditStartupInventory
-from ..prompting import build_transcript_edit_branch_blocks
-from ..prompting.surfaces.procedural_guidance import build_transcript_edit_procedural_guidance_blocks
 from tooling.mapping.transcript_edit import build_transcript_edit_startup_inventory
 from .composition import build_transcript_edit_turn_surface
 
@@ -21,31 +19,29 @@ from .composition import build_transcript_edit_turn_surface
 class TranscriptEditRuntimeAdapter:
     """Domain-owned adapter that only translates opaque launch context into a generic turn surface."""
 
-    manifest: TranscriptEditManifest
+    domain_pack: TranscriptEditDomainPack
 
     @property
     def domain_id(self) -> str:
         return self.manifest.domain_id
 
+    @property
+    def manifest(self) -> TranscriptEditManifest:
+        return self.domain_pack.manifest
+
     def build_turn_surface(self, launch_context: Mapping[str, Any]) -> TurnSurface:
         context = _require_launch_context(launch_context)
         startup_inventory = _build_startup_inventory(context)
-        prompt_blocks = (
-            *build_mapping_family_branch_blocks(),
-            *build_transcript_edit_branch_blocks(),
-            *build_transcript_edit_procedural_guidance_blocks(),
-        )
         return build_transcript_edit_turn_surface(
-            prompt_blocks=prompt_blocks,
+            domain_pack=self.domain_pack,
             startup_inventory=startup_inventory,
-            closure_policy=asdict(self.manifest.closure_policy),
         )
 
 
 def build_transcript_edit_runtime_adapter() -> TranscriptEditRuntimeAdapter:
     """Lazy factory used by the domain adapter registry."""
 
-    return TranscriptEditRuntimeAdapter(manifest=build_transcript_edit_manifest())
+    return TranscriptEditRuntimeAdapter(domain_pack=build_transcript_edit_domain_pack())
 
 
 def _build_startup_inventory(launch_context: Mapping[str, Any]) -> TranscriptEditStartupInventory:

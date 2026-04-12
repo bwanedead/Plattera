@@ -66,25 +66,17 @@ agent-authored text inside T0 raw draft storage.
 
 Implemented and bound in the transcript-edit runtime adapter:
 
-- `load_transcript_edit_startup_inventory`
-- `hydrate_t0_draft_refs`
-- `hydrate_transcript_edit_working_draft`
-- `load_source_image_context`
-- `save_transcript_edit`
-- `publish_transcript_edit_output`
+- `hydrate_artifact_refs`
+- `transform_artifact`
+- `save_workspace_artifact`
+- `publish_workspace_artifact`
 
-Declared but not yet implemented in this slice:
+Important surface rule:
 
-- `image_verify`
-- `image_crop_refine`
-- `compare_transcript_variants`
-- `compare_transcript_to_image`
-- `request_alignment_refresh`
-- `request_consensus_refresh`
-- `request_human_verification`
-
-The model may still see the declared semantic tool specs for those deferred
-actions, but only the implemented tool IDs above are currently executable.
+- startup inventory is a prompt block, not a callable tool
+- the semantic tool menu is declared in the domain pack/tool-spec layer
+- the runtime adapter closes real handlers over dossier/transcription/workspace
+  scope and must not invent extra semantic tool truth
 
 ---
 
@@ -171,7 +163,5 @@ Boundary rules:
   wired yet
 - HITL prompt emission and answer continuation still need to be validated in a
   full transcript-edit run
-- image verification / comparison tools are declared but not yet concretely
-  implemented in this slice
 - frontend Agent Viewer integration is not built yet, though persisted refs,
   traces, and transcript-edit workspace artifacts are shaped to support it

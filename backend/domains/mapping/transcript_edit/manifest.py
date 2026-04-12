@@ -13,26 +13,18 @@ class TranscriptEditManifest:
     domain_id: str = "transcript_edit"
     family_id: str = "mapping"
     display_name: str = "Transcript Edit"
+    family_prompt_branch_source_ref: str = "domains.mapping.prompting.family_branch"
     prompt_branch_source_ref: str = "domains.mapping.transcript_edit.prompting.branch"
     prompt_support_source_refs: tuple[str, ...] = (
         "domains.mapping.transcript_edit.prompting.surfaces.procedural_guidance",
     )
+    startup_context_source_ref: str = "domains.mapping.transcript_edit.prompting.surfaces.startup_context"
     tool_specs_module_ref: str = "domains.mapping.transcript_edit.execution.tool_specs"
     state_contracts_module_ref: str = "domains.mapping.transcript_edit.state.contracts"
     projection_module_ref: str = "domains.mapping.transcript_edit.state.projection"
     closure_module_ref: str = "domains.mapping.transcript_edit.semantics.closure"
     handoff_module_ref: str = "domains.mapping.transcript_edit.semantics.handoff"
     closure_policy: DomainClosurePolicy = field(default_factory=build_transcript_edit_closure_policy)
-    semantic_surfaces: tuple[str, ...] = (
-        "prompting.branch",
-        "prompting.surfaces.procedural_guidance",
-        "prompting.surfaces.startup_context",
-        "state.contracts",
-        "state.projection",
-        "execution.tool_specs",
-        "semantics.closure",
-        "semantics.handoff",
-    )
     declared_semantic_tool_ids: tuple[str, ...] = ()
 
 

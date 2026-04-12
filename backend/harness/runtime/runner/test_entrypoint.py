@@ -106,12 +106,12 @@ def test_entrypoint_resolves_transcript_edit_through_opaque_domain_id(monkeypatc
     surface = captured["surface"]
     assert surface.surface_id == "transcript_edit"
     assert surface.payload["transcript_edit"]["tool_ids"] == [
-        "load_transcript_edit_startup_inventory",
-        "hydrate_t0_draft_refs",
-        "hydrate_transcript_edit_working_draft",
-        "load_source_image_context",
-        "save_transcript_edit",
-        "publish_transcript_edit_output",
+        "hydrate_artifact_refs",
+        "transform_artifact",
+        "save_workspace_artifact",
+        "publish_workspace_artifact",
     ]
-    assert surface.payload["transcript_edit"]["tool_specs"][0]["tool_id"] == "load_transcript_edit_startup_inventory"
-    assert surface.payload["transcript_edit"]["tool_specs"][0]["purpose"].startswith("First-contact ref inventory")
+    assert surface.payload["transcript_edit"]["tool_specs"][0]["tool_id"] == "hydrate_artifact_refs"
+    assert surface.payload["transcript_edit"]["tool_specs"][0]["purpose"].startswith(
+        "Load full content for one or more artifact refs."
+    )

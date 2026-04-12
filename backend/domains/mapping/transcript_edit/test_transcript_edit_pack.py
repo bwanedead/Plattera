@@ -39,6 +39,19 @@ def test_domain_pack_wires_same_tool_count_as_manifest() -> None:
     pack = build_transcript_edit_domain_pack()
     m = pack.manifest
     assert len(pack.build_tool_specs()) == len(m.declared_semantic_tool_ids)
+    payload = pack.build_surface_payload()
+    assert payload["tool_ids"] == list(m.declared_semantic_tool_ids)
+    assert payload["closure_policy"]["hard_enforced"] is True
+
+
+def test_manifest_classifies_prompt_source_refs() -> None:
+    manifest = build_transcript_edit_manifest()
+    assert manifest.family_prompt_branch_source_ref == "domains.mapping.prompting.family_branch"
+    assert manifest.prompt_branch_source_ref == "domains.mapping.transcript_edit.prompting.branch"
+    assert manifest.prompt_support_source_refs == (
+        "domains.mapping.transcript_edit.prompting.surfaces.procedural_guidance",
+    )
+    assert manifest.startup_context_source_ref == "domains.mapping.transcript_edit.prompting.surfaces.startup_context"
 
 
 def test_prompt_branch_block_shape_and_doctrine_markers() -> None:
@@ -72,12 +85,13 @@ def test_prompt_branch_block_shape_and_doctrine_markers() -> None:
     assert "use `determination`" in text.lower()
 
 
-def test_domain_pack_includes_procedural_guidance_block() -> None:
+def test_domain_pack_declares_semantic_prompt_blocks() -> None:
     pack = build_transcript_edit_domain_pack()
-    blocks = pack.build_prompt_branch_blocks()
-    assert len(blocks) == 2
+    blocks = pack.build_semantic_prompt_blocks()
+    assert len(blocks) == 3
     ids = {b.block_id for b in blocks}
     assert ids == {
+        "mapping_family_branch",
         "transcript_edit_domain_branch",
         "transcript_edit_procedural_guidance",
     }
@@ -102,6 +116,24 @@ def test_domain_pack_includes_procedural_guidance_block() -> None:
     assert "`unassessed`, `in_review`, or `open`" in guidance.text
     assert "verified visible portion" in text
     assert "use `determination`" in text
+
+
+def test_domain_pack_builds_runtime_prompt_blocks_with_startup_context() -> None:
+    from domains.mapping.transcript_edit.payloads import TranscriptEditScope, TranscriptEditStartupInventory
+
+    pack = build_transcript_edit_domain_pack()
+    blocks = pack.build_runtime_prompt_blocks(
+        startup_inventory=TranscriptEditStartupInventory(
+            scope=TranscriptEditScope(dossier_id="d1", transcription_id="tx1"),
+        )
+    )
+    assert [block.block_id for block in blocks] == [
+        "mapping_family_branch",
+        "transcript_edit_domain_branch",
+        "transcript_edit_procedural_guidance",
+        "transcript_edit_startup_context",
+    ]
+    assert blocks[-1].layer == "domain_startup_context"
 
 
 def test_mapping_family_branch_shape_and_doctrine_markers() -> None:
@@ -303,7 +335,11 @@ def test_handoff_semantics_stable_contract() -> None:
 
 def test_prompts_avoid_first_slice_final_selection_vocabulary() -> None:
     branch = build_transcript_edit_branch_blocks()[0].text.lower()
-    proc = build_transcript_edit_domain_pack().build_prompt_branch_blocks()[1].text.lower()
+    proc = next(
+        b.text.lower()
+        for b in build_transcript_edit_domain_pack().build_semantic_prompt_blocks()
+        if b.block_id == "transcript_edit_procedural_guidance"
+    )
     joined = branch + "\n" + proc
     assert "selected final" not in joined
     assert "segment final" not in joined
@@ -311,7 +347,11 @@ def test_prompts_avoid_first_slice_final_selection_vocabulary() -> None:
 
 def test_prompts_remove_legacy_resource_claims() -> None:
     branch = build_transcript_edit_branch_blocks()[0].text.lower()
-    proc = build_transcript_edit_domain_pack().build_prompt_branch_blocks()[1].text.lower()
+    proc = next(
+        b.text.lower()
+        for b in build_transcript_edit_domain_pack().build_semantic_prompt_blocks()
+        if b.block_id == "transcript_edit_procedural_guidance"
+    )
     joined = branch + "\n" + proc
     # Legacy resource claims removed — not part of real runtime surface
     assert "alignment or consensus variants" not in joined

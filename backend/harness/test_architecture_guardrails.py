@@ -9,6 +9,7 @@ from harness.runtime.orchestration.contracts import OrchestratorContext
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 HARNESS_ROOT = REPO_ROOT / "backend" / "harness"
+TRANSCRIPT_EDIT_ROOT = REPO_ROOT / "backend" / "domains" / "mapping" / "transcript_edit"
 
 
 def _python_source_files() -> list[Path]:
@@ -83,6 +84,35 @@ def test_current_runtime_layout_exists() -> None:
     ]
     missing = [str(path.relative_to(REPO_ROOT)) for path in required_paths if not path.exists()]
     assert not missing, "Required harness paths missing:\n" + "\n".join(missing)
+
+
+def test_transcript_edit_runtime_compiles_declared_pack_surface() -> None:
+    adapter_source = (TRANSCRIPT_EDIT_ROOT / "runtime_adapter" / "adapter.py").read_text(encoding="utf-8")
+    composition_source = (TRANSCRIPT_EDIT_ROOT / "runtime_adapter" / "composition.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert "build_transcript_edit_domain_pack" in adapter_source
+    for banned in (
+        "build_mapping_family_branch_blocks",
+        "build_transcript_edit_branch_blocks",
+        "build_transcript_edit_procedural_guidance_blocks",
+    ):
+        assert banned not in adapter_source, f"runtime adapter reintroduced prompt truth via {banned}"
+
+    assert "domain_pack.build_runtime_prompt_blocks" in composition_source
+    assert "domain_pack.build_surface_payload()" in composition_source
+    assert "build_transcript_edit_tool_specs" not in composition_source
+
+
+def test_prompt_assembly_stays_harness_owned_and_surface_driven() -> None:
+    builder_source = (HARNESS_ROOT / "runtime" / "orchestration" / "llm_prompt_builder.py").read_text(
+        encoding="utf-8"
+    )
+    assert "from .choose_action_instruction import CHOOSE_ACTION_INSTRUCTION" in builder_source
+    assert "turn_input_document(composed_input)" in builder_source
+    assert "json.dumps(envelope" in builder_source
+    assert "from domains." not in builder_source
 
 
 def test_shared_surface_fields_stay_generic() -> None:

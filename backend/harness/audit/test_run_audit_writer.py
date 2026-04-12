@@ -64,6 +64,27 @@ def test_on_llm_io_writes_turn_file_immediately(tmp_path: Path) -> None:
     assert turn["raw_prompt_text"] == "prompt1"
 
 
+def test_on_llm_io_preserves_identity_fields_for_turn_lineage(tmp_path: Path) -> None:
+    writer = RunAuditWriter(tmp_path / "run1")
+    writer.on_llm_io(
+        {
+            "turn_index": 3,
+            "iteration_index": 3,
+            "session_id": "sess-1",
+            "request_id": "req-1",
+            "prompt_event_id": "req-1:iter3:kernel_llm",
+        }
+    )
+    writer.finalize(terminal_class="completed", reason_code="done", iterations=3, latest_refs={}, trace_events=[])
+
+    turn = json.loads((tmp_path / "run1" / "audit" / "turn_0003.json").read_text())
+    assert turn["turn_index"] == 3
+    assert turn["iteration_index"] == 3
+    assert turn["session_id"] == "sess-1"
+    assert turn["request_id"] == "req-1"
+    assert turn["prompt_event_id"] == "req-1:iter3:kernel_llm"
+
+
 def test_on_llm_io_normalizes_non_json_payloads(tmp_path: Path) -> None:
     writer = RunAuditWriter(tmp_path / "run1")
     writer.on_llm_io({

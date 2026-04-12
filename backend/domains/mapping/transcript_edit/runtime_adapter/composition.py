@@ -19,10 +19,9 @@ from tooling.mapping.transcript_edit.artifact_hydration import make_hydrate_arti
 from tooling.mapping.transcript_edit.artifact_transform import make_transform_artifact_handler
 from tooling.mapping.transcript_edit.draft_persistence import resolve_workspace_key
 
-from ..execution.tool_specs import build_transcript_edit_tool_specs
+from ..domain_pack import TranscriptEditDomainPack
 from ..payloads import TranscriptEditStartupInventory
 from ..prompting import PromptBlock
-from ..prompting.surfaces.startup_context import build_startup_context_block
 
 TRANSCRIPT_EDIT_RUNTIME_SURFACE_ID = "transcript_edit"
 _PROMPT_BLOCK_NAMESPACE = "transcript_edit.prompt_block"
@@ -46,9 +45,8 @@ def build_transcript_edit_tool_bindings(
 
 def build_transcript_edit_turn_surface(
     *,
-    prompt_blocks: Sequence[PromptBlock],
+    domain_pack: TranscriptEditDomainPack,
     startup_inventory: TranscriptEditStartupInventory,
-    closure_policy: Mapping[str, Any] | None = None,
 ) -> TurnSurface:
     """Package transcript-edit prompt blocks (including startup context) and tool bindings."""
     scope = startup_inventory.scope
@@ -61,18 +59,17 @@ def build_transcript_edit_turn_surface(
         transcription_id=scope.transcription_id,
         workspace_key=workspace_key,
     )
-    startup_block = build_startup_context_block(startup_inventory)
-    all_blocks = _build_turn_blocks((*prompt_blocks, startup_block))
+    payload = domain_pack.build_surface_payload()
+    bound_tool_ids = [binding.tool_id for binding in tool_bindings]
+    if bound_tool_ids != payload["tool_ids"]:
+        raise ValueError("transcript_edit_runtime_tool_binding_mismatch")
+    all_blocks = _build_turn_blocks(
+        domain_pack.build_runtime_prompt_blocks(startup_inventory=startup_inventory)
+    )
     return TurnSurface(
         surface_id=TRANSCRIPT_EDIT_RUNTIME_SURFACE_ID,
         blocks=all_blocks,
-        payload={
-            _PAYLOAD_NAMESPACE: {
-                "tool_specs": _build_tool_specs(),
-                "tool_ids": [binding.tool_id for binding in tool_bindings],
-                "closure_policy": _jsonable(dict(closure_policy or {})),
-            },
-        },
+        payload={_PAYLOAD_NAMESPACE: _jsonable(payload)},
         tool_bindings=tool_bindings,
     )
 
@@ -196,10 +193,6 @@ def _build_turn_blocks(prompt_blocks: Sequence[PromptBlock]) -> tuple[TurnBlock,
         )
         for block in prompt_blocks
     )
-
-
-def _build_tool_specs() -> tuple[dict[str, Any], ...]:
-    return tuple(asdict(spec) for spec in build_transcript_edit_tool_specs())
 
 
 def _normalize_tool_result(raw_result: Any) -> Any:

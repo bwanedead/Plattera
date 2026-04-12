@@ -2,15 +2,19 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
+from typing import Any
 
+from domains.mapping.prompting.family_branch import build_mapping_family_branch_blocks
 from .execution.tool_specs import SemanticToolSpec, build_transcript_edit_tool_specs
 from .manifest import TranscriptEditManifest, build_transcript_edit_manifest
+from .payloads import TranscriptEditStartupInventory
 from .prompting import (
     PromptBlock,
     build_transcript_edit_branch_blocks,
     build_transcript_edit_procedural_guidance_blocks,
 )
+from .prompting.surfaces.startup_context import build_startup_context_block
 from .semantics.closure import TranscriptEditClosureSemantics, transcript_edit_closure_semantics
 from .semantics.handoff import TranscriptEditHandoffSemantics, transcript_edit_handoff_semantics
 
@@ -21,14 +25,39 @@ class TranscriptEditDomainPack:
 
     manifest: TranscriptEditManifest
 
-    def build_prompt_branch_blocks(self) -> tuple[PromptBlock, ...]:
+    def build_semantic_prompt_blocks(self) -> tuple[PromptBlock, ...]:
         return (
+            *build_mapping_family_branch_blocks(),
             *build_transcript_edit_branch_blocks(),
             *build_transcript_edit_procedural_guidance_blocks(),
         )
 
+    def build_runtime_prompt_blocks(
+        self,
+        *,
+        startup_inventory: TranscriptEditStartupInventory,
+    ) -> tuple[PromptBlock, ...]:
+        return (
+            *self.build_semantic_prompt_blocks(),
+            build_startup_context_block(startup_inventory),
+        )
+
     def build_tool_specs(self) -> tuple[SemanticToolSpec, ...]:
         return build_transcript_edit_tool_specs()
+
+    def build_surface_payload(self) -> dict[str, Any]:
+        tool_specs = self.build_tool_specs()
+        declared_tool_ids = self.manifest.declared_semantic_tool_ids
+        spec_tool_ids = tuple(spec.tool_id for spec in tool_specs)
+        if spec_tool_ids != declared_tool_ids:
+            raise ValueError("transcript_edit_declared_tool_ids_drift")
+        return _jsonable(
+            {
+                "tool_specs": [asdict(spec) for spec in tool_specs],
+                "tool_ids": list(declared_tool_ids),
+                "closure_policy": asdict(self.manifest.closure_policy),
+            }
+        )
 
     def closure_semantics(self) -> TranscriptEditClosureSemantics:
         return transcript_edit_closure_semantics()
@@ -39,3 +68,11 @@ class TranscriptEditDomainPack:
 
 def build_transcript_edit_domain_pack() -> TranscriptEditDomainPack:
     return TranscriptEditDomainPack(manifest=build_transcript_edit_manifest())
+
+
+def _jsonable(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {str(key): _jsonable(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_jsonable(item) for item in value]
+    return value

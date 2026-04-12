@@ -1,16 +1,20 @@
 from __future__ import annotations
 
+import pytest
+
+from domains.mapping.transcript_edit import build_transcript_edit_domain_pack
 from domains.mapping.transcript_edit.runtime_adapter import composition as runtime_composition
 from domains.mapping.transcript_edit.execution.tool_specs import build_transcript_edit_tool_specs
 from domains.mapping.prompting.family_branch import MAPPING_FAMILY_BRANCH_VERSION
 from domains.mapping.transcript_edit.runtime_adapter import build_transcript_edit_runtime_adapter
 from harness.execution.contracts import ExecutionStepRequest
 from harness.execution.executor import ExecutionExecutor
-from harness.runtime.composition import TurnSurface
+from harness.runtime.composition import ToolBinding, TurnSurface
 
 
 def test_runtime_adapter_builds_turn_surface_from_opaque_launch_context() -> None:
     adapter = build_transcript_edit_runtime_adapter()
+    pack = adapter.domain_pack
 
     surface = adapter.build_turn_surface(
         {
@@ -26,42 +30,27 @@ def test_runtime_adapter_builds_turn_surface_from_opaque_launch_context() -> Non
 
     # Family branch + domain branch + procedural guidance + startup context block
     assert len(surface.blocks) == 4
+    assert [
+        block.metadata["transcript_edit.prompt_block"]["block_id"]
+        for block in surface.blocks[:3]
+    ] == [block.block_id for block in pack.build_semantic_prompt_blocks()]
     assert "mapping family" in surface.blocks[0].content.lower()
     assert surface.blocks[0].metadata["transcript_edit.prompt_block"]["version"] == MAPPING_FAMILY_BRANCH_VERSION
     assert "text" not in surface.blocks[0].metadata["transcript_edit.prompt_block"]
     assert surface.blocks[1].content.startswith("You are operating in the **transcript edit** domain")
     assert "not a hard script" in surface.blocks[2].content.lower()
+    assert surface.blocks[3].metadata["transcript_edit.prompt_block"]["block_id"] == "transcript_edit_startup_context"
     assert "startup artifact context" in surface.blocks[3].content.lower()
 
-    # Payload carries only tool specs and tool IDs — no startup_inventory
+    # Payload is pack-declared only — no startup_inventory leakage
     te_payload = surface.payload["transcript_edit"]
     assert "startup_inventory" not in te_payload
-    assert te_payload["tool_ids"] == [
-        "hydrate_artifact_refs",
-        "transform_artifact",
-        "save_workspace_artifact",
-        "publish_workspace_artifact",
-    ]
-    assert te_payload["closure_policy"]["hard_enforced"] is True
-    assert te_payload["closure_policy"]["enforce_on_publish"] is True
-    assert te_payload["closure_policy"]["enforce_on_complete"] is True
-    assert te_payload["closure_policy"]["required_dimension_ids"] == [
-        "layer_1_delta_convergence",
-        "layer_2_intrinsic_source_integrity",
-        "layer_3_external_dependency_completeness",
-        "layer_4_mapping_blocking_relevance",
-    ]
-    assert len(te_payload["closure_policy"]["standards"]) == 4
+    assert te_payload == pack.build_surface_payload()
     tool_specs = te_payload["tool_specs"]
     assert len(tool_specs) == len(build_transcript_edit_tool_specs())
 
     # Bindings mirror tool_ids
-    assert [b.tool_id for b in surface.tool_bindings] == [
-        "hydrate_artifact_refs",
-        "transform_artifact",
-        "save_workspace_artifact",
-        "publish_workspace_artifact",
-    ]
+    assert [b.tool_id for b in surface.tool_bindings] == te_payload["tool_ids"]
 
 
 def test_runtime_adapter_factory_returns_thin_domain_owned_adapter() -> None:
@@ -69,7 +58,25 @@ def test_runtime_adapter_factory_returns_thin_domain_owned_adapter() -> None:
 
     assert adapter.domain_id == "transcript_edit"
     assert adapter.manifest.domain_id == "transcript_edit"
+    assert adapter.domain_pack.manifest.domain_id == "transcript_edit"
     assert adapter.manifest.closure_policy.hard_enforced is True
+
+
+def test_turn_surface_raises_when_bound_tools_drift_from_pack(monkeypatch) -> None:
+    from domains.mapping.transcript_edit.payloads import TranscriptEditScope, TranscriptEditStartupInventory
+
+    def fake_bindings(**_kwargs):
+        return (ToolBinding(tool_id="unexpected_tool", handler=lambda _request: {}),)
+
+    monkeypatch.setattr(runtime_composition, "build_transcript_edit_tool_bindings", fake_bindings)
+
+    with pytest.raises(ValueError, match="transcript_edit_runtime_tool_binding_mismatch"):
+        runtime_composition.build_transcript_edit_turn_surface(
+            domain_pack=build_transcript_edit_domain_pack(),
+            startup_inventory=TranscriptEditStartupInventory(
+                scope=TranscriptEditScope(dossier_id="d1", transcription_id="tx-1"),
+            ),
+        )
 
 
 def test_tool_specs_shape_matches_shared_capability_ids() -> None:

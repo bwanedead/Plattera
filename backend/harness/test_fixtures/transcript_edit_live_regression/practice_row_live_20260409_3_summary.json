@@ -1,0 +1,19 @@
+{
+  "run_id": "practice-row-live-20260409-3",
+  "terminal_class": "exhausted",
+  "reason_code": "max_iterations_reached",
+  "turn_count": 20,
+  "repairs_attempted": 1,
+  "tool_sequence": [
+    {
+      "iteration": 1,
+      "action_type": "hydrate_artifact_refs",
+      "execution_state": "executed"
+    }
+  ],
+  "patch_outcomes": {
+    "applied": 16,
+    "rejected": 4
+  },
+  "latest_refs": []
+}

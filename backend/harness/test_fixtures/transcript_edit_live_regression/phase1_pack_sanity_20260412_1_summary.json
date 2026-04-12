@@ -1,0 +1,48 @@
+{
+  "run_id": "phase1-pack-sanity-20260412-1",
+  "terminal_class": "exhausted",
+  "reason_code": "max_iterations_reached",
+  "turn_count": 8,
+  "repairs_attempted": 0,
+  "tool_sequence": [
+    {
+      "iteration": 2,
+      "action_type": "hydrate_artifact_refs",
+      "execution_state": "executed"
+    },
+    {
+      "iteration": 4,
+      "action_type": "transform_artifact",
+      "execution_state": "executed",
+      "artifact_ref": "image:derived:41744161afac48f887bd3d93799c8e95"
+    },
+    {
+      "iteration": 5,
+      "action_type": "hydrate_artifact_refs",
+      "execution_state": "executed"
+    },
+    {
+      "iteration": 7,
+      "action_type": "transform_artifact",
+      "execution_state": "executed",
+      "artifact_ref": "image:derived:03762c74bd3e46efbacde4fbd5c06d74"
+    },
+    {
+      "iteration": 8,
+      "action_type": "hydrate_artifact_refs",
+      "execution_state": "executed"
+    }
+  ],
+  "patch_outcomes": {
+    "applied": 7,
+    "rejected": 1
+  },
+  "latest_refs": [
+    "image:derived:41744161afac48f887bd3d93799c8e95",
+    "image:derived:03762c74bd3e46efbacde4fbd5c06d74"
+  ],
+  "notable_rejection": {
+    "turn_index": 1,
+    "reason_code": "closure_state_unknown_keys"
+  }
+}
