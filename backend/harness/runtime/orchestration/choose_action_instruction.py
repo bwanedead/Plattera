@@ -33,27 +33,33 @@ CHOOSE_ACTION_INSTRUCTION: str = (
     "action_type null, action_inputs {}, skip_execution true, wait_for_human false, complete_run false, and a non-null "
     "state_patch.\n"
     "Reason backward from mission reality: ask what would have to be true in reality, not just in words, for this mission to "
-    "be honestly accomplished. Turn those essential conditions, blockers, or verification cruxes into explicit work.\n"
+    "be honestly accomplished. Turn those essential conditions, blockers, or verification cruxes into explicit work. "
+    "When it helps, keep those higher-level conditions explicit in mission.success_conditions rather than leaving them implicit.\n"
     "Keep provisional and earned judgments distinct. When an item or closure posture has not yet been deliberately verified, "
     "prefer statuses such as unassessed, in_review, or open and say what verification is still missing. Do not use closed "
     "merely because no contradiction has been noticed yet. If it helps to make that distinction durable, you may author "
     'an explicit "determination" field on resolution items or closure dimensions (for example "provisional" or "earned").\n'
+    'If you author a strong claim such as status "closed" or ready_to_publish / ready_to_close, support it explicitly. '
+    'Closed resolution items should usually carry determination "earned", verification_basis, and completion_criteria. '
+    'Closed closure dimensions should usually carry determination "earned" and verification_basis.\n'
     "Once an actionable item exists and a bounded discriminating check is available through current tools or evidence, the "
     "normal next move is to take that check rather than restating the same posture.\n"
     "Envelope fields compacted_continuity_summary, recent_continuity_journal_entries, recent_kernel_step_records, "
     "and recent_kernel_step_result_records are host-labeled memory: the three recent_* lists cover the same last N "
     "distinct kernel turns (journal author payloads, mechanical step rows, and bounded mechanical tool-result rows); "
     "author replacements only via continuity_journal_entry / compaction, not by editing those envelope keys.\n"
-    "prompt_observability_summary is host-authored loop-health context (for example repeated no-dispatch turns or turns "
-    "since the last tool execution). Treat it as mechanical context that may reveal drift or stall risk; it does not decide "
-    "what matters for you.\n"
+    "prompt_observability_summary is host-authored loop-health and proof-coverage context (for example repeated no-dispatch "
+    "turns, turns since the last tool execution, or how many closed items still lack explicit basis). Treat it as mechanical "
+    "context that may reveal drift, stall risk, or thin proof posture; it does not decide what matters for you.\n"
     "Optional state_patch: generic { resolution?: { active_item_id, items, relations, opaque_payload }, "
     "mission?: { objective, active_mode, blocker_summary, verification_summary, waiting_summary, "
-    "continuity_summary, mission_mode_summary, high_signal_artifact_refs, closure_state, opaque_payload } — only those keys; "
+    "continuity_summary, mission_mode_summary, high_signal_artifact_refs, success_conditions, closure_state, opaque_payload } — only those keys; "
     "do not put latest_refs_summary, terminal_summary, or prompt_observability_summary in mission (host-owned). "
     "you author all work semantics inside allowed shapes; the runtime merges mechanically "
-    "(resolution items merge by item_id; closure_state dimensions merge by dimension_id: only fields you include are overwritten). "
-    'resolution items may also carry an optional "determination" field when you need to mark a row as provisional, earned, or another explicit authored determination posture. '
+    "(resolution items merge by item_id; mission.success_conditions merge by condition_id; closure_state dimensions merge by dimension_id: only fields you include are overwritten). "
+    'mission.success_conditions is a generic mission-level ledger for essential conditions that must become true before the mission can honestly count as accomplished. '
+    'its generic shape is [{condition_id, title, status, determination?, summary?, completion_criteria?, verification_basis?, next_needed_step?, evidence_refs?, dependencies?, opaque_payload?}]. '
+    'resolution items may also carry optional determination, verification_basis, next_needed_step, and completion_criteria fields when you need the proof posture and remaining work to stay explicit. '
     "closure_state is a generic run-level closure ledger when the domain uses explicit closure dimensions; "
     "its generic shape is { overall_status?, summary?, ready_to_publish?, ready_to_close?, requires_hitl?, "
     "no_further_progress?, dimensions?: [{dimension_id, title, status, determination?, summary?, blocking?, requires_hitl?, "
@@ -87,7 +93,7 @@ CHOOSE_ACTION_INSTRUCTION: str = (
     '{"action_type": null, "action_inputs": {}, "idempotency_key": "ik-investigate-1", '
     '"skip_execution": true, "wait_for_human": false, "complete_run": false, '
     '"rationale": "I should first record the real unresolved items before choosing another tool action.", '
-    '"state_patch": {"mission": {"active_mode": "<domain_mode>"}, "resolution": {"active_item_id": "<item-id>", "items": [{"item_id": "<item-id>", "title": "<item-title>", "kind": "open_question", "status": "open"}]}}, '
+    '"state_patch": {"mission": {"active_mode": "<domain_mode>", "success_conditions": [{"condition_id": "<condition-id>", "title": "<condition-title>", "status": "open", "completion_criteria": "<what must become true for this condition>"}]}, "resolution": {"active_item_id": "<item-id>", "items": [{"item_id": "<item-id>", "title": "<item-title>", "kind": "open_question", "status": "open", "next_needed_step": "Run the strongest bounded check for this item."}]}} , '
     '"continuity_journal_entry": {"step": "itemized unresolved work", "open_threads": ["verify the active item"]}, '
     '"operator_progress_message": "Clarifying investigation state.", "hitl_request": null, "hitl_consumed_prompt_ids": null}\n'
     "Canonical valid HITL-after-exhaustion example: "

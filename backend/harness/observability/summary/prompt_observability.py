@@ -24,6 +24,34 @@ def _prompt_observability_summary_from_payload(
             turns_since_latest_refs_change=_as_int(summary.get("turns_since_latest_refs_change")),
             last_state_patch_outcome=_as_str(summary.get("last_state_patch_outcome")),
             last_state_patch_reason_code=_as_str(summary.get("last_state_patch_reason_code")),
+            success_condition_count=_as_int(summary.get("success_condition_count")) or 0,
+            success_conditions_with_earned_determination_count=(
+                _as_int(summary.get("success_conditions_with_earned_determination_count")) or 0
+            ),
+            success_conditions_with_verification_basis_count=(
+                _as_int(summary.get("success_conditions_with_verification_basis_count")) or 0
+            ),
+            resolution_item_count=_as_int(summary.get("resolution_item_count")) or 0,
+            items_with_evidence_count=_as_int(summary.get("items_with_evidence_count")) or 0,
+            items_with_verification_basis_count=_as_int(summary.get("items_with_verification_basis_count")) or 0,
+            closed_items_count=_as_int(summary.get("closed_items_count")) or 0,
+            closed_items_without_earned_determination_count=(
+                _as_int(summary.get("closed_items_without_earned_determination_count")) or 0
+            ),
+            closed_items_without_basis_count=_as_int(summary.get("closed_items_without_basis_count")) or 0,
+            closed_items_without_completion_criteria_count=(
+                _as_int(summary.get("closed_items_without_completion_criteria_count")) or 0
+            ),
+            closure_dimension_count=_as_int(summary.get("closure_dimension_count")) or 0,
+            closure_dimensions_with_earned_determination_count=(
+                _as_int(summary.get("closure_dimensions_with_earned_determination_count")) or 0
+            ),
+            closed_dimensions_without_earned_determination_count=(
+                _as_int(summary.get("closed_dimensions_without_earned_determination_count")) or 0
+            ),
+            closed_dimensions_without_basis_count=(
+                _as_int(summary.get("closed_dimensions_without_basis_count")) or 0
+            ),
         )
     return PromptObservabilitySummary(last_prompt_event_surface=_as_str(default_surface))
 

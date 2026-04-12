@@ -72,11 +72,19 @@ def build_orchestration_kernel_run_summary(*, orchestration_kernel_payload: dict
         _as_str(run_header.get("mode")),
     )
     mode_history = _as_str_list(run_artifact.get("mode_history")) or _as_str_list(run_header.get("mode_history"))
-    prompt_observability_summary = _prompt_observability_summary_from_trace_events(trace_events)
-    if prompt_observability_summary.prompt_event_count == 0:
-        prompt_observability_summary = _prompt_observability_summary_from_payload(
-            payload,
-            default_surface=active_mode,
+    payload_prompt_observability_summary = _prompt_observability_summary_from_payload(
+        payload,
+        default_surface=active_mode,
+    )
+    trace_prompt_observability_summary = _prompt_observability_summary_from_trace_events(trace_events)
+    prompt_observability_summary = payload_prompt_observability_summary
+    if trace_prompt_observability_summary.prompt_event_count > 0:
+        prompt_observability_summary = payload_prompt_observability_summary.model_copy(
+            update={
+                "prompt_event_count": trace_prompt_observability_summary.prompt_event_count,
+                "last_prompt_event_id": trace_prompt_observability_summary.last_prompt_event_id,
+                "last_prompt_event_surface": trace_prompt_observability_summary.last_prompt_event_surface,
+            }
         )
     request_summary = RequestSummary(
         objective=_first_non_empty(

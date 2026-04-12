@@ -204,7 +204,13 @@ class MechanicalInheritSyncPack:
                 state_patch={
                     "resolution": {
                         "items": [
-                            {"item_id": "work-1", "status": "closed"},
+                            {
+                                "item_id": "work-1",
+                                "status": "closed",
+                                "determination": "earned",
+                                "verification_basis": "The work item was completed against the strongest available evidence.",
+                                "completion_criteria": "The unit is explicitly verified and no stronger in-run check remains.",
+                            },
                         ],
                     }
                 },
@@ -617,27 +623,35 @@ def _closure_dimensions(*, layer4_status: str = "blocking") -> list[dict[str, An
             "dimension_id": "layer_1_delta_convergence",
             "title": "Layer 1",
             "status": "closed",
+            "determination": "earned",
             "summary": "Transcript matches visible source",
+            "verification_basis": "Direct source comparison resolved the visible transcript delta.",
         },
         {
             "dimension_id": "layer_2_intrinsic_source_integrity",
             "title": "Layer 2",
             "status": "open",
+            "determination": "earned",
             "summary": "Source contradiction remains explicit",
+            "verification_basis": "The visible source was reviewed closely enough to confirm the contradiction stays open.",
         },
         {
             "dimension_id": "layer_3_external_dependency_completeness",
             "title": "Layer 3",
             "status": "no_further_progress",
+            "determination": "earned",
             "summary": "Current image cannot recover the missing continuation",
             "no_further_progress": True,
+            "verification_basis": "The inspected evidence ends at the image boundary, so no further in-run recovery exists.",
         },
         {
             "dimension_id": "layer_4_mapping_blocking_relevance",
             "title": "Layer 4",
             "status": layer4_status,
+            "determination": "earned",
             "summary": "Mapping relevance has been explicitly classified",
             "blocking": layer4_status != "non_blocking",
+            "verification_basis": "The remaining uncertainty was explicitly judged for mapping relevance.",
         },
     ]
 

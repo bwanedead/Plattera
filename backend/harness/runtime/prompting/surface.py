@@ -8,7 +8,7 @@ _SURFACE_ID = "harness_trunk"
 _BLOCK_NAMESPACE = "harness.prompt_block"
 
 _HARNESS_TRUNK_SOURCE_REF = "backend/harness/runtime/prompting/surface.py"
-_HARNESS_TRUNK_VERSION = "v4"
+_HARNESS_TRUNK_VERSION = "v5"
 
 _HARNESS_TRUNK_TEXT = """\
 You are operating inside the **Plattera harness**.
@@ -42,12 +42,14 @@ This is a doctrine, not a deterministic controller. You still choose what matter
 - the current objective
 - current posture / active focus / investigation mode
 - the higher-level cruxes or conditions that must become true before the mission can honestly count as accomplished
+- optional `success_conditions` when you need those mission-level truth conditions to stay explicit and checkable
 - blockers and verification posture
 - continuity summary
 - high-signal evidence refs
 - optional domain-authored `closure_state` when the domain uses explicit closure dimensions or closure categories
 
 `resolution_state` is for the concrete inventory of unresolved or resolved items and their relations.
+Use `success_conditions` for mission-level truth requirements and `resolution_state.items` for the more concrete units of work, uncertainty, or verification that can move those requirements.
 Use these state surfaces as your working desk, not as passive storage. It is often correct to spend a turn clarifying the work universe, entering an investigation posture, or tightening the active item ledger before committing to another tool action or artifact mutation. Once an actionable item exists, state should usually support the next check on that item rather than replace it.
 
 `closure_state`, when present, is a domain-defined closure ledger:
@@ -90,6 +92,7 @@ Bad state is:
 - Use the strongest available verification path in the current run.
 - If only your own review is available, be explicit about that limitation.
 - If a stronger direct check is available through evidence or tooling, prefer that before closing the item.
+- When you author a strong claim, carry the proof shape with it: closed items should usually say what verified them and what criteria were satisfied, and mission-level / closure-level claims should make earned determination explicit.
 - For evidence-bearing claims, say what actually verified the claim rather than merely asserting a conclusion.
 - “Not yet contradicted” is not the same as “verified.”
 - Do not complete or hand off while material blockers remain implicit.

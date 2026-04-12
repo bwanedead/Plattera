@@ -19,6 +19,9 @@ def build_prompt_observability_summary(loop_memory: LoopMemoryState) -> dict[str
     telemetry = loop_memory.telemetry
     cont = loop_memory.continuity
     step_records = list(cont.kernel_step_records)
+    resolution_items = list(getattr(cont.resolution_state, "items", ()) or ())
+    success_conditions = list(getattr(cont.mission_state, "success_conditions", ()) or ())
+    closure_dimensions = list(getattr(cont.mission_state.closure_state, "dimensions", ()) or ())
 
     feedback = dict(cont.state_patch_feedback) if isinstance(cont.state_patch_feedback, Mapping) else {}
 
@@ -31,6 +34,55 @@ def build_prompt_observability_summary(loop_memory: LoopMemoryState) -> dict[str
         "turns_since_latest_refs_change": _turns_since_latest_refs_change(step_records),
         "last_state_patch_outcome": _as_optional_text(feedback.get("outcome")),
         "last_state_patch_reason_code": _as_optional_text(feedback.get("reason_code")),
+        "success_condition_count": len(success_conditions),
+        "success_conditions_with_earned_determination_count": sum(
+            1 for row in success_conditions if _has_earned_determination(getattr(row, "determination", None))
+        ),
+        "success_conditions_with_verification_basis_count": sum(
+            1 for row in success_conditions if _has_text(getattr(row, "verification_basis", None))
+        ),
+        "resolution_item_count": len(resolution_items),
+        "items_with_evidence_count": sum(
+            1 for row in resolution_items if bool(getattr(row, "evidence_refs", ()) or ())
+        ),
+        "items_with_verification_basis_count": sum(
+            1 for row in resolution_items if _has_text(getattr(row, "verification_basis", None))
+        ),
+        "closed_items_count": sum(1 for row in resolution_items if _is_closed_status(getattr(row, "status", None))),
+        "closed_items_without_earned_determination_count": sum(
+            1
+            for row in resolution_items
+            if _is_closed_status(getattr(row, "status", None))
+            and not _has_earned_determination(getattr(row, "determination", None))
+        ),
+        "closed_items_without_basis_count": sum(
+            1
+            for row in resolution_items
+            if _is_closed_status(getattr(row, "status", None))
+            and not _has_text(getattr(row, "verification_basis", None))
+        ),
+        "closed_items_without_completion_criteria_count": sum(
+            1
+            for row in resolution_items
+            if _is_closed_status(getattr(row, "status", None))
+            and not _has_text(getattr(row, "completion_criteria", None))
+        ),
+        "closure_dimension_count": len(closure_dimensions),
+        "closure_dimensions_with_earned_determination_count": sum(
+            1 for row in closure_dimensions if _has_earned_determination(getattr(row, "determination", None))
+        ),
+        "closed_dimensions_without_earned_determination_count": sum(
+            1
+            for row in closure_dimensions
+            if _is_closed_status(getattr(row, "status", None))
+            and not _has_earned_determination(getattr(row, "determination", None))
+        ),
+        "closed_dimensions_without_basis_count": sum(
+            1
+            for row in closure_dimensions
+            if _is_closed_status(getattr(row, "status", None))
+            and not _has_text(getattr(row, "verification_basis", None))
+        ),
     }
 
 
@@ -77,3 +129,15 @@ def _as_optional_text(value: Any) -> str | None:
         return None
     text = str(value).strip()
     return text or None
+
+
+def _is_closed_status(value: Any) -> bool:
+    return str(value or "").strip().lower() == "closed"
+
+
+def _has_earned_determination(value: Any) -> bool:
+    return str(value or "").strip().lower() == "earned"
+
+
+def _has_text(value: Any) -> bool:
+    return bool(str(value or "").strip())

@@ -92,6 +92,20 @@ class PromptObservabilitySummary(BaseModel):
     turns_since_latest_refs_change: int | None = Field(default=None, ge=0)
     last_state_patch_outcome: str | None = Field(default=None, max_length=64)
     last_state_patch_reason_code: str | None = Field(default=None, max_length=128)
+    success_condition_count: int = Field(default=0, ge=0)
+    success_conditions_with_earned_determination_count: int = Field(default=0, ge=0)
+    success_conditions_with_verification_basis_count: int = Field(default=0, ge=0)
+    resolution_item_count: int = Field(default=0, ge=0)
+    items_with_evidence_count: int = Field(default=0, ge=0)
+    items_with_verification_basis_count: int = Field(default=0, ge=0)
+    closed_items_count: int = Field(default=0, ge=0)
+    closed_items_without_earned_determination_count: int = Field(default=0, ge=0)
+    closed_items_without_basis_count: int = Field(default=0, ge=0)
+    closed_items_without_completion_criteria_count: int = Field(default=0, ge=0)
+    closure_dimension_count: int = Field(default=0, ge=0)
+    closure_dimensions_with_earned_determination_count: int = Field(default=0, ge=0)
+    closed_dimensions_without_earned_determination_count: int = Field(default=0, ge=0)
+    closed_dimensions_without_basis_count: int = Field(default=0, ge=0)
 
 
 class SharedRunSummaryEnvelope(BaseModel):

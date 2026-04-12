@@ -118,6 +118,8 @@ def test_item_partial_update_preserves_determination() -> None:
                         "kind": "work_unit",
                         "status": "in_review",
                         "determination": "provisional",
+                        "verification_basis": "Compared the claim against source evidence.",
+                        "completion_criteria": "Resolve the discrepancy against the strongest available evidence.",
                     }
                 ],
             }
@@ -129,6 +131,11 @@ def test_item_partial_update_preserves_determination() -> None:
         state_patch={"resolution": {"items": [{"item_id": "i1", "status": "closed"}]}},
     )
     assert rs3.items[0].determination == "provisional"
+    assert rs3.items[0].verification_basis == "Compared the claim against source evidence."
+    assert (
+        rs3.items[0].completion_criteria
+        == "Resolve the discrepancy against the strongest available evidence."
+    )
     assert rs3.items[0].status == "closed"
 
 
@@ -145,6 +152,48 @@ def test_mission_objective_shallow_summary_merge() -> None:
     assert ms2.objective == "next"
     assert ms2.blocker_summary == {"a": 1, "b": 2}
     assert rs2 is rs
+
+
+def test_mission_success_conditions_merge_by_condition_id() -> None:
+    ms, rs = _base_states()
+    ms2, _, _ = apply_state_patch(
+        mission_state=ms,
+        resolution_state=rs,
+        state_patch={
+            "mission": {
+                "success_conditions": [
+                    {
+                        "condition_id": "source-grounded-transcript",
+                        "title": "Source-grounded transcript exists",
+                        "status": "open",
+                        "determination": "provisional",
+                        "completion_criteria": "All visible operative source text is reviewed and reconciled.",
+                    }
+                ]
+            }
+        },
+    )
+    ms3, _, _ = apply_state_patch(
+        mission_state=ms2,
+        resolution_state=rs,
+        state_patch={
+            "mission": {
+                "success_conditions": [
+                    {
+                        "condition_id": "source-grounded-transcript",
+                        "status": "in_review",
+                        "verification_basis": "Compared the transcript against the source image and peer drafts.",
+                    }
+                ]
+            }
+        },
+    )
+    assert len(ms3.success_conditions) == 1
+    condition = ms3.success_conditions[0]
+    assert condition.status == "in_review"
+    assert condition.determination == "provisional"
+    assert condition.completion_criteria == "All visible operative source text is reviewed and reconciled."
+    assert condition.verification_basis == "Compared the transcript against the source image and peer drafts."
 
 
 def test_mission_patch_rejects_host_owned_telemetry_keys() -> None:

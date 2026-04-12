@@ -38,6 +38,9 @@ class ResolutionItem(BaseModel):
     status: str = Field(min_length=1, max_length=64)
     determination: str | None = Field(default=None, max_length=32)
     summary: str | None = Field(default=None, max_length=500)
+    verification_basis: str | None = Field(default=None, max_length=240)
+    next_needed_step: str | None = Field(default=None, max_length=240)
+    completion_criteria: str | None = Field(default=None, max_length=240)
     dependencies: list[str] = Field(default_factory=list, max_length=16)
     evidence_refs: list[str] = Field(default_factory=list, max_length=24)
     notes: str | None = Field(default=None, max_length=500)
@@ -92,6 +95,22 @@ class ClosureState(BaseModel):
     opaque_payload: dict[str, Any] = Field(default_factory=dict)
 
 
+class MissionSuccessCondition(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    condition_id: str = Field(min_length=1, max_length=128)
+    title: str = Field(min_length=1, max_length=240)
+    status: str = Field(min_length=1, max_length=64)
+    determination: str | None = Field(default=None, max_length=32)
+    summary: str | None = Field(default=None, max_length=500)
+    completion_criteria: str | None = Field(default=None, max_length=240)
+    verification_basis: str | None = Field(default=None, max_length=240)
+    next_needed_step: str | None = Field(default=None, max_length=240)
+    dependencies: list[str] = Field(default_factory=list, max_length=16)
+    evidence_refs: list[str] = Field(default_factory=list, max_length=24)
+    opaque_payload: dict[str, Any] = Field(default_factory=dict)
+
+
 class MissionState(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -111,6 +130,7 @@ class MissionState(BaseModel):
     terminal_summary: dict[str, Any] = Field(default_factory=dict)
     continuity_summary: dict[str, Any] = Field(default_factory=dict)
     mission_mode_summary: dict[str, Any] = Field(default_factory=dict)
+    success_conditions: list[MissionSuccessCondition] = Field(default_factory=list)
     prompt_observability_summary: dict[str, Any] = Field(default_factory=dict)
     closure_state: ClosureState = Field(default_factory=ClosureState)
     resolution_state: ResolutionState = Field(default_factory=ResolutionState)
@@ -191,11 +211,17 @@ def new_mission_state(
     terminal_summary: Mapping[str, Any] | None = None,
     continuity_summary: Mapping[str, Any] | None = None,
     mission_mode_summary: Mapping[str, Any] | None = None,
+    success_conditions: list[MissionSuccessCondition | dict[str, Any]] | None = None,
     prompt_observability_summary: Mapping[str, Any] | None = None,
     closure_state: ClosureState | dict[str, Any] | None = None,
     resolution_state: ResolutionState | dict[str, Any] | None = None,
     opaque_payload: Mapping[str, Any] | None = None,
 ) -> MissionState:
+    success_conditions_out: list[MissionSuccessCondition] = []
+    for row in success_conditions or []:
+        condition = _coerce_mission_success_condition(row)
+        if condition is not None:
+            success_conditions_out.append(condition)
     return MissionState(
         mission_id=_clean_text(mission_id, limit=128) or "unknown_mission",
         session_id=_clean_text(session_id, limit=256),
@@ -212,6 +238,7 @@ def new_mission_state(
         terminal_summary=dict(terminal_summary) if isinstance(terminal_summary, Mapping) else {},
         continuity_summary=dict(continuity_summary) if isinstance(continuity_summary, Mapping) else {},
         mission_mode_summary=dict(mission_mode_summary) if isinstance(mission_mode_summary, Mapping) else {},
+        success_conditions=success_conditions_out,
         prompt_observability_summary=(
             dict(prompt_observability_summary) if isinstance(prompt_observability_summary, Mapping) else {}
         ),
@@ -262,6 +289,19 @@ def _coerce_closure_dimension(
         return None
     try:
         return ClosureDimension.model_validate(row)
+    except ValidationError:
+        return None
+
+
+def _coerce_mission_success_condition(
+    row: MissionSuccessCondition | dict[str, Any],
+) -> MissionSuccessCondition | None:
+    if isinstance(row, MissionSuccessCondition):
+        return row
+    if not isinstance(row, dict):
+        return None
+    try:
+        return MissionSuccessCondition.model_validate(row)
     except ValidationError:
         return None
 

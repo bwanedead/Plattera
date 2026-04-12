@@ -18,6 +18,7 @@ from ...mission_state import (
     ClosureDimension,
     ClosureState,
     MissionState,
+    MissionSuccessCondition,
     ResolutionItem,
     ResolutionItemHistoryEntry,
     ResolutionRelation,
@@ -49,6 +50,7 @@ ALLOWED_MISSION_KEYS = frozenset(
         "waiting_summary",
         "continuity_summary",
         "mission_mode_summary",
+        "success_conditions",
         "closure_state",
         "opaque_payload",
     }
@@ -512,6 +514,9 @@ def _apply_mission_branch(ms: MissionState, raw: Any) -> MissionState:
         else:
             raise StatePatchError(f"{key}_not_object", f"mission.{key} must be an object, string, or null")
 
+    if "success_conditions" in raw:
+        updates["success_conditions"] = _apply_success_conditions(ms.success_conditions, raw["success_conditions"])
+
     if "closure_state" in raw:
         updates["closure_state"] = _apply_closure_state(ms.closure_state, raw["closure_state"])
 
@@ -543,6 +548,64 @@ def _apply_mission_branch(ms: MissionState, raw: Any) -> MissionState:
     updates["opaque_payload"] = opaque
     updates["updated_at_epoch_seconds"] = time.time()
     return ms.model_copy(update=updates)
+
+
+def _merge_success_condition_row(
+    existing: MissionSuccessCondition | None,
+    row: dict[str, Any],
+) -> MissionSuccessCondition | None:
+    base: dict[str, Any] = existing.model_dump(mode="json") if existing is not None else {}
+    field_names = MissionSuccessCondition.model_fields.keys()
+
+    for key, val in row.items():
+        if key not in field_names:
+            continue
+        if key == "opaque_payload" and isinstance(val, dict):
+            prior = base.get("opaque_payload") if isinstance(base.get("opaque_payload"), dict) else {}
+            base["opaque_payload"] = {**prior, **val}
+        else:
+            base[key] = val
+
+    try:
+        return MissionSuccessCondition.model_validate(base)
+    except ValidationError:
+        return None
+
+
+def _apply_success_conditions(
+    current: list[MissionSuccessCondition],
+    raw: Any,
+) -> list[MissionSuccessCondition]:
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        raise StatePatchError("success_conditions_not_array", "mission.success_conditions must be an array or null")
+
+    by_id: dict[str, MissionSuccessCondition] = {row.condition_id: row for row in current}
+    next_order: list[str] = [row.condition_id for row in current]
+    for row in raw:
+        if not isinstance(row, dict):
+            raise StatePatchError(
+                "success_condition_not_object",
+                "mission.success_conditions rows must be objects",
+            )
+        cond_id_raw = row.get("condition_id")
+        condition_id = str(cond_id_raw).strip() if cond_id_raw is not None else ""
+        if not condition_id:
+            raise StatePatchError(
+                "success_condition_missing_id",
+                "mission.success_conditions rows require condition_id",
+            )
+        merged = _merge_success_condition_row(by_id.get(condition_id), row)
+        if merged is None:
+            raise StatePatchError(
+                "success_condition_validation_failed",
+                f"mission.success_conditions[{condition_id}] failed validation",
+            )
+        by_id[condition_id] = merged
+        if condition_id not in next_order:
+            next_order.append(condition_id)
+    return [by_id[condition_id] for condition_id in next_order]
 
 
 def _merge_closure_dimension_row(

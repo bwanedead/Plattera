@@ -110,6 +110,8 @@ def test_prompt_observability_fallback_without_prompt_in_trace() -> None:
             "turns_since_latest_refs_change": 2,
             "last_state_patch_outcome": "rejected",
             "last_state_patch_reason_code": "mission_unknown_keys",
+            "resolution_item_count": 4,
+            "closed_items_without_basis_count": 2,
         },
     }
     env = build_orchestration_kernel_run_summary(orchestration_kernel_payload=p)
@@ -118,6 +120,23 @@ def test_prompt_observability_fallback_without_prompt_in_trace() -> None:
     assert env.prompt_observability_summary.consecutive_no_dispatch_turns == 3
     assert env.prompt_observability_summary.turns_since_last_tool_execution == 4
     assert env.prompt_observability_summary.last_state_patch_reason_code == "mission_unknown_keys"
+    assert env.prompt_observability_summary.resolution_item_count == 4
+    assert env.prompt_observability_summary.closed_items_without_basis_count == 2
+
+
+def test_prompt_observability_merges_trace_metadata_with_payload_coverage() -> None:
+    payload = _payload_with_prompt_event()
+    payload["prompt_observability_summary"] = {
+        "resolution_item_count": 5,
+        "closed_items_without_basis_count": 1,
+        "success_condition_count": 2,
+    }
+    env = build_orchestration_kernel_run_summary(orchestration_kernel_payload=payload)
+    assert env.prompt_observability_summary.prompt_event_count == 1
+    assert env.prompt_observability_summary.last_prompt_event_id == "pe-1"
+    assert env.prompt_observability_summary.resolution_item_count == 5
+    assert env.prompt_observability_summary.closed_items_without_basis_count == 1
+    assert env.prompt_observability_summary.success_condition_count == 2
 
 
 def test_malformed_not_dict_raises() -> None:

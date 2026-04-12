@@ -5,6 +5,7 @@ from typing import Any
 
 import pytest
 
+from harness.mission_state import new_mission_state, new_resolution_state
 from harness.runtime.composition.contracts import ComposedTurnInput, TurnBlock
 from harness.runtime.memory import LoopMemoryState
 from harness.runtime.memory.continuity_journal import (
@@ -943,6 +944,8 @@ def test_choose_action_prompt_teaches_commitment_after_item_exists() -> None:
     assert "what would have to be true in reality" in prompt
     assert "Do not use closed merely because no contradiction has been noticed yet." in prompt
     assert '"determination" field on resolution items or closure dimensions' in prompt
+    assert "mission.success_conditions" in prompt
+    assert "completion_criteria" in prompt
 
 
 def test_choose_action_prompt_includes_host_owned_prompt_observability_summary() -> None:
@@ -991,6 +994,28 @@ def test_choose_action_prompt_includes_host_owned_prompt_observability_summary()
         "outcome": "rejected",
         "reason_code": "mission_unknown_keys",
     }
+    ctx.loop_memory.continuity.resolution_state = new_resolution_state(
+        items=[
+            {
+                "item_id": "i1",
+                "title": "Thin closed item",
+                "kind": "work_unit",
+                "status": "closed",
+            }
+        ]
+    )
+    ctx.loop_memory.continuity.mission_state = new_mission_state(
+        mission_id="m-proof",
+        loop_family="orchestration_kernel",
+        resolution_state=ctx.loop_memory.continuity.resolution_state,
+        success_conditions=[
+            {
+                "condition_id": "c1",
+                "title": "Mission reality condition",
+                "status": "open",
+            }
+        ],
+    )
     adapter.choose_action(ctx, projection=None)
 
     prompt = captured[0]
@@ -999,6 +1024,8 @@ def test_choose_action_prompt_includes_host_owned_prompt_observability_summary()
     assert '"turns_since_last_tool_execution": 1' in prompt
     assert '"turns_since_latest_refs_change": 1' in prompt
     assert '"last_state_patch_outcome": "rejected"' in prompt
+    assert '"success_condition_count": 1' in prompt
+    assert '"closed_items_without_basis_count": 1' in prompt
 
 
 def test_choose_action_prompt_hides_max_iterations_from_model_visible_launch_context() -> None:
