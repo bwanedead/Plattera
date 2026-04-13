@@ -2,23 +2,25 @@
 
 Polls for two signals:
 - HITL prompt file: written by the running loop when human feedback is needed
-- Done sentinel file: written by the harness run (e.g. child of ``python -m harness.cli.start``) when the loop completes
+- Done sentinel file: written by the harness run when the loop reaches a true
+  terminal state (completed / failed / exhausted / waiting_human after timeout)
 
 Exits immediately when either signal arrives, printing a single JSON line:
   {"event": "hitl", "run_id": ..., "prompt_id": ..., "message": ..., "choices": [...]}
   {"event": "loop_done", "status": ..., "terminal": ...}
   {"event": "timeout", "timeout_seconds": ...}
 
-Usage pattern for agent testing (prefer harness operator CLI when available):
+Normal usage (harness-owned auto-resume):
   # 1. Start run in background (persists run-state + paths)
   python -m harness.cli.start --run-id myrun --loop-kind harness_cli
 
-  # 2. Watch (blocking) — reads done path from run-state
+  # 2. Watch (blocking) — returns when HITL prompt or terminal state arrives
   python -m harness.cli.watch --run-id myrun
 
-  # 3a. If event=hitl: answer, then re-watch
+  # 3a. If event=hitl: answer — the background process detects the answer and
+  #     resumes automatically; no manual restart needed
   python -m harness.cli.answer --run-id myrun --prompt-id <id> --choice "75"
-  python -m harness.cli.watch --run-id myrun
+  python -m harness.cli.watch --run-id myrun   # watch the resumed run
 
   # 3b. If event=loop_done: read result.json / stdout.log from printed paths
 

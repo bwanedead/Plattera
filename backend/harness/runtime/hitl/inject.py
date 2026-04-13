@@ -54,7 +54,11 @@ def main() -> None:
         required=True,
         help="Feedback store loop namespace (must match the running loop / harness.cli.start --loop-kind).",
     )
-    parser.add_argument("--run-id", required=True, help="The run_id used by the loop (request_id_prefix).")
+    parser.add_argument(
+        "--run-id",
+        required=True,
+        help="The canonical logical run_id used by the loop and feedback store.",
+    )
     parser.add_argument("--prompt-id", required=True, help="The prompt_id from the HITL watch output.")
     parser.add_argument("--choice", required=True, help="The feedback choice value or full choice text.")
     parser.add_argument("--note", default=None, help="Optional note to include with the feedback.")

@@ -12,10 +12,14 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from dataclasses import asdict, is_dataclass
 import json
+import logging
 import os
 from pathlib import Path
+import time
 from typing import Any
 from uuid import uuid4
+
+_LOG = logging.getLogger(__name__)
 
 from harness.execution.contracts import ExecutionSessionStartRequest
 from harness.execution.executor import ExecutionExecutor
@@ -65,6 +69,31 @@ class RuntimeRunner:
         self._targets = targets
 
     def run(self, *, launch_context: Mapping[str, Any] | None = None) -> RuntimeRunResult:
+        """Drive one logical run, which may span multiple bounded kernel slices.
+
+        A kernel slice that returns ``waiting_human`` is a pause condition, not a
+        terminal state.  This method owns the harness-level lifecycle: it polls the
+        feedback store for the active blocking prompt and re-invokes the kernel from
+        the stored resume snapshot when the answer arrives.  ``done.json`` is written
+        only when the run reaches a true terminal state (completed / failed /
+        exhausted, or a pause that timed out waiting for human input).
+
+        Two lifecycle invariants enforced here:
+
+        * **Canonical run_id**: one logical ``run_id`` is established before the
+          first kernel slice and reused for all HITL lookups and state updates.
+          If the launch context omits ``run_id`` a stable UUID is generated and
+          written back into context so every collaborator (kernel, feedback store,
+          CLI run-state) sees the same identity.
+
+        * **Per-logical-run iteration budget**: ``max_iterations`` from the launch
+          context is the *total* turn budget for the logical run, not a per-slice
+          budget.  Resumed slices receive a reduced ``max_iterations`` equal to
+          the remaining turns after subtracting iterations consumed by earlier
+          slices.  Kernel iteration numbers are globally cumulative
+          (``resume_start_iteration`` carries over), so ``loop_result.iterations``
+          is always the total turns spent across all slices to date.
+        """
         context = dict(launch_context or {})
         targets = self._targets or RuntimeArtifactTargets.from_env()
 
@@ -72,14 +101,124 @@ class RuntimeRunner:
             adapter = self._resolve_adapter(context)
             surface = self._resolve_turn_surface(adapter, context)
             composed = DefaultTurnComposer().compose(build_harness_turn_surface(), surface)
-            orchestration_context = _with_domain_policy_context(context, adapter)
-            loop_result = self._run_orchestration(context=orchestration_context, composed=composed)
-            result = RuntimeRunResult(
-                status=str(loop_result.terminal_class),
-                reason_code=loop_result.reason_code,
-                result_payload=_build_loop_result_payload(loop_result),
-                done_payload=_build_loop_done_payload(loop_result),
-            )
+
+            # ── Establish one canonical logical run_id for the whole logical run ──
+            # _run_orchestration internally calls _select_run_id(context) with the
+            # same logic.  We surface it here so the outer lifecycle (HITL poll,
+            # run-state updates) always uses the same identity as the kernel, even
+            # when the caller did not supply an explicit run_id.
+            canonical_run_id = _select_run_id(context)
+            if not str(context.get("run_id") or "").strip():
+                context = dict(context)
+                context["run_id"] = canonical_run_id
+
+            # ── Logical-run iteration budget ──────────────────────────────────────
+            # Fixed once at launch; reduced by the iterations each completed slice
+            # consumed so resumed slices cannot silently exceed the total budget.
+            logical_max_iterations = _select_max_iterations(context)
+            # Tracks the globally highest iteration index seen so far.  Kernel
+            # iteration numbers are 1-based and cumulative across resume boundaries,
+            # so loop_result.iterations is the last iteration of the most-recent
+            # slice globally — i.e., total turns spent across all slices.
+            slices_iterations_used: int = 0
+
+            # Harness-owned logical run lifecycle: loop over bounded kernel slices.
+            # Each iteration is one execution slice; blocking HITL causes a pause then
+            # resume — multiple slices may be part of a single logical run.
+            result: RuntimeRunResult | None = None
+            while True:
+                # For resumed slices, reduce max_iterations to the turns remaining
+                # after subtracting those already consumed by earlier slices.
+                if slices_iterations_used > 0:
+                    remaining = max(1, logical_max_iterations - slices_iterations_used)
+                    context = dict(context)
+                    context["max_iterations"] = remaining
+
+                orchestration_context = _with_domain_policy_context(context, adapter)
+                loop_result = self._run_orchestration(context=orchestration_context, composed=composed)
+                # Update cumulative count; kernel iteration numbers are globally
+                # monotonic so this correctly reflects total turns across all slices.
+                slices_iterations_used = loop_result.iterations
+
+                result = RuntimeRunResult(
+                    status=str(loop_result.terminal_class),
+                    reason_code=loop_result.reason_code,
+                    result_payload=_build_loop_result_payload(loop_result),
+                    done_payload=_build_loop_done_payload(loop_result),
+                )
+
+                if result.status != "waiting_human":
+                    break
+
+                # ── Harness-owned blocking-HITL pause/resume ───────────────────────
+                # The kernel slice ended on a blocking HITL.  This is a pause, not a
+                # final terminal state.  Poll the feedback store for the active prompt
+                # answer; when it arrives, re-invoke the kernel from the resume snapshot.
+                _maybe_update_cli_run_state("waiting_human")
+
+                blocking_prompt_id = str(
+                    (loop_result.runtime_state or {}).get("blocking_prompt_id") or ""
+                ).strip()
+                if not blocking_prompt_id:
+                    # Kernel emitted waiting_human but left no blocking_prompt_id —
+                    # cannot match an answer; return the paused state as terminal.
+                    _LOG.warning("RUNNER waiting_human with no blocking_prompt_id — treating as terminal")
+                    break
+
+                loop_kind = _hitl_loop_kind_for_resume(orchestration_context)
+                wait_timeout = _select_hitl_wait_timeout(context)
+
+                _LOG.info(
+                    "RUNNER pause waiting_human ► run_id=%s prompt_id=%s timeout=%ss",
+                    canonical_run_id, blocking_prompt_id, wait_timeout,
+                )
+                answer = _poll_blocking_answer(
+                    loop_kind=loop_kind,
+                    run_id=canonical_run_id,
+                    prompt_id=blocking_prompt_id,
+                    timeout_seconds=wait_timeout,
+                )
+
+                if answer is None:
+                    # Feedback did not arrive within the wait window.
+                    # Return waiting_human as the terminal state so the caller knows
+                    # the run is still paused (not completed or failed).
+                    _LOG.info("RUNNER hitl_wait_timeout ► run_id=%s prompt_id=%s", canonical_run_id, blocking_prompt_id)
+                    break
+
+                # Answer arrived — build resume context for the next kernel slice.
+                # The answer is already in the feedback store; the kernel will pick
+                # it up via hitl_poll_feedback_store on the first iteration of the
+                # resumed slice.  We inject the kernel_resume_snapshot so the new
+                # slice continues from where the paused slice left off.
+                remaining = logical_max_iterations - slices_iterations_used
+                if remaining <= 0:
+                    _LOG.info(
+                        "RUNNER resume_budget_exhausted ► run_id=%s prompt_id=%s iterations=%s max_iterations=%s",
+                        canonical_run_id,
+                        blocking_prompt_id,
+                        slices_iterations_used,
+                        logical_max_iterations,
+                    )
+                    result = RuntimeRunResult(
+                        status="exhausted",
+                        reason_code="max_iterations_reached",
+                        result_payload=_build_exhausted_result_payload(loop_result),
+                        done_payload=_build_exhausted_done_payload(loop_result),
+                    )
+                    break
+
+                snap = loop_result.kernel_resume_snapshot
+                new_context = dict(context)
+                new_context.pop("kernel_resume_snapshot_path", None)
+                new_context.pop("resume_snapshot_path", None)
+                if isinstance(snap, dict) and snap:
+                    new_context["kernel_resume_snapshot"] = snap
+                context = new_context
+                _maybe_update_cli_run_state("resuming")
+                _LOG.info("RUNNER resuming ► run_id=%s prompt_id=%s", canonical_run_id, blocking_prompt_id)
+                # Loop to next kernel slice.
+
         except RuntimeRunnerError as exc:
             result = RuntimeRunResult(
                 status="failed",
@@ -102,6 +241,7 @@ class RuntimeRunner:
                 f"runtime_runner_failed:{reason_code}", reason_code=reason_code
             ) from exc
 
+        assert result is not None  # loop always assigns result before break
         self._write_artifacts(targets=targets, result=result)
         return result
 
@@ -365,6 +505,20 @@ def _build_done_document(result: RuntimeRunResult) -> dict[str, Any]:
     return payload
 
 
+def _build_exhausted_result_payload(loop_result: Any) -> dict[str, Any]:
+    payload = _build_loop_result_payload(loop_result)
+    payload["terminal_class"] = "exhausted"
+    payload["reason_code"] = "max_iterations_reached"
+    return payload
+
+
+def _build_exhausted_done_payload(loop_result: Any) -> dict[str, Any]:
+    payload = _build_loop_done_payload(loop_result)
+    payload["terminal_class"] = "exhausted"
+    payload["reason_code"] = "max_iterations_reached"
+    return payload
+
+
 def _write_json(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
@@ -415,6 +569,57 @@ def _maybe_finalize_retention_and_cleanup(targets: RuntimeArtifactTargets) -> No
     except Exception:
         import logging
         logging.getLogger(__name__).warning("retention/cleanup failed for run_id=%s", cli_run_id, exc_info=True)
+
+
+def _select_hitl_wait_timeout(context: Mapping[str, Any]) -> float:
+    """Max seconds to poll the feedback store for a blocking-HITL answer (default: 7200 = 2 h)."""
+    raw = context.get("hitl_wait_timeout_seconds")
+    try:
+        value = float(raw) if raw is not None else 7200.0
+    except (TypeError, ValueError):
+        return 7200.0
+    return max(1.0, value)
+
+
+def _hitl_loop_kind_for_resume(context: Mapping[str, Any]) -> str:
+    return str(
+        context.get("hitl_loop_kind") or context.get("loop_kind") or "harness_cli"
+    ).strip() or "harness_cli"
+
+
+def _poll_blocking_answer(
+    *,
+    loop_kind: str,
+    run_id: str,
+    prompt_id: str,
+    timeout_seconds: float,
+    poll_interval: float = 2.0,
+) -> dict[str, Any] | None:
+    """Poll the feedback store until an answer for ``prompt_id`` arrives or the deadline passes.
+
+    Returns the feedback entry dict, or ``None`` if the timeout is reached with no answer.
+    This is purely mechanical: it does not interpret the answer content.
+    """
+    if not loop_kind or not run_id or not prompt_id:
+        return None
+    try:
+        from services.agent_viewer import feedback_store
+    except Exception:
+        return None
+    deadline = time.monotonic() + max(1.0, float(timeout_seconds))
+    while time.monotonic() < deadline:
+        try:
+            entries = feedback_store.list_entries(loop_kind=loop_kind, run_id=run_id)
+        except Exception:
+            time.sleep(poll_interval)
+            continue
+        for ent in entries or []:
+            if not isinstance(ent, dict):
+                continue
+            if str(ent.get("prompt_id") or "").strip() == prompt_id:
+                return ent
+        time.sleep(poll_interval)
+    return None
 
 
 def _jsonable(value: Any) -> Any:

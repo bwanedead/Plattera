@@ -97,8 +97,11 @@ Important consequences:
 
 Current caveat:
 
-- this state survives **within one running process**, but restart-resume
-  rehydration for model-authored mission/resolution state is not yet wired
+- this state now survives both within one running process and across
+  harness-owned blocking-HITL pause/resume or explicit restart-resume fallback
+  via `kernel_resume_snapshot`
+- semantic incorporation of resumed human feedback remains model-authored; the
+  harness only restores continuity and transport state mechanically
 
 ---
 
@@ -159,9 +162,7 @@ Boundary rules:
 
 ## 8. Known Gaps Before Stronger Live Evaluation
 
-- restart-resume rehydration for model-authored mission/resolution state is not
-  wired yet
-- HITL prompt emission and answer continuation still need to be validated in a
-  full transcript-edit run
+- transcript-edit HITL prompt emission and answer continuation still merit
+  repeated full live-run validation against real practice dossiers
 - frontend Agent Viewer integration is not built yet, though persisted refs,
   traces, and transcript-edit workspace artifacts are shaped to support it

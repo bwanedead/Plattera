@@ -38,6 +38,8 @@ Before running or modifying anything, read:
 
 - [`AGENTS.md`](../../../AGENTS.md)
 - [`docs/architecture/harness/harness-constitution.md`](./harness-constitution.md)
+- [`docs/architecture/harness/hitl-constitution.md`](./hitl-constitution.md)
+- [`docs/architecture/harness/cli-constitution.md`](./cli-constitution.md)
 - [`docs/architecture/harness/domain-pack-constitution.md`](./domain-pack-constitution.md)
 - [`docs/architecture/harness/domain-runtime-adapter-architecture.md`](./domain-runtime-adapter-architecture.md)
 - [`docs/ethos/agent-engine-ergonomics-theory.md`](../../ethos/agent-engine-ergonomics-theory.md)
@@ -127,17 +129,42 @@ If `watch` returns a HITL prompt, answer it:
 python -m harness.cli.answer --run-id $runId --prompt-id <prompt_id_from_watch> --choice "<your answer>" --note "<optional note>"
 ```
 
-Then call `watch` again.
+Architectural rule:
 
-Restart-resume:
+- `HITL` semantics are harness-owned, not CLI-owned
+- async `HITL` (`wait_for_human = false`) does not pause the logical run — the
+  loop continues immediately and the eventual answer becomes visible to future
+  turns
+- blocking `HITL` (`wait_for_human = true`) pauses the run and resumes it
+  automatically when the active blocking prompt is answered; no manual restart
+  is required
 
-- on completion, `result.json` includes `kernel_resume_snapshot`
-- to test resume in a fresh process, persist that snapshot and pass either
-  `kernel_resume_snapshot_path` or `kernel_resume_snapshot` in the next
-  launch-context JSON
-- resume rehydrates loop continuity and execution-session state mechanically;
-  it should restore model-authored `mission_state` / `resolution_state` without
-  semantic re-authoring by the harness
+Normal blocking-HITL testing flow (current implementation):
+
+```powershell
+# 1. Start run
+python -m harness.cli.start --run-id $runId --loop-kind transcript_edit ...
+
+# 2. Wait for HITL prompt (background process stays alive while waiting)
+python -m harness.cli.watch --run-id $runId --timeout 120
+
+# 3. If event=hitl: answer — the background process detects the answer and
+#    resumes the run automatically
+python -m harness.cli.answer --run-id $runId --prompt-id <prompt_id> --choice "74"
+
+# 4. Watch again for the resumed run to reach its next terminal state
+python -m harness.cli.watch --run-id $runId --timeout 120
+```
+
+The harness owns the resume: answering the active blocking prompt triggers
+auto-resume in the background process.  The CLI `answer` command is only an
+ingress surface; it does not decide whether or when to resume.
+
+HITL wait timeout: the background process polls for feedback for up to
+`hitl_wait_timeout_seconds` (default: 7200 s / 2 h).  If the timeout expires
+without an answer, the run returns `waiting_human` as the terminal state.
+`result.json` will include `kernel_resume_snapshot` so a fresh process restart
+remains possible as a fallback, but is not the normal path.
 
 ---
 
@@ -153,6 +180,7 @@ backend/harness/cli_artifacts/cli_runs/<run_id>/
   result.json
   done.json
   retention.json
+  audit/events.jsonl
   audit/index.json
   audit/review.md
   audit/turn_0001.json
@@ -162,11 +190,13 @@ backend/harness/cli_artifacts/cli_runs/<run_id>/
 
 What the audit files are for:
 
+- `audit/events.jsonl`: canonical append-only event stream for the run
 - `audit/review.md`: quick human-readable run summary
 - `audit/index.json`: run-level audit index
 - `audit/turn_000N.json`: exact turn ledger including prompt text, raw LLM
   response text, repair I/O when applicable, parsed action plan, tool
-  request/result, and before/after state snapshots
+  request/result, and before/after state snapshots; these are forensic
+  per-turn expansions, not the canonical event stream
 
 This `cli_runs/` folder is operator control-plane metadata. The transcript-edit
 domain data path itself is app-native backend plumbing, not a CLI-only sandbox:
@@ -215,6 +245,8 @@ Current domain + harness docs:
 - [`docs/architecture/mapping/mapping-family-intent.md`](../mapping/mapping-family-intent.md)
 - [`docs/architecture/harness/transcript-edit-domain.md`](./transcript-edit-domain.md)
 - [`docs/architecture/harness/harness-constitution.md`](./harness-constitution.md)
+- [`docs/architecture/harness/hitl-constitution.md`](./hitl-constitution.md)
+- [`docs/architecture/harness/cli-constitution.md`](./cli-constitution.md)
 - [`docs/architecture/harness/domain-pack-constitution.md`](./domain-pack-constitution.md)
 - [`docs/ethos/agent-engine-ergonomics-theory.md`](../../ethos/agent-engine-ergonomics-theory.md)
 

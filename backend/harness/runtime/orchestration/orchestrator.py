@@ -167,7 +167,7 @@ def run_orchestration_kernel_loop(
         hitl_poll_feedback_store(
             posture=loop_memory.hitl,
             loop_kind=_hitl_loop_kind(run_ctx),
-            run_id=request_id_prefix,
+            run_id=run_id or request_id_prefix,
         )
         hitl_refresh_derived_state(loop_memory.hitl)
 
@@ -258,7 +258,7 @@ def run_orchestration_kernel_loop(
             loop_memory.hitl.pending_hitl_requests.append(norm)
             clamp_hitl_lists(loop_memory.hitl)
             write_hitl_operator_sidecar(
-                run_id=request_id_prefix,
+                run_id=run_id or request_id_prefix,
                 latest_record=norm,
                 pending_snapshot=list(loop_memory.hitl.pending_hitl_requests),
             )
