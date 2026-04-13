@@ -856,6 +856,33 @@ def test_choose_action_passes_json_object_call_options() -> None:
     assert opts.phase == "choose_action"
 
 
+def test_choose_action_uses_resume_prompt_mode_when_hitl_answer_is_pending_integration() -> None:
+    from services.llm.call_options import LlmCallOptions
+
+    prompts: list[str] = []
+    received_opts: list[Any] = []
+
+    def caller(prompt: str, model: str, **kwargs: Any) -> str:
+        prompts.append(prompt)
+        received_opts.append(kwargs.get("call_options"))
+        return _VALID_PLAN_JSON
+
+    adapter = _minimal_llm_adapter(caller=caller)
+    ctx = _orch_context(iterations=4)
+    ctx.loop_memory.hitl.hitl_state = "answered_unintegrated"
+    ctx.loop_memory.hitl.answered_hitl_responses.append(
+        {"prompt_id": "p-1", "feedback": {"message": "continue north edge"}}
+    )
+
+    adapter.choose_action(ctx, projection=None)
+
+    opts = received_opts[0]
+    assert isinstance(opts, LlmCallOptions)
+    assert opts.phase == "choose_action_resume"
+    assert '"prompt_mode": "resume"' in prompts[0]
+    assert "answered_hitl_responses" in prompts[0]
+
+
 def test_choose_action_prompt_includes_contract_feedback_key() -> None:
     """contract_feedback must be present in the prompt envelope."""
     captured: list[str] = []
@@ -1305,6 +1332,7 @@ def test_choose_action_emits_raw_io_on_clean_success() -> None:
     assert rec["turn_index"] == 3
     assert rec["parse_ok"] is True
     assert rec["parse_reason_code"] is None
+    assert rec["prompt_mode"] == "full_choose_action"
     assert rec["repair_attempted"] is False
     assert isinstance(rec["raw_prompt_text"], str) and len(rec["raw_prompt_text"]) > 0
     assert "noop" in str(rec.get("parsed_action_plan") or "")

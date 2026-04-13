@@ -109,9 +109,31 @@ def test_prompt_assembly_stays_harness_owned_and_surface_driven() -> None:
     builder_source = (HARNESS_ROOT / "runtime" / "orchestration" / "llm_prompt_builder.py").read_text(
         encoding="utf-8"
     )
-    assert "from .choose_action_instruction import CHOOSE_ACTION_INSTRUCTION" in builder_source
-    assert "turn_input_document(composed_input)" in builder_source
-    assert "json.dumps(envelope" in builder_source
+    packet_builder_source = (HARNESS_ROOT / "runtime" / "orchestration" / "prompt_packet_builder.py").read_text(
+        encoding="utf-8"
+    )
+    adapter_source = (HARNESS_ROOT / "runtime" / "orchestration" / "llm_turn_adapter.py").read_text(
+        encoding="utf-8"
+    )
+    repair_lane_source = (HARNESS_ROOT / "runtime" / "orchestration" / "repair_lane.py").read_text(
+        encoding="utf-8"
+    )
+    compaction_source = (HARNESS_ROOT / "runtime" / "memory" / "continuity_compaction.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert "from .prompt_packet_builder import (" in builder_source
+    assert "build_turn_prompt_document" in builder_source
+    assert "build_compaction_prompt_document" in builder_source
+    assert '"prompt_mode": mode' not in builder_source
+    assert "json.dumps(prompt_body" in packet_builder_source
+    assert "doctrine_blocks_document(composed_input)" in packet_builder_source
+    assert "surface_packet_document(composed_input)" in packet_builder_source
+    assert "attempt_repair" in adapter_source
+    assert "build_repair_prompt_document" in repair_lane_source
+    assert "Previous response failed action-plan parsing." not in adapter_source
+    assert "build_compaction_prompt_document" in compaction_source
+    assert "journal_entries_to_fold, kernel_step_records_to_fold" not in compaction_source
     assert "from domains." not in builder_source
 
 

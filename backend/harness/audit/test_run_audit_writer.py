@@ -73,6 +73,7 @@ def test_on_llm_io_preserves_identity_fields_for_turn_lineage(tmp_path: Path) ->
             "session_id": "sess-1",
             "request_id": "req-1",
             "prompt_event_id": "req-1:iter3:kernel_llm",
+            "prompt_mode": "resume",
         }
     )
     writer.finalize(terminal_class="completed", reason_code="done", iterations=3, latest_refs={}, trace_events=[])
@@ -83,6 +84,7 @@ def test_on_llm_io_preserves_identity_fields_for_turn_lineage(tmp_path: Path) ->
     assert turn["session_id"] == "sess-1"
     assert turn["request_id"] == "req-1"
     assert turn["prompt_event_id"] == "req-1:iter3:kernel_llm"
+    assert turn["prompt_mode"] == "resume"
 
 
 def test_on_llm_io_normalizes_non_json_payloads(tmp_path: Path) -> None:

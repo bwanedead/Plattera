@@ -25,23 +25,24 @@ from ..memory.continuity_compaction import (
 )
 from .action_plan_parser import ModelActionParseError, is_repairable_action_plan_error, parse_action_plan_response
 from .contracts import ActionPlan, OrchestrationAdapter, OrchestratorContext, SharedStateProjection
-from .llm_prompt_builder import build_choose_action_prompt, jsonable, prompt_visible_launch_context
+from .llm_prompt_builder import (
+    build_choose_action_prompt_document,
+    build_resume_prompt_document,
+    jsonable,
+    prompt_visible_launch_context,
+)
+from .repair_lane import TextModelCaller, attempt_repair, extract_audit_text
 from .trace_collector import KernelTraceCollector
 
 
-@dataclass(frozen=True)
-class _RepairAttempt:
-    """Full I/O record for one repair LLM call."""
-
-    repair_prompt_text: str
-    repair_raw_response_text: str
-    repair_parse_ok: bool
-    repair_parse_reason_code: str | None
-    repair_parsed_action_plan: ActionPlan | None
-    repair_error: ModelActionParseError | None
-
-TextModelCaller = Callable[..., Mapping[str, Any] | str]
 IdentityTraceCallback = Callable[[dict[str, Any]], None]
+
+
+def _resolve_choose_action_prompt_mode(context: OrchestratorContext) -> str:
+    hitl = context.loop_memory.hitl
+    if hitl.hitl_state == "answered_unintegrated" or hitl.pending_feedback_response is not None:
+        return "resume"
+    return "full_choose_action"
 
 
 @dataclass(frozen=True)
@@ -83,13 +84,15 @@ class LlmTurnOrchestrationAdapter(OrchestrationAdapter):
     ) -> None:
         """Mechanical context-window compaction: separate LLM call; does not consume a kernel action turn."""
         keep_n = max(0, int(self.continuity_journal_verbatim_keep_n))
-        prompt = build_choose_action_prompt(
+        prompt_mode = _resolve_choose_action_prompt_mode(context)
+        prompt_builder = build_resume_prompt_document if prompt_mode == "resume" else build_choose_action_prompt_document
+        prompt = prompt_builder(
             composed_input=self.composed_input,
             opaque_launch_context=self.opaque_launch_context,
             context=context,
             projection=projection,
             journal_verbatim_keep_n=keep_n,
-        )
+        ).prompt_text
         prepared = prepare_continuity_compaction(
             cont=context.loop_memory.continuity,
             choose_action_prompt=prompt,
@@ -103,7 +106,11 @@ class LlmTurnOrchestrationAdapter(OrchestrationAdapter):
             return
         compact_chars = len(prepared.compact_prompt)
         try:
-            raw_response = self.text_model_caller(prepared.compact_prompt, self.model_name)
+            raw_response = self.text_model_caller(
+                prepared.compact_prompt,
+                self.model_name,
+                call_options=LlmCallOptions(output_mode="json_object", phase="continuity_compaction"),
+            )
             summary = parse_compaction_response(raw_response)
         except Exception:
             self._emit_compaction_kernel_llm_observability(
@@ -111,6 +118,7 @@ class LlmTurnOrchestrationAdapter(OrchestrationAdapter):
                 prompt_char_count=compact_chars,
                 parse_ok=False,
                 parse_reason_code="compaction_parse_failed",
+                prompt_mode="compaction",
             )
             _LOG.warning("continuity compaction LLM call failed; skipping compaction update", exc_info=True)
             return
@@ -121,6 +129,7 @@ class LlmTurnOrchestrationAdapter(OrchestrationAdapter):
             prompt_char_count=compact_chars,
             parse_ok=True,
             parse_reason_code=None,
+            prompt_mode="compaction",
         )
         tracer.emit_continuity_compacted(
             iteration=int(context.loop_memory.iterations),
@@ -220,6 +229,7 @@ class LlmTurnOrchestrationAdapter(OrchestrationAdapter):
         projection: SharedStateProjection | None,
     ) -> ActionPlan:
         _t0 = time.time()
+        prompt_mode = _resolve_choose_action_prompt_mode(context)
         # Capture before-state at the start of choose_action (before LLM call mutates anything).
         _ms_before = _serialize_state(context.loop_memory.continuity.mission_state)
         _rs_before = _serialize_state(context.loop_memory.continuity.resolution_state)
@@ -233,7 +243,8 @@ class LlmTurnOrchestrationAdapter(OrchestrationAdapter):
             try:
                 cb({"turn_index": int(context.loop_memory.iterations),
                     "started_at_epoch_seconds": _t0, "finished_at_epoch_seconds": time.time(),
-                    "raw_prompt_text": prompt, "raw_llm_response_text": _audit_text(raw_response),
+                    "prompt_mode": prompt_mode,
+                    "raw_prompt_text": prompt, "raw_llm_response_text": extract_audit_text(raw_response),
                     "parse_ok": parse_ok, "parse_reason_code": parse_rc,
                     "parsed_action_plan": jsonable(plan) if plan is not None else None,
                     "repair_attempted": bool(repair_records),
@@ -248,13 +259,15 @@ class LlmTurnOrchestrationAdapter(OrchestrationAdapter):
             except Exception:
                 _LOG.warning("raw_io_cb raised; ignoring", exc_info=True)
 
-        prompt = build_choose_action_prompt(
+        prompt_builder = build_resume_prompt_document if prompt_mode == "resume" else build_choose_action_prompt_document
+        prompt_doc = prompt_builder(
             composed_input=self.composed_input,
             opaque_launch_context=self.opaque_launch_context,
             context=context,
             projection=projection,
             journal_verbatim_keep_n=max(0, int(self.continuity_journal_verbatim_keep_n)),
         )
+        prompt = prompt_doc.prompt_text
         prompt_char_count = len(prompt)
         # Drain accumulated image evidence from this iteration's tool calls.
         # Clear before the call so a failed or retried call doesn't re-send the same images.
@@ -263,7 +276,7 @@ class LlmTurnOrchestrationAdapter(OrchestrationAdapter):
         call_opts = LlmCallOptions(
             output_mode="json_object",
             image_attachments=tuple(image_evidence),
-            phase="choose_action",
+            phase=prompt_doc.call_phase,
         )
         available_tool_ids = tuple(self.composed_input.tool_handlers.keys())
         parse_exc: ModelActionParseError | None = None
@@ -279,6 +292,7 @@ class LlmTurnOrchestrationAdapter(OrchestrationAdapter):
                 prompt_char_count=prompt_char_count,
                 parse_ok=False,
                 parse_reason_code="model_caller_exception",
+                prompt_mode=prompt_mode,
             )
             raise
         if parse_exc is not None:
@@ -290,21 +304,24 @@ class LlmTurnOrchestrationAdapter(OrchestrationAdapter):
                     prompt_char_count=prompt_char_count,
                     parse_ok=False,
                     parse_reason_code=parse_exc.reason_code,
+                    prompt_mode=prompt_mode,
                 )
                 _audit(parse_ok=False, parse_rc=parse_exc.reason_code, repair_records=None)
                 raise parse_exc
             # One focused repair attempt before hard failure.
             # Reuse the original call_opts.image_attachments so image-grounded turns retain
             # their visual context even when the failure was a formatting-only parse error.
-            repair_attempt = _attempt_repair(
+            repair_attempt = attempt_repair(
                 model_caller=self.text_model_caller,
                 model_name=self.model_name,
-                original_prompt=prompt,
+                prior_prompt_mode=prompt_mode,
+                previous_response_text=extract_audit_text(raw_response),
                 original_exc=parse_exc,
                 available_tool_ids=available_tool_ids,
                 original_image_attachments=call_opts.image_attachments,
             )
             _repair_rec = {
+                "repair_prompt_mode": "repair",
                 "repair_prompt_text": repair_attempt.repair_prompt_text,
                 "repair_raw_response_text": repair_attempt.repair_raw_response_text,
                 "repair_parse_ok": repair_attempt.repair_parse_ok,
@@ -326,6 +343,7 @@ class LlmTurnOrchestrationAdapter(OrchestrationAdapter):
                     prompt_char_count=prompt_char_count,
                     parse_ok=True,
                     parse_reason_code="repaired",
+                    prompt_mode=prompt_mode,
                 )
                 _audit(parse_ok=False, parse_rc=parse_exc.reason_code,
                        plan=repair_attempt.repair_parsed_action_plan, repair_records=[_repair_rec])
@@ -344,6 +362,7 @@ class LlmTurnOrchestrationAdapter(OrchestrationAdapter):
                 prompt_char_count=prompt_char_count,
                 parse_ok=False,
                 parse_reason_code=repair_error.reason_code,
+                prompt_mode=prompt_mode,
             )
             _audit(parse_ok=False, parse_rc=parse_exc.reason_code, repair_records=[_repair_rec])
             raise repair_error
@@ -354,6 +373,7 @@ class LlmTurnOrchestrationAdapter(OrchestrationAdapter):
             prompt_char_count=prompt_char_count,
             parse_ok=True,
             parse_reason_code=None,
+            prompt_mode=prompt_mode,
         )
         _audit(parse_ok=True, plan=plan, repair_records=None)
         return plan  # type: ignore[return-value]  # assigned in the try block
@@ -381,6 +401,7 @@ class LlmTurnOrchestrationAdapter(OrchestrationAdapter):
         prompt_char_count: int,
         parse_ok: bool,
         parse_reason_code: str | None,
+        prompt_mode: str,
         log_label: str,
     ) -> None:
         cb = self._identity_trace_cb
@@ -394,6 +415,7 @@ class LlmTurnOrchestrationAdapter(OrchestrationAdapter):
                 "surface": surface,
                 "model": self.model_name,
                 "prompt_char_count": prompt_char_count,
+                "prompt_mode": prompt_mode,
             },
             "outcome_kind": outcome_kind_parsed if parse_ok else outcome_kind_failed,
             "outcome_ref": parse_reason_code,
@@ -410,6 +432,7 @@ class LlmTurnOrchestrationAdapter(OrchestrationAdapter):
         prompt_char_count: int,
         parse_ok: bool,
         parse_reason_code: str | None,
+        prompt_mode: str,
     ) -> None:
         self._emit_identity_prompt_event(
             context,
@@ -420,6 +443,7 @@ class LlmTurnOrchestrationAdapter(OrchestrationAdapter):
             prompt_char_count=prompt_char_count,
             parse_ok=parse_ok,
             parse_reason_code=parse_reason_code,
+            prompt_mode=prompt_mode,
             log_label="kernel llm",
         )
 
@@ -430,6 +454,7 @@ class LlmTurnOrchestrationAdapter(OrchestrationAdapter):
         prompt_char_count: int,
         parse_ok: bool,
         parse_reason_code: str | None,
+        prompt_mode: str,
     ) -> None:
         self._emit_identity_prompt_event(
             context,
@@ -440,81 +465,8 @@ class LlmTurnOrchestrationAdapter(OrchestrationAdapter):
             prompt_char_count=prompt_char_count,
             parse_ok=parse_ok,
             parse_reason_code=parse_reason_code,
+            prompt_mode=prompt_mode,
             log_label="compaction kernel llm",
-        )
-
-
-def _audit_text(raw: Any) -> str:
-    """Best-effort extraction of response text from raw model caller output, for audit only."""
-    if isinstance(raw, str):
-        return raw
-    if isinstance(raw, Mapping):
-        for k in ("text", "content", "output_text", "error"):
-            v = raw.get(k)
-            if isinstance(v, str):
-                return v
-    return "" if raw is None else str(raw)
-
-
-def _attempt_repair(
-    *,
-    model_caller: TextModelCaller,
-    model_name: str,
-    original_prompt: str,
-    original_exc: ModelActionParseError,
-    available_tool_ids: tuple[str, ...],
-    original_image_attachments: tuple[dict[str, Any], ...] = (),
-) -> _RepairAttempt:
-    """Issue one focused repair prompt and attempt to parse the response.
-
-    Carries forward ``original_image_attachments`` so that image-grounded turns
-    retain their visual context even when the failure was a formatting-only parse error.
-
-    Returns a ``_RepairAttempt`` with full I/O regardless of outcome.
-    """
-    repair_prompt = (
-        original_prompt
-        + f"\n\n---\nPrevious response failed action-plan parsing.\n"
-        f"reason_code: {original_exc.reason_code}\n"
-        f"detail: {original_exc}\n\n"
-        "Return exactly one corrected JSON object preserving your intended action semantics. "
-        "No markdown. No commentary. One JSON object only."
-    )
-    repair_opts = LlmCallOptions(
-        output_mode="json_object",
-        image_attachments=original_image_attachments,
-        phase="choose_action_repair",
-    )
-    raw_repair: Any = None
-    try:
-        raw_repair = model_caller(repair_prompt, model_name, call_options=repair_opts)
-        plan = parse_action_plan_response(raw_repair, available_tool_ids=available_tool_ids)
-        return _RepairAttempt(
-            repair_prompt_text=repair_prompt,
-            repair_raw_response_text=_audit_text(raw_repair),
-            repair_parse_ok=True,
-            repair_parse_reason_code=None,
-            repair_parsed_action_plan=plan,
-            repair_error=None,
-        )
-    except ModelActionParseError as exc:
-        return _RepairAttempt(
-            repair_prompt_text=repair_prompt,
-            repair_raw_response_text=_audit_text(raw_repair),
-            repair_parse_ok=False,
-            repair_parse_reason_code=exc.reason_code,
-            repair_parsed_action_plan=None,
-            repair_error=exc,
-        )
-    except Exception:
-        err = ModelActionParseError("model_caller_exception", "repair attempt raised unexpected exception")
-        return _RepairAttempt(
-            repair_prompt_text=repair_prompt,
-            repair_raw_response_text=_audit_text(raw_repair),
-            repair_parse_ok=False,
-            repair_parse_reason_code="model_caller_exception",
-            repair_parsed_action_plan=None,
-            repair_error=err,
         )
 
 

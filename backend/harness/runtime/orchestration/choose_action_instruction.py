@@ -5,10 +5,7 @@ Extracted here to keep ``llm_prompt_builder`` focused on envelope assembly.
 
 from __future__ import annotations
 
-CHOOSE_ACTION_INSTRUCTION: str = (
-    "You are operating inside the Plattera harness. "
-    "The JSON envelope below contains doctrine blocks in turn_input.blocks, the current run context and memory, "
-    "and the executable tool surface for this turn. Read those blocks and choose one next move that makes truthful, cumulative, evidence-justified progress.\n"
+ACTION_PLAN_SCHEMA_TEXT: str = (
     "Return exactly one JSON object matching this schema:\n"
     "{"
     '"action_type": string|null, '
@@ -24,7 +21,14 @@ CHOOSE_ACTION_INSTRUCTION: str = (
     '"hitl_request": object|null, '
     '"hitl_consumed_prompt_ids": array|null'
     "}\n"
-    "continuity_journal_entry: required non-empty JSON object each turn (append-only continuity: observations, decisions, "
+)
+
+CHOOSE_ACTION_INSTRUCTION: str = (
+    "You are operating inside the Plattera harness. "
+    "The JSON packet below is layered as doctrine_blocks, surface_packet, run_context, and structured_state. "
+    "Read those sections and choose one next move that makes truthful, cumulative, evidence-justified progress.\n"
+    + ACTION_PLAN_SCHEMA_TEXT
+    + "continuity_journal_entry: required non-empty JSON object each turn (append-only continuity: observations, decisions, "
     "open threads, expected next). operator_progress_message: optional short user-facing status line; null keeps the prior "
     "message.\n"
     "Investigation-first turns are valid. Use them mainly to orient, itemize the real work, repair malformed durable state, "
@@ -65,6 +69,7 @@ CHOOSE_ACTION_INSTRUCTION: str = (
     "no_further_progress?, dimensions?: [{dimension_id, title, status, determination?, summary?, blocking?, requires_hitl?, "
     "no_further_progress?, evidence_refs?, verification_basis?, next_needed_step?, opaque_payload?}], opaque_payload? }. "
     "the harness persists its structure but domains define the actual semantics of those dimensions. "
+    "Do not copy host-maintained fields such as schema_version or updated_at_epoch_seconds from visible state into state_patch. "
     "state_patch_feedback in the envelope reports the kernel outcome of the prior patch (applied / rejected / not_applied / no_patch); "
     "when outcome is applied but some resolution item/relation rows were dropped, look for skipped_resolution_rows and row_skips counts. "
     "Summary-field shorthand: mission summary fields (blocker_summary, verification_summary, waiting_summary, "
@@ -107,3 +112,5 @@ CHOOSE_ACTION_INSTRUCTION: str = (
     "Do not force a tool action or artifact mutation merely to appear active. Prefer the most justified move."
     " Do not wrap the JSON in markdown and do not add commentary."
 )
+
+FULL_CHOOSE_ACTION_INSTRUCTION = CHOOSE_ACTION_INSTRUCTION

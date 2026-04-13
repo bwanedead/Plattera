@@ -1,0 +1,134 @@
+"""Explicit prompt-mode specs for the harness-owned orchestration builder."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any, Literal
+
+from .choose_action_instruction import CHOOSE_ACTION_INSTRUCTION
+from .compaction_instruction import COMPACTION_INSTRUCTION
+from .repair_instruction import REPAIR_INSTRUCTION
+from .resume_instruction import RESUME_INSTRUCTION
+
+PromptMode = Literal["full_choose_action", "repair", "compaction", "resume"]
+
+
+@dataclass(frozen=True)
+class PromptModeSpec:
+    mode: PromptMode
+    instruction_text: str
+    include_doctrine_blocks: bool
+    include_surface_packet_blocks: bool
+    include_surface_payloads: bool
+    include_tool_ids: bool
+    run_context_fields: tuple[str, ...]
+    structured_state_fields: tuple[str, ...]
+    mode_packet_key: str | None
+    call_phase: str
+
+
+@dataclass(frozen=True)
+class PromptBuildDocument:
+    mode: PromptMode
+    call_phase: str
+    instruction_text: str
+    prompt_body: dict[str, Any]
+    prompt_text: str
+
+
+_FULL_RUN_CONTEXT_FIELDS = (
+    "iteration",
+    "session_id",
+    "request_id_prefix",
+    "launch_context",
+    "latest_refs",
+    "active_item_id",
+    "state_patch_feedback",
+    "contract_feedback",
+    "operator_progress_message",
+    "hitl_state",
+    "pending_hitl_requests",
+    "answered_hitl_responses",
+    "projection",
+)
+_FULL_STRUCTURED_STATE_FIELDS = (
+    "compacted_continuity_summary",
+    "recent_continuity_journal_entries",
+    "recent_kernel_step_records",
+    "recent_kernel_step_result_records",
+    "prompt_observability_summary",
+)
+_RESUME_RUN_CONTEXT_FIELDS = (
+    "iteration",
+    "session_id",
+    "request_id_prefix",
+    "launch_context",
+    "latest_refs",
+    "active_item_id",
+    "state_patch_feedback",
+    "operator_progress_message",
+    "hitl_state",
+    "pending_hitl_requests",
+    "answered_hitl_responses",
+    "projection",
+)
+_RESUME_STRUCTURED_STATE_FIELDS = (
+    "compacted_continuity_summary",
+    "recent_continuity_journal_entries",
+    "prompt_observability_summary",
+)
+
+_PROMPT_MODE_SPECS: dict[PromptMode, PromptModeSpec] = {
+    "full_choose_action": PromptModeSpec(
+        mode="full_choose_action",
+        instruction_text=CHOOSE_ACTION_INSTRUCTION,
+        include_doctrine_blocks=True,
+        include_surface_packet_blocks=True,
+        include_surface_payloads=True,
+        include_tool_ids=True,
+        run_context_fields=_FULL_RUN_CONTEXT_FIELDS,
+        structured_state_fields=_FULL_STRUCTURED_STATE_FIELDS,
+        mode_packet_key=None,
+        call_phase="choose_action",
+    ),
+    "repair": PromptModeSpec(
+        mode="repair",
+        instruction_text=REPAIR_INSTRUCTION,
+        include_doctrine_blocks=False,
+        include_surface_packet_blocks=False,
+        include_surface_payloads=False,
+        include_tool_ids=True,
+        run_context_fields=(),
+        structured_state_fields=(),
+        mode_packet_key="repair_context",
+        call_phase="choose_action_repair",
+    ),
+    "compaction": PromptModeSpec(
+        mode="compaction",
+        instruction_text=COMPACTION_INSTRUCTION,
+        include_doctrine_blocks=False,
+        include_surface_packet_blocks=False,
+        include_surface_payloads=False,
+        include_tool_ids=False,
+        run_context_fields=(),
+        structured_state_fields=(),
+        mode_packet_key="compaction_context",
+        call_phase="continuity_compaction",
+    ),
+    "resume": PromptModeSpec(
+        mode="resume",
+        instruction_text=RESUME_INSTRUCTION,
+        include_doctrine_blocks=True,
+        include_surface_packet_blocks=True,
+        include_surface_payloads=True,
+        include_tool_ids=True,
+        run_context_fields=_RESUME_RUN_CONTEXT_FIELDS,
+        structured_state_fields=_RESUME_STRUCTURED_STATE_FIELDS,
+        mode_packet_key=None,
+        call_phase="choose_action_resume",
+    ),
+}
+
+
+def require_prompt_mode_spec(mode: PromptMode) -> PromptModeSpec:
+    return _PROMPT_MODE_SPECS[mode]

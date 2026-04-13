@@ -1,43 +1,56 @@
-"""Choose-action prompt construction for kernel LLM turns.
-
-Assembles the JSON envelope passed to the model on each kernel turn.
-Instruction text lives in ``choose_action_instruction``.
-Prompt-visible sanitization helpers live in ``prompt_sanitization``.
-Shared serialization utility ``jsonable`` is re-exported for adapter-side use.
-"""
+"""Harness-owned prompt builder entrypoints for orchestration modes."""
 
 from __future__ import annotations
 
-import json
 from collections.abc import Mapping
 from typing import Any
 
-from ..hitl.transport import hitl_prompt_visible_slice
-from ..memory.continuity_journal import (
-    recent_journal_entries_for_prompt,
-    recent_step_records_for_prompt,
-    recent_step_result_records_for_prompt,
-)
 from ..composition import ComposedTurnInput
-from .choose_action_instruction import CHOOSE_ACTION_INSTRUCTION
 from .contracts import OrchestratorContext, SharedStateProjection
-from .loop_health_summary import build_prompt_observability_summary
-from .prompt_sanitization import projection_document, turn_input_document
+from .prompt_modes import PromptBuildDocument, PromptMode
+from .prompt_packet_builder import (
+    build_compaction_prompt_document as _build_compaction_prompt_document,
+    build_repair_prompt_document as _build_repair_prompt_document,
+    build_turn_prompt_document as _build_turn_prompt_document,
+    prompt_visible_launch_context,
+)
 from .prompt_utils import jsonable  # re-exported: callers import jsonable from here
 
-_HIDDEN_LAUNCH_CONTEXT_KEYS = frozenset({"max_iterations"})
-_PROMPT_VISIBLE_DOMAIN_CLOSURE_POLICY_KEYS = frozenset(
-    {
-        "hard_enforced",
-        "enforce_on_publish",
-        "enforce_on_complete",
-        "minimum_resolution_items_for_save",
-        "minimum_resolution_items_for_wait",
-        "minimum_resolution_items_for_publish",
-        "minimum_resolution_items_for_complete",
-        "required_dimension_ids",
-    }
-)
+
+def build_choose_action_prompt_document(
+    *,
+    composed_input: ComposedTurnInput,
+    opaque_launch_context: Mapping[str, Any],
+    context: OrchestratorContext,
+    projection: SharedStateProjection | None,
+    journal_verbatim_keep_n: int,
+) -> PromptBuildDocument:
+    return _build_turn_prompt_document(
+        mode="full_choose_action",
+        composed_input=composed_input,
+        opaque_launch_context=opaque_launch_context,
+        context=context,
+        projection=projection,
+        journal_verbatim_keep_n=journal_verbatim_keep_n,
+    )
+
+
+def build_resume_prompt_document(
+    *,
+    composed_input: ComposedTurnInput,
+    opaque_launch_context: Mapping[str, Any],
+    context: OrchestratorContext,
+    projection: SharedStateProjection | None,
+    journal_verbatim_keep_n: int,
+) -> PromptBuildDocument:
+    return _build_turn_prompt_document(
+        mode="resume",
+        composed_input=composed_input,
+        opaque_launch_context=opaque_launch_context,
+        context=context,
+        projection=projection,
+        journal_verbatim_keep_n=journal_verbatim_keep_n,
+    )
 
 
 def build_choose_action_prompt(
@@ -47,66 +60,47 @@ def build_choose_action_prompt(
     context: OrchestratorContext,
     projection: SharedStateProjection | None,
     journal_verbatim_keep_n: int,
+    mode: PromptMode = "full_choose_action",
 ) -> str:
-    """Assemble the full choose-action prompt string for one kernel turn."""
-    cont = context.loop_memory.continuity
-    hitl_pend, hitl_ans, hitl_st = hitl_prompt_visible_slice(context.loop_memory.hitl)
-    envelope = {
-        "iteration": context.loop_memory.iterations,
-        "session_id": context.session_id,
-        "request_id_prefix": context.request_id_prefix,
-        "launch_context": prompt_visible_launch_context(opaque_launch_context),
-        "turn_input": turn_input_document(composed_input),
-        "latest_refs": dict(cont.latest_refs),
-        "active_item_id": cont.active_item_id,
-        "state_patch_feedback": dict(cont.state_patch_feedback),
-        "contract_feedback": jsonable(context.loop_memory.contract_feedback),
-        "operator_progress_message": cont.operator_progress_message,
-        "compacted_continuity_summary": cont.compacted_continuity_summary,
-        "recent_continuity_journal_entries": recent_journal_entries_for_prompt(
-            cont.continuity_journal_entries,
-            cont.kernel_step_records,
-            cont.kernel_step_result_records,
-            keep_n=journal_verbatim_keep_n,
-        ),
-        "recent_kernel_step_records": recent_step_records_for_prompt(
-            cont.continuity_journal_entries,
-            cont.kernel_step_records,
-            cont.kernel_step_result_records,
-            keep_n=journal_verbatim_keep_n,
-        ),
-        "recent_kernel_step_result_records": recent_step_result_records_for_prompt(
-            cont.continuity_journal_entries,
-            cont.kernel_step_records,
-            cont.kernel_step_result_records,
-            keep_n=journal_verbatim_keep_n,
-        ),
-        "prompt_observability_summary": build_prompt_observability_summary(context.loop_memory),
-        "hitl_state": hitl_st,
-        "pending_hitl_requests": hitl_pend,
-        "answered_hitl_responses": hitl_ans,
-        "projection": projection_document(projection),
-    }
-    return CHOOSE_ACTION_INSTRUCTION + "\n\n" + json.dumps(envelope, ensure_ascii=False, sort_keys=True)
+    builder = build_resume_prompt_document if mode == "resume" else build_choose_action_prompt_document
+    return builder(
+        composed_input=composed_input,
+        opaque_launch_context=opaque_launch_context,
+        context=context,
+        projection=projection,
+        journal_verbatim_keep_n=journal_verbatim_keep_n,
+    ).prompt_text
 
 
-def prompt_visible_launch_context(value: Mapping[str, Any]) -> dict[str, Any]:
-    """Return the launch-context slice that should be visible to the model.
+def build_repair_prompt_document(
+    *,
+    available_tool_ids: tuple[str, ...],
+    prior_prompt_mode: str,
+    parse_reason_code: str,
+    parse_error_detail: str,
+    previous_response_text: str,
+) -> PromptBuildDocument:
+    return _build_repair_prompt_document(
+        available_tool_ids=available_tool_ids,
+        prior_prompt_mode=prior_prompt_mode,
+        parse_reason_code=parse_reason_code,
+        parse_error_detail=parse_error_detail,
+        previous_response_text=previous_response_text,
+    )
 
-    Host budget mechanics such as ``max_iterations`` are intentionally withheld so
-    the model optimizes for truthful progress, not turn-count compression.
-    """
-    visible: dict[str, Any] = {}
-    for key, raw_value in value.items():
-        skey = str(key)
-        if skey in _HIDDEN_LAUNCH_CONTEXT_KEYS:
-            continue
-        if skey == "domain_closure_policy" and isinstance(raw_value, Mapping):
-            visible[skey] = {
-                str(inner_key): jsonable(inner_value)
-                for inner_key, inner_value in raw_value.items()
-                if str(inner_key) in _PROMPT_VISIBLE_DOMAIN_CLOSURE_POLICY_KEYS
-            }
-            continue
-        visible[skey] = jsonable(raw_value)
-    return visible
+
+def build_compaction_prompt_document(
+    *,
+    prior_compacted_continuity_summary: str | None,
+    journal_entries_to_fold: list[dict[str, Any]],
+    kernel_step_records_to_fold: list[dict[str, Any]],
+    kernel_step_result_records_to_fold: list[dict[str, Any]],
+    target_compacted_summary_chars: int,
+) -> PromptBuildDocument:
+    return _build_compaction_prompt_document(
+        prior_compacted_continuity_summary=prior_compacted_continuity_summary,
+        journal_entries_to_fold=journal_entries_to_fold,
+        kernel_step_records_to_fold=kernel_step_records_to_fold,
+        kernel_step_result_records_to_fold=kernel_step_result_records_to_fold,
+        target_compacted_summary_chars=target_compacted_summary_chars,
+    )

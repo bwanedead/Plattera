@@ -12,6 +12,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
+from ..orchestration.llm_prompt_builder import build_compaction_prompt_document
 from .continuity import OrchestrationContinuity
 from .continuity_journal import (
     clamp_compacted_summary_text,
@@ -292,22 +293,13 @@ def _build_compaction_prompt(
     kernel_step_result_records_to_fold: list[dict[str, Any]],
     target_compacted_summary_chars: int,
 ) -> str:
-    envelope = {
-        "prior_compacted_continuity_summary": prior_compacted_continuity_summary,
-        "journal_entries_to_fold": journal_entries_to_fold,
-        "kernel_step_records_to_fold": kernel_step_records_to_fold,
-        "kernel_step_result_records_to_fold": kernel_step_result_records_to_fold,
-        "target_compacted_summary_chars": int(target_compacted_summary_chars),
-    }
-    instruction = (
-        "Return exactly one JSON object matching this schema:\n"
-        '{"compacted_continuity_summary": string}\n'
-        "Fold journal_entries_to_fold, kernel_step_records_to_fold, and kernel_step_result_records_to_fold into a single "
-        "replacement string for compacted_continuity_summary. If prior_compacted_continuity_summary is non-empty, merge "
-        "coherently. target_compacted_summary_chars is a mechanical budget: aim for that many characters in "
-        "compacted_continuity_summary (roughly ±25% is acceptable). Stay within the supplied facts; do not wrap in markdown.\n"
-    )
-    return instruction + "\n\n" + json.dumps(envelope, ensure_ascii=False, sort_keys=True)
+    return build_compaction_prompt_document(
+        prior_compacted_continuity_summary=prior_compacted_continuity_summary,
+        journal_entries_to_fold=journal_entries_to_fold,
+        kernel_step_records_to_fold=kernel_step_records_to_fold,
+        kernel_step_result_records_to_fold=kernel_step_result_records_to_fold,
+        target_compacted_summary_chars=target_compacted_summary_chars,
+    ).prompt_text
 
 
 def _extract_compaction_text(raw_response: Mapping[str, Any] | str) -> str:
