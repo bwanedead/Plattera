@@ -57,16 +57,19 @@ class RunAuditWriter:
         if self._dir is None:
             return
         record = _normalize_turn_record(data)
-        record = self._stamp_canonical_identity(record)
-        turn_index = int(record.get("turn_index") or 0)
+        # Turn file: stamp only missing canonical fields (preserves caller-supplied values).
+        turn_record = self._stamp_canonical_identity(record)
+        turn_index = int(turn_record.get("turn_index") or 0)
         pos = len(self._turns)
-        self._turns.append(record)
+        self._turns.append(turn_record)
         self._turn_index_map[turn_index] = pos
+        # JSONL event log: overwrite identity fields so payload matches top-level meta.
         self._event_log.append(
-            "llm_io", record, turn_index=turn_index,
+            "llm_io", self._canonicalize_payload_identity(record),
+            turn_index=turn_index,
             **self._canonical_meta(),
         )
-        self._write_turn_record(turn_index, record)
+        self._write_turn_record(turn_index, turn_record)
 
     # ------------------------------------------------------------------
     # TurnCompletionObserver surface
@@ -77,25 +80,28 @@ class RunAuditWriter:
         if self._dir is None:
             return
         record = _normalize_turn_record(data)
-        record = self._stamp_canonical_identity(record)
-        turn_index = int(record.get("turn_index") or 0)
+        # Turn file: stamp only missing canonical fields (preserves caller-supplied values).
+        turn_record = self._stamp_canonical_identity(record)
+        turn_index = int(turn_record.get("turn_index") or 0)
         pos = self._turn_index_map.get(turn_index)
         if pos is None:
             # No matching LLM I/O record (e.g. turn was skipped before choose_action).
             # Create a minimal stub so we don't lose the tool/state data.
             stub: dict[str, Any] = {"turn_index": turn_index}
-            stub.update({k: v for k, v in record.items() if k != "turn_index"})
+            stub.update({k: v for k, v in turn_record.items() if k != "turn_index"})
             self._turns.append(stub)
             self._turn_index_map[turn_index] = len(self._turns) - 1
             self._event_log.append(
-                "turn_completed", stub, turn_index=turn_index,
+                "turn_completed", self._canonicalize_payload_identity(stub),
+                turn_index=turn_index,
                 **self._canonical_meta(),
             )
             self._write_turn_record(turn_index, stub)
             return
-        self._turns[pos].update({k: v for k, v in record.items() if k != "turn_index"})
+        self._turns[pos].update({k: v for k, v in turn_record.items() if k != "turn_index"})
         self._event_log.append(
-            "turn_completed", record, turn_index=turn_index,
+            "turn_completed", self._canonicalize_payload_identity(record),
+            turn_index=turn_index,
             **self._canonical_meta(),
         )
         self._write_turn_record(turn_index, self._turns[pos])
@@ -116,7 +122,10 @@ class RunAuditWriter:
         return meta
 
     def _stamp_canonical_identity(self, record: dict[str, Any]) -> dict[str, Any]:
-        """Inject canonical identity fields into a turn record if not already present."""
+        """Inject canonical identity fields into a turn record if not already present.
+
+        Used for turn files only — preserves any caller-supplied identity values.
+        """
         stamped = dict(record)
         if self._run_id and "run_id" not in stamped:
             stamped["run_id"] = self._run_id
@@ -125,6 +134,21 @@ class RunAuditWriter:
         if self._request_id and "request_id" not in stamped:
             stamped["request_id"] = self._request_id
         return stamped
+
+    def _canonicalize_payload_identity(self, record: dict[str, Any]) -> dict[str, Any]:
+        """Overwrite identity fields with canonical values for event_log payloads.
+
+        Used for JSONL event log only — ensures the payload matches the canonical
+        top-level meta so a single events.jsonl row never carries split lineage.
+        """
+        canonicalized = dict(record)
+        if self._run_id:
+            canonicalized["run_id"] = self._run_id
+        if self._session_id:
+            canonicalized["session_id"] = self._session_id
+        if self._request_id:
+            canonicalized["request_id"] = self._request_id
+        return canonicalized
 
     # ------------------------------------------------------------------
     # Finalization (call once, at run completion or failure)

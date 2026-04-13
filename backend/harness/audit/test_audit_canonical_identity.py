@@ -127,6 +127,47 @@ def test_no_op_writer_accepts_canonical_identity_params() -> None:
     # No exception — identity params are silently ignored for no-op instances
 
 
+def test_event_log_payload_does_not_carry_conflicting_identity(tmp_path: Path) -> None:
+    """JSONL payload identity must match the top-level canonical meta (no split lineage).
+
+    Even when a caller supplies different session_id/request_id in the record,
+    the events.jsonl payload must carry the canonical values — not the caller's values.
+    The caller-supplied values are preserved only in the turn file.
+    """
+    writer = RunAuditWriter(
+        tmp_path / "run1",
+        run_id="canonical-run",
+        session_id="canonical-sess",
+        request_id="canonical-req",
+    )
+    writer.observe_llm_io({
+        "turn_index": 1,
+        "session_id": "caller-different-session",
+        "request_id": "caller-different-request",
+    })
+    writer.finalize(terminal_class="completed", reason_code="done", iterations=1, latest_refs={}, trace_events=[])
+
+    # Turn file: caller-supplied values are preserved (fill-gaps behavior)
+    turn = json.loads((tmp_path / "run1" / "audit" / "turn_0001.json").read_text())
+    assert turn.get("session_id") == "caller-different-session"
+    assert turn.get("request_id") == "caller-different-request"
+
+    # JSONL: top-level meta AND payload must both carry canonical values (no split lineage)
+    events_path = tmp_path / "run1" / "audit" / "events.jsonl"
+    lines = [json.loads(l) for l in events_path.read_text(encoding="utf-8").splitlines() if l.strip()]
+    assert lines, "events.jsonl must have at least one entry"
+    entry = lines[0]
+    # Top-level canonical meta
+    assert entry.get("session_id") == "canonical-sess"
+    assert entry.get("request_id") == "canonical-req"
+    # Payload must also carry canonical values — no split lineage
+    payload = entry.get("payload") or {}
+    assert payload.get("session_id") == "canonical-sess", \
+        f"payload session_id conflicts with canonical meta: {payload.get('session_id')!r}"
+    assert payload.get("request_id") == "canonical-req", \
+        f"payload request_id conflicts with canonical meta: {payload.get('request_id')!r}"
+
+
 def test_event_log_kind_field_still_present(tmp_path: Path) -> None:
     """Stamping canonical identity must not drop the existing kind/ts/turn_index fields."""
     writer = RunAuditWriter(

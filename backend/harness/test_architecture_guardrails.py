@@ -238,6 +238,7 @@ def test_canonical_event_identity_ownership() -> None:
     assert "session_id: str" in audit_source, "RunAuditWriter must accept session_id param"
     assert "request_id: str" in audit_source, "RunAuditWriter must accept request_id param"
     assert "_stamp_canonical_identity" in audit_source, "RunAuditWriter must stamp identity into turn records"
+    assert "_canonicalize_payload_identity" in audit_source, "RunAuditWriter must normalize payload identity for JSONL to prevent split lineage"
     assert "_canonical_meta" in audit_source, "RunAuditWriter must propagate identity to event_log"
 
     # Runner passes canonical IDs to both tracer and audit writer
