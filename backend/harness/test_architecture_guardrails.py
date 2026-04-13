@@ -214,6 +214,41 @@ def test_shared_surface_fields_stay_generic() -> None:
     assert "dossier_id" not in context_field_names
 
 
+def test_canonical_event_identity_ownership() -> None:
+    """Phase 4 guardrail: trace collector is the single canonical owner of run_id in event lineage.
+
+    Enforced invariants:
+    - KernelTraceCollector exposes run_id as a property (canonical owner)
+    - RunAuditWriter accepts run_id, session_id, request_id at construction (carries lineage)
+    - Summary orchestration uses _run_id_from_trace_events (explicit over heuristic)
+    - _build_audit_writer in runner accepts run_id, session_id, request_id
+    """
+    trace_source = (HARNESS_ROOT / "runtime" / "orchestration" / "trace_collector.py").read_text(encoding="utf-8")
+    audit_source = (HARNESS_ROOT / "audit" / "run_audit_writer.py").read_text(encoding="utf-8")
+    runner_source = (HARNESS_ROOT / "runtime" / "runner" / "runner.py").read_text(encoding="utf-8")
+    orchestration_summary_source = (HARNESS_ROOT / "observability" / "summary" / "orchestration.py").read_text(encoding="utf-8")
+
+    # Trace collector owns run_id and embeds it in the request_start payload
+    assert "self._run_id = run_id" in trace_source, "trace_collector must store run_id"
+    assert '"run_id": self._run_id' in trace_source, "trace_collector must embed run_id in request_start payload"
+    assert "def run_id" in trace_source, "trace_collector must expose run_id as a property"
+
+    # Audit writer carries canonical lineage from constructor
+    assert "run_id: str" in audit_source, "RunAuditWriter must accept run_id param"
+    assert "session_id: str" in audit_source, "RunAuditWriter must accept session_id param"
+    assert "request_id: str" in audit_source, "RunAuditWriter must accept request_id param"
+    assert "_stamp_canonical_identity" in audit_source, "RunAuditWriter must stamp identity into turn records"
+    assert "_canonical_meta" in audit_source, "RunAuditWriter must propagate identity to event_log"
+
+    # Runner passes canonical IDs to both tracer and audit writer
+    assert "run_id=run_id" in runner_source, "runner must pass run_id to KernelTraceCollector and audit writer"
+    assert "session_id=session_id" in runner_source, "runner must pass session_id to audit writer"
+
+    # Summary orchestration uses explicit trace-derived run_id before heuristic
+    assert "_run_id_from_trace_events" in orchestration_summary_source, \
+        "summary orchestration must use explicit run_id from trace events"
+
+
 def test_hotspot_files_do_not_grow_past_budget() -> None:
     budgets = {
         HARNESS_ROOT / "observability" / "summary" / "build.py": 120,

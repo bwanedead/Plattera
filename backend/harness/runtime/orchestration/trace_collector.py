@@ -22,11 +22,16 @@ class KernelTraceCollector:
     No I/O — in-memory only.
     """
 
-    def __init__(self, *, session_id: str, request_id: str) -> None:
+    def __init__(self, *, session_id: str, request_id: str, run_id: str = "") -> None:
         self._session_id = session_id
         self._request_id = request_id
+        self._run_id = run_id
         self._events: list[RawTraceEvent] = []
         self._seq: int = 0
+
+    @property
+    def run_id(self) -> str:
+        return self._run_id
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -41,9 +46,14 @@ class KernelTraceCollector:
         return s
 
     def _source(self, *, local_id: str) -> dict[str, Any]:
+        ref = (
+            f"run:{self._run_id}::session:{self._session_id}"
+            if self._run_id
+            else f"session:{self._session_id}"
+        )
         return {
             "kind": _SOURCE_KIND,
-            "ref": f"session:{self._session_id}",
+            "ref": ref,
             "local_id": local_id,
             "sequence_index": self._seq_next(),
         }
@@ -74,6 +84,7 @@ class KernelTraceCollector:
                 status="started",
                 refs_delta={},
                 payload={
+                    "run_id": self._run_id or None,
                     "session_id": self._session_id,
                     "request_id": self._request_id,
                     "opaque_run_context": ctx,

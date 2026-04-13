@@ -109,6 +109,7 @@ def run_orchestration_kernel_loop(
     session_id: str,
     run_artifact_ref: str | None,
     request_id_prefix: str,
+    run_id: str = "",
     opaque_run_context: dict[str, Any] | None = None,
     max_iterations: int,
     resume_hitl_response: dict[str, Any] | None = None,
@@ -150,7 +151,7 @@ def run_orchestration_kernel_loop(
         raw_llm_io_observer=active_lifecycle.raw_llm_io_observer,
     )
 
-    tracer = tracer if tracer is not None else KernelTraceCollector(session_id=session_id, request_id=request_id_prefix)
+    tracer = tracer if tracer is not None else KernelTraceCollector(session_id=session_id, request_id=request_id_prefix, run_id=run_id)
     tracer.emit_request_start(
         opaque_run_context=run_ctx,
         max_iterations=max_iterations,

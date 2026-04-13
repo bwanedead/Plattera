@@ -177,9 +177,9 @@ class RuntimeRunner:
 
         max_iterations = _select_max_iterations(context)
         request_id_prefix = _select_request_id_prefix(context, fallback=run_id)
-        tracer = KernelTraceCollector(session_id=session_id, request_id=request_id_prefix)
+        tracer = KernelTraceCollector(session_id=session_id, request_id=request_id_prefix, run_id=run_id)
 
-        audit_writer = _build_audit_writer()
+        audit_writer = _build_audit_writer(run_id=run_id, session_id=session_id, request_id=request_id_prefix)
         prompt_event_observer = KernelPromptEventTraceObserver(tracer=tracer)
         lifecycle = OrchestrationLifecycle(
             pre_choose_action_participant=LlmTurnPreChooseActionParticipant(
@@ -208,6 +208,7 @@ class RuntimeRunner:
                 session_id=session_id,
                 run_artifact_ref=run_artifact_ref,
                 request_id_prefix=request_id_prefix,
+                run_id=run_id,
                 opaque_run_context=dict(context),
                 max_iterations=max_iterations,
                 initial_loop_memory=initial_loop_memory,
@@ -369,17 +370,22 @@ def _write_json(path: Path, payload: dict[str, Any]) -> None:
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
 
 
-def _build_audit_writer() -> Any:
+def _build_audit_writer(*, run_id: str = "", session_id: str = "", request_id: str = "") -> Any:
     """Return a ``RunAuditWriter`` scoped to the current CLI run dir, or a no-op if not in a CLI run."""
     from harness.audit.run_audit_writer import RunAuditWriter
     cli_run_id = os.environ.get("HARNESS_CLI_RUN_ID", "").strip()
     if not cli_run_id:
-        return RunAuditWriter(None)
+        return RunAuditWriter(None, run_id=run_id, session_id=session_id, request_id=request_id)
     try:
         from harness.cli.run_state import run_dir as cli_run_dir
-        return RunAuditWriter(cli_run_dir(cli_run_id))
+        return RunAuditWriter(
+            cli_run_dir(cli_run_id),
+            run_id=run_id,
+            session_id=session_id,
+            request_id=request_id,
+        )
     except Exception:
-        return RunAuditWriter(None)
+        return RunAuditWriter(None, run_id=run_id, session_id=session_id, request_id=request_id)
 
 
 def _maybe_update_cli_run_state(status: str) -> None:

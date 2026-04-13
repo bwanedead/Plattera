@@ -31,8 +31,18 @@ class RunAuditWriter:
     Pass ``run_dir=None`` to create a no-op instance (useful in test/stub contexts).
     """
 
-    def __init__(self, run_dir: Path | str | None) -> None:
+    def __init__(
+        self,
+        run_dir: Path | str | None,
+        *,
+        run_id: str = "",
+        session_id: str = "",
+        request_id: str = "",
+    ) -> None:
         self._dir: Path | None = Path(run_dir) / "audit" if run_dir is not None else None
+        self._run_id = run_id
+        self._session_id = session_id
+        self._request_id = request_id
         self._turns: list[dict[str, Any]] = []
         # Index: turn_index → position in _turns list for O(1) supplement lookup.
         self._turn_index_map: dict[int, int] = {}
@@ -47,11 +57,15 @@ class RunAuditWriter:
         if self._dir is None:
             return
         record = _normalize_turn_record(data)
+        record = self._stamp_canonical_identity(record)
         turn_index = int(record.get("turn_index") or 0)
         pos = len(self._turns)
         self._turns.append(record)
         self._turn_index_map[turn_index] = pos
-        self._event_log.append("llm_io", record, turn_index=turn_index)
+        self._event_log.append(
+            "llm_io", record, turn_index=turn_index,
+            **self._canonical_meta(),
+        )
         self._write_turn_record(turn_index, record)
 
     # ------------------------------------------------------------------
@@ -63,6 +77,7 @@ class RunAuditWriter:
         if self._dir is None:
             return
         record = _normalize_turn_record(data)
+        record = self._stamp_canonical_identity(record)
         turn_index = int(record.get("turn_index") or 0)
         pos = self._turn_index_map.get(turn_index)
         if pos is None:
@@ -72,12 +87,44 @@ class RunAuditWriter:
             stub.update({k: v for k, v in record.items() if k != "turn_index"})
             self._turns.append(stub)
             self._turn_index_map[turn_index] = len(self._turns) - 1
-            self._event_log.append("turn_completed", stub, turn_index=turn_index)
+            self._event_log.append(
+                "turn_completed", stub, turn_index=turn_index,
+                **self._canonical_meta(),
+            )
             self._write_turn_record(turn_index, stub)
             return
         self._turns[pos].update({k: v for k, v in record.items() if k != "turn_index"})
-        self._event_log.append("turn_completed", record, turn_index=turn_index)
+        self._event_log.append(
+            "turn_completed", record, turn_index=turn_index,
+            **self._canonical_meta(),
+        )
         self._write_turn_record(turn_index, self._turns[pos])
+
+    # ------------------------------------------------------------------
+    # Canonical identity helpers
+    # ------------------------------------------------------------------
+
+    def _canonical_meta(self) -> dict[str, Any]:
+        """Return only the non-empty canonical identity fields for event_log **meta."""
+        meta: dict[str, Any] = {}
+        if self._run_id:
+            meta["run_id"] = self._run_id
+        if self._session_id:
+            meta["session_id"] = self._session_id
+        if self._request_id:
+            meta["request_id"] = self._request_id
+        return meta
+
+    def _stamp_canonical_identity(self, record: dict[str, Any]) -> dict[str, Any]:
+        """Inject canonical identity fields into a turn record if not already present."""
+        stamped = dict(record)
+        if self._run_id and "run_id" not in stamped:
+            stamped["run_id"] = self._run_id
+        if self._session_id and "session_id" not in stamped:
+            stamped["session_id"] = self._session_id
+        if self._request_id and "request_id" not in stamped:
+            stamped["request_id"] = self._request_id
+        return stamped
 
     # ------------------------------------------------------------------
     # Finalization (call once, at run completion or failure)

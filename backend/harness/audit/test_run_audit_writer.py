@@ -541,3 +541,4 @@ def test_image_evidence_empty_list_when_absent(tmp_path: Path) -> None:
 
     turn = json.loads((tmp_path / "run1" / "audit" / "turn_0001.json").read_text())
     assert turn["tool_result_raw"]["image_evidence"] == []
+

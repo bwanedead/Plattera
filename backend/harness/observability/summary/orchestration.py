@@ -98,6 +98,7 @@ def build_orchestration_kernel_run_summary(*, orchestration_kernel_payload: dict
     mission_state = _mission_state_from_components(
         mission_id=_first_non_empty(
             _as_str(run_artifact.get("run_id")),
+            _run_id_from_trace_events(trace_events),
             _extract_run_id_from_session(_as_str(run_artifact.get("session_id"))),
             _extract_run_id_from_session(_as_str(payload.get("session_id"))),
             "unknown_run",
@@ -170,6 +171,17 @@ def _orchestration_kernel_resolution_state_from_payload(payload: dict[str, Any])
     if resolution_payload:
         return _resolution_state_from_payload_dict(resolution_payload)
     return _mission_flow_resolution_state_from_payload(payload)
+
+
+def _run_id_from_trace_events(events: list[dict[str, Any]]) -> str | None:
+    """Extract run_id from the canonical request_start trace event payload."""
+    for event in events:
+        if _event_kind(event) in {"run_header", "request_start"}:
+            payload = _as_dict(event.get("payload"))
+            run_id = _as_str((payload or {}).get("run_id"))
+            if run_id:
+                return run_id
+    return None
 
 
 def _extract_run_id_from_session(session_id: str | None) -> str | None:
