@@ -48,6 +48,10 @@ def test_harness_source_has_no_banned_architecture_terms() -> None:
         "plan_compilation",
         "classify_controller_terminal",
         "progress_cb",
+        "wire_identity_trace_cb",
+        "wire_raw_io_cb",
+        "wire_turn_result_cb",
+        "run_continuity_pre_choose_action",
     ]
     failures: list[str] = []
     for term in banned_terms:
@@ -74,6 +78,8 @@ def test_current_runtime_layout_exists() -> None:
         HARNESS_ROOT / "runtime" / "orchestration" / "orchestrator.py",
         HARNESS_ROOT / "runtime" / "orchestration" / "mission_orchestrator.py",
         HARNESS_ROOT / "runtime" / "orchestration" / "llm_prompt_builder.py",
+        HARNESS_ROOT / "runtime" / "orchestration" / "lifecycle.py",
+        HARNESS_ROOT / "runtime" / "orchestration" / "llm_turn_lifecycle.py",
         HARNESS_ROOT / "runtime" / "orchestration" / "action_plan_parser.py",
         HARNESS_ROOT / "runtime" / "memory" / "continuity.py",
         HARNESS_ROOT / "runtime" / "memory" / "continuity_compaction.py",
@@ -137,6 +143,68 @@ def test_prompt_assembly_stays_harness_owned_and_surface_driven() -> None:
     assert "from domains." not in builder_source
 
 
+def test_orchestration_lifecycle_stays_explicit_and_semantic_adapter_minimal() -> None:
+    contracts_source = (HARNESS_ROOT / "runtime" / "orchestration" / "contracts.py").read_text(
+        encoding="utf-8"
+    )
+    lifecycle_source = (HARNESS_ROOT / "runtime" / "orchestration" / "lifecycle.py").read_text(
+        encoding="utf-8"
+    )
+    llm_lifecycle_source = (
+        HARNESS_ROOT / "runtime" / "orchestration" / "llm_turn_lifecycle.py"
+    ).read_text(encoding="utf-8")
+    orchestrator_source = (HARNESS_ROOT / "runtime" / "orchestration" / "orchestrator.py").read_text(
+        encoding="utf-8"
+    )
+    adapter_source = (HARNESS_ROOT / "runtime" / "orchestration" / "llm_turn_adapter.py").read_text(
+        encoding="utf-8"
+    )
+    runner_source = (HARNESS_ROOT / "runtime" / "runner" / "runner.py").read_text(
+        encoding="utf-8"
+    )
+
+    for required in ("def initialize", "def sync", "def choose_action", "def evaluate_terminal"):
+        assert required in contracts_source
+    for forbidden in (
+        "observe_llm_io",
+        "observe_turn_completed",
+        "observe_prompt_event",
+        "before_choose_action",
+    ):
+        assert forbidden not in contracts_source
+
+    for required in (
+        "class OrchestrationLifecycle",
+        "class PreChooseActionParticipant",
+        "class PromptEventObserver",
+        "class RawLlmIoObserver",
+        "class TurnCompletionObserver",
+    ):
+        assert required in lifecycle_source
+
+    assert "class LlmTurnPreChooseActionParticipant" in llm_lifecycle_source
+    assert "prompt_event_observer" in llm_lifecycle_source
+    assert "pre_choose_action_participant" in orchestrator_source
+    assert "turn_completion_observer" in orchestrator_source
+    assert "prompt_event_observer=active_lifecycle.prompt_event_observer" in orchestrator_source
+    assert "raw_llm_io_observer=active_lifecycle.raw_llm_io_observer" in orchestrator_source
+    assert "context.prompt_event_observer" in adapter_source
+    assert "context.raw_llm_io_observer" in adapter_source
+    assert "KernelPromptEventTraceObserver" in runner_source
+    assert "OrchestrationLifecycle" not in adapter_source
+    assert runner_source.count("lifecycle=lifecycle") == 1
+    for forbidden in (
+        "wire_identity_trace_cb",
+        "wire_raw_io_cb",
+        "wire_turn_result_cb",
+        "run_continuity_pre_choose_action",
+        "on_turn_completed(",
+    ):
+        assert forbidden not in adapter_source
+        assert forbidden not in orchestrator_source
+        assert forbidden not in runner_source
+
+
 def test_shared_surface_fields_stay_generic() -> None:
     assert set(RequestSummary.model_fields) == {"objective", "mode", "trigger"}
     assert set(VerificationSummary.model_fields) == {"status", "last_verification_kind"}
@@ -155,7 +223,9 @@ def test_hotspot_files_do_not_grow_past_budget() -> None:
         HARNESS_ROOT / "observability" / "summary" / "prompt_observability.py": 90,
         HARNESS_ROOT / "observability" / "summary" / "common.py": 100,
         HARNESS_ROOT / "runtime" / "orchestration" / "orchestrator.py": 660,
-        HARNESS_ROOT / "runtime" / "orchestration" / "llm_turn_adapter.py": 560,
+        HARNESS_ROOT / "runtime" / "orchestration" / "llm_turn_adapter.py": 360,
+        HARNESS_ROOT / "runtime" / "orchestration" / "lifecycle.py": 120,
+        HARNESS_ROOT / "runtime" / "orchestration" / "llm_turn_lifecycle.py": 220,
         HARNESS_ROOT / "runtime" / "orchestration" / "llm_prompt_builder.py": 165,
         HARNESS_ROOT / "runtime" / "orchestration" / "action_plan_parser.py": 230,
         HARNESS_ROOT / "runtime" / "memory" / "continuity_compaction.py": 340,

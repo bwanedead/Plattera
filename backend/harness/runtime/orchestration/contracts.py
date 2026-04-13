@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from ...execution.session import ExecutionSessionManager
 
 from ...mission_state import MissionState, ResolutionState
 from ...terminal_taxonomy import TerminalClass
 from ..memory import LoopMemoryState
+
+if TYPE_CHECKING:
+    from .lifecycle import PromptEventObserver, RawLlmIoObserver
 
 
 @dataclass(frozen=True)
@@ -17,6 +20,8 @@ class OrchestratorContext:
     loop_memory: LoopMemoryState
     request_id_prefix: str
     opaque_run_context: dict[str, Any] = field(default_factory=dict)
+    prompt_event_observer: PromptEventObserver | None = None
+    raw_llm_io_observer: RawLlmIoObserver | None = None
 
 
 @dataclass(frozen=True)
@@ -99,6 +104,8 @@ class KernelLoopResult:
 
 @runtime_checkable
 class OrchestrationAdapter(Protocol):
+    """Semantic orchestration contract only; mechanical lifecycle lives in ``lifecycle.py``."""
+
     def initialize(self, context: OrchestratorContext) -> None: ...
 
     def sync(self, context: OrchestratorContext) -> SharedStateProjection: ...

@@ -21,6 +21,7 @@ This note locks the canonical owner for each convergence track so each phase rem
 
 - Canonical owner target: `backend/harness/runtime/orchestration/contracts.py` plus explicit typed lifecycle surfaces under the orchestration runtime.
 - Mechanical observers/contributors may enrich mechanics, not semantic truth.
+- The orchestration loop owns the active lifecycle bundle and injects adapter-visible observer refs through `OrchestratorContext`; semantic adapters must not retain their own lifecycle authority.
 
 ## Event Identity Owner
 
@@ -40,3 +41,9 @@ This note locks the canonical owner for each convergence track so each phase rem
 
 - Removed owner: transcript-edit runtime prompt/tool payload declaration inside `runtime_adapter/`.
 - Canonical owner now: `backend/domains/mapping/transcript_edit/domain_pack.py`.
+
+## Phase 3 Removal
+
+- Removed owner: duck-typed lifecycle seams via `wire_*`, `run_continuity_pre_choose_action`, and `on_turn_completed`.
+- Canonical owner now: `backend/harness/runtime/orchestration/lifecycle.py` plus `backend/harness/runtime/orchestration/llm_turn_lifecycle.py`.
+- Removed residual split owner: adapter-held `lifecycle` state inside `LlmTurnOrchestrationAdapter`; the loop/context path is the only remaining lifecycle authority.

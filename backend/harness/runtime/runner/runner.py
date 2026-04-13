@@ -27,9 +27,15 @@ from harness.runtime.memory.resume_snapshot import (
     merge_launch_latest_refs_with_resume_continuity,
     parse_kernel_resume_snapshot,
 )
+from harness.runtime.orchestration.lifecycle import (
+    KernelPromptEventTraceObserver,
+    OrchestrationLifecycle,
+)
 from harness.runtime.prompting import build_harness_turn_surface
 from harness.runtime.orchestration.llm_turn_adapter import LlmTurnOrchestrationAdapter
+from harness.runtime.orchestration.llm_turn_lifecycle import LlmTurnPreChooseActionParticipant
 from harness.runtime.orchestration.orchestrator import run_orchestration_kernel_loop
+from harness.runtime.orchestration.trace_collector import KernelTraceCollector
 from services.llm.openai import OpenAIService
 from .contracts import RuntimeAdapter, RuntimeArtifactTargets, RuntimeRunResult
 
@@ -169,21 +175,30 @@ class RuntimeRunner:
             session_id = session_start.session_id
             run_artifact_ref = session_start.run_artifact_ref
 
+        max_iterations = _select_max_iterations(context)
+        request_id_prefix = _select_request_id_prefix(context, fallback=run_id)
+        tracer = KernelTraceCollector(session_id=session_id, request_id=request_id_prefix)
+
+        audit_writer = _build_audit_writer()
+        prompt_event_observer = KernelPromptEventTraceObserver(tracer=tracer)
+        lifecycle = OrchestrationLifecycle(
+            pre_choose_action_participant=LlmTurnPreChooseActionParticipant(
+                composed_input=composed,
+                text_model_caller=model_caller,
+                model_name=model_name,
+                opaque_launch_context=context,
+                prompt_event_observer=prompt_event_observer,
+            ),
+            prompt_event_observer=prompt_event_observer,
+            raw_llm_io_observer=audit_writer,
+            turn_completion_observer=audit_writer,
+        )
         orchestration_adapter = LlmTurnOrchestrationAdapter(
             composed_input=composed,
             text_model_caller=model_caller,
             model_name=model_name,
             opaque_launch_context=context,
         )
-        max_iterations = _select_max_iterations(context)
-        request_id_prefix = _select_request_id_prefix(context, fallback=run_id)
-
-        # Wire per-turn raw I/O audit if a CLI run dir is available.
-        audit_writer = _build_audit_writer()
-        if hasattr(orchestration_adapter, "wire_raw_io_cb"):
-            orchestration_adapter.wire_raw_io_cb(audit_writer.on_llm_io)
-        if hasattr(orchestration_adapter, "wire_turn_result_cb"):
-            orchestration_adapter.wire_turn_result_cb(audit_writer.on_turn_completed)
 
         loop_result: Any = None
         try:
@@ -197,6 +212,8 @@ class RuntimeRunner:
                 max_iterations=max_iterations,
                 initial_loop_memory=initial_loop_memory,
                 resume_start_iteration=resume_start_iteration,
+                lifecycle=lifecycle,
+                tracer=tracer,
             )
             return loop_result
         finally:

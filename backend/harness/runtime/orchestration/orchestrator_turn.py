@@ -11,8 +11,8 @@ from typing import Any
 from ...execution.contracts import ExecutionStepResult
 from ..memory import LoopMemoryState
 from ..memory.continuity_journal import apply_kernel_turn_continuity_carriage, build_kernel_step_result_record
-from .contracts import ActionPlan, OrchestrationAdapter
-from .trace_collector import KernelTraceCollector
+from .contracts import ActionPlan
+from .lifecycle import TurnCompletionObserver, lifecycle_jsonable
 
 _LOG = logging.getLogger(__name__)
 
@@ -95,8 +95,8 @@ def record_turn_continuity(
     )
 
 
-def notify_turn_completed(
-    orchestration_adapter: OrchestrationAdapter,
+def observe_turn_completed(
+    observer: TurnCompletionObserver | None,
     iteration: int,
     *,
     action_plan: ActionPlan,
@@ -104,9 +104,8 @@ def notify_turn_completed(
     loop_memory: LoopMemoryState,
     terminal_decision: str | None = None,
 ) -> None:
-    """Notify adapter of turn completion for forensic audit.  Best-effort: discovery via hasattr."""
-    fn = getattr(orchestration_adapter, "on_turn_completed", None)
-    if not callable(fn):
+    """Send an explicit post-turn mechanical record to the lifecycle observer."""
+    if observer is None:
         return
     tool_request: dict[str, Any] | None = None
     if not action_plan.complete_run and not action_plan.wait_for_human and action_plan.action_type is not None:
@@ -148,16 +147,19 @@ def notify_turn_completed(
                 else []
             ),
         }
+    record = lifecycle_jsonable(
+        {
+            "turn_index": iteration,
+            "tool_request": tool_request,
+            "tool_result_raw": tool_result_raw,
+            "mission_state_after": loop_memory.continuity.mission_state,
+            "resolution_state_after": loop_memory.continuity.resolution_state,
+            "latest_refs_after": dict(loop_memory.continuity.latest_refs),
+            "state_patch_feedback": dict(loop_memory.continuity.state_patch_feedback),
+            "terminal_decision": terminal_decision,
+        }
+    )
     try:
-        fn(
-            iteration,
-            tool_request=tool_request,
-            tool_result_raw=tool_result_raw,
-            mission_state_after=loop_memory.continuity.mission_state,
-            resolution_state_after=loop_memory.continuity.resolution_state,
-            latest_refs_after=dict(loop_memory.continuity.latest_refs),
-            state_patch_feedback=dict(loop_memory.continuity.state_patch_feedback),
-            terminal_decision=terminal_decision,
-        )
+        observer.observe_turn_completed(record)
     except Exception:
-        _LOG.warning("on_turn_completed raised; ignoring", exc_info=True)
+        _LOG.warning("turn_completion_observer raised; ignoring", exc_info=True)

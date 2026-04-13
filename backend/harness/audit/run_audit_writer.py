@@ -39,10 +39,10 @@ class RunAuditWriter:
         self._event_log = AuditEventLog(run_dir)
 
     # ------------------------------------------------------------------
-    # Callback wired to LlmTurnOrchestrationAdapter.wire_raw_io_cb()
+    # RawLlmIoObserver surface
     # ------------------------------------------------------------------
 
-    def on_llm_io(self, data: dict[str, Any]) -> None:
+    def observe_llm_io(self, data: dict[str, Any]) -> None:
         """Receive one raw I/O record per choose-action turn from the adapter."""
         if self._dir is None:
             return
@@ -55,10 +55,10 @@ class RunAuditWriter:
         self._write_turn_record(turn_index, record)
 
     # ------------------------------------------------------------------
-    # Callback wired to LlmTurnOrchestrationAdapter.wire_turn_result_cb()
+    # TurnCompletionObserver surface
     # ------------------------------------------------------------------
 
-    def on_turn_completed(self, data: dict[str, Any]) -> None:
+    def observe_turn_completed(self, data: dict[str, Any]) -> None:
         """Supplement the matching LLM I/O turn record with post-execution data."""
         if self._dir is None:
             return
@@ -106,11 +106,6 @@ class RunAuditWriter:
     # ------------------------------------------------------------------
     # Internal writers
     # ------------------------------------------------------------------
-
-    def _write_turns(self) -> None:
-        for rec in self._turns:
-            turn_idx = int(rec.get("turn_index") or 0)
-            self._write_turn_record(turn_idx, rec)
 
     def _write_turn_record(self, turn_idx: int, record: dict[str, Any]) -> None:
         _write_json_atomic(self._dir / f"turn_{turn_idx:04d}.json", record)  # type: ignore[arg-type]

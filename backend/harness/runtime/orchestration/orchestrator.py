@@ -3,11 +3,12 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from ...execution.contracts import ExecutionState, ExecutionStepResult
+from ...execution.contracts import ExecutionState
 from ...execution.session import ExecutionSessionManager
 
 from ...terminal_taxonomy import TerminalClass
 from .contracts import ActionPlan, KernelLoopResult, OrchestrationAdapter, OrchestratorContext
+from .lifecycle import OrchestrationLifecycle, TurnCompletionObserver
 from ..memory import LoopMemoryState
 from ..memory.resume_snapshot import build_kernel_resume_snapshot
 from ..hitl.request_shape import normalize_hitl_request, validate_hitl_consumed_prompt_ids
@@ -32,8 +33,7 @@ from .orchestrator_policy import (
 from .orchestrator_turn import (
     accumulate_image_evidence,
     append_kernel_step_result_continuity,
-    dashboard_refs_python,
-    notify_turn_completed,
+    observe_turn_completed,
     record_turn_continuity,
 )
 from .state_patch_apply import (
@@ -53,11 +53,6 @@ def _hitl_loop_kind(opaque_run_context: dict[str, Any]) -> str:
     return str(opaque_run_context.get("hitl_loop_kind") or opaque_run_context.get("loop_kind") or "harness_cli").strip() or "harness_cli"
 
 
-def _pack_id_from_prompt_metadata(metadata: dict[str, Any], info: dict[str, Any]) -> str:
-    """Prompt-pack identifier from metadata (``pack_id`` only)."""
-    return str(metadata.get("pack_id") or info.get("pack_id") or "")
-
-
 def _action_id_for_plan(action_plan: ActionPlan) -> str:
     if action_plan.complete_run:
         return "complete_run"
@@ -68,7 +63,7 @@ def _action_id_for_plan(action_plan: ActionPlan) -> str:
 
 def _handle_policy_block(
     *,
-    orchestration_adapter: OrchestrationAdapter,
+    turn_completion_observer: TurnCompletionObserver | None,
     tracer: KernelTraceCollector,
     loop_memory: LoopMemoryState,
     action_plan: ActionPlan,
@@ -97,8 +92,8 @@ def _handle_policy_block(
         execution_state="refused",
         execution_reason_code=reason_code,
     )
-    notify_turn_completed(
-        orchestration_adapter,
+    observe_turn_completed(
+        turn_completion_observer,
         iteration,
         action_plan=action_plan,
         step_result=None,
@@ -119,21 +114,13 @@ def run_orchestration_kernel_loop(
     resume_hitl_response: dict[str, Any] | None = None,
     initial_loop_memory: LoopMemoryState | None = None,
     resume_start_iteration: int = 1,
+    lifecycle: OrchestrationLifecycle | None = None,
+    tracer: KernelTraceCollector | None = None,
 ) -> KernelLoopResult:
-    """Drive the bounded per-run loop; ``orchestration_adapter`` implements ``OrchestrationAdapter``.
-
-    Mechanical run status is emitted only through ``KernelTraceCollector`` (see
-    ``KernelLoopResult.trace_events``)—no parallel host progress callback.
-
-    Orchestration adapters may optionally define ``wire_identity_trace_cb`` for mechanical LLM
-    observability (e.g. ``LlmTurnOrchestrationAdapter``); the hook is discovered via ``hasattr``
-    and is not part of the ``OrchestrationAdapter`` protocol.
-
-    For process restart, pass ``initial_loop_memory`` and ``resume_start_iteration`` from a parsed
-    ``kernel_resume.v1`` snapshot (mechanical rehydration only; no semantic repair).
-    """
+    """Drive the bounded per-run loop with explicit semantic and mechanical collaborators."""
     loop_memory = initial_loop_memory if initial_loop_memory is not None else LoopMemoryState()
     start_iteration = max(1, int(resume_start_iteration))
+    active_lifecycle = lifecycle if lifecycle is not None else OrchestrationLifecycle()
     if isinstance(resume_hitl_response, dict) and resume_hitl_response:
         pid = str(resume_hitl_response.get("prompt_id") or "").strip()
         if not pid and initial_loop_memory is not None:
@@ -159,50 +146,17 @@ def run_orchestration_kernel_loop(
         loop_memory=loop_memory,
         request_id_prefix=request_id_prefix,
         opaque_run_context=run_ctx,
+        prompt_event_observer=active_lifecycle.prompt_event_observer,
+        raw_llm_io_observer=active_lifecycle.raw_llm_io_observer,
     )
 
-    tracer = KernelTraceCollector(session_id=session_id, request_id=request_id_prefix)
+    tracer = tracer if tracer is not None else KernelTraceCollector(session_id=session_id, request_id=request_id_prefix)
     tracer.emit_request_start(
         opaque_run_context=run_ctx,
         max_iterations=max_iterations,
         run_artifact_ref=run_artifact_ref,
     )
-
-    def _identity_trace_cb(info: dict[str, Any]) -> None:
-        raw_iter = info.get("iteration")
-        iteration_index: int | None = int(raw_iter) if isinstance(raw_iter, int) else None
-
-        prompt_event = info.get("prompt_event")
-        if isinstance(prompt_event, dict):
-            metadata = prompt_event.get("metadata") if isinstance(prompt_event.get("metadata"), dict) else {}
-            tracer.emit_prompt_event(
-                iteration=iteration_index,
-                prompt_event=prompt_event,
-                surface=str(metadata.get("surface") or info.get("surface") or ""),
-                pack_id=_pack_id_from_prompt_metadata(metadata, info),
-                model=str(metadata.get("model") or info.get("model") or ""),
-            )
-            loop_memory.telemetry.register_prompt_event(
-                prompt_event_id=str(metadata.get("prompt_event_id") or ""),
-                surface=str(metadata.get("surface") or info.get("surface") or ""),
-            )
-            loop_memory.telemetry.register_llm_contact()
-            return
-        tracer.emit_llm_call_identity(
-            iteration=iteration_index,
-            surface=str(info.get("surface") or ""),
-            pack_id=_pack_id_from_prompt_metadata(info if isinstance(info, dict) else {}, info if isinstance(info, dict) else {}),
-            inheritance_mode=str(info.get("inheritance_mode") or ""),
-            constitution_version=str(info.get("constitution_version") or ""),
-            run_link_id=str(info.get("run_link_id") or ""),
-            model=str(info.get("model") or ""),
-        )
-        loop_memory.telemetry.register_llm_contact()
-
-    if hasattr(orchestration_adapter, "wire_identity_trace_cb"):
-        orchestration_adapter.wire_identity_trace_cb(_identity_trace_cb)  # type: ignore[attr-defined]
-
-    _call_optional(orchestration_adapter, "initialize", context)
+    orchestration_adapter.initialize(context)
 
     for offset in range(max_iterations):
         iterations = start_iteration + offset
@@ -229,7 +183,7 @@ def run_orchestration_kernel_loop(
                     session_manager=session_manager,
                 )
 
-        projection = coerce_projection(_call_optional(orchestration_adapter, "sync", context))
+        projection = coerce_projection(orchestration_adapter.sync(context))
         if projection is not None:
             loop_memory.continuity.mission_state = projection.mission_state
             loop_memory.continuity.resolution_state = projection.resolution_state
@@ -241,7 +195,7 @@ def run_orchestration_kernel_loop(
                 or loop_memory.continuity.active_item_id
             )
 
-        terminal = coerce_terminal_evaluation(_call_optional(orchestration_adapter, "evaluate_terminal", context, projection))
+        terminal = coerce_terminal_evaluation(orchestration_adapter.evaluate_terminal(context, projection))
         if terminal is not None:
             return _make_result(
                 loop_memory=loop_memory,
@@ -255,11 +209,11 @@ def run_orchestration_kernel_loop(
                 session_manager=session_manager,
             )
 
-        pre_compact = getattr(orchestration_adapter, "run_continuity_pre_choose_action", None)
-        if callable(pre_compact):
-            pre_compact(context, projection, tracer=tracer)  # type: ignore[misc]
+        participant = active_lifecycle.pre_choose_action_participant
+        if participant is not None:
+            participant.before_choose_action(context, projection, tracer=tracer)
 
-        action_plan = coerce_kernel_action_plan(_call_optional(orchestration_adapter, "choose_action", context, projection))
+        action_plan = coerce_kernel_action_plan(orchestration_adapter.choose_action(context, projection))
         if action_plan is None:
             continue
 
@@ -285,7 +239,7 @@ def run_orchestration_kernel_loop(
             reason_code, message = resolution_failure
             _LOG.info("KERNEL resolution_inventory_blocked ► reason_code=%s message=%s", reason_code, message)
             _handle_policy_block(
-                orchestration_adapter=orchestration_adapter,
+                turn_completion_observer=active_lifecycle.turn_completion_observer,
                 tracer=tracer,
                 loop_memory=loop_memory,
                 action_plan=action_plan,
@@ -330,8 +284,9 @@ def run_orchestration_kernel_loop(
                 loop_memory.hitl.blocking_prompt_id = str(norm["prompt_id"])
                 loop_memory.hitl.pending_feedback_prompt_id = str(norm["prompt_id"])
                 hitl_refresh_derived_state(loop_memory.hitl)
-                notify_turn_completed(
-                    orchestration_adapter, iterations,
+                observe_turn_completed(
+                    active_lifecycle.turn_completion_observer,
+                    iterations,
                     action_plan=action_plan, step_result=None,
                     loop_memory=loop_memory, terminal_decision="wait_for_human",
                 )
@@ -367,7 +322,7 @@ def run_orchestration_kernel_loop(
             reason_code, message = closure_failure
             _LOG.info("KERNEL closure_enforcement_blocked ► reason_code=%s message=%s", reason_code, message)
             _handle_policy_block(
-                orchestration_adapter=orchestration_adapter,
+                turn_completion_observer=active_lifecycle.turn_completion_observer,
                 tracer=tracer,
                 loop_memory=loop_memory,
                 action_plan=action_plan,
@@ -391,8 +346,9 @@ def run_orchestration_kernel_loop(
                 execution_state="complete_run",
                 execution_reason_code=None,
             )
-            notify_turn_completed(
-                orchestration_adapter, iterations,
+            observe_turn_completed(
+                active_lifecycle.turn_completion_observer,
+                iterations,
                 action_plan=action_plan, step_result=None,
                 loop_memory=loop_memory, terminal_decision="complete_run",
             )
@@ -451,8 +407,9 @@ def run_orchestration_kernel_loop(
                         execution_state="refused",
                         execution_reason_code=reason,
                     )
-                    notify_turn_completed(
-                        orchestration_adapter, iterations,
+                    observe_turn_completed(
+                        active_lifecycle.turn_completion_observer,
+                        iterations,
                         action_plan=action_plan, step_result=step_result,
                         loop_memory=loop_memory, terminal_decision="refused",
                     )
@@ -475,8 +432,9 @@ def run_orchestration_kernel_loop(
                 )
                 if step_result.dashboard is not None:
                     loop_memory.continuity.latest_refs = step_result.dashboard.latest_refs.model_dump(mode="json")
-                notify_turn_completed(
-                    orchestration_adapter, iterations,
+                observe_turn_completed(
+                    active_lifecycle.turn_completion_observer,
+                    iterations,
                     action_plan=action_plan, step_result=step_result,
                     loop_memory=loop_memory,
                 )
@@ -505,8 +463,9 @@ def run_orchestration_kernel_loop(
                     execution_state="executed",
                     execution_reason_code=None,
                 )
-                notify_turn_completed(
-                    orchestration_adapter, iterations,
+                observe_turn_completed(
+                    active_lifecycle.turn_completion_observer,
+                    iterations,
                     action_plan=action_plan, step_result=step_result,
                     loop_memory=loop_memory,
                 )
@@ -526,8 +485,9 @@ def run_orchestration_kernel_loop(
                 execution_state="skipped" if action_plan.skip_execution else "not_dispatched",
                 execution_reason_code=None,
             )
-            notify_turn_completed(
-                orchestration_adapter, iterations,
+            observe_turn_completed(
+                active_lifecycle.turn_completion_observer,
+                iterations,
                 action_plan=action_plan, step_result=None,
                 loop_memory=loop_memory,
             )
@@ -542,15 +502,6 @@ def run_orchestration_kernel_loop(
         tracer=tracer,
         session_manager=session_manager,
     )
-
-
-def _call_optional(obj: OrchestrationAdapter, name: str, *args: Any, **kwargs: Any) -> Any:
-    fn = getattr(obj, name, None)
-    if not callable(fn):
-        return None
-    return fn(*args, **kwargs)
-
-
 def _make_result(
     *,
     loop_memory: LoopMemoryState,

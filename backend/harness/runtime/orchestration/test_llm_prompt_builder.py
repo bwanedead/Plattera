@@ -81,6 +81,8 @@ def _context(*, iterations: int = 3) -> OrchestratorContext:
         loop_memory=loop_memory,
         request_id_prefix="req-prompt",
         opaque_run_context={},
+        prompt_event_observer=None,
+        raw_llm_io_observer=None,
     )
 
 

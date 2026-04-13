@@ -25,8 +25,13 @@ from harness.runtime.orchestration.contracts import (
 )
 from harness.runtime.composition.contracts import ComposedTurnInput, TurnBlock
 from harness.runtime.memory.resume_snapshot import parse_kernel_resume_snapshot
+from harness.runtime.orchestration.lifecycle import (
+    KernelPromptEventTraceObserver,
+    OrchestrationLifecycle,
+)
 from harness.runtime.orchestration.llm_turn_adapter import LlmTurnOrchestrationAdapter
 from harness.runtime.orchestration.orchestrator import run_orchestration_kernel_loop
+from harness.runtime.orchestration.trace_collector import KernelTraceCollector
 
 _PACK_CJ = {"pack_continuity_stub": True}
 
@@ -53,6 +58,39 @@ class FakeSessionManager(ExecutionSessionManager):
             idempotency_key=request.idempotency_key,
             execution_state=ExecutionState.EXECUTED,
             dashboard=_dashboard(refs={"step_ref": f"artifact://{request.action_id}"}),
+        )
+
+
+class _TurnCompletionRecorder:
+    def __init__(self) -> None:
+        self.records: list[dict[str, Any]] = []
+
+    def observe_turn_completed(self, record: dict[str, Any]) -> None:
+        self.records.append(dict(record))
+
+
+class _ExplodingTurnCompletionObserver:
+    def observe_turn_completed(self, record: dict[str, Any]) -> None:
+        raise RuntimeError("boom")
+
+
+class _RecordingPreChooseActionParticipant:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, Any]] = []
+
+    def before_choose_action(
+        self,
+        context: OrchestratorContext,
+        projection: SharedStateProjection | None,
+        *,
+        tracer: KernelTraceCollector,
+    ) -> None:
+        del tracer
+        self.calls.append(
+            {
+                "iteration": int(context.loop_memory.iterations),
+                "has_projection": projection is not None,
+            }
         )
 
 
@@ -940,6 +978,46 @@ def test_orchestration_adapter_protocol_typing() -> None:
     assert hasattr(p, "initialize")
 
 
+def test_explicit_pre_choose_action_participant_runs_before_choose_action() -> None:
+    participant = _RecordingPreChooseActionParticipant()
+    sm = FakeSessionManager()
+
+    result = run_orchestration_kernel_loop(
+        orchestration_adapter=SkipExecutionPack(),
+        session_manager=sm,
+        session_id="sess-lifecycle-pre",
+        run_artifact_ref=None,
+        request_id_prefix="req-lifecycle-pre",
+        opaque_run_context={},
+        max_iterations=2,
+        lifecycle=OrchestrationLifecycle(pre_choose_action_participant=participant),
+    )
+
+    assert result.terminal_class == "completed"
+    assert participant.calls
+    assert participant.calls[0]["iteration"] == 1
+    assert participant.calls[0]["has_projection"] is True
+
+
+def test_turn_completion_observer_exception_does_not_break_loop() -> None:
+    sm = FakeSessionManager()
+
+    result = run_orchestration_kernel_loop(
+        orchestration_adapter=SkipExecutionPack(),
+        session_manager=sm,
+        session_id="sess-turn-observer",
+        run_artifact_ref=None,
+        request_id_prefix="req-turn-observer",
+        opaque_run_context={},
+        max_iterations=2,
+        lifecycle=OrchestrationLifecycle(
+            turn_completion_observer=_ExplodingTurnCompletionObserver(),
+        ),
+    )
+
+    assert result.terminal_class == "completed"
+
+
 def test_state_patch_persists_across_sync_iterations() -> None:
     sm = FakeSessionManager()
     result = run_orchestration_kernel_loop(
@@ -1034,6 +1112,10 @@ def test_kernel_loop_llm_adapter_prompt_telemetry_and_trace_match_turns() -> Non
         surface_payloads={},
         tool_handlers={"noop": lambda x: x},
     )
+    tracer = KernelTraceCollector(session_id="sess-telemetry", request_id="req-tel")
+    lifecycle = OrchestrationLifecycle(
+        prompt_event_observer=KernelPromptEventTraceObserver(tracer=tracer),
+    )
     adapter = LlmTurnOrchestrationAdapter(
         composed_input=composed,
         text_model_caller=fake_caller,
@@ -1049,6 +1131,8 @@ def test_kernel_loop_llm_adapter_prompt_telemetry_and_trace_match_turns() -> Non
         request_id_prefix="req-tel",
         opaque_run_context={},
         max_iterations=2,
+        lifecycle=lifecycle,
+        tracer=tracer,
     )
 
     assert result.terminal_class == "exhausted"
@@ -1185,7 +1269,7 @@ def test_state_patch_not_applied_when_step_refused() -> None:
 
 
 # ---------------------------------------------------------------------------
-# image_evidence propagated through on_turn_completed
+# image_evidence propagated through explicit turn-completion observation
 # ---------------------------------------------------------------------------
 
 
@@ -1243,60 +1327,58 @@ class _OneStepImagePack:
             )
         return ActionPlan(complete_run=True, continuity_journal_entry={"done": True})
 
-    def on_turn_completed(self, turn_index: int, **kwargs: Any) -> None:
-        self._last_turn_result = {"turn_index": turn_index, **kwargs}
 
-
-def test_image_evidence_in_tool_result_raw_via_on_turn_completed() -> None:
-    """image_evidence from the execution result must appear in on_turn_completed tool_result_raw."""
-    pack = _OneStepImagePack()
+def test_image_evidence_in_tool_result_raw_via_turn_completion_observer() -> None:
+    """image_evidence from the execution result must appear in turn-completion records."""
+    observer = _TurnCompletionRecorder()
     sm = _ImageEvidenceSessionManager()
     sm.start_session(
         __import__("harness.execution.contracts", fromlist=["ExecutionSessionStartRequest"])
         .ExecutionSessionStartRequest(run_id="r-img", session_id="sess-img")
     )
     run_orchestration_kernel_loop(
-        orchestration_adapter=pack,
+        orchestration_adapter=_OneStepImagePack(),
         session_manager=sm,
         session_id="sess-img",
         run_artifact_ref=None,
         request_id_prefix="req-img",
         opaque_run_context={},
         max_iterations=3,
-    )
-    # The image step is turn 1; _last_turn_result should be from the complete_run turn.
-    # For the tool execution turn, we need to check via a recorder.
-    # Re-run with a recording adapter that captures all on_turn_completed calls.
-    results: list[dict[str, Any]] = []
-
-    class _RecordingPack(_OneStepImagePack):
-        def on_turn_completed(self, turn_index: int, **kwargs: Any) -> None:  # type: ignore[override]
-            results.append({"turn_index": turn_index, **kwargs})
-
-    pack2 = _RecordingPack()
-    sm2 = _ImageEvidenceSessionManager()
-    sm2.start_session(
-        __import__("harness.execution.contracts", fromlist=["ExecutionSessionStartRequest"])
-        .ExecutionSessionStartRequest(run_id="r-img2", session_id="sess-img2")
-    )
-    run_orchestration_kernel_loop(
-        orchestration_adapter=pack2,
-        session_manager=sm2,
-        session_id="sess-img2",
-        run_artifact_ref=None,
-        request_id_prefix="req-img2",
-        opaque_run_context={},
-        max_iterations=3,
+        lifecycle=OrchestrationLifecycle(turn_completion_observer=observer),
     )
 
-    # Turn 1 is the tool execution turn.
-    tool_turn = next(r for r in results if r["turn_index"] == 1)
+    tool_turn = next(r for r in observer.records if r["turn_index"] == 1)
     tool_result = tool_turn["tool_result_raw"]
     assert tool_result is not None
     evidence = tool_result["image_evidence"]
     assert len(evidence) == 2
     assert evidence[0]["ref_id"] == "image:assoc:tx1:original"
     assert evidence[1]["ref_id"] == "image:assoc:tx1:processed"
+
+
+def test_turn_completion_observer_receives_normalized_state_records() -> None:
+    observer = _TurnCompletionRecorder()
+    sm = FakeSessionManager()
+    sm.start_session(
+        __import__("harness.execution.contracts", fromlist=["ExecutionSessionStartRequest"])
+        .ExecutionSessionStartRequest(run_id="r-state", session_id="sess-state")
+    )
+    run_orchestration_kernel_loop(
+        orchestration_adapter=OneStepThenCompletePack(),
+        session_manager=sm,
+        session_id="sess-state",
+        run_artifact_ref=None,
+        request_id_prefix="req-state",
+        opaque_run_context={},
+        max_iterations=3,
+        lifecycle=OrchestrationLifecycle(turn_completion_observer=observer),
+    )
+
+    tool_turn = next(r for r in observer.records if r["turn_index"] == 1)
+    assert isinstance(tool_turn["mission_state_after"], dict)
+    assert isinstance(tool_turn["resolution_state_after"], dict)
+    assert tool_turn["mission_state_after"]["loop_family"] == "orchestration_kernel"
+    assert tool_turn["resolution_state_after"]["items"] == []
 
 
 # ---------------------------------------------------------------------------
@@ -1477,11 +1559,7 @@ def test_retryable_refusal_info_is_visible_in_next_turn_step_records() -> None:
 
 def test_image_evidence_empty_list_when_no_evidence() -> None:
     """When image_evidence is empty, tool_result_raw.image_evidence should be []."""
-    results: list[dict[str, Any]] = []
-
-    class _NoEvidencePack(OneStepThenCompletePack):
-        def on_turn_completed(self, turn_index: int, **kwargs: Any) -> None:  # type: ignore[override]
-            results.append({"turn_index": turn_index, **kwargs})
+    observer = _TurnCompletionRecorder()
 
     sm = FakeSessionManager()
     sm.start_session(
@@ -1489,15 +1567,16 @@ def test_image_evidence_empty_list_when_no_evidence() -> None:
         .ExecutionSessionStartRequest(run_id="r-ne", session_id="sess-ne")
     )
     run_orchestration_kernel_loop(
-        orchestration_adapter=_NoEvidencePack(),
+        orchestration_adapter=OneStepThenCompletePack(),
         session_manager=sm,
         session_id="sess-ne",
         run_artifact_ref=None,
         request_id_prefix="req-ne",
         opaque_run_context={},
         max_iterations=3,
+        lifecycle=OrchestrationLifecycle(turn_completion_observer=observer),
     )
 
-    tool_turn = next((r for r in results if r.get("tool_request") is not None), None)
+    tool_turn = next((r for r in observer.records if r.get("tool_request") is not None), None)
     assert tool_turn is not None
     assert tool_turn["tool_result_raw"]["image_evidence"] == []

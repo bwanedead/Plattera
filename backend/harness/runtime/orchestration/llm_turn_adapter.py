@@ -1,14 +1,16 @@
-"""Generic LLM-backed orchestration adapter — thin bridge only.
+"""Generic LLM-backed orchestration adapter — thin semantic bridge only.
 
-Wires together the LLM caller, the choose-action prompt builder, the action-plan
-parser, and the continuity compaction subsystem. Does not own any of their internals.
+Wires together the LLM caller, choose-action prompt builder, parser, and
+mechanical observers carried by ``OrchestratorContext``. Pre-choose continuity
+compaction lives on the separate ``LlmTurnPreChooseActionParticipant``
+lifecycle surface.
 """
 
 from __future__ import annotations
 
 import logging
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -17,32 +19,20 @@ _LOG = logging.getLogger(__name__)
 from services.llm.call_options import LlmCallOptions
 
 from ..composition import ComposedTurnInput
-from ..memory.continuity_compaction import (
-    PreparedContinuityCompaction as _PreparedContinuityCompaction,
-    apply_continuity_compaction_result,
-    parse_compaction_response,
-    prepare_continuity_compaction,
-)
 from .action_plan_parser import ModelActionParseError, is_repairable_action_plan_error, parse_action_plan_response
 from .contracts import ActionPlan, OrchestrationAdapter, OrchestratorContext, SharedStateProjection
+from .lifecycle import lifecycle_jsonable
 from .llm_prompt_builder import (
     build_choose_action_prompt_document,
     build_resume_prompt_document,
     jsonable,
     prompt_visible_launch_context,
 )
+from .llm_turn_lifecycle import (
+    emit_prompt_event_observability,
+    resolve_choose_action_prompt_mode,
+)
 from .repair_lane import TextModelCaller, attempt_repair, extract_audit_text
-from .trace_collector import KernelTraceCollector
-
-
-IdentityTraceCallback = Callable[[dict[str, Any]], None]
-
-
-def _resolve_choose_action_prompt_mode(context: OrchestratorContext) -> str:
-    hitl = context.loop_memory.hitl
-    if hitl.hitl_state == "answered_unintegrated" or hitl.pending_feedback_response is not None:
-        return "resume"
-    return "full_choose_action"
 
 
 @dataclass(frozen=True)
@@ -51,105 +41,7 @@ class LlmTurnOrchestrationAdapter(OrchestrationAdapter):
     text_model_caller: TextModelCaller
     model_name: str
     opaque_launch_context: Mapping[str, Any] = field(default_factory=dict)
-    # When set, ``run_continuity_pre_choose_action`` may run a separate compaction LLM call.
-    # Legacy trigger: raw prompt character count (secondary / deprecated vs occupancy fraction).
-    continuity_compaction_prompt_char_threshold: int | None = None
-    # Preferred trigger: estimated prompt tokens / model context_window >= this fraction.
-    continuity_compaction_trigger_fraction: float | None = None
-    # Hard cap on compaction LLM prompt size (defaults depend on trigger mode).
-    continuity_compaction_max_prompt_chars: int | None = None
     continuity_journal_verbatim_keep_n: int = 5
-    _identity_trace_cb: IdentityTraceCallback | None = field(default=None, init=False, repr=False, compare=False)
-    _raw_io_cb: Callable[[dict[str, Any]], None] | None = field(default=None, init=False, repr=False, compare=False)
-    _turn_result_cb: Callable[[dict[str, Any]], None] | None = field(default=None, init=False, repr=False, compare=False)
-
-    def wire_identity_trace_cb(self, callback: IdentityTraceCallback | None) -> None:
-        """Register kernel observability hook (one mechanical ``prompt_event`` per LLM call)."""
-        object.__setattr__(self, "_identity_trace_cb", callback)
-
-    def wire_raw_io_cb(self, cb: Callable[[dict[str, Any]], None] | None) -> None:
-        """Register per-turn raw LLM I/O audit callback (prompt text + raw response + parse outcome)."""
-        object.__setattr__(self, "_raw_io_cb", cb)
-
-    def wire_turn_result_cb(self, cb: Callable[[dict[str, Any]], None] | None) -> None:
-        """Register per-turn completion callback (tool request/result, after-state snapshots)."""
-        object.__setattr__(self, "_turn_result_cb", cb)
-
-    def run_continuity_pre_choose_action(
-        self,
-        context: OrchestratorContext,
-        projection: SharedStateProjection | None,
-        *,
-        tracer: KernelTraceCollector,
-    ) -> None:
-        """Mechanical context-window compaction: separate LLM call; does not consume a kernel action turn."""
-        keep_n = max(0, int(self.continuity_journal_verbatim_keep_n))
-        prompt_mode = _resolve_choose_action_prompt_mode(context)
-        prompt_builder = build_resume_prompt_document if prompt_mode == "resume" else build_choose_action_prompt_document
-        prompt = prompt_builder(
-            composed_input=self.composed_input,
-            opaque_launch_context=self.opaque_launch_context,
-            context=context,
-            projection=projection,
-            journal_verbatim_keep_n=keep_n,
-        ).prompt_text
-        prepared = prepare_continuity_compaction(
-            cont=context.loop_memory.continuity,
-            choose_action_prompt=prompt,
-            model_name=self.model_name,
-            trigger_fraction=self.continuity_compaction_trigger_fraction,
-            char_threshold=self.continuity_compaction_prompt_char_threshold,
-            max_compact_chars=self.continuity_compaction_max_prompt_chars,
-            keep_n=keep_n,
-        )
-        if prepared is None:
-            return
-        compact_chars = len(prepared.compact_prompt)
-        try:
-            raw_response = self.text_model_caller(
-                prepared.compact_prompt,
-                self.model_name,
-                call_options=LlmCallOptions(output_mode="json_object", phase="continuity_compaction"),
-            )
-            summary = parse_compaction_response(raw_response)
-        except Exception:
-            self._emit_compaction_kernel_llm_observability(
-                context=context,
-                prompt_char_count=compact_chars,
-                parse_ok=False,
-                parse_reason_code="compaction_parse_failed",
-                prompt_mode="compaction",
-            )
-            _LOG.warning("continuity compaction LLM call failed; skipping compaction update", exc_info=True)
-            return
-        cont = context.loop_memory.continuity
-        apply_continuity_compaction_result(cont, prepared, summary)
-        self._emit_compaction_kernel_llm_observability(
-            context=context,
-            prompt_char_count=compact_chars,
-            parse_ok=True,
-            parse_reason_code=None,
-            prompt_mode="compaction",
-        )
-        tracer.emit_continuity_compacted(
-            iteration=int(context.loop_memory.iterations),
-            prompt_char_count_estimate_before=prepared.est_chars,
-            journal_entries_compacted_count=len(prepared.j_send),
-            kernel_step_records_compacted_count=len(prepared.s_send),
-            kernel_step_result_records_compacted_count=len(prepared.r_send),
-            verbatim_keep_n=keep_n,
-            threshold_chars=prepared.trace_threshold,
-            compaction_prompt_char_count=compact_chars,
-            kernel_compaction_covered_through_turn_index_after=int(
-                cont.kernel_compaction_covered_through_turn_index
-            ),
-            compaction_trigger_mode=prepared.trigger_mode,
-            estimated_prompt_tokens=prepared.est_tokens,
-            context_window_tokens=prepared.cw_tokens,
-            used_context_window_fallback=prepared.used_fb,
-            compaction_trigger_fraction=prepared.trigger_fraction,
-            estimated_occupancy_fraction=prepared.occ_frac,
-        )
 
     def initialize(self, context: OrchestratorContext) -> None:
         del context
@@ -190,63 +82,55 @@ class LlmTurnOrchestrationAdapter(OrchestrationAdapter):
             active_item_id=cont_active if cont_active is not None else rs_active,
         )
 
-    def on_turn_completed(
-        self,
-        turn_index: int,
-        *,
-        tool_request: dict[str, Any] | None,
-        tool_result_raw: dict[str, Any] | None,
-        mission_state_after: Any,
-        resolution_state_after: Any,
-        latest_refs_after: dict[str, Any],
-        state_patch_feedback: dict[str, Any],
-        terminal_decision: str | None,
-    ) -> None:
-        """Discoverable hook called by the orchestrator after each turn completes.
-
-        Supplements the matching per-turn audit record with post-execution data.
-        """
-        cb = self._turn_result_cb
-        if cb is None:
-            return
-        try:
-            cb({
-                "turn_index": turn_index,
-                "tool_request": tool_request,
-                "tool_result_raw": tool_result_raw,
-                "mission_state_after": _serialize_state(mission_state_after),
-                "resolution_state_after": _serialize_state(resolution_state_after),
-                "latest_refs_after": dict(latest_refs_after),
-                "state_patch_feedback": dict(state_patch_feedback),
-                "terminal_decision": terminal_decision,
-            })
-        except Exception:
-            _LOG.warning("turn_result_cb raised; ignoring", exc_info=True)
-
     def choose_action(
         self,
         context: OrchestratorContext,
         projection: SharedStateProjection | None,
     ) -> ActionPlan:
         _t0 = time.time()
-        prompt_mode = _resolve_choose_action_prompt_mode(context)
+        prompt_mode = resolve_choose_action_prompt_mode(context)
         # Capture before-state at the start of choose_action (before LLM call mutates anything).
         _ms_before = _serialize_state(context.loop_memory.continuity.mission_state)
         _rs_before = _serialize_state(context.loop_memory.continuity.resolution_state)
         _refs_before = dict(context.loop_memory.continuity.latest_refs)
 
-        def _audit(*, parse_ok: bool, parse_rc: str | None = None, plan: Any = None,
-                   repair_records: list[dict[str, Any]] | None = None) -> None:
-            cb = self._raw_io_cb
-            if cb is None:
+        def _emit_observability(*, parse_ok: bool, parse_reason_code: str | None) -> None:
+            emit_prompt_event_observability(
+                prompt_event_observer=context.prompt_event_observer,
+                model_name=self.model_name,
+                context=context,
+                pe_id_suffix="kernel_llm",
+                surface="orchestration_kernel_llm_turn",
+                outcome_kind_parsed="kernel_action_plan_parsed",
+                outcome_kind_failed="kernel_action_plan_parse_failed",
+                prompt_char_count=prompt_char_count,
+                parse_ok=parse_ok,
+                parse_reason_code=parse_reason_code,
+                prompt_mode=prompt_mode,
+                log_label="kernel llm",
+            )
+
+        def _audit(
+            *,
+            parse_ok: bool,
+            parse_rc: str | None = None,
+            plan: Any = None,
+            repair_records: list[dict[str, Any]] | None = None,
+        ) -> None:
+            observer = context.raw_llm_io_observer
+            if observer is None:
                 return
-            try:
-                cb({"turn_index": int(context.loop_memory.iterations),
-                    "started_at_epoch_seconds": _t0, "finished_at_epoch_seconds": time.time(),
+            record = lifecycle_jsonable(
+                {
+                    "turn_index": int(context.loop_memory.iterations),
+                    "started_at_epoch_seconds": _t0,
+                    "finished_at_epoch_seconds": time.time(),
                     "prompt_mode": prompt_mode,
-                    "raw_prompt_text": prompt, "raw_llm_response_text": extract_audit_text(raw_response),
-                    "parse_ok": parse_ok, "parse_reason_code": parse_rc,
-                    "parsed_action_plan": jsonable(plan) if plan is not None else None,
+                    "raw_prompt_text": prompt,
+                    "raw_llm_response_text": extract_audit_text(raw_response),
+                    "parse_ok": parse_ok,
+                    "parse_reason_code": parse_rc,
+                    "parsed_action_plan": lifecycle_jsonable(plan) if plan is not None else None,
                     "repair_attempted": bool(repair_records),
                     "repair_records": repair_records or [],
                     # Deprecated scalar fields kept for backward compat with existing consumers.
@@ -255,9 +139,13 @@ class LlmTurnOrchestrationAdapter(OrchestrationAdapter):
                     "mission_state_before": _ms_before,
                     "resolution_state_before": _rs_before,
                     "latest_refs_before": _refs_before,
-                    "contract_feedback": dict(context.loop_memory.contract_feedback)})
+                    "contract_feedback": dict(context.loop_memory.contract_feedback),
+                }
+            )
+            try:
+                observer.observe_llm_io(record)
             except Exception:
-                _LOG.warning("raw_io_cb raised; ignoring", exc_info=True)
+                _LOG.warning("raw_llm_io_observer raised; ignoring", exc_info=True)
 
         prompt_builder = build_resume_prompt_document if prompt_mode == "resume" else build_choose_action_prompt_document
         prompt_doc = prompt_builder(
@@ -287,25 +175,13 @@ class LlmTurnOrchestrationAdapter(OrchestrationAdapter):
         except ModelActionParseError as exc:
             parse_exc = exc
         except Exception:
-            self._emit_kernel_llm_observability(
-                context=context,
-                prompt_char_count=prompt_char_count,
-                parse_ok=False,
-                parse_reason_code="model_caller_exception",
-                prompt_mode=prompt_mode,
-            )
+            _emit_observability(parse_ok=False, parse_reason_code="model_caller_exception")
             raise
         if parse_exc is not None:
             if not is_repairable_action_plan_error(parse_exc.reason_code):
                 # Provider / transport failure — the LLM cannot repair this by reformatting.
                 # Emit observability for the original failure and surface it immediately.
-                self._emit_kernel_llm_observability(
-                    context=context,
-                    prompt_char_count=prompt_char_count,
-                    parse_ok=False,
-                    parse_reason_code=parse_exc.reason_code,
-                    prompt_mode=prompt_mode,
-                )
+                _emit_observability(parse_ok=False, parse_reason_code=parse_exc.reason_code)
                 _audit(parse_ok=False, parse_rc=parse_exc.reason_code, repair_records=None)
                 raise parse_exc
             # One focused repair attempt before hard failure.
@@ -338,13 +214,7 @@ class LlmTurnOrchestrationAdapter(OrchestrationAdapter):
                     "repair_attempted": True,
                     "repair_outcome": "repaired",
                 }
-                self._emit_kernel_llm_observability(
-                    context=context,
-                    prompt_char_count=prompt_char_count,
-                    parse_ok=True,
-                    parse_reason_code="repaired",
-                    prompt_mode=prompt_mode,
-                )
+                _emit_observability(parse_ok=True, parse_reason_code="repaired")
                 _audit(parse_ok=False, parse_rc=parse_exc.reason_code,
                        plan=repair_attempt.repair_parsed_action_plan, repair_records=[_repair_rec])
                 return repair_attempt.repair_parsed_action_plan
@@ -357,26 +227,14 @@ class LlmTurnOrchestrationAdapter(OrchestrationAdapter):
                 "repair_attempted": True,
                 "repair_outcome": "failed",
             }
-            self._emit_kernel_llm_observability(
-                context=context,
-                prompt_char_count=prompt_char_count,
-                parse_ok=False,
-                parse_reason_code=repair_error.reason_code,
-                prompt_mode=prompt_mode,
-            )
+            _emit_observability(parse_ok=False, parse_reason_code=repair_error.reason_code)
             _audit(parse_ok=False, parse_rc=parse_exc.reason_code, repair_records=[_repair_rec])
             raise repair_error
         # Clean turn — clear stale contract feedback.
         context.loop_memory.contract_feedback = {}
-        self._emit_kernel_llm_observability(
-            context=context,
-            prompt_char_count=prompt_char_count,
-            parse_ok=True,
-            parse_reason_code=None,
-            prompt_mode=prompt_mode,
-        )
+        _emit_observability(parse_ok=True, parse_reason_code=None)
         _audit(parse_ok=True, plan=plan, repair_records=None)
-        return plan  # type: ignore[return-value]  # assigned in the try block
+        return plan
 
     def evaluate_terminal(
         self,
@@ -385,89 +243,6 @@ class LlmTurnOrchestrationAdapter(OrchestrationAdapter):
     ):
         del context, projection
         return None
-
-    # ------------------------------------------------------------------
-    # Observability helpers
-    # ------------------------------------------------------------------
-
-    def _emit_identity_prompt_event(
-        self,
-        context: OrchestratorContext,
-        *,
-        pe_id_suffix: str,
-        surface: str,
-        outcome_kind_parsed: str,
-        outcome_kind_failed: str,
-        prompt_char_count: int,
-        parse_ok: bool,
-        parse_reason_code: str | None,
-        prompt_mode: str,
-        log_label: str,
-    ) -> None:
-        cb = self._identity_trace_cb
-        if cb is None:
-            return
-        it = int(context.loop_memory.iterations)
-        pe_id = f"{context.request_id_prefix}:iter{it}:{pe_id_suffix}"
-        prompt_event: dict[str, Any] = {
-            "metadata": {
-                "prompt_event_id": pe_id,
-                "surface": surface,
-                "model": self.model_name,
-                "prompt_char_count": prompt_char_count,
-                "prompt_mode": prompt_mode,
-            },
-            "outcome_kind": outcome_kind_parsed if parse_ok else outcome_kind_failed,
-            "outcome_ref": parse_reason_code,
-        }
-        try:
-            cb({"prompt_event": prompt_event, "iteration": it})
-        except Exception:
-            _LOG.warning("%s identity_trace_cb raised; ignoring", log_label, exc_info=True)
-
-    def _emit_kernel_llm_observability(
-        self,
-        context: OrchestratorContext,
-        *,
-        prompt_char_count: int,
-        parse_ok: bool,
-        parse_reason_code: str | None,
-        prompt_mode: str,
-    ) -> None:
-        self._emit_identity_prompt_event(
-            context,
-            pe_id_suffix="kernel_llm",
-            surface="orchestration_kernel_llm_turn",
-            outcome_kind_parsed="kernel_action_plan_parsed",
-            outcome_kind_failed="kernel_action_plan_parse_failed",
-            prompt_char_count=prompt_char_count,
-            parse_ok=parse_ok,
-            parse_reason_code=parse_reason_code,
-            prompt_mode=prompt_mode,
-            log_label="kernel llm",
-        )
-
-    def _emit_compaction_kernel_llm_observability(
-        self,
-        context: OrchestratorContext,
-        *,
-        prompt_char_count: int,
-        parse_ok: bool,
-        parse_reason_code: str | None,
-        prompt_mode: str,
-    ) -> None:
-        self._emit_identity_prompt_event(
-            context,
-            pe_id_suffix="kernel_continuity_compaction",
-            surface="orchestration_kernel_continuity_compaction",
-            outcome_kind_parsed="kernel_continuity_compaction_parsed",
-            outcome_kind_failed="kernel_continuity_compaction_parse_failed",
-            prompt_char_count=prompt_char_count,
-            parse_ok=parse_ok,
-            parse_reason_code=parse_reason_code,
-            prompt_mode=prompt_mode,
-            log_label="compaction kernel llm",
-        )
 
 
 def _serialize_state(state: Any) -> Any:

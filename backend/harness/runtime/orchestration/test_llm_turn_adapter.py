@@ -13,14 +13,15 @@ from harness.runtime.memory.continuity_journal import (
     recent_step_records_for_prompt,
     wrap_journal_entry,
 )
-from harness.runtime.orchestration.contracts import OrchestratorContext
-from harness.runtime.orchestration.trace_collector import KernelTraceCollector
 from harness.runtime.orchestration.contracts import ActionPlan
 from harness.runtime.orchestration.action_plan_parser import (
     ModelActionParseError,
     parse_action_plan_response as _coerce_action_plan,
 )
+from harness.runtime.orchestration.contracts import OrchestratorContext
 from harness.runtime.orchestration.llm_turn_adapter import LlmTurnOrchestrationAdapter
+from harness.runtime.orchestration.llm_turn_lifecycle import LlmTurnPreChooseActionParticipant
+from harness.runtime.orchestration.trace_collector import KernelTraceCollector
 from harness.execution.session import ExecutionSessionManager
 
 _LLM_CJ = {"llm_continuity_turn": True}
@@ -199,14 +200,51 @@ def _minimal_llm_adapter(**kwargs: Any) -> LlmTurnOrchestrationAdapter:
         text_model_caller=kwargs["caller"],
         model_name=str(kwargs.get("model_name", "fake")),
         opaque_launch_context=dict(kwargs.get("opaque") or {}),
-        continuity_compaction_prompt_char_threshold=kwargs.get("continuity_compaction_prompt_char_threshold"),
-        continuity_compaction_trigger_fraction=kwargs.get("continuity_compaction_trigger_fraction"),
-        continuity_compaction_max_prompt_chars=kwargs.get("continuity_compaction_max_prompt_chars"),
         continuity_journal_verbatim_keep_n=int(kwargs.get("continuity_journal_verbatim_keep_n", 5)),
     )
 
 
-def _orch_context(*, iterations: int = 1) -> OrchestratorContext:
+def _minimal_pre_choose_action_participant(**kwargs: Any) -> LlmTurnPreChooseActionParticipant:
+    composed = ComposedTurnInput(
+        blocks=(TurnBlock(content="block"),),
+        surface_payloads={},
+        tool_handlers={"noop": lambda x: x},
+    )
+    return LlmTurnPreChooseActionParticipant(
+        composed_input=composed,
+        text_model_caller=kwargs["caller"],
+        model_name=str(kwargs.get("model_name", "fake")),
+        opaque_launch_context=dict(kwargs.get("opaque") or {}),
+        continuity_compaction_prompt_char_threshold=kwargs.get("continuity_compaction_prompt_char_threshold"),
+        continuity_compaction_trigger_fraction=kwargs.get("continuity_compaction_trigger_fraction"),
+        continuity_compaction_max_prompt_chars=kwargs.get("continuity_compaction_max_prompt_chars"),
+        continuity_journal_verbatim_keep_n=int(kwargs.get("continuity_journal_verbatim_keep_n", 5)),
+        prompt_event_observer=kwargs.get("prompt_event_observer"),
+    )
+
+
+class _PromptEventRecorder:
+    def __init__(self, sink: list[dict[str, Any]]) -> None:
+        self._sink = sink
+
+    def observe_prompt_event(self, info: dict[str, Any]) -> None:
+        self._sink.append(dict(info))
+
+
+class _RawIoRecorder:
+    def __init__(self, sink: list[dict[str, Any]]) -> None:
+        self._sink = sink
+
+    def observe_llm_io(self, record: dict[str, Any]) -> None:
+        self._sink.append(dict(record))
+
+
+def _orch_context(
+    *,
+    iterations: int = 1,
+    prompt_event_observer: Any = None,
+    raw_llm_io_observer: Any = None,
+) -> OrchestratorContext:
     lm = LoopMemoryState()
     lm.iterations = iterations
     return OrchestratorContext(
@@ -215,6 +253,8 @@ def _orch_context(*, iterations: int = 1) -> OrchestratorContext:
         loop_memory=lm,
         request_id_prefix="req-llm",
         opaque_run_context={},
+        prompt_event_observer=prompt_event_observer,
+        raw_llm_io_observer=raw_llm_io_observer,
     )
 
 
@@ -237,13 +277,13 @@ def test_llm_turn_adapter_emits_one_prompt_event_per_successful_choose_action() 
             }
         )
 
-    adapter = _minimal_llm_adapter(caller=caller)
-
-    def cb(info: dict[str, Any]) -> None:
-        payloads.append(dict(info))
-
-    adapter.wire_identity_trace_cb(cb)
-    ctx = _orch_context(iterations=2)
+    adapter = _minimal_llm_adapter(
+        caller=caller,
+    )
+    ctx = _orch_context(
+        iterations=2,
+        prompt_event_observer=_PromptEventRecorder(payloads),
+    )
     plan = adapter.choose_action(ctx, projection=None)
     assert plan.action_type == "noop"
     assert len(payloads) == 1
@@ -262,9 +302,13 @@ def test_llm_turn_adapter_emits_parse_failed_prompt_event_before_raising() -> No
     def caller(prompt: str, model: str, **_kwargs: Any) -> str:
         return "not-json"
 
-    adapter = _minimal_llm_adapter(caller=caller)
-    adapter.wire_identity_trace_cb(lambda info: payloads.append(dict(info)))
-    ctx = _orch_context(iterations=1)
+    adapter = _minimal_llm_adapter(
+        caller=caller,
+    )
+    ctx = _orch_context(
+        iterations=1,
+        prompt_event_observer=_PromptEventRecorder(payloads),
+    )
 
     with pytest.raises(ModelActionParseError):
         adapter.choose_action(ctx, projection=None)
@@ -324,8 +368,9 @@ def test_choose_action_prompt_carries_prior_journal_progress_and_compacted_summa
     assert "skipped" in p
 
 
-def test_run_continuity_pre_choose_action_invokes_compaction_llm_and_traces() -> None:
+def test_pre_choose_action_participant_invokes_compaction_llm_and_traces() -> None:
     calls: list[str] = []
+    payloads: list[dict[str, Any]] = []
 
     def caller(prompt: str, model: str, **_kwargs: Any) -> str:
         calls.append(prompt)
@@ -334,10 +379,11 @@ def test_run_continuity_pre_choose_action_invokes_compaction_llm_and_traces() ->
             return json.dumps({"compacted_continuity_summary": "merged-from-model"})
         raise AssertionError("unexpected prompt branch")
 
-    adapter = _minimal_llm_adapter(
+    participant = _minimal_pre_choose_action_participant(
         caller=caller,
         continuity_compaction_prompt_char_threshold=1,
         continuity_journal_verbatim_keep_n=2,
+        prompt_event_observer=_PromptEventRecorder(payloads),
     )
     ctx = _orch_context(iterations=3)
     for i in range(1, 6):
@@ -356,11 +402,13 @@ def test_run_continuity_pre_choose_action_invokes_compaction_llm_and_traces() ->
             }
         )
     tracer = KernelTraceCollector(session_id="s-compact", request_id="r-compact")
-    adapter.run_continuity_pre_choose_action(ctx, None, tracer=tracer)
+    participant.before_choose_action(ctx, None, tracer=tracer)
     assert ctx.loop_memory.continuity.compacted_continuity_summary == "merged-from-model"
     kinds = [e["event_kind"] for e in tracer.build_raw_events()]
     assert "continuity_compacted" in kinds
     assert len(calls) == 1
+    assert len(payloads) == 1
+    assert payloads[0]["prompt_event"]["outcome_kind"] == "kernel_continuity_compaction_parsed"
     assert "journal_entries_to_fold" in calls[0]
     assert "kernel_step_result_records_to_fold" in calls[0]
     assert "target_compacted_summary_chars" in calls[0]
@@ -380,7 +428,7 @@ def test_run_continuity_occupancy_fraction_triggers(monkeypatch: pytest.MonkeyPa
             return json.dumps({"compacted_continuity_summary": "occ-merge"})
         raise AssertionError("unexpected prompt branch")
 
-    adapter = _minimal_llm_adapter(
+    participant = _minimal_pre_choose_action_participant(
         caller=caller,
         continuity_compaction_trigger_fraction=0.25,
         continuity_journal_verbatim_keep_n=2,
@@ -403,7 +451,7 @@ def test_run_continuity_occupancy_fraction_triggers(monkeypatch: pytest.MonkeyPa
             }
         )
     tracer = KernelTraceCollector(session_id="s-occ", request_id="r-occ")
-    adapter.run_continuity_pre_choose_action(ctx, None, tracer=tracer)
+    participant.before_choose_action(ctx, None, tracer=tracer)
     assert ctx.loop_memory.continuity.compacted_continuity_summary == "occ-merge"
     assert len(calls) == 1
 
@@ -422,7 +470,7 @@ def test_run_continuity_occupancy_fraction_does_not_trigger_when_below_threshold
         calls.append(prompt)
         return json.dumps({"compacted_continuity_summary": "should-not-run"})
 
-    adapter = _minimal_llm_adapter(
+    participant = _minimal_pre_choose_action_participant(
         caller=caller,
         continuity_compaction_trigger_fraction=0.99,
         continuity_journal_verbatim_keep_n=2,
@@ -432,7 +480,7 @@ def test_run_continuity_occupancy_fraction_does_not_trigger_when_below_threshold
         wrap_journal_entry(kernel_turn_index=1, author_payload={"k": 1})
     )
     tracer = KernelTraceCollector(session_id="s-below", request_id="r-below")
-    adapter.run_continuity_pre_choose_action(ctx, None, tracer=tracer)
+    participant.before_choose_action(ctx, None, tracer=tracer)
     assert calls == []
     assert ctx.loop_memory.continuity.compacted_continuity_summary is None
 
@@ -448,7 +496,7 @@ def test_run_continuity_fraction_with_unregistered_model_uses_250k_fallback_in_t
             return json.dumps({"compacted_continuity_summary": "fb-merge"})
         raise AssertionError("unexpected prompt branch")
 
-    adapter = _minimal_llm_adapter(
+    participant = _minimal_pre_choose_action_participant(
         caller=caller,
         continuity_compaction_trigger_fraction=0.005,
         continuity_journal_verbatim_keep_n=1,
@@ -463,7 +511,7 @@ def test_run_continuity_fraction_with_unregistered_model_uses_250k_fallback_in_t
             {"kernel_turn_index": i, "action_type": "noop", "execution_state": "skipped"}
         )
     tracer = KernelTraceCollector(session_id="s-fb", request_id="r-fb")
-    adapter.run_continuity_pre_choose_action(ctx, None, tracer=tracer)
+    participant.before_choose_action(ctx, None, tracer=tracer)
     assert ctx.loop_memory.continuity.compacted_continuity_summary == "fb-merge"
     assert len(calls) == 1
     evs = [e for e in tracer.build_raw_events() if e.get("event_kind") == "continuity_compacted"]
@@ -479,7 +527,7 @@ def test_second_compaction_does_not_resend_already_covered_turn_rows() -> None:
             return json.dumps({"compacted_continuity_summary": "updated"})
         raise AssertionError("unexpected prompt branch")
 
-    adapter = _minimal_llm_adapter(
+    participant = _minimal_pre_choose_action_participant(
         caller=caller,
         continuity_compaction_prompt_char_threshold=1,
         continuity_journal_verbatim_keep_n=2,
@@ -514,8 +562,8 @@ def test_second_compaction_does_not_resend_already_covered_turn_rows() -> None:
             }
         )
     tracer = KernelTraceCollector(session_id="s-wm", request_id="r-wm")
-    adapter.run_continuity_pre_choose_action(ctx, None, tracer=tracer)
-    adapter.run_continuity_pre_choose_action(ctx, None, tracer=tracer)
+    participant.before_choose_action(ctx, None, tracer=tracer)
+    participant.before_choose_action(ctx, None, tracer=tracer)
     assert len(calls) == 2
     assert '"tag": 1' in calls[0]
     assert '"tag": 1' not in calls[1]
@@ -1280,8 +1328,10 @@ def test_choose_action_provider_failure_emits_correct_observability() -> None:
         return _provider_failure_response("Connection error.")
 
     adapter = _minimal_llm_adapter(caller=caller)
-    adapter.wire_identity_trace_cb(lambda info: payloads.append(dict(info)))
-    ctx = _orch_context(iterations=1)
+    ctx = _orch_context(
+        iterations=1,
+        prompt_event_observer=_PromptEventRecorder(payloads),
+    )
 
     with pytest.raises(ModelActionParseError):
         adapter.choose_action(ctx, projection=None)
@@ -1312,7 +1362,7 @@ def test_choose_action_json_failure_still_repairs() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Raw I/O audit callback (wire_raw_io_cb)
+# Raw I/O audit observer
 # ---------------------------------------------------------------------------
 
 
@@ -1324,8 +1374,10 @@ def test_choose_action_emits_raw_io_on_clean_success() -> None:
         return _VALID_PLAN_JSON
 
     adapter = _minimal_llm_adapter(caller=caller)
-    adapter.wire_raw_io_cb(records.append)
-    adapter.choose_action(_orch_context(iterations=3), projection=None)
+    adapter.choose_action(
+        _orch_context(iterations=3, raw_llm_io_observer=_RawIoRecorder(records)),
+        projection=None,
+    )
 
     assert len(records) == 1
     rec = records[0]
@@ -1348,8 +1400,10 @@ def test_choose_action_emits_raw_io_on_repair_success() -> None:
         return "not-json" if len(calls) == 1 else _VALID_PLAN_JSON
 
     adapter = _minimal_llm_adapter(caller=caller)
-    adapter.wire_raw_io_cb(records.append)
-    adapter.choose_action(_orch_context(iterations=2), projection=None)
+    adapter.choose_action(
+        _orch_context(iterations=2, raw_llm_io_observer=_RawIoRecorder(records)),
+        projection=None,
+    )
 
     assert len(records) == 1
     rec = records[0]
@@ -1369,10 +1423,12 @@ def test_choose_action_emits_raw_io_on_provider_failure() -> None:
         return {"success": False, "error": "Connection error."}
 
     adapter = _minimal_llm_adapter(caller=caller)
-    adapter.wire_raw_io_cb(records.append)
 
     with pytest.raises(ModelActionParseError):
-        adapter.choose_action(_orch_context(iterations=1), projection=None)
+        adapter.choose_action(
+            _orch_context(iterations=1, raw_llm_io_observer=_RawIoRecorder(records)),
+            projection=None,
+        )
 
     assert len(records) == 1
     rec = records[0]
@@ -1398,12 +1454,15 @@ def test_raw_io_cb_exception_does_not_break_choose_action() -> None:
     def caller(prompt: str, model: str, **_kwargs: Any) -> str:
         return _VALID_PLAN_JSON
 
-    def bad_cb(data: dict[str, Any]) -> None:
-        raise RuntimeError("audit cb exploded")
+    class _ExplodingObserver:
+        def observe_llm_io(self, record: dict[str, Any]) -> None:
+            raise RuntimeError("audit observer exploded")
 
     adapter = _minimal_llm_adapter(caller=caller)
-    adapter.wire_raw_io_cb(bad_cb)
-    plan = adapter.choose_action(_orch_context(iterations=1), projection=None)
+    plan = adapter.choose_action(
+        _orch_context(iterations=1, raw_llm_io_observer=_ExplodingObserver()),
+        projection=None,
+    )
     assert plan.action_type == "noop"
 
 
@@ -1422,8 +1481,10 @@ def test_repair_audit_record_contains_prompt_and_response_texts() -> None:
         return "not-json" if len(calls) == 1 else _VALID_PLAN_JSON
 
     adapter = _minimal_llm_adapter(caller=caller)
-    adapter.wire_raw_io_cb(records.append)
-    adapter.choose_action(_orch_context(iterations=4), projection=None)
+    adapter.choose_action(
+        _orch_context(iterations=4, raw_llm_io_observer=_RawIoRecorder(records)),
+        projection=None,
+    )
 
     assert len(records) == 1
     rec = records[0]
@@ -1447,10 +1508,12 @@ def test_repair_failed_audit_record_contains_reason_code() -> None:
         return "not-json"  # always bad
 
     adapter = _minimal_llm_adapter(caller=caller)
-    adapter.wire_raw_io_cb(records.append)
 
     with pytest.raises(ModelActionParseError):
-        adapter.choose_action(_orch_context(iterations=1), projection=None)
+        adapter.choose_action(
+            _orch_context(iterations=1, raw_llm_io_observer=_RawIoRecorder(records)),
+            projection=None,
+        )
 
     assert len(records) == 1
     rec = records[0]
@@ -1469,8 +1532,10 @@ def test_clean_turn_has_empty_repair_records() -> None:
         return _VALID_PLAN_JSON
 
     adapter = _minimal_llm_adapter(caller=caller)
-    adapter.wire_raw_io_cb(records.append)
-    adapter.choose_action(_orch_context(iterations=1), projection=None)
+    adapter.choose_action(
+        _orch_context(iterations=1, raw_llm_io_observer=_RawIoRecorder(records)),
+        projection=None,
+    )
 
     rec = records[0]
     assert rec["repair_attempted"] is False
@@ -1490,8 +1555,10 @@ def test_choose_action_audit_includes_state_before_snapshot() -> None:
         return _VALID_PLAN_JSON
 
     adapter = _minimal_llm_adapter(caller=caller)
-    adapter.wire_raw_io_cb(records.append)
-    ctx = _orch_context(iterations=1)
+    ctx = _orch_context(
+        iterations=1,
+        raw_llm_io_observer=_RawIoRecorder(records),
+    )
     ctx.loop_memory.continuity.latest_refs = {"existing": "ref://x"}
     adapter.choose_action(ctx, projection=None)
 
@@ -1499,73 +1566,3 @@ def test_choose_action_audit_includes_state_before_snapshot() -> None:
     assert "mission_state_before" in rec
     assert "resolution_state_before" in rec
     assert rec["latest_refs_before"] == {"existing": "ref://x"}
-
-
-# ---------------------------------------------------------------------------
-# on_turn_completed wiring
-# ---------------------------------------------------------------------------
-
-
-def test_wire_turn_result_cb_and_on_turn_completed_delivers_data() -> None:
-    """on_turn_completed fires turn_result_cb with expected keys."""
-    results: list[dict[str, Any]] = []
-
-    def caller(prompt: str, model: str, **_kwargs: Any) -> str:
-        return _VALID_PLAN_JSON
-
-    adapter = _minimal_llm_adapter(caller=caller)
-    adapter.wire_turn_result_cb(results.append)
-    adapter.on_turn_completed(
-        3,
-        tool_request={"action_type": "noop"},
-        tool_result_raw={"execution_state": "executed"},
-        mission_state_after=None,
-        resolution_state_after=None,
-        latest_refs_after={"k": "v"},
-        state_patch_feedback={},
-        terminal_decision=None,
-    )
-
-    assert len(results) == 1
-    r = results[0]
-    assert r["turn_index"] == 3
-    assert r["tool_request"]["action_type"] == "noop"
-    assert r["latest_refs_after"] == {"k": "v"}
-
-
-def test_on_turn_completed_with_no_cb_does_not_raise() -> None:
-    """on_turn_completed must be safe to call with no turn_result_cb wired."""
-
-    def caller(prompt: str, model: str, **_kwargs: Any) -> str:
-        return _VALID_PLAN_JSON
-
-    adapter = _minimal_llm_adapter(caller=caller)
-    # No wire_turn_result_cb call — must not raise.
-    adapter.on_turn_completed(
-        1,
-        tool_request=None,
-        tool_result_raw=None,
-        mission_state_after=None,
-        resolution_state_after=None,
-        latest_refs_after={},
-        state_patch_feedback={},
-        terminal_decision="complete_run",
-    )
-
-
-def test_turn_result_cb_exception_does_not_break_on_turn_completed() -> None:
-    """If turn_result_cb raises, on_turn_completed must suppress it."""
-
-    adapter = _minimal_llm_adapter(caller=lambda *a, **kw: _VALID_PLAN_JSON)
-    adapter.wire_turn_result_cb(lambda _: (_ for _ in ()).throw(RuntimeError("boom")))
-    # Should not raise.
-    adapter.on_turn_completed(
-        1,
-        tool_request=None,
-        tool_result_raw=None,
-        mission_state_after=None,
-        resolution_state_after=None,
-        latest_refs_after={},
-        state_patch_feedback={},
-        terminal_decision=None,
-    )

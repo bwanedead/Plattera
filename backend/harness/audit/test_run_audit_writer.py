@@ -17,7 +17,7 @@ from harness.runtime.orchestration.contracts import ActionPlan
 
 def test_run_audit_writer_noop_when_no_dir() -> None:
     writer = RunAuditWriter(None)
-    writer.on_llm_io({"turn_index": 1, "raw_prompt_text": "hello"})
+    writer.observe_llm_io({"turn_index": 1, "raw_prompt_text": "hello"})
     writer.finalize(
         terminal_class="completed",
         reason_code="complete_run",
@@ -31,8 +31,8 @@ def test_run_audit_writer_noop_when_no_dir() -> None:
 
 def test_run_audit_writer_noop_buffers_nothing_when_no_dir() -> None:
     writer = RunAuditWriter(None)
-    writer.on_llm_io({"turn_index": 1})
-    writer.on_llm_io({"turn_index": 2})
+    writer.observe_llm_io({"turn_index": 1})
+    writer.observe_llm_io({"turn_index": 2})
     assert writer._turns == []  # buffer stays empty when dir is None
 
 
@@ -43,8 +43,8 @@ def test_run_audit_writer_noop_buffers_nothing_when_no_dir() -> None:
 
 def test_on_llm_io_buffers_turns(tmp_path: Path) -> None:
     writer = RunAuditWriter(tmp_path / "run1")
-    writer.on_llm_io({"turn_index": 1, "raw_prompt_text": "prompt1"})
-    writer.on_llm_io({"turn_index": 2, "raw_prompt_text": "prompt2"})
+    writer.observe_llm_io({"turn_index": 1, "raw_prompt_text": "prompt1"})
+    writer.observe_llm_io({"turn_index": 2, "raw_prompt_text": "prompt2"})
     assert len(writer._turns) == 2
     assert writer._turns[0]["turn_index"] == 1
     assert writer._turns[1]["raw_prompt_text"] == "prompt2"
@@ -52,7 +52,7 @@ def test_on_llm_io_buffers_turns(tmp_path: Path) -> None:
 
 def test_on_llm_io_writes_turn_file_immediately(tmp_path: Path) -> None:
     writer = RunAuditWriter(tmp_path / "run1")
-    writer.on_llm_io({
+    writer.observe_llm_io({
         "turn_index": 1,
         "raw_prompt_text": "prompt1",
         "repair_records": [],
@@ -66,7 +66,7 @@ def test_on_llm_io_writes_turn_file_immediately(tmp_path: Path) -> None:
 
 def test_on_llm_io_preserves_identity_fields_for_turn_lineage(tmp_path: Path) -> None:
     writer = RunAuditWriter(tmp_path / "run1")
-    writer.on_llm_io(
+    writer.observe_llm_io(
         {
             "turn_index": 3,
             "iteration_index": 3,
@@ -89,7 +89,7 @@ def test_on_llm_io_preserves_identity_fields_for_turn_lineage(tmp_path: Path) ->
 
 def test_on_llm_io_normalizes_non_json_payloads(tmp_path: Path) -> None:
     writer = RunAuditWriter(tmp_path / "run1")
-    writer.on_llm_io({
+    writer.observe_llm_io({
         "turn_index": 1,
         "repair_attempted": True,
         "repair_records": [
@@ -114,8 +114,8 @@ def test_on_llm_io_normalizes_non_json_payloads(tmp_path: Path) -> None:
 
 def test_finalize_writes_turn_files(tmp_path: Path) -> None:
     writer = RunAuditWriter(tmp_path / "run1")
-    writer.on_llm_io({"turn_index": 1, "parse_ok": True, "raw_prompt_text": "p1"})
-    writer.on_llm_io({"turn_index": 2, "parse_ok": False, "raw_prompt_text": "p2"})
+    writer.observe_llm_io({"turn_index": 1, "parse_ok": True, "raw_prompt_text": "p1"})
+    writer.observe_llm_io({"turn_index": 2, "parse_ok": False, "raw_prompt_text": "p2"})
     writer.finalize(terminal_class="completed", reason_code="done", iterations=2, latest_refs={}, trace_events=[])
 
     audit_dir = tmp_path / "run1" / "audit"
@@ -129,8 +129,8 @@ def test_finalize_writes_turn_files(tmp_path: Path) -> None:
 
 def test_finalize_writes_index(tmp_path: Path) -> None:
     writer = RunAuditWriter(tmp_path / "run1")
-    writer.on_llm_io({"turn_index": 1, "repair_attempted": False})
-    writer.on_llm_io({"turn_index": 2, "repair_attempted": True})
+    writer.observe_llm_io({"turn_index": 1, "repair_attempted": False})
+    writer.observe_llm_io({"turn_index": 2, "repair_attempted": True})
     writer.finalize(
         terminal_class="failed",
         reason_code="model_call_failed",
@@ -151,7 +151,7 @@ def test_finalize_writes_index(tmp_path: Path) -> None:
 
 def test_finalize_writes_review_md(tmp_path: Path) -> None:
     writer = RunAuditWriter(tmp_path / "run1")
-    writer.on_llm_io({"turn_index": 1})
+    writer.observe_llm_io({"turn_index": 1})
     trace = [
         {"event_kind": "tool_execution", "iteration_index": 1,
          "payload": {"action_type": "my_tool", "execution_state": "executed"}},
@@ -173,7 +173,7 @@ def test_finalize_noop_on_error_does_not_raise(tmp_path: Path) -> None:
     """finalize must not propagate exceptions even if directory creation fails."""
     writer = RunAuditWriter(tmp_path / "run1")
     writer._dir = Path("/nonexistent_root_xyz/audit")  # force an OS error
-    writer.on_llm_io({"turn_index": 1})
+    writer.observe_llm_io({"turn_index": 1})
     writer.finalize(terminal_class="completed", reason_code="done", iterations=1, latest_refs={}, trace_events=[])
     # Asserts that no exception propagated.
 
@@ -219,7 +219,7 @@ def test_extract_tool_sequence_empty_on_no_events() -> None:
 
 def test_repair_records_written_in_turn_file(tmp_path: Path) -> None:
     writer = RunAuditWriter(tmp_path / "run1")
-    writer.on_llm_io({
+    writer.observe_llm_io({
         "turn_index": 1,
         "parse_ok": False,
         "parse_reason_code": "invalid_model_action_json",
@@ -248,7 +248,7 @@ def test_repair_records_written_in_turn_file(tmp_path: Path) -> None:
 
 def test_repair_failed_written_in_turn_file(tmp_path: Path) -> None:
     writer = RunAuditWriter(tmp_path / "run1")
-    writer.on_llm_io({
+    writer.observe_llm_io({
         "turn_index": 1,
         "parse_ok": False,
         "repair_attempted": True,
@@ -277,10 +277,10 @@ def test_repair_failed_written_in_turn_file(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_tool_request_and_result_written_via_on_turn_completed(tmp_path: Path) -> None:
+def test_tool_request_and_result_written_via_turn_completion_observer(tmp_path: Path) -> None:
     writer = RunAuditWriter(tmp_path / "run1")
-    writer.on_llm_io({"turn_index": 2, "parse_ok": True})
-    writer.on_turn_completed({
+    writer.observe_llm_io({"turn_index": 2, "parse_ok": True})
+    writer.observe_turn_completed({
         "turn_index": 2,
         "tool_request": {"action_type": "my_tool", "action_inputs": {"x": 1}, "skip_execution": False,
                          "wait_for_human": False, "complete_run": False, "rationale": None, "idempotency_key": "ik"},
@@ -302,8 +302,8 @@ def test_tool_request_and_result_written_via_on_turn_completed(tmp_path: Path) -
 
 def test_on_turn_completed_writes_turn_file_immediately(tmp_path: Path) -> None:
     writer = RunAuditWriter(tmp_path / "run1")
-    writer.on_llm_io({"turn_index": 2, "parse_ok": True})
-    writer.on_turn_completed({
+    writer.observe_llm_io({"turn_index": 2, "parse_ok": True})
+    writer.observe_turn_completed({
         "turn_index": 2,
         "tool_request": {"action_type": "my_tool", "action_inputs": {}},
         "tool_result_raw": {"execution_state": "executed"},
@@ -321,8 +321,8 @@ def test_on_turn_completed_writes_turn_file_immediately(tmp_path: Path) -> None:
 
 def test_finalize_failure_does_not_erase_earlier_turn_files(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     writer = RunAuditWriter(tmp_path / "run1")
-    writer.on_llm_io({"turn_index": 1, "raw_prompt_text": "p1"})
-    writer.on_llm_io({"turn_index": 2, "raw_prompt_text": "p2"})
+    writer.observe_llm_io({"turn_index": 1, "raw_prompt_text": "p1"})
+    writer.observe_llm_io({"turn_index": 2, "raw_prompt_text": "p2"})
 
     def boom(*args: Any, **kwargs: Any) -> None:
         raise RuntimeError("boom")
@@ -346,7 +346,7 @@ def test_finalize_failure_does_not_erase_earlier_turn_files(tmp_path: Path, monk
 def test_on_turn_completed_without_prior_llm_io_creates_stub(tmp_path: Path) -> None:
     writer = RunAuditWriter(tmp_path / "run1")
     # No on_llm_io call — turn_completed arrives orphaned (e.g. choose_action was skipped).
-    writer.on_turn_completed({
+    writer.observe_turn_completed({
         "turn_index": 5,
         "tool_request": None,
         "tool_result_raw": None,
@@ -370,7 +370,7 @@ def test_on_turn_completed_without_prior_llm_io_creates_stub(tmp_path: Path) -> 
 
 def test_state_snapshots_before_written(tmp_path: Path) -> None:
     writer = RunAuditWriter(tmp_path / "run1")
-    writer.on_llm_io({
+    writer.observe_llm_io({
         "turn_index": 1,
         "parse_ok": True,
         "mission_state_before": {"mission_id": "m1"},
@@ -384,10 +384,10 @@ def test_state_snapshots_before_written(tmp_path: Path) -> None:
     assert turn["latest_refs_before"] == {"prior_ref": "artifact://old"}
 
 
-def test_state_snapshots_after_written_via_on_turn_completed(tmp_path: Path) -> None:
+def test_state_snapshots_after_written_via_turn_completion_observer(tmp_path: Path) -> None:
     writer = RunAuditWriter(tmp_path / "run1")
-    writer.on_llm_io({"turn_index": 1, "parse_ok": True, "latest_refs_before": {}})
-    writer.on_turn_completed({
+    writer.observe_llm_io({"turn_index": 1, "parse_ok": True, "latest_refs_before": {}})
+    writer.observe_turn_completed({
         "turn_index": 1,
         "tool_request": None,
         "tool_result_raw": None,
@@ -413,7 +413,7 @@ def test_state_snapshots_after_written_via_on_turn_completed(tmp_path: Path) -> 
 
 def test_failed_run_still_writes_turn_with_raw_llm_io(tmp_path: Path) -> None:
     writer = RunAuditWriter(tmp_path / "run1")
-    writer.on_llm_io({
+    writer.observe_llm_io({
         "turn_index": 1,
         "raw_prompt_text": "the prompt",
         "raw_llm_response_text": "not-json",
@@ -446,8 +446,8 @@ def test_failed_run_still_writes_turn_with_raw_llm_io(tmp_path: Path) -> None:
 
 def test_review_md_includes_per_turn_tool_summary(tmp_path: Path) -> None:
     writer = RunAuditWriter(tmp_path / "run1")
-    writer.on_llm_io({"turn_index": 1, "parse_ok": True, "latest_refs_before": {}, "repair_attempted": False, "repair_records": []})
-    writer.on_turn_completed({
+    writer.observe_llm_io({"turn_index": 1, "parse_ok": True, "latest_refs_before": {}, "repair_attempted": False, "repair_records": []})
+    writer.observe_turn_completed({
         "turn_index": 1,
         "tool_request": {"action_type": "fetch_doc", "action_inputs": {}, "skip_execution": False,
                          "wait_for_human": False, "complete_run": False, "rationale": None, "idempotency_key": ""},
@@ -467,10 +467,10 @@ def test_review_md_includes_per_turn_tool_summary(tmp_path: Path) -> None:
 
 def test_review_md_flags_repairs(tmp_path: Path) -> None:
     writer = RunAuditWriter(tmp_path / "run1")
-    writer.on_llm_io({"turn_index": 1, "parse_ok": False, "repair_attempted": True,
+    writer.observe_llm_io({"turn_index": 1, "parse_ok": False, "repair_attempted": True,
                       "repair_records": [{"repair_parse_ok": True}],
                       "latest_refs_before": {}})
-    writer.on_turn_completed({
+    writer.observe_turn_completed({
         "turn_index": 1, "tool_request": None, "tool_result_raw": None,
         "mission_state_after": None, "resolution_state_after": None,
         "latest_refs_after": {}, "state_patch_feedback": {}, "terminal_decision": "complete_run",
@@ -489,8 +489,8 @@ def test_review_md_flags_repairs(tmp_path: Path) -> None:
 
 def test_image_evidence_persisted_in_tool_result_raw(tmp_path: Path) -> None:
     writer = RunAuditWriter(tmp_path / "run1")
-    writer.on_llm_io({"turn_index": 1, "parse_ok": True})
-    writer.on_turn_completed({
+    writer.observe_llm_io({"turn_index": 1, "parse_ok": True})
+    writer.observe_turn_completed({
         "turn_index": 1,
         "tool_request": {"action_type": "hydrate_artifact_refs"},
         "tool_result_raw": {
@@ -520,8 +520,8 @@ def test_image_evidence_persisted_in_tool_result_raw(tmp_path: Path) -> None:
 
 def test_image_evidence_empty_list_when_absent(tmp_path: Path) -> None:
     writer = RunAuditWriter(tmp_path / "run1")
-    writer.on_llm_io({"turn_index": 1, "parse_ok": True})
-    writer.on_turn_completed({
+    writer.observe_llm_io({"turn_index": 1, "parse_ok": True})
+    writer.observe_turn_completed({
         "turn_index": 1,
         "tool_request": {"action_type": "save_workspace_artifact"},
         "tool_result_raw": {
