@@ -446,3 +446,31 @@ def test_startup_context_artifact_description_names_original_only() -> None:
 
     assert ":original" in text
     assert ":processed" not in text
+
+
+# ---------------------------------------------------------------------------
+# Workstream 2: turn-local image evidence doctrine
+# ---------------------------------------------------------------------------
+
+
+def test_branch_teaches_turn_local_image_evidence() -> None:
+    """Branch doctrine must explicitly state that hydrated image content is turn-local."""
+    blocks = build_transcript_edit_branch_blocks()
+    text = blocks[0].text.lower()
+    assert "hydrated image evidence is turn-local" in text or "turn-local" in text
+    assert "record" in text
+    assert "same turn" in text
+
+
+def test_procedural_guidance_reinforces_image_observation_recording() -> None:
+    """Procedural guidance must instruct the model to record image observations before moving on."""
+    from domains.mapping.transcript_edit.prompting.surfaces.procedural_guidance import (
+        build_transcript_edit_procedural_guidance_blocks,
+    )
+    blocks = build_transcript_edit_procedural_guidance_blocks()
+    text = blocks[0].text.lower()
+    assert "image evidence" in text or "visual content" in text or "hydrate" in text
+    # Must mention recording/updating state from the image observation
+    assert "record" in text or "update" in text
+    # Must warn against moving on without recording
+    assert "moving on" in text or "move" in text or "without recording" in text

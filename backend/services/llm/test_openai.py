@@ -56,6 +56,16 @@ def test_call_text_uses_expanded_budget_for_choose_action_json_phase() -> None:
     assert completions.last_kwargs["reasoning_effort"] == "medium"
 
 
+def test_gpt54_model_entry_exists_in_registry() -> None:
+    """gpt-5.4 (full, not mini) must be a registered model for the default runner to resolve it."""
+    assert "gpt-5.4" in OpenAIService.models
+    entry = OpenAIService.models["gpt-5.4"]
+    assert entry["provider"] == "openai"
+    assert entry.get("api_model_name") == "gpt-5.4"
+    # mini must still exist as an explicit override option
+    assert "gpt-5.4-mini" in OpenAIService.models
+
+
 def test_call_text_keeps_default_budget_for_non_action_phase() -> None:
     service, completions = _service_with_fake_client()
 

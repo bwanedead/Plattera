@@ -10,7 +10,7 @@ from ..branch import TRANSCRIPT_EDIT_DOMAIN_ID
 TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_SOURCE_REF = (
     "backend/domains/mapping/transcript_edit/prompting/surfaces/procedural_guidance.py"
 )
-TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_VERSION = "v10"
+TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_VERSION = "v11"
 
 TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_TEXT = """\
 Use this guidance to shape your movement through transcript-edit work. This is **guidance**, not a hard script. The harness still owns orchestration. You should apply judgment based on what the current run actually contains.
@@ -121,6 +121,14 @@ Early in the run, it is usually more honest to keep layers `unassessed`, `in_rev
 If a plausible intrinsic source contradiction remains after deliberate review, create a dedicated Layer 2 concern for it rather than leaving it buried inside a broader Layer 1 delta item.
 If the strongest available in-run checks are exhausted on a material unresolved issue, HITL is usually more honest than continuing indefinitely in posture-only turns.
 
+## Image evidence: record what you see before moving on
+When you hydrate a source image or derived crop, the visual content is directly available for that turn only. If the inspection reveals a material observation — a legible call, an ambiguity, a cutoff, a contradiction, a verification result — record it in the item ledger, closure posture, and/or continuity journal during the same turn. Do not assume the raw visual detail will remain accessible in later turns. A turn that inspects an image and then moves on without recording what was observed is a wasted verification opportunity.
+
+Concretely:
+- If the image confirms a call, update the relevant item to reflect the verified reading and its evidence basis.
+- If the image reveals an ambiguity or cutoff, create or update an item to capture the specific nature of the uncertainty.
+- If the image is not legible enough for the claim in question, record what was attempted and what stronger move remains.
+
 ## What not to do
 - Do not treat one peer draft as the implicit winner because it reads best.
 - Do not inventory only the disagreements while leaving agreed-but-operative deed content effectively unreviewed.
@@ -134,6 +142,7 @@ If the strongest available in-run checks are exhausted on a material unresolved 
 - Do not publish or complete merely because a caveat was mentioned somewhere; closure still depends on whether the unresolved issue is genuinely non-blocking.
 - Do not leave the closure ledger stale while making substantive progress.
 - Do not let generic posture maintenance replace transcript-edit-specific evidence work on peer drafts, source imagery, or closure layers.
+- Do not hydrate an image and then move to the next turn without recording what the image actually showed about the claim under review.
 """
 
 

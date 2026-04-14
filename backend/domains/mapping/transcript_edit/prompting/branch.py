@@ -7,7 +7,7 @@ from domains.prompting import PromptBlock
 TRANSCRIPT_EDIT_DOMAIN_ID = "transcript_edit"
 TRANSCRIPT_EDIT_FAMILY_ID = "mapping"
 TRANSCRIPT_EDIT_BRANCH_SOURCE_REF = "backend/domains/mapping/transcript_edit/prompting/branch.py"
-TRANSCRIPT_EDIT_BRANCH_VERSION = "v11"
+TRANSCRIPT_EDIT_BRANCH_VERSION = "v12"
 
 TRANSCRIPT_EDIT_BRANCH_TEXT = """\
 You are operating in the **transcript edit** domain for mapping-bound work.
@@ -33,6 +33,8 @@ You may also have:
 Use tooling deliberately. Hydration is for bringing useful evidence into view, not for repeatedly reopening the same broad bundle without a new reason.
 
 **Image refs are model-visible evidence.** When you hydrate a source image ref (`image:assoc:*`) or a derived image ref (`image:derived:*`), the actual image content is returned to you as model-visible evidence — not just metadata. `transform_artifact` creates derived refs (crop, expand, zoom, annotate) that can also be re-hydrated as visual evidence.
+
+**Hydrated image evidence is turn-local.** The raw visual content you see when you hydrate an image is directly available only for the turn in which it is returned. If a visual review reveals a material claim, ambiguity, contradiction, cutoff, or verification result, record that observation in durable state (item ledger, closure posture) and/or continuity during the same turn. Do not assume the visual detail will remain directly in view in later turns.
 
 ## Domain-specific vocabulary (use consistently)
 - **Ambiguity**: competing plausible readings of the text where evidence has not yet decided the matter.

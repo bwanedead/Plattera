@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Callable
@@ -25,6 +26,53 @@ class RepairAttempt:
     repair_error: ModelActionParseError | None
 
 
+def _derive_repair_context(
+    previous_response_text: str,
+    parse_error_detail: str,
+) -> tuple[dict[str, Any] | None, list[str]]:
+    """Return (previous_response_object, repair_targets) derived from the prior response.
+
+    Opportunistically parses the prior response text as JSON.  When the text is a
+    valid JSON object, derives structural repair targets from the known shape mistakes.
+    Returns (None, []) when the text is not parseable as a JSON object.
+    """
+    previous_response_object: dict[str, Any] | None = None
+    repair_targets: list[str] = []
+
+    try:
+        parsed = json.loads(previous_response_text)
+    except Exception:
+        return None, []
+
+    if not isinstance(parsed, dict):
+        return None, []
+
+    previous_response_object = parsed
+
+    # Derive structural repair targets from known shape mistakes.
+    error_lower = parse_error_detail.lower()
+
+    # Missing continuity journal: only surface as a target when the parse error itself
+    # explicitly referenced the field. The field is now optional, so absence alone is not
+    # a structural fault; only report it when the error confirms it was the trigger.
+    if "continuity_journal_entry" not in parsed and "continuity_journal_entry" in error_lower:
+        repair_targets.append("add_missing_continuity_journal_entry")
+
+    # Misplaced closure_state: authored at state_patch top-level instead of under mission.
+    state_patch = parsed.get("state_patch")
+    if isinstance(state_patch, dict) and "closure_state" in state_patch:
+        mission = state_patch.get("mission")
+        if not isinstance(mission, dict) or "closure_state" not in mission:
+            repair_targets.append("move_state_patch_closure_state_under_mission")
+
+    # Unknown top-level keys — surface only when the error is specifically about
+    # unexpected action plan keys, not other "unknown" errors (e.g. unknown action_type).
+    if "unexpected action plan keys" in error_lower:
+        repair_targets.append("remove_unknown_top_level_keys")
+
+    return previous_response_object, repair_targets
+
+
 def attempt_repair(
     *,
     model_caller: TextModelCaller,
@@ -35,12 +83,17 @@ def attempt_repair(
     available_tool_ids: tuple[str, ...],
     original_image_attachments: tuple[dict[str, Any], ...] = (),
 ) -> RepairAttempt:
+    previous_response_object, repair_targets = _derive_repair_context(
+        previous_response_text, str(original_exc)
+    )
     repair_prompt = build_repair_prompt_document(
         available_tool_ids=available_tool_ids,
         prior_prompt_mode=prior_prompt_mode,
         parse_reason_code=original_exc.reason_code,
         parse_error_detail=str(original_exc),
         previous_response_text=previous_response_text,
+        previous_response_object=previous_response_object,
+        repair_targets=repair_targets if repair_targets else None,
     )
     repair_prompt_text = repair_prompt.prompt_text
     repair_opts = LlmCallOptions(

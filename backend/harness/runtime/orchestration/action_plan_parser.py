@@ -146,21 +146,19 @@ def parse_action_plan_response(
 
     cje_raw = payload.get("continuity_journal_entry")
     if cje_raw is None:
+        cje_out: dict[str, Any] | None = None
+    elif not isinstance(cje_raw, dict):
         raise ModelActionParseError(
             "invalid_model_action_json",
-            "continuity_journal_entry is required and must be a non-empty JSON object",
+            "continuity_journal_entry must be a JSON object or null",
         )
-    if not isinstance(cje_raw, dict):
+    elif len(cje_raw) < 1:
         raise ModelActionParseError(
             "invalid_model_action_json",
-            "continuity_journal_entry must be a JSON object",
+            "continuity_journal_entry must be a non-empty JSON object when present",
         )
-    cje_out = dict(cje_raw)
-    if len(cje_out) < 1:
-        raise ModelActionParseError(
-            "invalid_model_action_json",
-            "continuity_journal_entry must be a non-empty JSON object",
-        )
+    else:
+        cje_out = dict(cje_raw)
 
     opm_raw = payload.get("operator_progress_message")
     if opm_raw is None:

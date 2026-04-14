@@ -16,7 +16,7 @@ ACTION_PLAN_SCHEMA_TEXT: str = (
     '"complete_run": boolean, '
     '"rationale": string|null, '
     '"state_patch": object|null, '
-    '"continuity_journal_entry": object, '
+    '"continuity_journal_entry": object|null, '
     '"operator_progress_message": string|null, '
     '"hitl_request": object|null, '
     '"hitl_consumed_prompt_ids": array|null'
@@ -28,9 +28,11 @@ CHOOSE_ACTION_INSTRUCTION: str = (
     "The JSON packet below is layered as doctrine_blocks, surface_packet, run_context, and structured_state. "
     "Read those sections and choose one next move that makes truthful, cumulative, evidence-justified progress.\n"
     + ACTION_PLAN_SCHEMA_TEXT
-    + "continuity_journal_entry: required non-empty JSON object each turn (append-only continuity: observations, decisions, "
-    "open threads, expected next). operator_progress_message: optional short user-facing status line; null keeps the prior "
-    "message.\n"
+    + "continuity_journal_entry: optional non-empty JSON object (append-only continuity: observations, decisions, open threads, "
+    "expected next); use when the turn produced observations, decisions, open threads, or next-step understanding worth carrying "
+    "forward — especially after evidence review, image review, HITL integration, or meaningful focus changes; omit (null) when "
+    "the turn has no new continuity delta worth preserving. "
+    "operator_progress_message: optional short user-facing status line; null keeps the prior message.\n"
     "Investigation-first turns are valid. Use them mainly to orient, itemize the real work, repair malformed durable state, "
     "or preserve new understanding that would otherwise be lost before another dispatch. If the most justified progress is to "
     "clarify focus, itemize unresolved work, or record a provisional investigation posture before dispatching another tool, you may return an explicit no-dispatch turn with "

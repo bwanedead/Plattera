@@ -79,6 +79,9 @@ def build_repair_prompt_document(
     parse_reason_code: str,
     parse_error_detail: str,
     previous_response_text: str,
+    previous_response_object: dict[str, Any] | None = None,
+    repair_targets: list[str] | None = None,
+    repair_hints: list[str] | None = None,
 ) -> PromptBuildDocument:
     return _build_repair_prompt_document(
         available_tool_ids=available_tool_ids,
@@ -86,6 +89,9 @@ def build_repair_prompt_document(
         parse_reason_code=parse_reason_code,
         parse_error_detail=parse_error_detail,
         previous_response_text=previous_response_text,
+        previous_response_object=previous_response_object,
+        repair_targets=repair_targets,
+        repair_hints=repair_hints,
     )
 
 

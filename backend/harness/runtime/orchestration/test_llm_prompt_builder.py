@@ -197,6 +197,80 @@ def test_resume_prompt_document_is_explicit_and_slimmer_than_full() -> None:
     assert len(resume_doc.prompt_text) < len(full_doc.prompt_text)
 
 
+def test_repair_prompt_document_includes_parsed_object_when_valid_json() -> None:
+    """When previous_response_text is a valid JSON object, repair context should carry
+    previous_response_object and derive structural repair_targets."""
+    prior_obj = {
+        "action_type": "select_tool",
+        "action_inputs": {},
+        "idempotency_key": "ik-1",
+        "skip_execution": False,
+        "wait_for_human": False,
+        "complete_run": False,
+        "rationale": None,
+        "state_patch": None,
+        # continuity_journal_entry intentionally missing (formerly a failure trigger)
+        "operator_progress_message": None,
+    }
+    prior_text = json.dumps(prior_obj)
+
+    doc = build_repair_prompt_document(
+        available_tool_ids=("select_tool",),
+        prior_prompt_mode="full_choose_action",
+        parse_reason_code="invalid_model_action_json",
+        parse_error_detail="continuity_journal_entry is required",
+        previous_response_text=prior_text,
+        previous_response_object=prior_obj,
+        repair_targets=["add_missing_continuity_journal_entry"],
+    )
+
+    assert doc.mode == "repair"
+    repair_ctx = doc.prompt_body["repair_context"]
+    assert repair_ctx["previous_response_object"] == prior_obj
+    assert "add_missing_continuity_journal_entry" in repair_ctx["repair_targets"]
+
+
+def test_repair_prompt_document_omits_previous_response_object_when_not_provided() -> None:
+    """Without a parsed object, repair context should not include the key."""
+    doc = build_repair_prompt_document(
+        available_tool_ids=("noop",),
+        prior_prompt_mode="full_choose_action",
+        parse_reason_code="invalid_model_action_json",
+        parse_error_detail="not valid json",
+        previous_response_text="not-json",
+    )
+    assert "previous_response_object" not in doc.prompt_body["repair_context"]
+    assert "repair_targets" not in doc.prompt_body["repair_context"]
+
+
+def test_repair_prompt_document_includes_misplaced_closure_state_target() -> None:
+    """Misplaced state_patch.closure_state should yield a relocation repair target."""
+    prior_obj = {
+        "action_type": None,
+        "action_inputs": {},
+        "idempotency_key": "ik-1",
+        "skip_execution": True,
+        "wait_for_human": False,
+        "complete_run": False,
+        "rationale": None,
+        "state_patch": {
+            # closure_state at top level of state_patch instead of under mission
+            "closure_state": {"overall_status": "open"},
+        },
+        "operator_progress_message": None,
+    }
+    doc = build_repair_prompt_document(
+        available_tool_ids=(),
+        prior_prompt_mode="full_choose_action",
+        parse_reason_code="invalid_model_action_json",
+        parse_error_detail="some parse error",
+        previous_response_text=json.dumps(prior_obj),
+        previous_response_object=prior_obj,
+        repair_targets=["move_state_patch_closure_state_under_mission"],
+    )
+    assert "move_state_patch_closure_state_under_mission" in doc.prompt_body["repair_context"]["repair_targets"]
+
+
 def test_compaction_prompt_document_uses_explicit_mode_packet() -> None:
     doc = build_compaction_prompt_document(
         prior_compacted_continuity_summary="older summary",

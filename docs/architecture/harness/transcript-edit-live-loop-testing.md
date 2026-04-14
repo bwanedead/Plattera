@@ -110,7 +110,8 @@ Guidance:
   localize, re-check, and escalate honestly instead of compressing everything
   into a shallow few-turn pass
 - omit `model` from launch context unless you explicitly want to override the
-  harness default model
+  harness default model (default is `gpt-5.4`; use `gpt-5.4-mini` explicitly
+  for faster/cheaper test runs where full quality is not required)
 
 Check status:
 

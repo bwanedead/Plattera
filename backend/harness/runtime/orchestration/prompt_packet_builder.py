@@ -61,19 +61,29 @@ def build_repair_prompt_document(
     parse_reason_code: str,
     parse_error_detail: str,
     previous_response_text: str,
+    previous_response_object: dict[str, Any] | None = None,
+    repair_targets: list[str] | None = None,
+    repair_hints: list[str] | None = None,
 ) -> PromptBuildDocument:
+    repair_context: dict[str, Any] = {
+        "prior_prompt_mode": prior_prompt_mode,
+        "reason_code": parse_reason_code,
+        "detail": parse_error_detail,
+        "previous_response_text": previous_response_text,
+    }
+    if previous_response_object is not None:
+        repair_context["previous_response_object"] = previous_response_object
+    if repair_targets:
+        repair_context["repair_targets"] = repair_targets
+    if repair_hints:
+        repair_context["repair_hints"] = repair_hints
     return _assemble_prompt_document(
         mode="repair",
         doctrine_blocks=[],
         surface_packet={"tool_ids": list(available_tool_ids)},
         run_context={},
         structured_state={},
-        mode_packet={
-            "prior_prompt_mode": prior_prompt_mode,
-            "reason_code": parse_reason_code,
-            "detail": parse_error_detail,
-            "previous_response_text": previous_response_text,
-        },
+        mode_packet=repair_context,
     )
 
 

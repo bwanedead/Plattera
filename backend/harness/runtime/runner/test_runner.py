@@ -1045,3 +1045,21 @@ def test_hitl_routing_uses_canonical_run_id(tmp_path: Path, monkeypatch) -> None
     assert runner_level_lookups, "runner must query feedback store with canonical run_id"
     # Crucially, the stale prefix must NOT have been used for the runner-level lookup.
     assert stale_prefix not in lookup_run_ids or canonical_run_id in lookup_run_ids
+
+
+# ---------------------------------------------------------------------------
+# Workstream 4: default model is gpt-5.4
+# ---------------------------------------------------------------------------
+
+
+def test_runner_default_model_is_gpt54() -> None:
+    """Omitting model in launch context should resolve to gpt-5.4, not gpt-5.4-mini."""
+    assert runner_module._select_model_name({}) == "gpt-5.4"
+    assert runner_module._select_model_name({"model": None}) == "gpt-5.4"
+    assert runner_module._select_model_name({"model": ""}) == "gpt-5.4"
+
+
+def test_runner_explicit_model_override_is_preserved() -> None:
+    """Explicit model override should be respected and not replaced with default."""
+    assert runner_module._select_model_name({"model": "gpt-5.4-mini"}) == "gpt-5.4-mini"
+    assert runner_module._select_model_name({"model": "gpt-5"}) == "gpt-5"

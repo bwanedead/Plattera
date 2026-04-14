@@ -48,7 +48,9 @@ class ActionPlan:
     hitl_consumed_prompt_ids: tuple[str, ...] = ()
     rationale: str | None = None
     state_patch: dict[str, Any] | None = None
-    # LLM-authored continuity (not work-state mutation). ``LlmTurnOrchestrationAdapter`` requires a non-empty object.
+    # LLM-authored continuity (not work-state mutation). Optional: omission means no continuity delta this turn.
+    # When present, must be a non-empty object. Use when the turn produced observations, decisions, open threads,
+    # or next-step understanding worth carrying forward.
     continuity_journal_entry: dict[str, Any] | None = None
     operator_progress_message: str | None = None
 
