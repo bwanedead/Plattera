@@ -7,7 +7,7 @@ from domains.prompting import PromptBlock
 TRANSCRIPT_EDIT_DOMAIN_ID = "transcript_edit"
 TRANSCRIPT_EDIT_FAMILY_ID = "mapping"
 TRANSCRIPT_EDIT_BRANCH_SOURCE_REF = "backend/domains/mapping/transcript_edit/prompting/branch.py"
-TRANSCRIPT_EDIT_BRANCH_VERSION = "v10"
+TRANSCRIPT_EDIT_BRANCH_VERSION = "v11"
 
 TRANSCRIPT_EDIT_BRANCH_TEXT = """\
 You are operating in the **transcript edit** domain for mapping-bound work.
@@ -102,6 +102,20 @@ For deed-like material, that commonly includes:
 - references to exhibits, plats, prior deeds, or outside source needed for meaning
 
 Peer disagreement is one source of work. It is not the whole review surface.
+For this domain, visible operative mapping-significant claims are not merely examples. When they are visible and material, they are review-coverage obligations for transcript trust.
+A serious transcript-edit run should usually leave behind either:
+- explicit items for each material claim, or
+- tightly scoped claim-group items where the grouped span is still operationally reviewable and no claim inside it is being silently skipped
+
+## Deliberate layer assessment
+Do not let one layer substitute for another.
+A sane transcript-edit run should deliberately ask, in separate terms:
+- Layer 1: what does the transcript say versus what does the source support?
+- Layer 2: assuming the transcript is faithful, does the source contradict itself?
+- Layer 3: what meaning is still missing because the current source set is incomplete?
+- Layer 4: which remaining unresolved issues actually block mapping?
+
+A partial answer to one layer is not a closure answer to the others.
 
 ## Provisional vs earned posture
 Early-run posture is often provisional. Use statuses like `unassessed`, `in_review`, or `open` when the relevant visible claim inventory has not yet been deliberately reviewed.
@@ -112,6 +126,15 @@ In particular:
 - do not mark Layer 2 closed merely because the first few visible particulars look internally consistent
 - do not treat “no contradiction noticed yet” as proof that no intrinsic contradiction exists
 - do not treat a partially reviewed visible excerpt as if it had already earned final transcript trust
+
+## Earned source-reading standard
+For mapping-critical visual claims, an earned determination means the current evidence makes the source reading clear enough to defend.
+
+That usually means:
+- if the claim is not clearly legible in the current view, use the strongest bounded image move available
+- if a broad page view is not enough, localize and enlarge the exact claim region rather than closing from impression
+- if the strongest available in-run visual check is still inconclusive, keep the item unresolved rather than normalizing a guess
+- if that unresolved claim is material and no stronger in-run evidence remains, prefer HITL or explicit blocked / no-further-progress posture over false earned closure
 
 ## Closure ledger requirement
 When this domain uses `mission.closure_state`, treat it as the explicit closure ledger for these four layers.
@@ -134,6 +157,7 @@ A saved working draft is not proof that the investigation is complete. But once 
 
 Do not wait for perfect total closure before materializing verified visible progress.
 Do not treat the saved draft as evidence that the remaining work disappeared.
+When you do save, the working artifact should normally materialize transcript-bearing state, not merely note that an investigation happened.
 
 ## Good evidence
 - Compare peer drafts as evidence inputs, not as implicit truth sources.
@@ -147,9 +171,11 @@ Do not treat the saved draft as evidence that the remaining work disappeared.
 ## Dangerous mistakes
 - Treating one peer t0 draft as the default winner before comparing it against other peers and source evidence.
 - Treating peer agreement as a reason to skip direct review of visible operative deed content.
+- Treating a few repaired deltas as if they exhaust the mapping-critical review surface.
 - Closing a layer from an opening-pass impression before the relevant visible claim inventory has been deliberately reviewed.
 - Polishing prose while **geometry-bearing language** (calls, bearings, curves, ties, acreage) is still uncertain.
 - Treating a saved working draft as if it proves the underlying investigation has already been done.
+- Saving note-shaped summaries in place of an actual transcript-bearing working state when the mission still needs transcript text.
 - Accepting a draft because it reads smoothly without **pixel or provenance** support.
 - Treating unresolved source defects as if they were solved merely because the transcript now matches the source.
 - Guessing missing outside meaning instead of explicitly classifying it as an external dependency.

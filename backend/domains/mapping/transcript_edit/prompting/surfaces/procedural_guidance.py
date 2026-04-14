@@ -10,7 +10,7 @@ from ..branch import TRANSCRIPT_EDIT_DOMAIN_ID
 TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_SOURCE_REF = (
     "backend/domains/mapping/transcript_edit/prompting/surfaces/procedural_guidance.py"
 )
-TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_VERSION = "v9"
+TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_VERSION = "v10"
 
 TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_TEXT = """\
 Use this guidance to shape your movement through transcript-edit work. This is **guidance**, not a hard script. The harness still owns orchestration. You should apply judgment based on what the current run actually contains.
@@ -24,6 +24,7 @@ Early in a transcript-edit run, you usually need to establish:
 - whether a transcript-edit working/output artifact already exists
 - which source image refs exist
 - where the likely high-signal disagreements or source-sensitive claims are
+- what the mission would actually require to be true for downstream mapping to trust this transcript
 
 That does **not** mean repeatedly loading everything over and over.
 It means becoming clear about the landscape quickly enough that you can start turning real transcript concerns into explicit work.
@@ -52,11 +53,15 @@ That often means explicit review work for:
 - a visibly incomplete or cut-off source segment
 - an external dependency that prevents confident closure
 
+When the deed contains many geometry-bearing particulars, that may legitimately require many items and many turns of targeted verification.
 Each item should stay concrete enough that you can answer:
 - what claim or span is in question
 - what evidence currently bears on it
 - what would count as stronger verification
 - whether it is resolved, still open, or potentially blocking
+
+For mapping-critical deed text, “reviewed” does not mean skimmed once.
+It means the run has deliberately checked the claim against the strongest available evidence the run can obtain.
 
 The generic harness already teaches the universal work method: build the work universe, choose an active item, get the next discriminating truth, and update durable state from that work. Transcript-edit adds what those items typically are and what kinds of evidence/closure matter here.
 
@@ -83,13 +88,16 @@ Peer agreement is a clue about where review may go faster; it is not proof that 
 ## Recommended transcript-edit movement
 The transcript-edit-specific inflection on top of the generic harness method is usually:
 
-1. inventory the visible mapping-significant claims, disagreements, contradictions, cutoffs, and dependencies that stand between the run and transcript trust
-2. treat peer draft agreement as a clue, not proof, when the point is material
-3. keep early layer posture provisional with statuses like `unassessed`, `in_review`, or `open` until the relevant review coverage has actually been worked, and use `determination` when you want that provisional vs earned distinction to remain explicit in persisted state
-4. inspect the strongest available transcript-edit evidence for the active item
-5. if the item is mapping-critical and the source is not trivially legible, make a targeted move (crop/zoom/annotate) rather than another broad pass
-6. update the work inventory and the four-layer closure posture with what that evidence actually supports
-7. once enough of the visible portion is deliberately verified, author a working draft for that verified state even if later publish / complete remains blocked
+1. derive the mission-essential conditions for transcript trust in this run, not just the first visible disagreements
+2. inventory the visible mapping-significant claims, disagreements, contradictions, cutoffs, and dependencies that stand between the run and transcript trust
+3. create explicit items for each material claim or tightly scoped claim-group the mission depends on, not only for peer disagreements
+4. treat peer draft agreement as a clue, not proof, when the point is material
+5. keep early layer posture provisional with statuses like `unassessed`, `in_review`, or `open` until the relevant review coverage has actually been worked, and use `determination` when you want that provisional vs earned distinction to remain explicit in persisted state
+6. inspect the strongest available transcript-edit evidence for the active item
+7. if the item is mapping-critical and the source is not trivially legible, localize and enlarge the exact claim region with a targeted move (crop/zoom/annotate) rather than another broad pass
+8. if the strongest available in-run check is still inconclusive, keep the item unresolved and classify whether it is a Layer 2 issue, a Layer 3 issue, or an item that now warrants HITL
+9. update the work inventory and the four-layer closure posture with what that evidence actually supports
+10. once enough of the visible portion is deliberately verified, author a working draft that actually materializes that verified transcript state even if later publish / complete remain blocked
 
 This is transcript-edit guidance, not a hard-coded controller pipeline.
 
@@ -110,6 +118,8 @@ If a layer cannot be closed, say what kind of stopping posture applies:
 For transcript-edit specifically, publish and complete can be hard-enforced against that ledger. Do not attempt those actions unless the ledger is explicit and marked ready for the corresponding move.
 Also keep `resolution_state.items` populated with the concrete concerns you have actually investigated; major moves such as save, HITL, publish, and complete should not happen with an empty work ledger.
 Early in the run, it is usually more honest to keep layers `unassessed`, `in_review`, or `open` than to jump straight to `closed`.
+If a plausible intrinsic source contradiction remains after deliberate review, create a dedicated Layer 2 concern for it rather than leaving it buried inside a broader Layer 1 delta item.
+If the strongest available in-run checks are exhausted on a material unresolved issue, HITL is usually more honest than continuing indefinitely in posture-only turns.
 
 ## What not to do
 - Do not treat one peer draft as the implicit winner because it reads best.
@@ -117,8 +127,10 @@ Early in the run, it is usually more honest to keep layers `unassessed`, `in_rev
 - Do not keep re-hydrating the same broad set of refs when a more targeted move is available.
 - Do not leave a source cutoff, contradiction, or geometry-bearing uncertainty implicit.
 - Do not mark a layer `closed` from an opening pass or a partial sample of visible claims.
+- Do not treat a broad region glance as earned verification for every material claim inside that region if the specific claim was not clearly legible.
 - Do not jump straight from a broad read to a saved draft without first creating and working a concrete item ledger.
 - Do not investigate forever without saving a truthful working draft once a verified visible portion has become mature enough to preserve.
+- Do not let a note-style draft payload substitute for a real transcript-bearing working state when the mission needs transcript text.
 - Do not publish or complete merely because a caveat was mentioned somewhere; closure still depends on whether the unresolved issue is genuinely non-blocking.
 - Do not leave the closure ledger stale while making substantive progress.
 - Do not let generic posture maintenance replace transcript-edit-specific evidence work on peer drafts, source imagery, or closure layers.

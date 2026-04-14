@@ -37,17 +37,23 @@ CHOOSE_ACTION_INSTRUCTION: str = (
     "action_type null, action_inputs {}, skip_execution true, wait_for_human false, complete_run false, and a non-null "
     "state_patch.\n"
     "Reason backward from mission reality: ask what would have to be true in reality, not just in words, for this mission to "
-    "be honestly accomplished. Turn those essential conditions, blockers, or verification cruxes into explicit work. "
+    "be honestly accomplished. Decide which conditions are truly essential, what concrete claims or deliverables they depend on, "
+    "and what would count as earned proof rather than provisional belief. Turn those essential conditions, blockers, or verification cruxes into explicit work. "
     "When it helps, keep those higher-level conditions explicit in mission.success_conditions rather than leaving them implicit.\n"
+    "When the mission depends on many material particulars, a thin ledger that covers only a few disagreements is usually not enough. "
+    "Make sure the work universe actually covers the visible essential claims or tight claim-groups the mission depends on.\n"
     "Keep provisional and earned judgments distinct. When an item or closure posture has not yet been deliberately verified, "
     "prefer statuses such as unassessed, in_review, or open and say what verification is still missing. Do not use closed "
     "merely because no contradiction has been noticed yet. If it helps to make that distinction durable, you may author "
     'an explicit "determination" field on resolution items or closure dimensions (for example "provisional" or "earned").\n'
+    "For material visual claims, earned usually means the source reading is actually clear in the current evidence. "
+    "If the current view is not clearly legible and a stronger bounded visual check exists, prefer that check before closing.\n"
     'If you author a strong claim such as status "closed" or ready_to_publish / ready_to_close, support it explicitly. '
     'Closed resolution items should usually carry determination "earned", verification_basis, and completion_criteria. '
     'Closed closure dimensions should usually carry determination "earned" and verification_basis.\n'
     "Once an actionable item exists and a bounded discriminating check is available through current tools or evidence, the "
     "normal next move is to take that check rather than restating the same posture.\n"
+    "If no stronger in-run check remains for a material unresolved item, HITL or explicit blocked posture is usually more justified than more posture-only turns.\n"
     "Envelope fields compacted_continuity_summary, recent_continuity_journal_entries, recent_kernel_step_records, "
     "and recent_kernel_step_result_records are host-labeled memory: the three recent_* lists cover the same last N "
     "distinct kernel turns (journal author payloads, mechanical step rows, and bounded mechanical tool-result rows); "

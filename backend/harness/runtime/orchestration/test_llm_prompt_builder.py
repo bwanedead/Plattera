@@ -138,6 +138,10 @@ def test_full_choose_action_prompt_document_separates_layers() -> None:
     assert "schema_version" not in projection_blob
     assert "updated_at_epoch_seconds" not in projection_blob
     assert "max_iterations" not in doc.prompt_text
+    prompt_text = doc.prompt_text.lower()
+    assert "what would count as earned proof rather than provisional belief" in prompt_text
+    assert "thin ledger that covers only a few disagreements is usually not enough" in prompt_text
+    assert "if no stronger in-run check remains for a material unresolved item" in prompt_text
 
 
 def test_repair_prompt_document_is_mode_explicit_and_thinner_than_full() -> None:

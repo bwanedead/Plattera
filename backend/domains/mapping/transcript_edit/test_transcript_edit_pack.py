@@ -80,6 +80,12 @@ def test_prompt_branch_block_shape_and_doctrine_markers() -> None:
     assert "saved working draft" in text.lower()
     assert "what would have to be true in reality" in text.lower()
     assert "visible mapping-significant claims" in text.lower()
+    assert "review-coverage obligations" in text.lower()
+    assert "deliberate layer assessment" in text.lower()
+    assert "a partial answer to one layer is not a closure answer to the others" in text.lower()
+    assert "earned source-reading standard" in text.lower()
+    assert "strongest bounded image move" in text.lower()
+    assert "materialize transcript-bearing state" in text.lower()
     assert "`unassessed`, `in_review`, or `open`" in text
     assert "treat `closed` as an earned late-run determination" in text.lower()
     assert "use `determination`" in text.lower()
@@ -113,6 +119,11 @@ def test_domain_pack_declares_semantic_prompt_blocks() -> None:
     assert "closure ledger" in text
     assert "mission.closure_state" in text
     assert "inventory the visible mapping-significant claims" in text
+    assert "mission-essential conditions" in text
+    assert "material claim or tightly scoped claim-group" in text
+    assert "localize and enlarge the exact claim region" in text
+    assert "layer 2 issue, a layer 3 issue, or an item that now warrants hitl" in text
+    assert "transcript-bearing working state" in text
     assert "`unassessed`, `in_review`, or `open`" in guidance.text
     assert "verified visible portion" in text
     assert "use `determination`" in text
@@ -150,6 +161,8 @@ def test_mapping_family_branch_shape_and_doctrine_markers() -> None:
     assert "not every unresolved issue blocks mapping" in text
     assert "visible mapping-critical claims deserve explicit review coverage" in text
     assert "peer agreement is a clue" in text
+    assert "review coverage of that material as owed" in text
+    assert "internal consistency across section / township / range / survey" in text
 
 
 def test_projection_closure_state_preserves_provisional_status_strings() -> None:
