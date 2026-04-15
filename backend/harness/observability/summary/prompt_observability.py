@@ -5,55 +5,60 @@ from __future__ import annotations
 from typing import Any
 
 from .common import _as_dict, _as_int, _as_str, _event_kind
-from .models import PromptObservabilitySummary
+from .models import ClosureReadinessProjection, PromptObservabilitySummary
+
+_ZERO_INT_FIELDS = (
+    "prompt_event_count",
+    "consecutive_no_dispatch_turns",
+    "repeated_state_patch_reason_code_streak",
+    "consecutive_same_active_item_turns",
+    "new_resolution_items_since_last_complete_run_attempt",
+    "repeated_complete_run_without_state_change_count",
+    "success_condition_count",
+    "success_conditions_with_earned_determination_count",
+    "success_conditions_with_verification_basis_count",
+    "resolution_item_count",
+    "items_with_evidence_count",
+    "items_with_verification_basis_count",
+    "closed_items_count",
+    "closed_items_without_earned_determination_count",
+    "closed_items_without_basis_count",
+    "closed_items_without_completion_criteria_count",
+    "closure_dimension_count",
+    "closure_dimensions_with_earned_determination_count",
+    "closed_dimensions_without_earned_determination_count",
+    "closed_dimensions_without_basis_count",
+)
+_OPTIONAL_INT_FIELDS = (
+    "turns_since_last_tool_execution",
+    "turns_since_latest_refs_change",
+    "turns_since_last_state_patch_applied",
+    "turns_since_resolution_item_count_change",
+)
+_STR_FIELDS = ("last_prompt_event_id", "last_state_patch_outcome", "last_state_patch_reason_code")
+
+
+def _nonblank_strs(values: Any) -> list[str]:
+    return [value for value in values if isinstance(value, str) and value.strip()] if isinstance(values, list) else []
 
 
 def _prompt_observability_summary_from_payload(
-    payload: dict[str, Any],
-    *,
-    default_surface: str | None = None,
+    payload: dict[str, Any], *, default_surface: str | None = None
 ) -> PromptObservabilitySummary:
     summary = payload.get("prompt_observability_summary")
-    if isinstance(summary, dict):
-        return PromptObservabilitySummary(
-            prompt_event_count=_as_int(summary.get("prompt_event_count")) or 0,
-            last_prompt_event_id=_as_str(summary.get("last_prompt_event_id")),
-            last_prompt_event_surface=_as_str(summary.get("last_prompt_event_surface")) or _as_str(default_surface),
-            consecutive_no_dispatch_turns=_as_int(summary.get("consecutive_no_dispatch_turns")) or 0,
-            turns_since_last_tool_execution=_as_int(summary.get("turns_since_last_tool_execution")),
-            turns_since_latest_refs_change=_as_int(summary.get("turns_since_latest_refs_change")),
-            last_state_patch_outcome=_as_str(summary.get("last_state_patch_outcome")),
-            last_state_patch_reason_code=_as_str(summary.get("last_state_patch_reason_code")),
-            success_condition_count=_as_int(summary.get("success_condition_count")) or 0,
-            success_conditions_with_earned_determination_count=(
-                _as_int(summary.get("success_conditions_with_earned_determination_count")) or 0
-            ),
-            success_conditions_with_verification_basis_count=(
-                _as_int(summary.get("success_conditions_with_verification_basis_count")) or 0
-            ),
-            resolution_item_count=_as_int(summary.get("resolution_item_count")) or 0,
-            items_with_evidence_count=_as_int(summary.get("items_with_evidence_count")) or 0,
-            items_with_verification_basis_count=_as_int(summary.get("items_with_verification_basis_count")) or 0,
-            closed_items_count=_as_int(summary.get("closed_items_count")) or 0,
-            closed_items_without_earned_determination_count=(
-                _as_int(summary.get("closed_items_without_earned_determination_count")) or 0
-            ),
-            closed_items_without_basis_count=_as_int(summary.get("closed_items_without_basis_count")) or 0,
-            closed_items_without_completion_criteria_count=(
-                _as_int(summary.get("closed_items_without_completion_criteria_count")) or 0
-            ),
-            closure_dimension_count=_as_int(summary.get("closure_dimension_count")) or 0,
-            closure_dimensions_with_earned_determination_count=(
-                _as_int(summary.get("closure_dimensions_with_earned_determination_count")) or 0
-            ),
-            closed_dimensions_without_earned_determination_count=(
-                _as_int(summary.get("closed_dimensions_without_earned_determination_count")) or 0
-            ),
-            closed_dimensions_without_basis_count=(
-                _as_int(summary.get("closed_dimensions_without_basis_count")) or 0
-            ),
-        )
-    return PromptObservabilitySummary(last_prompt_event_surface=_as_str(default_surface))
+    if not isinstance(summary, dict):
+        return PromptObservabilitySummary(last_prompt_event_surface=_as_str(default_surface))
+    readiness = _as_dict(summary.get("closure_readiness_projection"))
+    data = {key: (_as_int(summary.get(key)) or 0) for key in _ZERO_INT_FIELDS}
+    data.update({key: _as_int(summary.get(key)) for key in _OPTIONAL_INT_FIELDS})
+    data.update({key: _as_str(summary.get(key)) for key in _STR_FIELDS})
+    data["last_prompt_event_surface"] = _as_str(summary.get("last_prompt_event_surface")) or _as_str(default_surface)
+    data["closure_readiness_projection"] = ClosureReadinessProjection(
+        complete_run_blockers=_nonblank_strs(readiness.get("complete_run_blockers")),
+        publish_blockers=_nonblank_strs(readiness.get("publish_blockers")),
+    )
+    data["mechanical_flags"] = _nonblank_strs(summary.get("mechanical_flags"))
+    return PromptObservabilitySummary(**data)
 
 
 def _prompt_observability_summary_from_trace_events(events: list[dict[str, Any]]) -> PromptObservabilitySummary:
@@ -62,14 +67,10 @@ def _prompt_observability_summary_from_trace_events(events: list[dict[str, Any]]
         for event in events
         if _as_str(event.get("phase")) == "prompt_event"
         or _event_kind(event) == "prompt_event"
-        or (
-            isinstance(event.get("payload"), dict)
-            and isinstance(event["payload"].get("prompt_event"), dict)
-        )
+        or (isinstance(event.get("payload"), dict) and isinstance(event["payload"].get("prompt_event"), dict))
     ]
     last_payload = _as_dict(prompt_events[-1].get("payload")) if prompt_events else {}
-    last_prompt_event = _as_dict(last_payload.get("prompt_event"))
-    metadata = _as_dict(last_prompt_event.get("metadata"))
+    metadata = _as_dict(_as_dict(last_payload.get("prompt_event")).get("metadata"))
     return PromptObservabilitySummary(
         prompt_event_count=len(prompt_events),
         last_prompt_event_id=_as_str(metadata.get("prompt_event_id")),

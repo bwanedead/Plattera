@@ -1769,3 +1769,35 @@ def test_derive_repair_context_no_false_positive_for_well_placed_closure_state()
     }
     _, targets = _derive_repair_context(json.dumps(prior), "some unrelated error")
     assert "move_state_patch_closure_state_under_mission" not in targets
+
+
+# ---------------------------------------------------------------------------
+# should_use_state_repair_lane
+# ---------------------------------------------------------------------------
+
+
+def test_state_repair_lane_activates_on_rejected_feedback() -> None:
+    from harness.runtime.orchestration.repair_lane import should_use_state_repair_lane
+    assert should_use_state_repair_lane({"outcome": "rejected", "reason_code": "state_patch_unknown_keys"}) is True
+
+
+def test_state_repair_lane_activates_on_applied_with_skipped_rows() -> None:
+    from harness.runtime.orchestration.repair_lane import should_use_state_repair_lane
+    assert should_use_state_repair_lane({"outcome": "applied", "skipped_resolution_rows": True}) is True
+
+
+def test_state_repair_lane_does_not_activate_on_applied_without_skipped_rows() -> None:
+    from harness.runtime.orchestration.repair_lane import should_use_state_repair_lane
+    assert should_use_state_repair_lane({"outcome": "applied"}) is False
+    assert should_use_state_repair_lane({"outcome": "applied", "skipped_resolution_rows": False}) is False
+
+
+def test_state_repair_lane_does_not_activate_on_no_patch() -> None:
+    from harness.runtime.orchestration.repair_lane import should_use_state_repair_lane
+    assert should_use_state_repair_lane({"outcome": "no_patch"}) is False
+
+
+def test_state_repair_lane_does_not_activate_on_none_feedback() -> None:
+    from harness.runtime.orchestration.repair_lane import should_use_state_repair_lane
+    assert should_use_state_repair_lane(None) is False
+    assert should_use_state_repair_lane({}) is False

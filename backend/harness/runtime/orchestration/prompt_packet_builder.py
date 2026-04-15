@@ -45,12 +45,17 @@ def build_turn_prompt_document(
     projection: SharedStateProjection | None,
     journal_verbatim_keep_n: int,
 ) -> PromptBuildDocument:
+    visible_launch_context = prompt_visible_launch_context(opaque_launch_context)
     return _assemble_prompt_document(
         mode=mode,
         doctrine_blocks=doctrine_blocks_document(composed_input),
         surface_packet=surface_packet_document(composed_input),
-        run_context=_build_run_context(opaque_launch_context, context, projection),
-        structured_state=_build_structured_state(context, journal_verbatim_keep_n),
+        run_context=_build_run_context(visible_launch_context, context, projection),
+        structured_state=_build_structured_state(
+            context,
+            journal_verbatim_keep_n,
+            closure_policy=visible_launch_context.get("domain_closure_policy"),
+        ),
     )
 
 
@@ -130,7 +135,7 @@ def prompt_visible_launch_context(value: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def _build_run_context(
-    opaque_launch_context: Mapping[str, Any],
+    visible_launch_context: Mapping[str, Any],
     context: OrchestratorContext,
     projection: SharedStateProjection | None,
 ) -> dict[str, Any]:
@@ -140,7 +145,7 @@ def _build_run_context(
         "iteration": context.loop_memory.iterations,
         "session_id": context.session_id,
         "request_id_prefix": context.request_id_prefix,
-        "launch_context": prompt_visible_launch_context(opaque_launch_context),
+        "launch_context": dict(visible_launch_context),
         "latest_refs": dict(cont.latest_refs),
         "active_item_id": cont.active_item_id,
         "state_patch_feedback": dict(cont.state_patch_feedback),
@@ -153,7 +158,12 @@ def _build_run_context(
     }
 
 
-def _build_structured_state(context: OrchestratorContext, journal_verbatim_keep_n: int) -> dict[str, Any]:
+def _build_structured_state(
+    context: OrchestratorContext,
+    journal_verbatim_keep_n: int,
+    *,
+    closure_policy: Mapping[str, Any] | None,
+) -> dict[str, Any]:
     cont = context.loop_memory.continuity
     return {
         "compacted_continuity_summary": cont.compacted_continuity_summary,
@@ -175,7 +185,10 @@ def _build_structured_state(context: OrchestratorContext, journal_verbatim_keep_
             cont.kernel_step_result_records,
             keep_n=journal_verbatim_keep_n,
         ),
-        "prompt_observability_summary": build_prompt_observability_summary(context.loop_memory),
+        "prompt_observability_summary": build_prompt_observability_summary(
+            context.loop_memory,
+            closure_policy=closure_policy,
+        ),
     }
 
 

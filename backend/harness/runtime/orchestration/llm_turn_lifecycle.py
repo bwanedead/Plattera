@@ -18,8 +18,9 @@ from .lifecycle import PreChooseActionParticipant, PromptEventObserver
 from .llm_prompt_builder import (
     build_choose_action_prompt_document,
     build_resume_prompt_document,
+    build_state_repair_prompt_document,
 )
-from .repair_lane import TextModelCaller
+from .repair_lane import TextModelCaller, should_use_state_repair_lane
 from .trace_collector import KernelTraceCollector
 
 _LOG = logging.getLogger(__name__)
@@ -29,6 +30,8 @@ def resolve_choose_action_prompt_mode(context: OrchestratorContext) -> str:
     hitl = context.loop_memory.hitl
     if hitl.hitl_state == "answered_unintegrated" or hitl.pending_feedback_response is not None:
         return "resume"
+    if should_use_state_repair_lane(context.loop_memory.continuity.state_patch_feedback):
+        return "state_repair"
     return "full_choose_action"
 
 
@@ -99,11 +102,12 @@ class LlmTurnPreChooseActionParticipant(PreChooseActionParticipant):
         """Mechanical context-window compaction: separate LLM call, not a kernel action turn."""
         keep_n = max(0, int(self.continuity_journal_verbatim_keep_n))
         prompt_mode = resolve_choose_action_prompt_mode(context)
-        prompt_builder = (
-            build_resume_prompt_document
-            if prompt_mode == "resume"
-            else build_choose_action_prompt_document
-        )
+        if prompt_mode == "resume":
+            prompt_builder = build_resume_prompt_document
+        elif prompt_mode == "state_repair":
+            prompt_builder = build_state_repair_prompt_document
+        else:
+            prompt_builder = build_choose_action_prompt_document
         prompt = prompt_builder(
             composed_input=self.composed_input,
             opaque_launch_context=self.opaque_launch_context,

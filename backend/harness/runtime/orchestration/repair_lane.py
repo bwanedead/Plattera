@@ -73,6 +73,18 @@ def _derive_repair_context(
     return previous_response_object, repair_targets
 
 
+def should_use_state_repair_lane(feedback: Mapping[str, Any] | None) -> bool:
+    """Return whether the next choose-action turn should enter the proof/state repair lane."""
+    if not isinstance(feedback, Mapping):
+        return False
+    outcome = str(feedback.get("outcome") or "").strip().lower()
+    if outcome == "rejected":
+        return True
+    if outcome == "applied" and bool(feedback.get("skipped_resolution_rows")):
+        return True
+    return False
+
+
 def attempt_repair(
     *,
     model_caller: TextModelCaller,

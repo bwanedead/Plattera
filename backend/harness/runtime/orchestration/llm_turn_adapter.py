@@ -25,6 +25,7 @@ from .lifecycle import lifecycle_jsonable
 from .llm_prompt_builder import (
     build_choose_action_prompt_document,
     build_resume_prompt_document,
+    build_state_repair_prompt_document,
     jsonable,
     prompt_visible_launch_context,
 )
@@ -147,7 +148,12 @@ class LlmTurnOrchestrationAdapter(OrchestrationAdapter):
             except Exception:
                 _LOG.warning("raw_llm_io_observer raised; ignoring", exc_info=True)
 
-        prompt_builder = build_resume_prompt_document if prompt_mode == "resume" else build_choose_action_prompt_document
+        if prompt_mode == "resume":
+            prompt_builder = build_resume_prompt_document
+        elif prompt_mode == "state_repair":
+            prompt_builder = build_state_repair_prompt_document
+        else:
+            prompt_builder = build_choose_action_prompt_document
         prompt_doc = prompt_builder(
             composed_input=self.composed_input,
             opaque_launch_context=self.opaque_launch_context,

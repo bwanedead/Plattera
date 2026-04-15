@@ -14,18 +14,84 @@ from typing import Any
 from ..memory import LoopMemoryState
 
 
-def build_prompt_observability_summary(loop_memory: LoopMemoryState) -> dict[str, Any]:
+def build_prompt_observability_summary(
+    loop_memory: LoopMemoryState,
+    *,
+    closure_policy: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
     """Return host-owned loop-health facts safe to expose in prompts and audits."""
     telemetry = loop_memory.telemetry
     cont = loop_memory.continuity
     step_records = list(cont.kernel_step_records)
     resolution_items = list(getattr(cont.resolution_state, "items", ()) or ())
     success_conditions = list(getattr(cont.mission_state, "success_conditions", ()) or ())
-    closure_dimensions = list(getattr(cont.mission_state.closure_state, "dimensions", ()) or ())
-
+    closure_state = cont.mission_state.closure_state
+    closure_dimensions = list(getattr(closure_state, "dimensions", ()) or ())
     feedback = dict(cont.state_patch_feedback) if isinstance(cont.state_patch_feedback, Mapping) else {}
 
-    return {
+    closed_items_count = sum(1 for row in resolution_items if _is_closed_status(getattr(row, "status", None)))
+    closed_items_without_earned_determination_count = sum(
+        1
+        for row in resolution_items
+        if _is_closed_status(getattr(row, "status", None))
+        and not _has_earned_determination(getattr(row, "determination", None))
+    )
+    closed_items_without_basis_count = sum(
+        1
+        for row in resolution_items
+        if _is_closed_status(getattr(row, "status", None))
+        and not _has_text(getattr(row, "verification_basis", None))
+    )
+    closed_items_without_completion_criteria_count = sum(
+        1
+        for row in resolution_items
+        if _is_closed_status(getattr(row, "status", None))
+        and not _has_text(getattr(row, "completion_criteria", None))
+    )
+    closed_dimensions_without_earned_determination_count = sum(
+        1
+        for row in closure_dimensions
+        if _is_closed_status(getattr(row, "status", None))
+        and not _has_earned_determination(getattr(row, "determination", None))
+    )
+    closed_dimensions_without_basis_count = sum(
+        1
+        for row in closure_dimensions
+        if _is_closed_status(getattr(row, "status", None))
+        and not _has_text(getattr(row, "verification_basis", None))
+    )
+    repeated_state_patch_reason_code_streak = _as_int(feedback.get("same_reason_code_streak")) or 0
+    turns_since_last_state_patch_applied = _turns_since_last_state_patch_applied(
+        feedback, current_iteration=int(loop_memory.iterations)
+    )
+    consecutive_same_active_item_turns = _consecutive_same_active_item_turns(
+        step_records,
+        current_active_item_id=cont.active_item_id or cont.resolution_state.active_item_id,
+    )
+    turns_since_resolution_item_count_change = _turns_since_resolution_item_count_change(
+        step_records,
+        current_count=len(resolution_items),
+    )
+    new_resolution_items_since_last_complete_run_attempt = _new_resolution_items_since_last_complete_run_attempt(
+        step_records,
+        current_count=len(resolution_items),
+    )
+    repeated_complete_run_without_state_change_count = _repeated_complete_run_without_state_change_count(
+        step_records
+    )
+
+    closure_readiness_projection = _closure_readiness_projection(
+        closure_policy=closure_policy,
+        closure_state=closure_state,
+        resolution_item_count=len(resolution_items),
+        feedback=feedback,
+        closed_items_without_earned_determination_count=closed_items_without_earned_determination_count,
+        closed_items_without_basis_count=closed_items_without_basis_count,
+        closed_dimensions_without_earned_determination_count=closed_dimensions_without_earned_determination_count,
+        closed_dimensions_without_basis_count=closed_dimensions_without_basis_count,
+    )
+
+    summary = {
         "prompt_event_count": int(telemetry.prompt_event_count),
         "last_prompt_event_id": telemetry.last_prompt_event_id,
         "last_prompt_event_surface": telemetry.last_prompt_event_surface,
@@ -34,6 +100,12 @@ def build_prompt_observability_summary(loop_memory: LoopMemoryState) -> dict[str
         "turns_since_latest_refs_change": _turns_since_latest_refs_change(step_records),
         "last_state_patch_outcome": _as_optional_text(feedback.get("outcome")),
         "last_state_patch_reason_code": _as_optional_text(feedback.get("reason_code")),
+        "repeated_state_patch_reason_code_streak": repeated_state_patch_reason_code_streak,
+        "turns_since_last_state_patch_applied": turns_since_last_state_patch_applied,
+        "consecutive_same_active_item_turns": consecutive_same_active_item_turns,
+        "turns_since_resolution_item_count_change": turns_since_resolution_item_count_change,
+        "new_resolution_items_since_last_complete_run_attempt": new_resolution_items_since_last_complete_run_attempt,
+        "repeated_complete_run_without_state_change_count": repeated_complete_run_without_state_change_count,
         "success_condition_count": len(success_conditions),
         "success_conditions_with_earned_determination_count": sum(
             1 for row in success_conditions if _has_earned_determination(getattr(row, "determination", None))
@@ -48,42 +120,31 @@ def build_prompt_observability_summary(loop_memory: LoopMemoryState) -> dict[str
         "items_with_verification_basis_count": sum(
             1 for row in resolution_items if _has_text(getattr(row, "verification_basis", None))
         ),
-        "closed_items_count": sum(1 for row in resolution_items if _is_closed_status(getattr(row, "status", None))),
-        "closed_items_without_earned_determination_count": sum(
-            1
-            for row in resolution_items
-            if _is_closed_status(getattr(row, "status", None))
-            and not _has_earned_determination(getattr(row, "determination", None))
-        ),
-        "closed_items_without_basis_count": sum(
-            1
-            for row in resolution_items
-            if _is_closed_status(getattr(row, "status", None))
-            and not _has_text(getattr(row, "verification_basis", None))
-        ),
-        "closed_items_without_completion_criteria_count": sum(
-            1
-            for row in resolution_items
-            if _is_closed_status(getattr(row, "status", None))
-            and not _has_text(getattr(row, "completion_criteria", None))
-        ),
+        "closed_items_count": closed_items_count,
+        "closed_items_without_earned_determination_count": closed_items_without_earned_determination_count,
+        "closed_items_without_basis_count": closed_items_without_basis_count,
+        "closed_items_without_completion_criteria_count": closed_items_without_completion_criteria_count,
         "closure_dimension_count": len(closure_dimensions),
         "closure_dimensions_with_earned_determination_count": sum(
             1 for row in closure_dimensions if _has_earned_determination(getattr(row, "determination", None))
         ),
-        "closed_dimensions_without_earned_determination_count": sum(
-            1
-            for row in closure_dimensions
-            if _is_closed_status(getattr(row, "status", None))
-            and not _has_earned_determination(getattr(row, "determination", None))
-        ),
-        "closed_dimensions_without_basis_count": sum(
-            1
-            for row in closure_dimensions
-            if _is_closed_status(getattr(row, "status", None))
-            and not _has_text(getattr(row, "verification_basis", None))
-        ),
+        "closed_dimensions_without_earned_determination_count": closed_dimensions_without_earned_determination_count,
+        "closed_dimensions_without_basis_count": closed_dimensions_without_basis_count,
+        "closure_readiness_projection": closure_readiness_projection,
     }
+    summary["mechanical_flags"] = _mechanical_flags(
+        feedback=feedback,
+        success_condition_count=len(success_conditions),
+        resolution_item_count=len(resolution_items),
+        closure_ready_to_close=bool(getattr(closure_state, "ready_to_close", False)),
+        repeated_state_patch_reason_code_streak=repeated_state_patch_reason_code_streak,
+        consecutive_same_active_item_turns=consecutive_same_active_item_turns,
+        turns_since_resolution_item_count_change=turns_since_resolution_item_count_change,
+        new_resolution_items_since_last_complete_run_attempt=new_resolution_items_since_last_complete_run_attempt,
+        repeated_complete_run_without_state_change_count=repeated_complete_run_without_state_change_count,
+        complete_run_blockers=list(closure_readiness_projection.get("complete_run_blockers", ())),
+    )
+    return summary
 
 
 def _consecutive_no_dispatch_turns(step_records: list[dict[str, Any]]) -> int:
@@ -117,11 +178,245 @@ def _turns_since_latest_refs_change(step_records: list[dict[str, Any]]) -> int |
     return max(0, trailing_same - 1)
 
 
+def _turns_since_last_state_patch_applied(
+    feedback: Mapping[str, Any],
+    *,
+    current_iteration: int,
+) -> int | None:
+    applied_iteration = _as_int(feedback.get("last_applied_iteration"))
+    if applied_iteration is None:
+        return None
+    return max(0, current_iteration - applied_iteration)
+
+
+def _consecutive_same_active_item_turns(
+    step_records: list[dict[str, Any]],
+    *,
+    current_active_item_id: str | None,
+) -> int:
+    active_item_id = _as_optional_text(current_active_item_id)
+    if active_item_id is None:
+        return 0
+    count = 0
+    for row in reversed(step_records):
+        if _as_optional_text(row.get("active_item_id_snapshot")) != active_item_id:
+            break
+        count += 1
+    return count
+
+
+def _turns_since_resolution_item_count_change(
+    step_records: list[dict[str, Any]],
+    *,
+    current_count: int,
+) -> int | None:
+    if not step_records:
+        return None
+    count = 0
+    for row in reversed(step_records):
+        snap = _as_int(row.get("resolution_item_count_snapshot"))
+        if snap is None:
+            return None
+        if snap != current_count:
+            break
+        count += 1
+    return max(0, count - 1)
+
+
+def _new_resolution_items_since_last_complete_run_attempt(
+    step_records: list[dict[str, Any]],
+    *,
+    current_count: int,
+) -> int:
+    for row in reversed(step_records):
+        if bool(row.get("complete_run")):
+            snap = _as_int(row.get("resolution_item_count_snapshot"))
+            if snap is None:
+                return 0
+            return max(0, current_count - snap)
+    return 0
+
+
+def _repeated_complete_run_without_state_change_count(step_records: list[dict[str, Any]]) -> int:
+    attempts = [row for row in step_records if bool(row.get("complete_run"))]
+    if len(attempts) < 2:
+        return 0
+    latest = attempts[-1]
+    latest_state_sig = _as_optional_text(latest.get("work_state_signature"))
+    latest_refs_sig = _stable_signature(latest.get("latest_refs_snapshot"))
+    if latest_state_sig is None:
+        return 0
+    repeated = 0
+    for row in reversed(attempts[:-1]):
+        if _as_optional_text(row.get("work_state_signature")) != latest_state_sig:
+            break
+        if _stable_signature(row.get("latest_refs_snapshot")) != latest_refs_sig:
+            break
+        repeated += 1
+    return repeated
+
+
+def _closure_readiness_projection(
+    *,
+    closure_policy: Mapping[str, Any] | None,
+    closure_state: Any,
+    resolution_item_count: int,
+    feedback: Mapping[str, Any],
+    closed_items_without_earned_determination_count: int,
+    closed_items_without_basis_count: int,
+    closed_dimensions_without_earned_determination_count: int,
+    closed_dimensions_without_basis_count: int,
+) -> dict[str, list[str]]:
+    complete_run_blockers: list[str] = []
+    publish_blockers: list[str] = []
+    hard_enforced = bool(closure_policy and closure_policy.get("hard_enforced"))
+    dimensions_by_id = {
+        str(getattr(row, "dimension_id", "") or ""): row
+        for row in getattr(closure_state, "dimensions", ()) or ()
+        if str(getattr(row, "dimension_id", "") or "")
+    }
+
+    required_dimension_ids = tuple(
+        str(value).strip()
+        for value in (closure_policy or {}).get("required_dimension_ids", ())
+        if str(value).strip()
+    )
+    missing_dimensions = [
+        dim_id
+        for dim_id in required_dimension_ids
+        if dim_id not in dimensions_by_id or not _has_text(getattr(dimensions_by_id[dim_id], "status", None))
+    ]
+    if hard_enforced and missing_dimensions:
+        blocker = f"required_dimensions_missing:{','.join(missing_dimensions)}"
+        if bool((closure_policy or {}).get("enforce_on_complete")):
+            complete_run_blockers.append(blocker)
+        if bool((closure_policy or {}).get("enforce_on_publish")):
+            publish_blockers.append(blocker)
+
+    if hard_enforced and bool(getattr(closure_state, "requires_hitl", False)):
+        if bool((closure_policy or {}).get("enforce_on_complete")):
+            complete_run_blockers.append("closure_requires_hitl")
+        if bool((closure_policy or {}).get("enforce_on_publish")):
+            publish_blockers.append("closure_requires_hitl")
+
+    minimum_complete_items = int((closure_policy or {}).get("minimum_resolution_items_for_complete") or 0)
+    if minimum_complete_items > resolution_item_count:
+        complete_run_blockers.append(
+            f"resolution_items_below_minimum:{resolution_item_count}/{minimum_complete_items}"
+        )
+    minimum_publish_items = int((closure_policy or {}).get("minimum_resolution_items_for_publish") or 0)
+    if minimum_publish_items > resolution_item_count:
+        publish_blockers.append(
+            f"resolution_items_below_minimum:{resolution_item_count}/{minimum_publish_items}"
+        )
+
+    if not bool(getattr(closure_state, "ready_to_close", False)):
+        complete_run_blockers.append("ready_to_close_false")
+    if not bool(getattr(closure_state, "ready_to_publish", False)):
+        publish_blockers.append("ready_to_publish_false")
+
+    if _as_optional_text(feedback.get("outcome")) == "rejected":
+        reason_code = _as_optional_text(feedback.get("reason_code")) or "unknown"
+        complete_run_blockers.append(f"recent_state_patch_rejected:{reason_code}")
+        publish_blockers.append(f"recent_state_patch_rejected:{reason_code}")
+    if bool(feedback.get("skipped_resolution_rows")):
+        complete_run_blockers.append("skipped_resolution_rows_pending")
+        publish_blockers.append("skipped_resolution_rows_pending")
+    if closed_items_without_earned_determination_count > 0:
+        blocker = f"closed_items_without_earned_determination:{closed_items_without_earned_determination_count}"
+        complete_run_blockers.append(blocker)
+        publish_blockers.append(blocker)
+    if closed_items_without_basis_count > 0:
+        blocker = f"closed_items_without_basis:{closed_items_without_basis_count}"
+        complete_run_blockers.append(blocker)
+        publish_blockers.append(blocker)
+    if closed_dimensions_without_earned_determination_count > 0:
+        blocker = (
+            f"closed_dimensions_without_earned_determination:"
+            f"{closed_dimensions_without_earned_determination_count}"
+        )
+        complete_run_blockers.append(blocker)
+        publish_blockers.append(blocker)
+    if closed_dimensions_without_basis_count > 0:
+        blocker = f"closed_dimensions_without_basis:{closed_dimensions_without_basis_count}"
+        complete_run_blockers.append(blocker)
+        publish_blockers.append(blocker)
+
+    return {
+        "complete_run_blockers": _unique_texts(complete_run_blockers),
+        "publish_blockers": _unique_texts(publish_blockers),
+    }
+
+
+def _mechanical_flags(
+    *,
+    feedback: Mapping[str, Any],
+    success_condition_count: int,
+    resolution_item_count: int,
+    closure_ready_to_close: bool,
+    repeated_state_patch_reason_code_streak: int,
+    consecutive_same_active_item_turns: int,
+    turns_since_resolution_item_count_change: int | None,
+    new_resolution_items_since_last_complete_run_attempt: int,
+    repeated_complete_run_without_state_change_count: int,
+    complete_run_blockers: list[str],
+) -> list[str]:
+    flags: list[str] = []
+    last_reason_code = _as_optional_text(feedback.get("reason_code"))
+    if repeated_state_patch_reason_code_streak >= 2 and last_reason_code is not None:
+        flags.append(
+            f"Repeated state_patch rejection on {last_reason_code} ({repeated_state_patch_reason_code_streak} in a row)."
+        )
+    if consecutive_same_active_item_turns >= 3:
+        flags.append(f"Active item unchanged for {consecutive_same_active_item_turns} turns.")
+    if turns_since_resolution_item_count_change is not None and turns_since_resolution_item_count_change >= 4:
+        flags.append(
+            f"Resolution item count has not changed for {turns_since_resolution_item_count_change} turns."
+        )
+    if new_resolution_items_since_last_complete_run_attempt > 0:
+        flags.append(
+            f"{new_resolution_items_since_last_complete_run_attempt} new resolution items appeared after a prior complete_run attempt."
+        )
+    if repeated_complete_run_without_state_change_count > 0:
+        flags.append("A prior complete_run attempt already used the same state and refs.")
+    if resolution_item_count >= 3 and success_condition_count == 0:
+        flags.append(
+            "Resolution items exist but mission.success_conditions is empty; check whether mission-level burden of proof is explicit."
+        )
+    elif (
+        resolution_item_count >= 4
+        and success_condition_count > 0
+        and resolution_item_count >= success_condition_count * 2
+    ):
+        flags.append(
+            "Resolution items substantially outnumber success conditions; check whether mission-level proof coverage is still explicit."
+        )
+    if not closure_ready_to_close and complete_run_blockers:
+        flags.append("complete_run would still hit mechanical blockers in the current state.")
+    return flags[:8]
+
+
 def _stable_signature(value: Any) -> str:
     try:
         return json.dumps(value if isinstance(value, Mapping) else {}, sort_keys=True, ensure_ascii=False, default=str)
     except (TypeError, ValueError):
         return "{}"
+
+
+def _unique_texts(values: list[str]) -> list[str]:
+    out: list[str] = []
+    for value in values:
+        text = str(value).strip()
+        if text and text not in out:
+            out.append(text)
+    return out
+
+
+def _as_int(value: Any) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _as_optional_text(value: Any) -> str | None:

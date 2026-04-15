@@ -81,6 +81,13 @@ class MissionModeSummary(BaseModel):
     resume_context_summary: dict[str, Any] = Field(default_factory=dict)
 
 
+class ClosureReadinessProjection(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    complete_run_blockers: list[str] = Field(default_factory=list, max_length=24)
+    publish_blockers: list[str] = Field(default_factory=list, max_length=24)
+
+
 class PromptObservabilitySummary(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -92,6 +99,12 @@ class PromptObservabilitySummary(BaseModel):
     turns_since_latest_refs_change: int | None = Field(default=None, ge=0)
     last_state_patch_outcome: str | None = Field(default=None, max_length=64)
     last_state_patch_reason_code: str | None = Field(default=None, max_length=128)
+    repeated_state_patch_reason_code_streak: int = Field(default=0, ge=0)
+    turns_since_last_state_patch_applied: int | None = Field(default=None, ge=0)
+    consecutive_same_active_item_turns: int = Field(default=0, ge=0)
+    turns_since_resolution_item_count_change: int | None = Field(default=None, ge=0)
+    new_resolution_items_since_last_complete_run_attempt: int = Field(default=0, ge=0)
+    repeated_complete_run_without_state_change_count: int = Field(default=0, ge=0)
     success_condition_count: int = Field(default=0, ge=0)
     success_conditions_with_earned_determination_count: int = Field(default=0, ge=0)
     success_conditions_with_verification_basis_count: int = Field(default=0, ge=0)
@@ -106,6 +119,10 @@ class PromptObservabilitySummary(BaseModel):
     closure_dimensions_with_earned_determination_count: int = Field(default=0, ge=0)
     closed_dimensions_without_earned_determination_count: int = Field(default=0, ge=0)
     closed_dimensions_without_basis_count: int = Field(default=0, ge=0)
+    closure_readiness_projection: ClosureReadinessProjection = Field(
+        default_factory=ClosureReadinessProjection
+    )
+    mechanical_flags: list[str] = Field(default_factory=list, max_length=12)
 
 
 class SharedRunSummaryEnvelope(BaseModel):

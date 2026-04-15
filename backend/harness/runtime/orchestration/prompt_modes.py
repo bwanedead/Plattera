@@ -7,10 +7,10 @@ from typing import Any, Literal
 
 from .choose_action_instruction import CHOOSE_ACTION_INSTRUCTION
 from .compaction_instruction import COMPACTION_INSTRUCTION
-from .repair_instruction import REPAIR_INSTRUCTION
+from .repair_instruction import REPAIR_INSTRUCTION, STATE_REPAIR_INSTRUCTION
 from .resume_instruction import RESUME_INSTRUCTION
 
-PromptMode = Literal["full_choose_action", "repair", "compaction", "resume"]
+PromptMode = Literal["full_choose_action", "state_repair", "repair", "compaction", "resume"]
 
 
 @dataclass(frozen=True)
@@ -90,6 +90,18 @@ _PROMPT_MODE_SPECS: dict[PromptMode, PromptModeSpec] = {
         structured_state_fields=_FULL_STRUCTURED_STATE_FIELDS,
         mode_packet_key=None,
         call_phase="choose_action",
+    ),
+    "state_repair": PromptModeSpec(
+        mode="state_repair",
+        instruction_text=STATE_REPAIR_INSTRUCTION,
+        include_doctrine_blocks=True,
+        include_surface_packet_blocks=True,
+        include_surface_payloads=True,
+        include_tool_ids=True,
+        run_context_fields=_FULL_RUN_CONTEXT_FIELDS,
+        structured_state_fields=_FULL_STRUCTURED_STATE_FIELDS,
+        mode_packet_key=None,
+        call_phase="choose_action_state_repair",
     ),
     "repair": PromptModeSpec(
         mode="repair",

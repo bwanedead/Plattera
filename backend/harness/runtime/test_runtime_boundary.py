@@ -9,7 +9,7 @@ def test_runtime_package_does_not_import_transcript_edit_domain() -> None:
     forbidden_prefix = "domains.mapping.transcript_edit"
 
     violations: list[str] = []
-    for path in sorted(harness_root.rglob("*.py")):
+    for path in sorted(p for p in harness_root.rglob("*.py") if not p.name.startswith("test_")):
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):

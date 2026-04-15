@@ -12,6 +12,7 @@ and bounded tool-result rows aligned by turn.
 
 from __future__ import annotations
 
+import hashlib
 import json
 from collections.abc import Mapping
 from typing import Any
@@ -261,6 +262,29 @@ def build_kernel_step_result_record(
     }
 
 
+def _strip_volatile_fields(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {
+            str(key): _strip_volatile_fields(raw)
+            for key, raw in value.items()
+            if str(key) not in {"schema_version", "updated_at_epoch_seconds"}
+        }
+    if isinstance(value, list):
+        return [_strip_volatile_fields(item) for item in value]
+    return value
+
+
+def _work_state_signature(loop_memory: LoopMemoryState) -> str:
+    cont = loop_memory.continuity
+    payload = {
+        "mission_state": _strip_volatile_fields(cont.mission_state.model_dump(mode="json")),
+        "resolution_state": _strip_volatile_fields(cont.resolution_state.model_dump(mode="json")),
+        "latest_refs": _strip_volatile_fields(dict(cont.latest_refs)),
+    }
+    blob = json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str)
+    return hashlib.sha1(blob.encode("utf-8")).hexdigest()[:16]
+
+
 def apply_kernel_turn_continuity_carriage(
     *,
     loop_memory: LoopMemoryState,
@@ -291,6 +315,9 @@ def apply_kernel_turn_continuity_carriage(
         clamped = clamp_operator_progress_message(operator_progress_message)
         if clamped is not None:
             cont.operator_progress_message = clamped
+    active_item_id_snapshot = cont.active_item_id
+    if active_item_id_snapshot is None:
+        active_item_id_snapshot = cont.resolution_state.active_item_id
     cont.kernel_step_records.append(
         {
             "kernel_turn_index": int(iteration),
@@ -304,5 +331,11 @@ def apply_kernel_turn_continuity_carriage(
             "complete_run": bool(complete_run),
             "execution_state": str(execution_state),
             "execution_reason_code": execution_reason_code,
+            "active_item_id_snapshot": active_item_id_snapshot,
+            "resolution_item_count_snapshot": len(cont.resolution_state.items),
+            "success_condition_count_snapshot": len(cont.mission_state.success_conditions),
+            "closure_ready_to_close_snapshot": bool(cont.mission_state.closure_state.ready_to_close),
+            "closure_ready_to_publish_snapshot": bool(cont.mission_state.closure_state.ready_to_publish),
+            "work_state_signature": _work_state_signature(loop_memory),
         }
     )

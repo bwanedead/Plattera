@@ -499,3 +499,91 @@ def test_mission_summary_integer_still_rejected() -> None:
             state_patch={"mission": {"blocker_summary": 42}},
         )
     assert "blocker_summary" in excinfo.value.reason_code
+
+
+# ---------------------------------------------------------------------------
+# Rich feedback / repair_targets seam
+# ---------------------------------------------------------------------------
+
+def test_derive_repair_targets_from_success_condition_reason_code() -> None:
+    from harness.runtime.orchestration.state_patch_apply import _derive_repair_targets_from_feedback
+    targets = _derive_repair_targets_from_feedback(reason_code="success_condition_missing_id")
+    assert "repair_success_condition_row" in targets
+
+
+def test_derive_repair_targets_from_closure_dimension_reason_code() -> None:
+    from harness.runtime.orchestration.state_patch_apply import _derive_repair_targets_from_feedback
+    targets = _derive_repair_targets_from_feedback(reason_code="closure_dimension_missing_id")
+    assert "repair_closure_dimension_row" in targets
+    targets2 = _derive_repair_targets_from_feedback(reason_code="closure_state_unknown_keys")
+    assert "repair_closure_dimension_row" in targets2
+
+
+def test_derive_repair_targets_from_mission_reason_code() -> None:
+    from harness.runtime.orchestration.state_patch_apply import _derive_repair_targets_from_feedback
+    targets = _derive_repair_targets_from_feedback(reason_code="mission_unknown_keys")
+    assert "repair_mission_patch_shape" in targets
+
+
+def test_derive_repair_targets_from_resolution_reason_code() -> None:
+    from harness.runtime.orchestration.state_patch_apply import _derive_repair_targets_from_feedback
+    for code in ("resolution_unknown_keys", "items_not_array", "relations_not_array"):
+        targets = _derive_repair_targets_from_feedback(reason_code=code)
+        assert "repair_resolution_patch_shape" in targets, f"missing target for {code}"
+
+
+def test_derive_repair_targets_from_row_skip_details() -> None:
+    from harness.runtime.orchestration.state_patch_apply import _derive_repair_targets_from_feedback
+    skip_details_items = {"resolution": {"items": [{"reason_code": "missing_item_id"}]}}
+    targets = _derive_repair_targets_from_feedback(row_skip_details=skip_details_items)
+    assert "repair_resolution_item_rows" in targets
+
+    skip_details_rels = {"resolution": {"relations": [{"reason_code": "validation_failed"}]}}
+    targets2 = _derive_repair_targets_from_feedback(row_skip_details=skip_details_rels)
+    assert "repair_resolution_relation_rows" in targets2
+
+
+def test_derive_repair_targets_empty_for_unknown_reason_code() -> None:
+    from harness.runtime.orchestration.state_patch_apply import _derive_repair_targets_from_feedback
+    targets = _derive_repair_targets_from_feedback(reason_code="some_unrelated_code")
+    assert targets == []
+
+
+def test_build_state_patch_feedback_tracks_same_outcome_streak() -> None:
+    from harness.runtime.orchestration.state_patch_apply import _build_state_patch_feedback
+    fb1 = _build_state_patch_feedback(None, outcome="rejected", iteration=1, reason_code="bad_key")
+    assert fb1["same_outcome_streak"] == 1
+
+    fb2 = _build_state_patch_feedback(fb1, outcome="rejected", iteration=2, reason_code="bad_key")
+    assert fb2["same_outcome_streak"] == 2
+    assert fb2["same_reason_code_streak"] == 2
+
+    fb3 = _build_state_patch_feedback(fb2, outcome="applied", iteration=3)
+    assert fb3["same_outcome_streak"] == 1
+    assert "same_reason_code_streak" not in fb3
+
+
+def test_build_state_patch_feedback_tracks_last_applied_iteration() -> None:
+    from harness.runtime.orchestration.state_patch_apply import _build_state_patch_feedback
+    fb1 = _build_state_patch_feedback(None, outcome="rejected", iteration=1, reason_code="bad_key")
+    assert "last_applied_iteration" not in fb1
+
+    fb2 = _build_state_patch_feedback(fb1, outcome="applied", iteration=2)
+    assert fb2["last_applied_iteration"] == 2
+
+    fb3 = _build_state_patch_feedback(fb2, outcome="rejected", iteration=3, reason_code="bad_key")
+    assert fb3["last_applied_iteration"] == 2  # preserved from prior applied
+
+
+def test_build_state_patch_feedback_propagates_repair_hint_from_reason_code() -> None:
+    from harness.runtime.orchestration.state_patch_apply import _build_state_patch_feedback
+    fb = _build_state_patch_feedback(None, outcome="rejected", iteration=1, reason_code="success_condition_missing_id")
+    # The feedback should have a repair_hint derived from the reason_code.
+    assert "repair_hint" in fb
+    assert fb["repair_hint"] is not None
+
+    fb2 = _build_state_patch_feedback(None, outcome="rejected", iteration=1, reason_code="closure_dimension_missing_id")
+    assert "repair_hint" in fb2
+
+    fb3 = _build_state_patch_feedback(None, outcome="rejected", iteration=1, reason_code="mission_unknown_keys")
+    assert "repair_hint" in fb3
