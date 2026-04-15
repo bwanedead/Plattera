@@ -95,6 +95,14 @@ class RuntimeRunner:
           is always the total turns spent across all slices to date.
         """
         context = dict(launch_context or {})
+        # CLI start sets HARNESS_CLI_LOOP_KIND but entrypoint launch JSON may omit
+        # loop_kind; blocking-HITL resume must poll the same feedback namespace as
+        # harness.cli.answer (which uses run-state loop_kind).
+        if not str(context.get("loop_kind") or context.get("hitl_loop_kind") or "").strip():
+            env_lk = str(os.environ.get("HARNESS_CLI_LOOP_KIND", "") or "").strip()
+            if env_lk:
+                context = dict(context)
+                context["loop_kind"] = env_lk
         targets = self._targets or RuntimeArtifactTargets.from_env()
 
         try:
