@@ -1,6 +1,11 @@
 """Canonical instruction text for the kernel choose-action LLM turn.
 
 Extracted here to keep ``llm_prompt_builder`` focused on envelope assembly.
+
+Surface.py doctrine blocks own the world-model, generic method, self-audit,
+and anti-pattern doctrine.  This instruction carries only the mechanical
+envelope contract: output schema, turn mechanics, state_patch schema, and
+observability signals.
 """
 
 from __future__ import annotations
@@ -23,10 +28,9 @@ ACTION_PLAN_SCHEMA_TEXT: str = (
     "}\n"
 )
 
-_CHOOSE_ACTION_HEADER = (
-    "You are operating inside the Plattera harness. "
-    "The JSON packet below is layered as doctrine_blocks, surface_packet, run_context, and structured_state. "
-    "Read those sections and choose one next move that makes truthful, cumulative, evidence-justified progress.\n"
+_MECHANICAL_HEADER = (
+    "Read the doctrine_blocks, surface_packet, run_context, and structured_state in the JSON packet below, "
+    "then choose one next move that makes truthful, cumulative, evidence-justified progress on the mission.\n"
 )
 
 _TURN_CONTRACT_TEXT = """\
@@ -37,43 +41,8 @@ operator_progress_message: optional short user-facing status line; null keeps th
 Investigation-first turns are valid. Use them mainly to orient, itemize the real work, repair malformed durable state, or preserve new understanding that would otherwise be lost before another dispatch. If the most justified progress is to clarify focus, itemize unresolved work, or record a provisional investigation posture before dispatching another tool, you may return an explicit no-dispatch turn with action_type null, action_inputs {}, skip_execution true, wait_for_human false, complete_run false, and a non-null state_patch.
 """
 
-_GENERIC_METHOD_TEXT = """\
-### Generic method
-Reason backward from mission reality: ask what would have to be true in reality, not just in words, for this mission to be honestly accomplished. Decide which conditions are truly essential, what concrete claims or deliverables they depend on, and what would count as earned proof rather than provisional belief. Turn those essential conditions, blockers, and verification cruxes into explicit work.
-
-Work Universe Rule:
-- build a serious initial work universe early
-- treat it as revisable rather than frozen
-- expand it whenever later evidence reveals additional real work
-- do not close against a ledger that no longer matches mission reality
-
-When the mission depends on many material particulars, a thin ledger that covers only a few disagreements is usually not enough. Make sure the work universe actually covers the visible essential claims or tight claim-groups the mission depends on.
-Once an actionable item exists and a bounded discriminating check is available through current tools or evidence, the normal next move is to take that check rather than restating the same posture.
-After a discriminating check, use the standard rhythm: observe, classify, persist, then advance.
-If no stronger in-run check remains for a material unresolved item, HITL or explicit blocked posture is usually more justified than more posture-only turns.
-"""
-
-_SELF_AUDIT_TEXT = """\
-### Self-audit
-Silently ask yourself these questions before choosing the next move:
-1. What must be true in reality for honest completion?
-2. Are those conditions explicit enough in mission.success_conditions?
-3. Does resolution.items still cover the real work, or only the first few salient problems?
-4. For the active item, what is the strongest bounded next check available right now?
-5. Did this turn produce new truth that now must be made durable before I move on?
-6. If I stopped now, what would a competent reviewer immediately say is still under-verified or under-inventoried?
-"""
-
-_STATE_AND_PROOF_TEXT = """\
-### State and proof semantics
-mission.success_conditions is the mission-level burden-of-proof ledger: the must-be-true conditions for honest completion.
-resolution.items is the work-universe ledger: the concrete work units, uncertainties, and verification surfaces that satisfy or test those conditions.
-closure_state is the generic run-level closure ledger and is downstream: use it once earned conditions and earned work items justify it, not as the primary early-run skeleton.
-
-Keep provisional and earned judgments distinct. When an item or closure posture has not yet been deliberately verified, prefer statuses such as unassessed, in_review, or open and say what verification is still missing. Do not use closed merely because no contradiction has been noticed yet. If it helps to make that distinction durable, you may author an explicit "determination" field on resolution items or closure dimensions (for example "provisional" or "earned").
-For material visual claims, earned usually means the source reading is actually clear in the current evidence. If the current view is not clearly legible and a stronger bounded visual check exists, prefer that check before closing.
-If you author a strong claim such as status "closed" or ready_to_publish / ready_to_close, support it explicitly. Closed resolution items should usually carry determination "earned", verification_basis, and completion_criteria. Closed closure dimensions should usually carry determination "earned" and verification_basis.
-
+_STATE_PATCH_MECHANICS_TEXT = """\
+### state_patch mechanics
 Optional state_patch shape:
 - resolution?: { active_item_id, items, relations, opaque_payload }
 - mission?: { objective, active_mode, blocker_summary, verification_summary, waiting_summary, continuity_summary, mission_mode_summary, high_signal_artifact_refs, success_conditions, closure_state, opaque_payload }
@@ -131,31 +100,21 @@ HITL after exhaustion:
 {"action_type": null, "action_inputs": {}, "idempotency_key": "ik-hitl-1", "skip_execution": true, "wait_for_human": true, "complete_run": false, "rationale": "The remaining issue is material, the current run has exhausted its strongest in-run checks, and human input is now the most justified next move.", "state_patch": {"mission": {"waiting_summary": "Awaiting human clarification on the remaining blocker."}, "resolution": {"active_item_id": "<item-id>", "items": [{"item_id": "<item-id>", "title": "<item-title>", "kind": "blocking_dependency", "status": "blocked", "summary": "In-run evidence is exhausted; awaiting HITL."}]}} , "continuity_journal_entry": {"step": "escalating to human", "open_threads": ["integrate the answered prompt when it arrives"]}, "operator_progress_message": "Waiting for human clarification.", "hitl_request": {"message": "<question for operator>", "choices": [], "context": {}}, "hitl_consumed_prompt_ids": null}
 """
 
-_ANTI_PATTERN_TEXT = """\
-### Anti-patterns
-- repeating posture-only narration when a stronger bounded check exists
-- treating a thin partial ledger as if it exhausted the mission
-- letting truth live in rationale or continuity while durable state stays stale
-- rewriting large closure blocks when only one failing path needs repair
-- forcing a tool action or artifact mutation merely to appear active
-- treating smoother wording as proof
-
-Choose action_type only from the provided tool_ids when dispatching a tool. For an explicit no-dispatch investigation/state turn, action_type may be null only for the skip_execution shape described above.
-Do not force a tool action or artifact mutation merely to appear active. Prefer the most justified move.
-Do not wrap the JSON in markdown and do not add commentary.
-"""
+_OUTPUT_FORMAT_TEXT = (
+    "Choose action_type only from the provided tool_ids when dispatching a tool. "
+    "For an explicit no-dispatch investigation/state turn, action_type may be null only for the skip_execution shape described above. "
+    "Do not wrap the JSON in markdown and do not add commentary."
+)
 
 CHOOSE_ACTION_INSTRUCTION: str = (
-    _CHOOSE_ACTION_HEADER
+    _MECHANICAL_HEADER
     + ACTION_PLAN_SCHEMA_TEXT
     + _TURN_CONTRACT_TEXT
-    + _GENERIC_METHOD_TEXT
-    + _SELF_AUDIT_TEXT
-    + _STATE_AND_PROOF_TEXT
+    + _STATE_PATCH_MECHANICS_TEXT
     + _OBSERVABILITY_AND_REPAIR_TEXT
     + _HITL_TEXT
     + _EXAMPLES_TEXT
-    + _ANTI_PATTERN_TEXT
+    + _OUTPUT_FORMAT_TEXT
 )
 
 FULL_CHOOSE_ACTION_INSTRUCTION = CHOOSE_ACTION_INSTRUCTION

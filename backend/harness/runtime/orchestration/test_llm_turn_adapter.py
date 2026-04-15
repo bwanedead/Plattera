@@ -980,7 +980,8 @@ def test_choose_action_prompt_includes_closure_state_contract() -> None:
     prompt = captured[0]
     assert "closure_state" in prompt
     assert "closure_state dimensions merge by dimension_id" in prompt
-    assert "generic run-level closure ledger" in prompt
+    # "generic run-level closure ledger" was removed; closure semantics now live in surface.py doctrine blocks
+    assert "closure_state shape:" in prompt
 
 
 def test_choose_action_prompt_explicitly_allows_state_authoring_skip_turns() -> None:
@@ -1015,13 +1016,14 @@ def test_choose_action_prompt_teaches_commitment_after_item_exists() -> None:
     adapter.choose_action(ctx, projection=None)
 
     prompt = captured[0]
-    assert "Once an actionable item exists" in prompt
-    assert "normal next move is to take that check" in prompt
-    assert "what would have to be true in reality" in prompt
-    assert "Do not use closed merely because no contradiction has been noticed yet." in prompt
-    assert '"determination" field on resolution items or closure dimensions' in prompt
+    # Method/self-audit strings ("Once an actionable item exists", "normal next move is to take that check",
+    # "what would have to be true in reality", "Do not use closed merely because...") moved to surface.py
+    # doctrine blocks; they are not in the mechanical instruction text.
+    # Mechanical instruction pins: state schema, success_conditions, completion_criteria still asserted here.
     assert "mission.success_conditions" in prompt
     assert "completion_criteria" in prompt
+    assert "state_patch_feedback" in prompt  # observability/repair seam still in instruction
+    assert "determination" in prompt  # present as field name in closure_state shape schema
 
 
 def test_choose_action_prompt_includes_host_owned_prompt_observability_summary() -> None:
