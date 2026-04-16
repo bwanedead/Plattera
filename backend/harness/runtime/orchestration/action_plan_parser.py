@@ -12,6 +12,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from ..hitl.request_shape import normalize_hitl_request, validate_hitl_consumed_prompt_ids
+from .continuity_journal_entry import normalize_continuity_journal_entry
 from .contracts import ActionPlan
 
 _ALLOWED_ACTION_PLAN_KEYS = {
@@ -158,7 +159,7 @@ def parse_action_plan_response(
             "continuity_journal_entry must be a non-empty JSON object when present",
         )
     else:
-        cje_out = dict(cje_raw)
+        cje_out = normalize_continuity_journal_entry(dict(cje_raw))
 
     opm_raw = payload.get("operator_progress_message")
     if opm_raw is None:

@@ -33,10 +33,12 @@ def _loop_memory_with_closure(
     ready_to_publish: bool = False,
     requires_hitl: bool = False,
     resolution_items: list[ResolutionItem] | None = None,
+    work_universe_posture: str = "audited",
 ) -> LoopMemoryState:
     ms = new_mission_state(mission_id="m-policy", loop_family="orchestration_kernel")
     ms = ms.model_copy(
         update={
+            "work_universe_posture": work_universe_posture,
             "closure_state": ClosureState(
                 dimensions=list(dimensions or []),
                 ready_to_close=ready_to_close,
@@ -177,6 +179,67 @@ def test_closure_enforcement_allows_publish_when_ready_to_publish() -> None:
         "domain_closure_policy": _hard_enforced_policy(enforce_on_complete=False, enforce_on_publish=True)
     }
     assert closure_enforcement_failure(run_ctx=ctx, loop_memory=mem, action_plan=plan) is None
+
+
+def test_closure_enforcement_blocks_complete_when_work_universe_not_audited() -> None:
+    mem = _loop_memory_with_closure(
+        dimensions=[_dim("layer_a")],
+        ready_to_close=True,
+        work_universe_posture="partial",
+    )
+    plan = ActionPlan(complete_run=True)
+    result = closure_enforcement_failure(
+        run_ctx={"domain_closure_policy": _hard_enforced_policy()},
+        loop_memory=mem,
+        action_plan=plan,
+    )
+    assert result == (
+        "work_universe_complete_not_audited",
+        "work-universe posture must be audited before complete; current posture is partial",
+    )
+
+
+def test_closure_enforcement_blocks_publish_when_work_universe_not_audited() -> None:
+    mem = _loop_memory_with_closure(
+        dimensions=[_dim("layer_a")],
+        ready_to_publish=True,
+        work_universe_posture="believed_adequate",
+    )
+    plan = ActionPlan(action_type="publish_workspace_artifact")
+    result = closure_enforcement_failure(
+        run_ctx={
+            "domain_closure_policy": _hard_enforced_policy(
+                enforce_on_complete=False,
+                enforce_on_publish=True,
+            )
+        },
+        loop_memory=mem,
+        action_plan=plan,
+    )
+    assert result == (
+        "work_universe_publish_not_audited",
+        "work-universe posture must be audited before publish; current posture is believed_adequate",
+    )
+
+
+def test_closure_enforcement_allows_complete_when_same_turn_patch_sets_audited() -> None:
+    mem = _loop_memory_with_closure(
+        dimensions=[_dim("layer_a")],
+        ready_to_close=True,
+        work_universe_posture="partial",
+    )
+    plan = ActionPlan(
+        complete_run=True,
+        state_patch={"mission": {"work_universe_posture": "audited"}},
+    )
+    assert (
+        closure_enforcement_failure(
+            run_ctx={"domain_closure_policy": _hard_enforced_policy()},
+            loop_memory=mem,
+            action_plan=plan,
+        )
+        is None
+    )
 
 
 # ---------------------------------------------------------------------------

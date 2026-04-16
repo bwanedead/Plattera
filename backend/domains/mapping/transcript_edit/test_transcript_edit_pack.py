@@ -89,6 +89,12 @@ def test_prompt_branch_block_shape_and_doctrine_markers() -> None:
     assert "`unassessed`, `in_review`, or `open`" in text
     assert "treat `closed` as an earned late-run determination" in text.lower()
     assert "use `determination`" in text.lower()
+    assert "visible mapping-essential claim" in text.lower()
+    assert "primary_evidence_ref" in text
+    assert "annotated_evidence_ref" in text
+    assert "question_regions" in text
+    assert "unable to determine" in text.lower()
+    assert "other / needs nuance" in text.lower()
 
 
 def test_domain_pack_declares_semantic_prompt_blocks() -> None:
@@ -127,6 +133,11 @@ def test_domain_pack_declares_semantic_prompt_blocks() -> None:
     assert "`unassessed`, `in_review`, or `open`" in guidance.text
     assert "verified visible portion" in text
     assert "use `determination`" in text
+    assert "source-reading hitl evidence packets" in text
+    assert "primary_evidence_ref" in text
+    assert "annotated_evidence_ref" in text
+    assert "question_regions" in text
+    assert "unable to determine" in text
 
 
 def test_domain_pack_builds_runtime_prompt_blocks_with_startup_context() -> None:

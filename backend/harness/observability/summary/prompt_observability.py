@@ -35,7 +35,12 @@ _OPTIONAL_INT_FIELDS = (
     "turns_since_last_state_patch_applied",
     "turns_since_resolution_item_count_change",
 )
-_STR_FIELDS = ("last_prompt_event_id", "last_state_patch_outcome", "last_state_patch_reason_code")
+_STR_FIELDS = (
+    "last_prompt_event_id",
+    "last_state_patch_outcome",
+    "last_state_patch_reason_code",
+    "work_universe_posture",
+)
 
 
 def _nonblank_strs(values: Any) -> list[str]:

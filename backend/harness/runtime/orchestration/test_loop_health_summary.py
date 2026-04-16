@@ -35,12 +35,14 @@ def _mem(
     ready_to_close: bool = False,
     ready_to_publish: bool = False,
     requires_hitl: bool = False,
+    work_universe_posture: str = "initial",
     state_patch_feedback: dict | None = None,
     step_records: list[dict] | None = None,
 ) -> LoopMemoryState:
     ms = new_mission_state(mission_id="m-health", loop_family="orchestration_kernel")
     ms = ms.model_copy(
         update={
+            "work_universe_posture": work_universe_posture,
             "closure_state": ClosureState(
                 dimensions=list(dimensions or []),
                 ready_to_close=ready_to_close,
@@ -102,6 +104,7 @@ def _projection(
     closure_policy: dict | None = None,
     closure_state: object = None,
     resolution_item_count: int = 0,
+    work_universe_posture: str | None = None,
     feedback: dict | None = None,
     closed_items_without_earned_determination_count: int = 0,
     closed_items_without_basis_count: int = 0,
@@ -112,6 +115,7 @@ def _projection(
         closure_policy=closure_policy,
         closure_state=closure_state,
         resolution_item_count=resolution_item_count,
+        work_universe_posture=work_universe_posture,
         feedback=feedback or {},
         closed_items_without_earned_determination_count=closed_items_without_earned_determination_count,
         closed_items_without_basis_count=closed_items_without_basis_count,
@@ -141,9 +145,16 @@ def test_projection_no_policy_only_readiness_flags() -> None:
 def test_projection_all_ready_no_blockers() -> None:
     """ready_to_close + ready_to_publish with no other issues → empty blocker lists."""
     cs = ClosureState(ready_to_close=True, ready_to_publish=True)
-    result = _call_projection(closure_state=cs)
+    result = _call_projection(closure_state=cs, work_universe_posture="audited")
     assert result["complete_run_blockers"] == []
     assert result["publish_blockers"] == []
+
+
+def test_projection_work_universe_not_audited_blocks_complete_and_publish() -> None:
+    cs = ClosureState(ready_to_close=True, ready_to_publish=True)
+    result = _call_projection(closure_state=cs, work_universe_posture="partial")
+    assert "work_universe_not_audited:partial" in result["complete_run_blockers"]
+    assert "work_universe_not_audited:partial" in result["publish_blockers"]
 
 
 def test_projection_hard_enforced_missing_dimension_blocks_complete() -> None:
@@ -206,6 +217,19 @@ def test_projection_resolution_items_at_minimum_no_blocker() -> None:
     policy = {"hard_enforced": True, "minimum_resolution_items_for_complete": 3}
     result = _call_projection(closure_policy=policy, closure_state=cs, resolution_item_count=3)
     assert not any("resolution_items_below_minimum" in b for b in result["complete_run_blockers"])
+
+
+def test_projection_resolution_items_below_minimum_without_hard_enforcement_is_advisory_only() -> None:
+    """Minimum item counts are not mechanical blockers unless hard_enforced is enabled."""
+    cs = ClosureState(ready_to_close=True, ready_to_publish=True)
+    policy = {
+        "hard_enforced": False,
+        "minimum_resolution_items_for_complete": 3,
+        "minimum_resolution_items_for_publish": 2,
+    }
+    result = _call_projection(closure_policy=policy, closure_state=cs, resolution_item_count=1)
+    assert not any("resolution_items_below_minimum" in b for b in result["complete_run_blockers"])
+    assert not any("resolution_items_below_minimum" in b for b in result["publish_blockers"])
 
 
 def test_projection_recent_patch_rejected_blocks_both() -> None:
@@ -408,6 +432,7 @@ def test_summary_returns_all_required_top_level_keys() -> None:
         "closed_items_without_completion_criteria_count",
         "closure_dimension_count",
         "success_condition_count",
+        "work_universe_posture",
         "closure_readiness_projection",
         "mechanical_flags",
     ):
@@ -475,6 +500,15 @@ def test_summary_mechanical_flags_populated_for_stale_active_item() -> None:
     result = build_prompt_observability_summary(mem)
     flags: list[str] = result["mechanical_flags"]
     assert any("unchanged for 3" in f for f in flags)
+
+
+def test_summary_surfaces_work_universe_posture_and_projection_blocker() -> None:
+    mem = _mem(work_universe_posture="believed_adequate", ready_to_close=True, ready_to_publish=True)
+    result = build_prompt_observability_summary(mem)
+    assert result["work_universe_posture"] == "believed_adequate"
+    projection = result["closure_readiness_projection"]
+    assert "work_universe_not_audited:believed_adequate" in projection["complete_run_blockers"]
+    assert "work_universe_not_audited:believed_adequate" in projection["publish_blockers"]
 
 
 def test_summary_success_condition_coverage_counted() -> None:

@@ -7,7 +7,7 @@ from domains.prompting import PromptBlock
 TRANSCRIPT_EDIT_DOMAIN_ID = "transcript_edit"
 TRANSCRIPT_EDIT_FAMILY_ID = "mapping"
 TRANSCRIPT_EDIT_BRANCH_SOURCE_REF = "backend/domains/mapping/transcript_edit/prompting/branch.py"
-TRANSCRIPT_EDIT_BRANCH_VERSION = "v12"
+TRANSCRIPT_EDIT_BRANCH_VERSION = "v13"
 
 TRANSCRIPT_EDIT_BRANCH_TEXT = """\
 You are operating in the **transcript edit** domain for mapping-bound work.
@@ -109,6 +109,10 @@ A serious transcript-edit run should usually leave behind either:
 - explicit items for each material claim, or
 - tightly scoped claim-group items where the grouped span is still operationally reviewable and no claim inside it is being silently skipped
 
+Every visible mapping-essential claim should therefore be represented in durable state either:
+- as its own item, or
+- as a tight claim-group item whose summary explicitly states what claims that group covers
+
 ## Deliberate layer assessment
 Do not let one layer substitute for another.
 A sane transcript-edit run should deliberately ask, in separate terms:
@@ -137,6 +141,8 @@ That usually means:
 - if a broad page view is not enough, localize and enlarge the exact claim region rather than closing from impression
 - if the strongest available in-run visual check is still inconclusive, keep the item unresolved rather than normalizing a guess
 - if that unresolved claim is material and no stronger in-run evidence remains, prefer HITL or explicit blocked / no-further-progress posture over false earned closure
+- if the issue is headed to HITL, first localize the disputed span, create the strongest useful evidence packet available (crop/zoom and optionally annotate/highlight), re-hydrate it to confirm it is the right packet, and include that evidence in HITL context using keys such as `evidence_refs`, `primary_evidence_ref`, `annotated_evidence_ref`, and `question_regions`
+- when using bounded HITL choices for source-reading disputes, include a safe fallback such as `Unable to determine` or `Other / needs nuance`
 
 ## Closure ledger requirement
 When this domain uses `mission.closure_state`, treat it as the explicit closure ledger for these four layers.

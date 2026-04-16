@@ -39,6 +39,24 @@ def effective_resolution_state(
         return loop_memory.continuity.resolution_state
 
 
+def effective_mission_state(
+    *,
+    loop_memory: LoopMemoryState,
+    action_plan: ActionPlan,
+) -> Any:
+    if not action_plan.state_patch:
+        return loop_memory.continuity.mission_state
+    try:
+        mission_state, _, _ = apply_state_patch(
+            mission_state=loop_memory.continuity.mission_state,
+            resolution_state=loop_memory.continuity.resolution_state,
+            state_patch=action_plan.state_patch,
+        )
+        return mission_state
+    except StatePatchError:
+        return loop_memory.continuity.mission_state
+
+
 def effective_closure_state(
     *,
     loop_memory: LoopMemoryState,
@@ -119,11 +137,23 @@ def closure_enforcement_failure(
     action_plan: ActionPlan,
 ) -> tuple[str, str] | None:
     policy = closure_policy(run_ctx)
+    is_publish = str(action_plan.action_type or "").strip() in _PUBLISH_ACTION_IDS
+    is_complete = bool(action_plan.complete_run)
+    if not (is_publish or is_complete):
+        return None
+
+    mission_state = effective_mission_state(loop_memory=loop_memory, action_plan=action_plan)
+    posture = str(getattr(mission_state, "work_universe_posture", "") or "").strip() or "initial"
+    if posture != "audited":
+        target = "publish" if is_publish else "complete"
+        return (
+            f"work_universe_{target}_not_audited",
+            f"work-universe posture must be audited before {target}; current posture is {posture}",
+        )
+
     if not policy or not bool(policy.get("hard_enforced")):
         return None
 
-    is_publish = str(action_plan.action_type or "").strip() in _PUBLISH_ACTION_IDS
-    is_complete = bool(action_plan.complete_run)
     if not ((is_publish and bool(policy.get("enforce_on_publish"))) or (is_complete and bool(policy.get("enforce_on_complete")))):
         return None
 

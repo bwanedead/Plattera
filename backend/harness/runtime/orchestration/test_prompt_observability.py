@@ -87,6 +87,7 @@ def test_build_prompt_observability_summary_reports_loop_health_facts() -> None:
     loop_memory.continuity.mission_state = new_mission_state(
         mission_id="m-proof",
         loop_family="orchestration_kernel",
+        work_universe_posture="partial",
         resolution_state=loop_memory.continuity.resolution_state,
         success_conditions=[
             {
@@ -142,3 +143,4 @@ def test_build_prompt_observability_summary_reports_loop_health_facts() -> None:
     assert summary["closure_dimensions_with_earned_determination_count"] == 1
     assert summary["closed_dimensions_without_earned_determination_count"] == 1
     assert summary["closed_dimensions_without_basis_count"] == 1
+    assert summary["work_universe_posture"] == "partial"

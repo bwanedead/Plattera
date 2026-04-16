@@ -362,6 +362,7 @@ class CompleteRunWithSkippedItemRowsPack:
             idempotency_key="ik-skip-rows",
             continuity_journal_entry=_PACK_CJ,
             state_patch={
+                "mission": {"work_universe_posture": "audited"},
                 "resolution": {
                     "items": [
                         {"item_id": "", "title": "x", "kind": "k", "status": "s"},
@@ -478,6 +479,7 @@ class AsyncHitlThenCompletePack:
             idempotency_key="ik-done",
             rationale="after_async_hitl",
             continuity_journal_entry=_PACK_CJ,
+            state_patch={"mission": {"work_universe_posture": "audited"}},
         )
 
 
@@ -505,6 +507,7 @@ class LongRationaleCompleteRunPack:
                 "so the run should stop with that limitation explicit."
             ),
             continuity_journal_entry=_PACK_CJ,
+            state_patch={"mission": {"work_universe_posture": "audited"}},
         )
 
 
@@ -612,6 +615,7 @@ class ResolutionGatedSavePack:
             idempotency_key="ik-save-done",
             rationale="done",
             continuity_journal_entry=_PACK_CJ,
+            state_patch={"mission": {"work_universe_posture": "audited"}},
         )
 
 
@@ -713,6 +717,7 @@ class ClosureGatedCompletePack:
                 continuity_journal_entry=_PACK_CJ,
                 state_patch={
                     "mission": {
+                        "work_universe_posture": "audited",
                         "closure_state": {
                             "overall_status": "open",
                             "ready_to_close": False,
@@ -728,6 +733,7 @@ class ClosureGatedCompletePack:
             continuity_journal_entry=_PACK_CJ,
             state_patch={
                 "mission": {
+                    "work_universe_posture": "audited",
                     "closure_state": {
                         "overall_status": "complete_ready",
                         "ready_to_close": True,
@@ -765,6 +771,7 @@ class ClosureGatedPublishPack:
                 continuity_journal_entry=_PACK_CJ,
                 state_patch={
                     "mission": {
+                        "work_universe_posture": "audited",
                         "closure_state": {
                             "overall_status": "investigating",
                             "ready_to_publish": False,
@@ -782,6 +789,7 @@ class ClosureGatedPublishPack:
                 continuity_journal_entry=_PACK_CJ,
                 state_patch={
                     "mission": {
+                        "work_universe_posture": "audited",
                         "closure_state": {
                             "overall_status": "publish_ready",
                             "ready_to_publish": True,
@@ -804,6 +812,7 @@ class ClosureGatedPublishPack:
             continuity_journal_entry=_PACK_CJ,
             state_patch={
                 "mission": {
+                    "work_universe_posture": "audited",
                     "closure_state": {
                         "ready_to_close": True,
                         "dimensions": [
@@ -1191,6 +1200,7 @@ class ContinuityJournalTwoTurnPack:
                 idempotency_key="ik2",
                 rationale="done",
                 continuity_journal_entry={"close_out": True},
+                state_patch={"mission": {"work_universe_posture": "audited"}},
             )
         return ActionPlan(
             action_type="noop",
@@ -1325,7 +1335,11 @@ class _OneStepImagePack:
                 idempotency_key="ik-img",
                 continuity_journal_entry={"img_turn": True},
             )
-        return ActionPlan(complete_run=True, continuity_journal_entry={"done": True})
+        return ActionPlan(
+            complete_run=True,
+            continuity_journal_entry={"done": True},
+            state_patch={"mission": {"work_universe_posture": "audited"}},
+        )
 
 
 def test_image_evidence_in_tool_result_raw_via_turn_completion_observer() -> None:
@@ -1493,6 +1507,7 @@ class _TransformRetryRecoverPack:
             idempotency_key="ik-done",
             rationale="transform recovered",
             continuity_journal_entry={"step": "done"},
+            state_patch={"mission": {"work_universe_posture": "audited"}},
         )
 
 

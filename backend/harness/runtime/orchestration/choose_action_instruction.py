@@ -35,7 +35,7 @@ _MECHANICAL_HEADER = (
 
 _TURN_CONTRACT_TEXT = """\
 ### Turn contract
-continuity_journal_entry: optional non-empty JSON object (append-only continuity: observations, decisions, open threads, expected next); use it when the turn produced observations, decisions, open threads, or next-step understanding worth carrying forward. Omit it (null) when the turn has no meaningful continuity delta.
+continuity_journal_entry: optional non-empty JSON object (append-only continuity: observations, decisions, open threads, expected next); use it when the turn produced observations, decisions, open threads, or next-step understanding worth carrying forward. Omit it (null) when the turn has no meaningful continuity delta. Author only the raw continuity payload you want stored; do not wrap it inside `author_payload`, `kernel_turn_index`, or similar host-shaped envelope keys.
 operator_progress_message: optional short user-facing status line; null keeps the prior message.
 
 Investigation-first turns are valid. Use them mainly to orient, itemize the real work, repair malformed durable state, or preserve new understanding that would otherwise be lost before another dispatch. If the most justified progress is to clarify focus, itemize unresolved work, or record a provisional investigation posture before dispatching another tool, you may return an explicit no-dispatch turn with action_type null, action_inputs {}, skip_execution true, wait_for_human false, complete_run false, and a non-null state_patch.
@@ -45,7 +45,7 @@ _STATE_PATCH_MECHANICS_TEXT = """\
 ### state_patch mechanics
 Optional state_patch shape:
 - resolution?: { active_item_id, items, relations, opaque_payload }
-- mission?: { objective, active_mode, blocker_summary, verification_summary, waiting_summary, continuity_summary, mission_mode_summary, high_signal_artifact_refs, success_conditions, closure_state, opaque_payload }
+- mission?: { objective, active_mode, work_universe_posture, blocker_summary, verification_summary, waiting_summary, continuity_summary, mission_mode_summary, high_signal_artifact_refs, success_conditions, closure_state, opaque_payload }
 
 Do not put latest_refs_summary, terminal_summary, or prompt_observability_summary in mission; those are host-owned.
 The runtime merges mechanically:
@@ -60,9 +60,16 @@ mission.success_conditions shape:
 closure_state shape:
 { overall_status?, summary?, ready_to_publish?, ready_to_close?, requires_hitl?, no_further_progress?, dimensions?: [{dimension_id, title, status, determination?, summary?, blocking?, requires_hitl?, no_further_progress?, evidence_refs?, verification_basis?, next_needed_step?, opaque_payload?}], opaque_payload? }
 
+mission.work_universe_posture allowed values:
+- `initial`: first-pass inventory is not yet serious
+- `partial`: some real work exists, but essential coverage is not yet credible
+- `believed_adequate`: the essential inventory appears present
+- `audited`: you have completed an explicit post-convergence audit sweep
+
+`complete_run` and publish are mechanically blocked unless `mission.work_universe_posture` is `audited`.
 Do not copy host-maintained fields such as schema_version or updated_at_epoch_seconds from visible state into state_patch.
 Summary-field shorthand: mission summary fields (blocker_summary, verification_summary, waiting_summary, continuity_summary, mission_mode_summary) accept a plain string and normalize to {"summary": "..."} automatically. Example: "blocker_summary": "Need clearer image evidence".
-Do not emit mission or resolution as top-level keys; they belong only inside state_patch.
+Use only canonical `state_patch.mission` and `state_patch.resolution`. Do not author alias top-level keys such as `mission_state` or `resolution_state`; they are repair-only backstops, not the contract.
 """
 
 _OBSERVABILITY_AND_REPAIR_TEXT = """\
@@ -83,6 +90,14 @@ hitl_request: optional generic human prompt transport {message (required non-emp
 wait_for_human is the canonical blocking flag: true requires hitl_request and pauses the loop until feedback arrives; false with hitl_request emits the request but the loop continues.
 hitl_consumed_prompt_ids: optional array of prompt_id strings you have mechanically incorporated; host removes matching answered_hitl_responses only.
 Envelope hitl_state, pending_hitl_requests, answered_hitl_responses are host-owned.
+
+HITL discipline:
+- Multiple HITLs in one run are valid.
+- Async HITL is the default when other honest work remains.
+- Blocking HITL is only for true pause conditions.
+- If a material unresolved issue has exhausted the strongest in-run check and is plausibly answerable by a human now, consider emitting HITL instead of pretending closure.
+- For source-reading or evidence disputes, use `hitl_request.context` to carry focused evidence such as `evidence_refs`, `primary_evidence_ref`, `annotated_evidence_ref`, and `question_regions` when available.
+- When bounded choices could force a false answer, include a safe fallback such as `Unable to determine` or `Other / needs nuance`.
 """
 
 _EXAMPLES_TEXT = """\
@@ -98,6 +113,9 @@ Minimal proof-state repair after a rejected patch:
 
 HITL after exhaustion:
 {"action_type": null, "action_inputs": {}, "idempotency_key": "ik-hitl-1", "skip_execution": true, "wait_for_human": true, "complete_run": false, "rationale": "The remaining issue is material, the current run has exhausted its strongest in-run checks, and human input is now the most justified next move.", "state_patch": {"mission": {"waiting_summary": "Awaiting human clarification on the remaining blocker."}, "resolution": {"active_item_id": "<item-id>", "items": [{"item_id": "<item-id>", "title": "<item-title>", "kind": "blocking_dependency", "status": "blocked", "summary": "In-run evidence is exhausted; awaiting HITL."}]}} , "continuity_journal_entry": {"step": "escalating to human", "open_threads": ["integrate the answered prompt when it arrives"]}, "operator_progress_message": "Waiting for human clarification.", "hitl_request": {"message": "<question for operator>", "choices": [], "context": {}}, "hitl_consumed_prompt_ids": null}
+
+Async HITL while other honest work remains:
+{"action_type": null, "action_inputs": {}, "idempotency_key": "ik-hitl-async-1", "skip_execution": true, "wait_for_human": false, "complete_run": false, "rationale": "This unresolved issue is materially important and plausibly human-answerable, but other honest work can continue while the answer is pending.", "state_patch": {"mission": {"verification_summary": "Issued an async HITL for a remaining unresolved issue while keeping the run active.", "work_universe_posture": "believed_adequate"}, "resolution": {"active_item_id": "<item-id>", "items": [{"item_id": "<item-id>", "title": "<item-title>", "kind": "open_question", "status": "blocked", "summary": "Strongest in-run check is exhausted; async HITL issued while other work continues."}]}} , "continuity_journal_entry": {"step": "issued async hitl", "open_threads": ["continue other unresolved work", "integrate the answered prompt when it arrives"]}, "operator_progress_message": "Queued a human clarification request while continuing other work.", "hitl_request": {"message": "<question for operator>", "choices": ["<choice-a>", "<choice-b>", "Unable to determine", "Other / needs nuance"], "context": {"evidence_refs": ["<artifact-ref>"], "primary_evidence_ref": "<artifact-ref>", "annotated_evidence_ref": "<artifact-ref>", "question_regions": ["<region-label>"]}}, "hitl_consumed_prompt_ids": null}
 """
 
 _OUTPUT_FORMAT_TEXT = (

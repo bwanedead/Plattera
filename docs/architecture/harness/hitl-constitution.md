@@ -71,6 +71,31 @@ The existence of `HITL` does not mean the run should overuse human labor.
 It exists for cases where the agent cannot honestly or efficiently proceed
 without human-provided knowledge or judgment.
 
+Multiple `HITL` requests in one run are constitutionally valid when there are
+multiple materially unresolved, plausibly human-answerable issues.
+The existence of one prompt does not imply that all other human-answerable
+issues should stay hidden until later.
+
+---
+
+## 2.1 Emission Discipline
+
+The agent should silently ask itself:
+
+- which remaining material unresolved issues have exhausted the strongest
+  in-run check?
+- which of those are plausibly answerable by a human right now?
+- should any of them be emitted as `HITL` now?
+- should they be async by default rather than blocking?
+
+Default posture:
+
+- async `HITL` is the default when other honest work remains
+- blocking `HITL` is only for true pause conditions
+
+This keeps `HITL` as a minimal-effort escalation rail rather than a premature
+stop button.
+
 ---
 
 ## 3. Two HITL Species

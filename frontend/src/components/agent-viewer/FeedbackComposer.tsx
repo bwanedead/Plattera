@@ -1,4 +1,5 @@
 import React from 'react';
+import { getAgentViewerArtifactImageUrl } from '../../services/agentViewerApi';
 import type { ActivePrompt } from './hooks/useAgentViewerFeedback';
 
 type Props = {
@@ -27,6 +28,7 @@ export function FeedbackComposer({
   feedbackError,
 }: Props) {
   const terminalLocked = isRunTerminal && !allowTerminalFeedback;
+  const evidencePreviewRefs = activeFeedbackPrompt ? buildEvidencePreviewRefs(activeFeedbackPrompt) : [];
   return (
     <div style={{ position: 'absolute', left: 12, right: 12, bottom: 12, borderRadius: 12, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(0,0,0,0.58)', padding: 10 }}>
       {activeFeedbackPrompt && (
@@ -64,6 +66,27 @@ export function FeedbackComposer({
             </div>
           )}
           <div style={{ fontSize: 10, opacity: 0.64, marginTop: 3 }}>prompt_id: {activeFeedbackPrompt.promptId}</div>
+          {activeFeedbackPrompt.questionRegions.length > 0 && (
+            <div style={{ fontSize: 10, opacity: 0.7, marginTop: 4 }}>
+              Question regions: {activeFeedbackPrompt.questionRegions.join(' | ')}
+            </div>
+          )}
+          {evidencePreviewRefs.length > 0 && (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8, marginTop: 8 }}>
+              {evidencePreviewRefs.map((artifactRef) => (
+                <div key={artifactRef} style={{ borderRadius: 8, overflow: 'hidden', border: '1px solid rgba(255,255,255,0.14)', background: 'rgba(255,255,255,0.03)' }}>
+                  <img
+                    src={getAgentViewerArtifactImageUrl(artifactRef)}
+                    alt="HITL evidence"
+                    style={{ display: 'block', width: '100%', maxHeight: 180, objectFit: 'contain', background: 'rgba(255,255,255,0.02)' }}
+                  />
+                  <div style={{ fontSize: 10, opacity: 0.68, padding: '6px 8px', wordBreak: 'break-all' }}>
+                    {artifactRef}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -100,4 +123,13 @@ export function FeedbackComposer({
       {activePromptSatisfied && <div style={{ marginTop: 6, fontSize: 11, color: '#8ee5b0' }}>Prompt response received.</div>}
     </div>
   );
+}
+
+function buildEvidencePreviewRefs(activeFeedbackPrompt: ActivePrompt): string[] {
+  const refs = [
+    activeFeedbackPrompt.annotatedEvidenceRef,
+    activeFeedbackPrompt.primaryEvidenceRef,
+    ...activeFeedbackPrompt.evidenceRefs,
+  ].filter((value): value is string => Boolean(value));
+  return Array.from(new Set(refs)).slice(0, 2);
 }

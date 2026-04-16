@@ -10,7 +10,7 @@ from ..branch import TRANSCRIPT_EDIT_DOMAIN_ID
 TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_SOURCE_REF = (
     "backend/domains/mapping/transcript_edit/prompting/surfaces/procedural_guidance.py"
 )
-TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_VERSION = "v11"
+TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_VERSION = "v12"
 
 TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_TEXT = """\
 Use this guidance to shape your movement through transcript-edit work. This is **guidance**, not a hard script. The harness still owns orchestration. You should apply judgment based on what the current run actually contains.
@@ -128,6 +128,19 @@ Concretely:
 - If the image confirms a call, update the relevant item to reflect the verified reading and its evidence basis.
 - If the image reveals an ambiguity or cutoff, create or update an item to capture the specific nature of the uncertainty.
 - If the image is not legible enough for the claim in question, record what was attempted and what stronger move remains.
+
+## Source-reading HITL evidence packets
+When a material source-reading dispute is headed to HITL, do not emit the prompt from a vague broad-page impression if a stronger bounded evidence packet is available.
+
+Preferred sequence:
+- localize the disputed span
+- crop and/or zoom it
+- optionally annotate or highlight the exact question region
+- re-hydrate the derived evidence and confirm it is the right packet
+- include that packet in HITL context with fields such as `evidence_refs`, `primary_evidence_ref`, `annotated_evidence_ref`, and `question_regions`
+
+The goal is that the human sees the exact evidence and the exact disputed region with minimal effort.
+When bounded choices are appropriate, include a safe non-forcing option such as `Unable to determine` or `Other / needs nuance`.
 
 ## What not to do
 - Do not treat one peer draft as the implicit winner because it reads best.

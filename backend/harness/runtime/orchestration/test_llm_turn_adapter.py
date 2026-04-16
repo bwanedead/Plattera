@@ -998,7 +998,7 @@ def test_choose_action_prompt_explicitly_allows_state_authoring_skip_turns() -> 
     prompt = captured[0]
     assert "no-dispatch turn" in prompt
     assert "action_type null" in prompt
-    assert "Do not emit mission or resolution as top-level keys" in prompt
+    assert "Use only canonical `state_patch.mission` and `state_patch.resolution`" in prompt
     assert '"kind": "open_question"' in prompt
     assert "provisional investigation posture" in prompt
     assert "record closure posture before dispatching another tool" not in prompt

@@ -13,6 +13,11 @@ export type ActivePrompt = {
   line1: string;
   line2: string;
   choices: string[];
+  context: Record<string, any>;
+  evidenceRefs: string[];
+  primaryEvidenceRef: string | null;
+  annotatedEvidenceRef: string | null;
+  questionRegions: string[];
   synthetic?: boolean;
 };
 
@@ -72,12 +77,31 @@ export function useAgentViewerFeedback({
       const alreadyAnswered = answeredPromptIds.has(promptId);
       if (alreadyAnswered) continue;
       const choices = Array.isArray(evt.payload?.choices) ? evt.payload.choices.filter((c: any) => typeof c === 'string') : [];
+      const context =
+        evt.payload?.context && typeof evt.payload.context === 'object' && !Array.isArray(evt.payload.context)
+          ? evt.payload.context
+          : {};
+      const primaryEvidenceRef =
+        typeof context.primary_evidence_ref === 'string' && context.primary_evidence_ref.trim()
+          ? context.primary_evidence_ref.trim()
+          : null;
+      const annotatedEvidenceRef =
+        typeof context.annotated_evidence_ref === 'string' && context.annotated_evidence_ref.trim()
+          ? context.annotated_evidence_ref.trim()
+          : null;
+      const evidenceRefs = collectArtifactRefs(context.evidence_refs, primaryEvidenceRef, annotatedEvidenceRef);
+      const questionRegions = normalizePromptContextList(context.question_regions);
       return {
         promptId,
         blocking: Boolean(evt.payload?.blocking),
         line1: String(evt.status?.line1 || 'Human feedback needed'),
         line2: String(evt.status?.line2 || ''),
         choices: choices.slice(0, 8),
+        context,
+        evidenceRefs,
+        primaryEvidenceRef,
+        annotatedEvidenceRef,
+        questionRegions,
         synthetic: false,
       };
     }
@@ -254,4 +278,30 @@ function inferDecisionKeyFromPromptId(promptId: string): string | null {
   if (value.startsWith('hitl_closure_or_pob_')) return 'closure_or_pob';
   if (value.startsWith('hitl_acreage_')) return 'acreage';
   return null;
+}
+
+function collectArtifactRefs(
+  raw: unknown,
+  primaryEvidenceRef: string | null,
+  annotatedEvidenceRef: string | null,
+): string[] {
+  const out = new Set<string>();
+  for (const value of normalizePromptContextList(raw)) {
+    out.add(value);
+  }
+  if (primaryEvidenceRef) out.add(primaryEvidenceRef);
+  if (annotatedEvidenceRef) out.add(annotatedEvidenceRef);
+  return Array.from(out).slice(0, 8);
+}
+
+function normalizePromptContextList(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((value) => {
+      if (typeof value === 'string') return value.trim();
+      if (value && typeof value === 'object') return JSON.stringify(value);
+      return '';
+    })
+    .filter(Boolean)
+    .slice(0, 8);
 }

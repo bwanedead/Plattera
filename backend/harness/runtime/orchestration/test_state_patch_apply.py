@@ -501,6 +501,68 @@ def test_mission_summary_integer_still_rejected() -> None:
     assert "blocker_summary" in excinfo.value.reason_code
 
 
+def test_mission_patch_accepts_work_universe_posture() -> None:
+    ms, rs = _base_states()
+    ms2, _, _ = apply_state_patch(
+        mission_state=ms,
+        resolution_state=rs,
+        state_patch={"mission": {"work_universe_posture": "believed_adequate"}},
+    )
+    assert ms2.work_universe_posture == "believed_adequate"
+
+
+def test_mission_patch_rejects_invalid_work_universe_posture() -> None:
+    ms, rs = _base_states()
+    with pytest.raises(StatePatchError) as excinfo:
+        apply_state_patch(
+            mission_state=ms,
+            resolution_state=rs,
+            state_patch={"mission": {"work_universe_posture": "complete"}},
+        )
+    assert excinfo.value.reason_code == "work_universe_posture_invalid"
+
+
+def test_state_patch_alias_keys_normalize_to_canonical_branches() -> None:
+    ms, rs = _base_states()
+    ms2, rs2, _ = apply_state_patch(
+        mission_state=ms,
+        resolution_state=rs,
+        state_patch={
+            "mission_state": {"active_mode": "reviewing", "work_universe_posture": "partial"},
+            "resolution_state": {
+                "active_item_id": "i-alias",
+                "items": [
+                    {
+                        "item_id": "i-alias",
+                        "title": "Alias item",
+                        "kind": "work_unit",
+                        "status": "open",
+                    }
+                ],
+            },
+        },
+    )
+    assert ms2.active_mode == "reviewing"
+    assert ms2.work_universe_posture == "partial"
+    assert rs2.active_item_id == "i-alias"
+    assert len(rs2.items) == 1
+    assert rs2.items[0].item_id == "i-alias"
+
+
+def test_state_patch_alias_conflict_rejected() -> None:
+    ms, rs = _base_states()
+    with pytest.raises(StatePatchError) as excinfo:
+        apply_state_patch(
+            mission_state=ms,
+            resolution_state=rs,
+            state_patch={
+                "mission": {"active_mode": "canonical"},
+                "mission_state": {"active_mode": "alias"},
+            },
+        )
+    assert excinfo.value.reason_code == "state_patch_alias_conflict"
+
+
 # ---------------------------------------------------------------------------
 # Rich feedback / repair_targets seam
 # ---------------------------------------------------------------------------

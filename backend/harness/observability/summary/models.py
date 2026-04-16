@@ -94,6 +94,7 @@ class PromptObservabilitySummary(BaseModel):
     prompt_event_count: int = Field(default=0, ge=0)
     last_prompt_event_id: str | None = Field(default=None, max_length=128)
     last_prompt_event_surface: str | None = Field(default=None, max_length=64)
+    work_universe_posture: str | None = Field(default=None, max_length=32)
     consecutive_no_dispatch_turns: int = Field(default=0, ge=0)
     turns_since_last_tool_execution: int | None = Field(default=None, ge=0)
     turns_since_latest_refs_change: int | None = Field(default=None, ge=0)

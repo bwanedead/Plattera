@@ -158,7 +158,7 @@ def test_runner_invokes_orchestration_and_writes_loop_result_artifacts(tmp_path:
                 "wait_for_human": False,
                 "complete_run": True,
                 "rationale": "finished",
-                "state_patch": None,
+                "state_patch": {"mission": {"work_universe_posture": "audited"}},
                 "continuity_journal_entry": {"runner_stub": True},
                 "operator_progress_message": None,
             }
@@ -298,6 +298,7 @@ def test_runner_executes_transcript_edit_tool_and_writes_artifacts(tmp_path: Pat
                             ]
                         },
                         "mission": {
+                            "work_universe_posture": "audited",
                             "closure_state": {
                                 "overall_status": "complete_ready",
                                 "ready_to_close": True,
@@ -533,7 +534,7 @@ def _blocking_hitl_model_caller() -> tuple[list[str], Any]:
                 "wait_for_human": False,
                 "complete_run": True,
                 "rationale": "human answered, proceeding",
-                "state_patch": None,
+                "state_patch": {"mission": {"work_universe_posture": "audited"}},
                 "continuity_journal_entry": {"stub": True},
                 "operator_progress_message": None,
             }
@@ -643,7 +644,7 @@ def test_async_hitl_does_not_pause_run(tmp_path: Path, monkeypatch) -> None:
                 "wait_for_human": False,
                 "complete_run": True,
                 "rationale": "done",
-                "state_patch": None,
+                "state_patch": {"mission": {"work_universe_posture": "audited"}},
                 "continuity_journal_entry": {"stub": True},
                 "operator_progress_message": None,
             }
@@ -1019,7 +1020,7 @@ def test_hitl_routing_uses_canonical_run_id(tmp_path: Path, monkeypatch) -> None
                 "wait_for_human": False,
                 "complete_run": True,
                 "rationale": "done",
-                "state_patch": None,
+                "state_patch": {"mission": {"work_universe_posture": "audited"}},
                 "continuity_journal_entry": {"stub": True},
                 "operator_progress_message": None,
             }

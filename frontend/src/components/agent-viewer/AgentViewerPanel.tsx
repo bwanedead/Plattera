@@ -231,7 +231,7 @@ export const AgentViewerPanel: React.FC<AgentViewerPanelProps> = ({
     if (result.activePromptId) {
       setEvents((prev) => [
         {
-          protocol: 'agent_viewer_event_v1',
+          protocol: 'agent_viewer_event_v1' as const,
           loop_kind: activeLoopKind,
           run_id: activeRunId,
           seq: Date.now(),

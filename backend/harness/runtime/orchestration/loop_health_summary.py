@@ -27,6 +27,7 @@ def build_prompt_observability_summary(
     success_conditions = list(getattr(cont.mission_state, "success_conditions", ()) or ())
     closure_state = cont.mission_state.closure_state
     closure_dimensions = list(getattr(closure_state, "dimensions", ()) or ())
+    work_universe_posture = _as_optional_text(getattr(cont.mission_state, "work_universe_posture", None)) or "initial"
     feedback = dict(cont.state_patch_feedback) if isinstance(cont.state_patch_feedback, Mapping) else {}
 
     closed_items_count = sum(1 for row in resolution_items if _is_closed_status(getattr(row, "status", None)))
@@ -84,6 +85,7 @@ def build_prompt_observability_summary(
         closure_policy=closure_policy,
         closure_state=closure_state,
         resolution_item_count=len(resolution_items),
+        work_universe_posture=work_universe_posture,
         feedback=feedback,
         closed_items_without_earned_determination_count=closed_items_without_earned_determination_count,
         closed_items_without_basis_count=closed_items_without_basis_count,
@@ -100,6 +102,7 @@ def build_prompt_observability_summary(
         "turns_since_latest_refs_change": _turns_since_latest_refs_change(step_records),
         "last_state_patch_outcome": _as_optional_text(feedback.get("outcome")),
         "last_state_patch_reason_code": _as_optional_text(feedback.get("reason_code")),
+        "work_universe_posture": work_universe_posture,
         "repeated_state_patch_reason_code_streak": repeated_state_patch_reason_code_streak,
         "turns_since_last_state_patch_applied": turns_since_last_state_patch_applied,
         "consecutive_same_active_item_turns": consecutive_same_active_item_turns,
@@ -261,6 +264,7 @@ def _closure_readiness_projection(
     closure_policy: Mapping[str, Any] | None,
     closure_state: Any,
     resolution_item_count: int,
+    work_universe_posture: str | None = None,
     feedback: Mapping[str, Any],
     closed_items_without_earned_determination_count: int,
     closed_items_without_basis_count: int,
@@ -270,11 +274,17 @@ def _closure_readiness_projection(
     complete_run_blockers: list[str] = []
     publish_blockers: list[str] = []
     hard_enforced = bool(closure_policy and closure_policy.get("hard_enforced"))
+    posture = _as_optional_text(work_universe_posture)
     dimensions_by_id = {
         str(getattr(row, "dimension_id", "") or ""): row
         for row in getattr(closure_state, "dimensions", ()) or ()
         if str(getattr(row, "dimension_id", "") or "")
     }
+
+    if posture is not None and posture != "audited":
+        blocker = f"work_universe_not_audited:{posture}"
+        complete_run_blockers.append(blocker)
+        publish_blockers.append(blocker)
 
     required_dimension_ids = tuple(
         str(value).strip()
@@ -300,12 +310,12 @@ def _closure_readiness_projection(
             publish_blockers.append("closure_requires_hitl")
 
     minimum_complete_items = int((closure_policy or {}).get("minimum_resolution_items_for_complete") or 0)
-    if minimum_complete_items > resolution_item_count:
+    if hard_enforced and minimum_complete_items > resolution_item_count:
         complete_run_blockers.append(
             f"resolution_items_below_minimum:{resolution_item_count}/{minimum_complete_items}"
         )
     minimum_publish_items = int((closure_policy or {}).get("minimum_resolution_items_for_publish") or 0)
-    if minimum_publish_items > resolution_item_count:
+    if hard_enforced and minimum_publish_items > resolution_item_count:
         publish_blockers.append(
             f"resolution_items_below_minimum:{resolution_item_count}/{minimum_publish_items}"
         )

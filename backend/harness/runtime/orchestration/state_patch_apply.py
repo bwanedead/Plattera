@@ -37,8 +37,10 @@ MAX_RESOLUTION_ITEMS_TOTAL = 128
 MAX_RESOLUTION_RELATIONS_TOTAL = 128
 MAX_STATE_PATCH_DETAIL_ROWS = 4
 MAX_STATE_PATCH_VALIDATION_ERRORS = 4
+_WORK_UNIVERSE_POSTURES = frozenset({"initial", "partial", "believed_adequate", "audited"})
 
 ALLOWED_PATCH_TOP_LEVEL = frozenset({"resolution", "mission"})
+_STATE_PATCH_ALIAS_KEYS = {"mission_state": "mission", "resolution_state": "resolution"}
 ALLOWED_RESOLUTION_KEYS = frozenset({"active_item_id", "items", "relations", "opaque_payload"})
 # Mission patch: model-authored fields only. Host/observability code owns latest_refs_summary,
 # terminal_summary, and prompt_observability_summary (not writable via state_patch).
@@ -46,6 +48,7 @@ ALLOWED_MISSION_KEYS = frozenset(
     {
         "objective",
         "active_mode",
+        "work_universe_posture",
         "high_signal_artifact_refs",
         "blocker_summary",
         "verification_summary",
@@ -125,6 +128,24 @@ def _detail_row(
     if validation_errors:
         detail["validation_errors"] = list(validation_errors[:MAX_STATE_PATCH_VALIDATION_ERRORS])
     return detail
+
+
+def _normalize_state_patch_aliases(state_patch: Mapping[str, Any]) -> dict[str, Any]:
+    patch = dict(state_patch)
+    for alias, canonical in _STATE_PATCH_ALIAS_KEYS.items():
+        if alias not in patch:
+            continue
+        if canonical in patch:
+            raise StatePatchError(
+                "state_patch_alias_conflict",
+                f"state_patch contains both {canonical} and its alias {alias}",
+                detail={
+                    "failing_path": "state_patch",
+                    "repair_hint": f"Use only state_patch.{canonical}; do not also emit state_patch.{alias}.",
+                },
+            )
+        patch[canonical] = patch.pop(alias)
+    return patch
 
 
 def _append_detail(target: list[dict[str, Any]], detail: dict[str, Any]) -> None:
@@ -485,6 +506,7 @@ def _apply_state_patch_detailed(
         return ms, resolution_state, _empty_row_skip_report(), {}
 
     patch = dict(state_patch)
+    patch = _normalize_state_patch_aliases(patch)
     try:
         blob = json.dumps(patch, ensure_ascii=False, default=str)
     except (TypeError, ValueError) as exc:
@@ -497,6 +519,10 @@ def _apply_state_patch_detailed(
         raise StatePatchError(
             "state_patch_unknown_keys",
             f"unknown top-level keys: {sorted(unknown_top)}",
+            detail={
+                "failing_path": "state_patch",
+                "repair_hint": "Use only state_patch.mission and state_patch.resolution at the top level.",
+            },
         )
 
     row_skips = _empty_row_skip_report()
@@ -729,6 +755,19 @@ def _apply_mission_branch(ms: MissionState, raw: Any) -> MissionState:
     if "active_mode" in raw:
         v = raw["active_mode"]
         updates["active_mode"] = None if v is None else (str(v).strip()[:64] or None)
+
+    if "work_universe_posture" in raw:
+        posture = str(raw["work_universe_posture"] or "").strip()
+        if posture not in _WORK_UNIVERSE_POSTURES:
+            raise StatePatchError(
+                "work_universe_posture_invalid",
+                (
+                    "mission.work_universe_posture must be one of "
+                    f"{sorted(_WORK_UNIVERSE_POSTURES)}"
+                ),
+                detail={"failing_path": "mission.work_universe_posture"},
+            )
+        updates["work_universe_posture"] = posture
 
     for key in (
         "blocker_summary",
