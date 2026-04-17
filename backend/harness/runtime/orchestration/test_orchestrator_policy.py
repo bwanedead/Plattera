@@ -70,6 +70,8 @@ def _hard_enforced_policy(**overrides: object) -> dict[str, object]:
         "hard_enforced": True,
         "enforce_on_complete": True,
         "enforce_on_publish": True,
+        "save_action_ids": ["save_workspace_artifact"],
+        "publish_action_ids": ["publish_workspace_artifact"],
         "required_dimension_ids": ["layer_a"],
     }
     base.update(overrides)
@@ -177,6 +179,23 @@ def test_closure_enforcement_allows_publish_when_ready_to_publish() -> None:
     plan = ActionPlan(action_type="publish_workspace_artifact")
     ctx = {
         "domain_closure_policy": _hard_enforced_policy(enforce_on_complete=False, enforce_on_publish=True)
+    }
+    assert closure_enforcement_failure(run_ctx=ctx, loop_memory=mem, action_plan=plan) is None
+
+
+def test_closure_enforcement_does_not_guess_publish_role_without_declared_action_ids() -> None:
+    mem = _loop_memory_with_closure(
+        dimensions=[_dim("layer_a")],
+        ready_to_publish=False,
+        work_universe_posture="partial",
+    )
+    plan = ActionPlan(action_type="publish_workspace_artifact")
+    ctx = {
+        "domain_closure_policy": _hard_enforced_policy(
+            publish_action_ids=[],
+            enforce_on_complete=False,
+            enforce_on_publish=True,
+        )
     }
     assert closure_enforcement_failure(run_ctx=ctx, loop_memory=mem, action_plan=plan) is None
 
@@ -301,4 +320,17 @@ def test_resolution_inventory_does_not_apply_to_non_gated_actions() -> None:
         }
     }
     # minimum only applies to complete/publish/wait/save; a generic tool returns 0 minimum.
+    assert resolution_inventory_enforcement_failure(run_ctx=ctx, loop_memory=mem, action_plan=plan) is None
+
+
+def test_resolution_inventory_does_not_guess_save_role_without_declared_action_ids() -> None:
+    mem = _loop_memory_with_closure(resolution_items=[])
+    plan = ActionPlan(action_type="save_workspace_artifact", skip_execution=False)
+    ctx = {
+        "domain_closure_policy": {
+            "hard_enforced": True,
+            "save_action_ids": [],
+            "minimum_resolution_items_for_save": 1,
+        }
+    }
     assert resolution_inventory_enforcement_failure(run_ctx=ctx, loop_memory=mem, action_plan=plan) is None

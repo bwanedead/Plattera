@@ -12,13 +12,38 @@ from ..memory import LoopMemoryState
 from .contracts import ActionPlan
 from .state_patch_apply import StatePatchError, apply_state_patch
 
-_PUBLISH_ACTION_IDS = frozenset({"publish_workspace_artifact"})
-_SAVE_ACTION_IDS = frozenset({"save_workspace_artifact"})
-
-
 def closure_policy(run_ctx: dict[str, Any]) -> dict[str, Any] | None:
     raw = run_ctx.get("domain_closure_policy")
     return dict(raw) if isinstance(raw, dict) else None
+
+
+def _normalize_action_id(value: Any) -> str:
+    return str(value or "").strip()
+
+
+def _policy_action_ids(policy: dict[str, Any], key: str) -> frozenset[str]:
+    raw_values = policy.get(key) or ()
+    if isinstance(raw_values, str):
+        raw_values = (raw_values,)
+    if not isinstance(raw_values, (list, tuple, set, frozenset)):
+        return frozenset()
+    return frozenset(
+        normalized
+        for normalized in (_normalize_action_id(value) for value in raw_values)
+        if normalized
+    )
+
+
+def _action_has_policy_role(
+    *,
+    policy: dict[str, Any],
+    action_plan: ActionPlan,
+    role_action_ids_key: str,
+) -> bool:
+    action_id = _normalize_action_id(action_plan.action_type)
+    if not action_id:
+        return False
+    return action_id in _policy_action_ids(policy, role_action_ids_key)
 
 
 def effective_resolution_state(
@@ -80,8 +105,16 @@ def minimum_resolution_items_required(
     policy: dict[str, Any],
     action_plan: ActionPlan,
 ) -> tuple[int, str | None]:
-    is_publish = str(action_plan.action_type or "").strip() in _PUBLISH_ACTION_IDS
-    is_save = str(action_plan.action_type or "").strip() in _SAVE_ACTION_IDS
+    is_publish = _action_has_policy_role(
+        policy=policy,
+        action_plan=action_plan,
+        role_action_ids_key="publish_action_ids",
+    )
+    is_save = _action_has_policy_role(
+        policy=policy,
+        action_plan=action_plan,
+        role_action_ids_key="save_action_ids",
+    )
     is_complete = bool(action_plan.complete_run)
     is_hitl = bool(action_plan.wait_for_human) or action_plan.hitl_request is not None
 
@@ -137,7 +170,11 @@ def closure_enforcement_failure(
     action_plan: ActionPlan,
 ) -> tuple[str, str] | None:
     policy = closure_policy(run_ctx)
-    is_publish = str(action_plan.action_type or "").strip() in _PUBLISH_ACTION_IDS
+    is_publish = bool(policy) and _action_has_policy_role(
+        policy=policy,
+        action_plan=action_plan,
+        role_action_ids_key="publish_action_ids",
+    )
     is_complete = bool(action_plan.complete_run)
     if not (is_publish or is_complete):
         return None
@@ -194,7 +231,7 @@ def closure_enforcement_failure(
     if is_publish and not bool(getattr(cs, "ready_to_publish", False)):
         return (
             "closure_publish_not_ready",
-            "closure enforcement requires ready_to_publish before publish_workspace_artifact",
+            "closure enforcement requires ready_to_publish before publish",
         )
 
     if is_complete and not bool(getattr(cs, "ready_to_close", False)):

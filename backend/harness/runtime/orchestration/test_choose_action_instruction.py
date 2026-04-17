@@ -7,13 +7,14 @@ from harness.runtime.orchestration.resume_instruction import RESUME_INSTRUCTION
 def test_choose_action_instruction_teaches_work_universe_posture_and_hitl_context() -> None:
     text = CHOOSE_ACTION_INSTRUCTION.lower()
     assert "work_universe_posture" in text
-    assert "complete_run" in text and "mechanically blocked" in text
+    assert "complete_run" in text and "mechanical complete/publish gate" in text
     assert "mission_state" in text and "resolution_state" in text
-    assert "primary_evidence_ref" in text
-    assert "annotated_evidence_ref" in text
-    assert "question_regions" in text
+    assert "hitl_request.context" in text
+    assert "supporting_refs" in text
     assert "unable to determine" in text
     assert "other / needs nuance" in text
+    assert "what would have to be true in reality" not in text
+    assert "peer agreement is a clue" not in text
 
 
 def test_resume_instruction_mentions_remaining_hitls_and_audit_requirement() -> None:

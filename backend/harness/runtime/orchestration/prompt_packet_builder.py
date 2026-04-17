@@ -216,7 +216,7 @@ def _assemble_prompt_document(
         prompt_body["structured_state"] = filtered_structured_state
     if spec.mode_packet_key is not None:
         prompt_body[spec.mode_packet_key] = jsonable(dict(mode_packet or {}))
-    prompt_text = spec.instruction_text + "\n\n" + json.dumps(prompt_body, ensure_ascii=False, sort_keys=True)
+    prompt_text = spec.instruction_text + "\n\n" + json.dumps(prompt_body, ensure_ascii=False)
     return PromptBuildDocument(
         mode=mode,
         call_phase=spec.call_phase,

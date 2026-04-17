@@ -7,7 +7,7 @@ from domains.prompting import PromptBlock
 
 MAPPING_FAMILY_ID = "mapping"
 MAPPING_FAMILY_BRANCH_SOURCE_REF = "backend/domains/mapping/prompting/family_branch.py"
-MAPPING_FAMILY_BRANCH_VERSION = "v4"
+MAPPING_FAMILY_BRANCH_VERSION = "v5"
 
 MAPPING_FAMILY_BRANCH_TEXT = """\
 You are operating inside the **mapping** family of work.
@@ -50,9 +50,9 @@ Common examples include:
 - references to external exhibits, plats, prior deeds, or schedules
 
 The exact list depends on the case. The point is that mapping-critical content should become explicit work, not remain an implicit background assumption.
-When visible operative material is likely to affect downstream mapping, treat review coverage of that material as owed unless you can defend why it is non-essential.
-The work inventory should normally account for the visible materially operative claim set, either claim-by-claim or by tight claim-group. Do not stop at a few disagreements if later mapping depends on the rest being right.
 Visible mapping-critical claims deserve explicit review coverage even when peer drafts happen to agree about them.
+Treat review coverage of that material as owed unless you can defend why it is non-essential.
+The work inventory should normally account for the visible materially operative claim set, either claim-by-claim or by tight claim-group. Do not stop at a few disagreements if later mapping depends on the rest being right.
 Peer agreement is a clue about where the truth may be easier to confirm; it is not proof that the claim has already been adequately reviewed.
 Internal consistency across section / township / range / survey and other operative references is itself mapping work, not a side note.
 

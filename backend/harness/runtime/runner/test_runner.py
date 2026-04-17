@@ -454,6 +454,8 @@ def test_runner_injects_domain_closure_policy_into_orchestration_context(tmp_pat
     policy = DomainClosurePolicy(
         hard_enforced=True,
         enforce_on_complete=True,
+        save_action_ids=("save_workspace_artifact",),
+        publish_action_ids=("publish_workspace_artifact",),
         required_dimension_ids=("layer_a",),
         standards=(
             ClosureDimensionStandard(
@@ -492,6 +494,8 @@ def test_runner_injects_domain_closure_policy_into_orchestration_context(tmp_pat
     assert result.status == "completed"
     assert captured["domain_id"] == "fake_domain"
     assert captured["domain_closure_policy"]["hard_enforced"] is True
+    assert captured["domain_closure_policy"]["save_action_ids"] == ["save_workspace_artifact"]
+    assert captured["domain_closure_policy"]["publish_action_ids"] == ["publish_workspace_artifact"]
     assert captured["domain_closure_policy"]["required_dimension_ids"] == ["layer_a"]
 
 

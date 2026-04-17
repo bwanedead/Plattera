@@ -28,6 +28,8 @@ def test_manifest_tool_ids_match_tool_specs() -> None:
     assert manifest.declared_semantic_tool_ids == tuple(s.tool_id for s in specs)
     assert len(specs) == 4
     assert manifest.closure_policy.hard_enforced is True
+    assert manifest.closure_policy.save_action_ids == ("save_workspace_artifact",)
+    assert manifest.closure_policy.publish_action_ids == ("publish_workspace_artifact",)
     assert manifest.closure_policy.minimum_resolution_items_for_save == 1
     assert manifest.closure_policy.minimum_resolution_items_for_wait == 1
     assert manifest.closure_policy.minimum_resolution_items_for_publish == 1
@@ -80,7 +82,7 @@ def test_prompt_branch_block_shape_and_doctrine_markers() -> None:
     assert "saved working draft" in text.lower()
     assert "what would have to be true in reality" in text.lower()
     assert "visible mapping-significant claims" in text.lower()
-    assert "review-coverage obligations" in text.lower()
+    assert "mapping-family review-coverage rule" in text.lower()
     assert "deliberate layer assessment" in text.lower()
     assert "a partial answer to one layer is not a closure answer to the others" in text.lower()
     assert "earned source-reading standard" in text.lower()
@@ -89,12 +91,7 @@ def test_prompt_branch_block_shape_and_doctrine_markers() -> None:
     assert "`unassessed`, `in_review`, or `open`" in text
     assert "treat `closed` as an earned late-run determination" in text.lower()
     assert "use `determination`" in text.lower()
-    assert "visible mapping-essential claim" in text.lower()
-    assert "primary_evidence_ref" in text
-    assert "annotated_evidence_ref" in text
-    assert "question_regions" in text
-    assert "unable to determine" in text.lower()
-    assert "other / needs nuance" in text.lower()
+    assert "material claim" in text.lower()
 
 
 def test_domain_pack_declares_semantic_prompt_blocks() -> None:
@@ -118,18 +115,18 @@ def test_domain_pack_declares_semantic_prompt_blocks() -> None:
     assert "mapping-critical" in text
     assert "recommended transcript-edit movement" in text
     assert "same broad set of refs" in text
-    assert "saved working draft as proof" in text
-    assert "empty work ledger" in text
+    assert "working draft that actually materializes that verified transcript state" in text
     assert "heads/finals" not in text
-    assert "peer t0" in text
-    assert "closure ledger" in text
-    assert "mission.closure_state" in text
+    assert "peer draft" in text
+    assert "t0" in text
+    assert "`mission.closure_state`" in guidance.text
+    assert "`resolution_state.items`" in guidance.text
     assert "inventory the visible mapping-significant claims" in text
     assert "mission-essential conditions" in text
     assert "material claim or tightly scoped claim-group" in text
     assert "localize and enlarge the exact claim region" in text
     assert "layer 2 issue, a layer 3 issue, or an item that now warrants hitl" in text
-    assert "transcript-bearing working state" in text
+    assert "verified transcript state" in text
     assert "`unassessed`, `in_review`, or `open`" in guidance.text
     assert "verified visible portion" in text
     assert "use `determination`" in text
@@ -138,6 +135,8 @@ def test_domain_pack_declares_semantic_prompt_blocks() -> None:
     assert "annotated_evidence_ref" in text
     assert "question_regions" in text
     assert "unable to determine" in text
+    assert "closure ledger requirement" not in text
+    assert "earned source-reading standard" not in text
 
 
 def test_domain_pack_builds_runtime_prompt_blocks_with_startup_context() -> None:
@@ -336,6 +335,8 @@ def test_transcript_edit_closure_policy_stable_contract() -> None:
     assert policy.hard_enforced is True
     assert policy.enforce_on_publish is True
     assert policy.enforce_on_complete is True
+    assert policy.save_action_ids == ("save_workspace_artifact",)
+    assert policy.publish_action_ids == ("publish_workspace_artifact",)
     assert policy.minimum_resolution_items_for_save == 1
     assert policy.minimum_resolution_items_for_wait == 1
     assert policy.minimum_resolution_items_for_publish == 1

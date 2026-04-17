@@ -315,7 +315,7 @@ def test_flags_repeated_rejection_streak() -> None:
         feedback={"reason_code": "bad_schema"},
         repeated_state_patch_reason_code_streak=2,
     )
-    assert any("bad_schema" in f and "2" in f for f in result)
+    assert "state_patch_reason_code_repeated:bad_schema:2" in result
 
 
 def test_flags_streak_below_threshold_no_flag() -> None:
@@ -328,56 +328,56 @@ def test_flags_streak_below_threshold_no_flag() -> None:
 
 def test_flags_same_active_item_threshold() -> None:
     result = _flags(consecutive_same_active_item_turns=3)
-    assert any("unchanged for 3" in f for f in result)
+    assert "active_item_unchanged_turns:3" in result
 
 
 def test_flags_same_active_item_below_threshold() -> None:
     result = _flags(consecutive_same_active_item_turns=2)
-    assert not any("unchanged" in f for f in result)
+    assert not any("active_item_unchanged_turns:" in f for f in result)
 
 
 def test_flags_stale_resolution_item_count() -> None:
     result = _flags(turns_since_resolution_item_count_change=4)
-    assert any("not changed for 4" in f for f in result)
+    assert "resolution_item_count_unchanged_turns:4" in result
 
 
 def test_flags_stale_count_below_threshold() -> None:
     result = _flags(turns_since_resolution_item_count_change=3)
-    assert not any("not changed" in f for f in result)
+    assert not any("resolution_item_count_unchanged_turns:" in f for f in result)
 
 
 def test_flags_new_items_since_complete_run() -> None:
     result = _flags(new_resolution_items_since_last_complete_run_attempt=2)
-    assert any("2 new resolution items" in f for f in result)
+    assert "new_resolution_items_since_complete_run_attempt:2" in result
 
 
 def test_flags_repeated_complete_run_without_state_change() -> None:
     result = _flags(repeated_complete_run_without_state_change_count=1)
-    assert any("prior complete_run attempt" in f for f in result)
+    assert "repeated_complete_run_without_state_change:1" in result
 
 
 def test_flags_resolution_items_without_success_conditions() -> None:
     """≥3 resolution items but 0 success_conditions → flag."""
     result = _flags(resolution_item_count=3, success_condition_count=0)
-    assert any("success_conditions is empty" in f for f in result)
+    assert "success_conditions_empty_with_resolution_items:3" in result
 
 
 def test_flags_resolution_items_without_success_conditions_below_threshold() -> None:
     """2 resolution items → no success_condition coverage flag."""
     result = _flags(resolution_item_count=2, success_condition_count=0)
-    assert not any("success_conditions" in f for f in result)
+    assert not any("success_conditions_empty_with_resolution_items:" in f for f in result)
 
 
 def test_flags_items_substantially_outnumber_conditions() -> None:
     """≥4 items and ≥2x conditions → probe-coverage flag."""
     result = _flags(resolution_item_count=8, success_condition_count=2)
-    assert any("outnumber success conditions" in f for f in result)
+    assert "resolution_items_outnumber_success_conditions:8_vs_2" in result
 
 
 def test_flags_items_not_outnumbering_conditions() -> None:
     """Items < 2x conditions → no outnumber flag."""
     result = _flags(resolution_item_count=4, success_condition_count=3)
-    assert not any("outnumber" in f for f in result)
+    assert not any("resolution_items_outnumber_success_conditions:" in f for f in result)
 
 
 def test_flags_complete_run_blockers_with_not_ready_to_close() -> None:
@@ -386,7 +386,7 @@ def test_flags_complete_run_blockers_with_not_ready_to_close() -> None:
         closure_ready_to_close=False,
         complete_run_blockers=["ready_to_close_false"],
     )
-    assert any("mechanical blockers" in f for f in result)
+    assert "complete_run_blockers_present" in result
 
 
 def test_flags_ready_to_close_with_blockers_suppresses_flag() -> None:
@@ -395,7 +395,7 @@ def test_flags_ready_to_close_with_blockers_suppresses_flag() -> None:
         closure_ready_to_close=True,
         complete_run_blockers=["some_blocker"],
     )
-    assert not any("mechanical blockers" in f for f in result)
+    assert "complete_run_blockers_present" not in result
 
 
 def test_flags_capped_at_eight() -> None:
@@ -499,7 +499,7 @@ def test_summary_mechanical_flags_populated_for_stale_active_item() -> None:
     mem.continuity.active_item_id = "item-x"
     result = build_prompt_observability_summary(mem)
     flags: list[str] = result["mechanical_flags"]
-    assert any("unchanged for 3" in f for f in flags)
+    assert "active_item_unchanged_turns:3" in flags
 
 
 def test_summary_surfaces_work_universe_posture_and_projection_blocker() -> None:

@@ -375,23 +375,25 @@ def _mechanical_flags(
     last_reason_code = _as_optional_text(feedback.get("reason_code"))
     if repeated_state_patch_reason_code_streak >= 2 and last_reason_code is not None:
         flags.append(
-            f"Repeated state_patch rejection on {last_reason_code} ({repeated_state_patch_reason_code_streak} in a row)."
+            f"state_patch_reason_code_repeated:{last_reason_code}:{repeated_state_patch_reason_code_streak}"
         )
     if consecutive_same_active_item_turns >= 3:
-        flags.append(f"Active item unchanged for {consecutive_same_active_item_turns} turns.")
+        flags.append(f"active_item_unchanged_turns:{consecutive_same_active_item_turns}")
     if turns_since_resolution_item_count_change is not None and turns_since_resolution_item_count_change >= 4:
         flags.append(
-            f"Resolution item count has not changed for {turns_since_resolution_item_count_change} turns."
+            f"resolution_item_count_unchanged_turns:{turns_since_resolution_item_count_change}"
         )
     if new_resolution_items_since_last_complete_run_attempt > 0:
         flags.append(
-            f"{new_resolution_items_since_last_complete_run_attempt} new resolution items appeared after a prior complete_run attempt."
+            f"new_resolution_items_since_complete_run_attempt:{new_resolution_items_since_last_complete_run_attempt}"
         )
     if repeated_complete_run_without_state_change_count > 0:
-        flags.append("A prior complete_run attempt already used the same state and refs.")
+        flags.append(
+            f"repeated_complete_run_without_state_change:{repeated_complete_run_without_state_change_count}"
+        )
     if resolution_item_count >= 3 and success_condition_count == 0:
         flags.append(
-            "Resolution items exist but mission.success_conditions is empty; check whether mission-level burden of proof is explicit."
+            f"success_conditions_empty_with_resolution_items:{resolution_item_count}"
         )
     elif (
         resolution_item_count >= 4
@@ -399,10 +401,10 @@ def _mechanical_flags(
         and resolution_item_count >= success_condition_count * 2
     ):
         flags.append(
-            "Resolution items substantially outnumber success conditions; check whether mission-level proof coverage is still explicit."
+            f"resolution_items_outnumber_success_conditions:{resolution_item_count}_vs_{success_condition_count}"
         )
     if not closure_ready_to_close and complete_run_blockers:
-        flags.append("complete_run would still hit mechanical blockers in the current state.")
+        flags.append("complete_run_blockers_present")
     return flags[:8]
 
 

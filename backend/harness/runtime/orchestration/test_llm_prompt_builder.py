@@ -142,9 +142,28 @@ def test_full_choose_action_prompt_document_separates_layers() -> None:
     # Semantic doctrine strings ("what would count as earned proof...", "thin ledger...",
     # "if no stronger in-run check remains...") were moved to surface.py TurnBlocks.
     # The mechanical instruction text now carries only envelope contract content.
-    assert "investigation-first turns are valid" in prompt_text
+    assert "no-dispatch state-authoring turns are valid" in prompt_text
     assert "state_patch_feedback" in prompt_text
     assert "closure_state dimensions merge by dimension_id" in prompt_text
+
+
+def test_full_choose_action_prompt_document_preserves_stable_top_level_key_order() -> None:
+    doc = build_choose_action_prompt_document(
+        composed_input=_composed_input(),
+        opaque_launch_context={"run_id": "r-1", "max_iterations": 9},
+        context=_context(),
+        projection=_projection(),
+        journal_verbatim_keep_n=2,
+    )
+
+    prompt_payload = json.loads(doc.prompt_text.removeprefix(doc.instruction_text + "\n\n"))
+    assert list(prompt_payload.keys()) == [
+        "prompt_mode",
+        "doctrine_blocks",
+        "surface_packet",
+        "run_context",
+        "structured_state",
+    ]
 
 
 def test_repair_prompt_document_is_mode_explicit_and_thinner_than_full() -> None:

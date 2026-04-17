@@ -22,6 +22,8 @@ class DomainClosurePolicy:
     hard_enforced: bool = False
     enforce_on_publish: bool = False
     enforce_on_complete: bool = False
+    save_action_ids: tuple[str, ...] = ()
+    publish_action_ids: tuple[str, ...] = ()
     minimum_resolution_items_for_save: int = 0
     minimum_resolution_items_for_wait: int = 0
     minimum_resolution_items_for_publish: int = 0

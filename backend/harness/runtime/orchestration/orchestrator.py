@@ -45,9 +45,6 @@ from .trace_collector import KernelTraceCollector
 
 _LOG = logging.getLogger(__name__)
 
-_PUBLISH_ACTION_IDS = frozenset({"publish_workspace_artifact"})
-_SAVE_ACTION_IDS = frozenset({"save_workspace_artifact"})
-
 
 def _hitl_loop_kind(opaque_run_context: dict[str, Any]) -> str:
     return str(opaque_run_context.get("hitl_loop_kind") or opaque_run_context.get("loop_kind") or "harness_cli").strip() or "harness_cli"

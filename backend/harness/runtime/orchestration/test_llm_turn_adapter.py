@@ -1000,7 +1000,7 @@ def test_choose_action_prompt_explicitly_allows_state_authoring_skip_turns() -> 
     assert "action_type null" in prompt
     assert "Use only canonical `state_patch.mission` and `state_patch.resolution`" in prompt
     assert '"kind": "open_question"' in prompt
-    assert "provisional investigation posture" in prompt
+    assert "No-dispatch state-authoring turns are valid" in prompt
     assert "record closure posture before dispatching another tool" not in prompt
 
 
@@ -1139,6 +1139,8 @@ def test_choose_action_prompt_compacts_domain_closure_policy_to_requirements_onl
             "run_id": "r1",
             "domain_closure_policy": {
                 "hard_enforced": True,
+                "save_action_ids": ["save_workspace_artifact"],
+                "publish_action_ids": ["publish_workspace_artifact"],
                 "required_dimension_ids": ["layer_1"],
                 "standards": [{"dimension_id": "layer_1", "question": "long semantic text"}],
             },
@@ -1150,6 +1152,8 @@ def test_choose_action_prompt_compacts_domain_closure_policy_to_requirements_onl
     prompt = captured[0]
     assert '"domain_closure_policy"' in prompt
     assert '"required_dimension_ids": ["layer_1"]' in prompt
+    assert '"save_action_ids"' not in prompt
+    assert '"publish_action_ids"' not in prompt
     assert '"standards"' not in prompt
     assert "long semantic text" not in prompt
 
