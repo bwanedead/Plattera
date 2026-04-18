@@ -31,6 +31,15 @@ def build_prompt_observability_summary(
     feedback = dict(cont.state_patch_feedback) if isinstance(cont.state_patch_feedback, Mapping) else {}
 
     closed_items_count = sum(1 for row in resolution_items if _is_closed_status(getattr(row, "status", None)))
+    items_blocking_count = sum(
+        1 for row in resolution_items if bool(getattr(row, "blocking", False))
+    )
+    items_requires_hitl_count = sum(
+        1 for row in resolution_items if bool(getattr(row, "requires_hitl", False))
+    )
+    items_no_further_progress_count = sum(
+        1 for row in resolution_items if bool(getattr(row, "no_further_progress", False))
+    )
     closed_items_without_earned_determination_count = sum(
         1
         for row in resolution_items
@@ -91,6 +100,7 @@ def build_prompt_observability_summary(
         closed_items_without_basis_count=closed_items_without_basis_count,
         closed_dimensions_without_earned_determination_count=closed_dimensions_without_earned_determination_count,
         closed_dimensions_without_basis_count=closed_dimensions_without_basis_count,
+        items_requires_hitl_count=items_requires_hitl_count,
     )
 
     summary = {
@@ -123,6 +133,9 @@ def build_prompt_observability_summary(
         "items_with_verification_basis_count": sum(
             1 for row in resolution_items if _has_text(getattr(row, "verification_basis", None))
         ),
+        "items_blocking_count": items_blocking_count,
+        "items_requires_hitl_count": items_requires_hitl_count,
+        "items_no_further_progress_count": items_no_further_progress_count,
         "closed_items_count": closed_items_count,
         "closed_items_without_earned_determination_count": closed_items_without_earned_determination_count,
         "closed_items_without_basis_count": closed_items_without_basis_count,
@@ -270,6 +283,7 @@ def _closure_readiness_projection(
     closed_items_without_basis_count: int,
     closed_dimensions_without_earned_determination_count: int,
     closed_dimensions_without_basis_count: int,
+    items_requires_hitl_count: int = 0,
 ) -> dict[str, list[str]]:
     complete_run_blockers: list[str] = []
     publish_blockers: list[str] = []
@@ -308,6 +322,13 @@ def _closure_readiness_projection(
             complete_run_blockers.append("closure_requires_hitl")
         if bool((closure_policy or {}).get("enforce_on_publish")):
             publish_blockers.append("closure_requires_hitl")
+
+    if hard_enforced and items_requires_hitl_count > 0:
+        blocker = f"items_require_hitl:{items_requires_hitl_count}"
+        if bool((closure_policy or {}).get("enforce_on_complete")):
+            complete_run_blockers.append(blocker)
+        if bool((closure_policy or {}).get("enforce_on_publish")):
+            publish_blockers.append(blocker)
 
     minimum_complete_items = int((closure_policy or {}).get("minimum_resolution_items_for_complete") or 0)
     if hard_enforced and minimum_complete_items > resolution_item_count:

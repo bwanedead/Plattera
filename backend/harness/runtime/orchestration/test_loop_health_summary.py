@@ -77,7 +77,17 @@ def _dim(dimension_id: str, *, status: str = "closed", determination: str | None
     )
 
 
-def _item(item_id: str, *, status: str = "closed", determination: str | None = None, verification_basis: str | None = None, completion_criteria: str | None = None) -> ResolutionItem:
+def _item(
+    item_id: str,
+    *,
+    status: str = "closed",
+    determination: str | None = None,
+    verification_basis: str | None = None,
+    completion_criteria: str | None = None,
+    blocking: bool | None = None,
+    requires_hitl: bool = False,
+    no_further_progress: bool = False,
+) -> ResolutionItem:
     return ResolutionItem(
         item_id=item_id,
         title=item_id,
@@ -86,6 +96,9 @@ def _item(item_id: str, *, status: str = "closed", determination: str | None = N
         determination=determination,
         verification_basis=verification_basis,
         completion_criteria=completion_criteria,
+        blocking=blocking,
+        requires_hitl=requires_hitl,
+        no_further_progress=no_further_progress,
     )
 
 
@@ -110,6 +123,7 @@ def _projection(
     closed_items_without_basis_count: int = 0,
     closed_dimensions_without_earned_determination_count: int = 0,
     closed_dimensions_without_basis_count: int = 0,
+    items_requires_hitl_count: int = 0,
 ) -> dict:
     return dict(
         closure_policy=closure_policy,
@@ -121,6 +135,7 @@ def _projection(
         closed_items_without_basis_count=closed_items_without_basis_count,
         closed_dimensions_without_earned_determination_count=closed_dimensions_without_earned_determination_count,
         closed_dimensions_without_basis_count=closed_dimensions_without_basis_count,
+        items_requires_hitl_count=items_requires_hitl_count,
     )
 
 
@@ -200,6 +215,23 @@ def test_projection_closure_requires_hitl_blocks_complete_and_publish() -> None:
     result = _call_projection(closure_policy=policy, closure_state=cs)
     assert "closure_requires_hitl" in result["complete_run_blockers"]
     assert "closure_requires_hitl" in result["publish_blockers"]
+
+
+def test_projection_resolution_items_require_hitl_blocks_complete_and_publish() -> None:
+    """Outstanding item-level HITL requirements are mechanical closure blockers."""
+    cs = ClosureState(ready_to_close=True, ready_to_publish=True)
+    policy = {
+        "hard_enforced": True,
+        "enforce_on_complete": True,
+        "enforce_on_publish": True,
+    }
+    result = _call_projection(
+        closure_policy=policy,
+        closure_state=cs,
+        items_requires_hitl_count=2,
+    )
+    assert "items_require_hitl:2" in result["complete_run_blockers"]
+    assert "items_require_hitl:2" in result["publish_blockers"]
 
 
 def test_projection_resolution_items_below_minimum_for_complete() -> None:
@@ -427,6 +459,9 @@ def test_summary_returns_all_required_top_level_keys() -> None:
         "prompt_event_count",
         "resolution_item_count",
         "closed_items_count",
+        "items_blocking_count",
+        "items_requires_hitl_count",
+        "items_no_further_progress_count",
         "closed_items_without_earned_determination_count",
         "closed_items_without_basis_count",
         "closed_items_without_completion_criteria_count",
@@ -450,6 +485,19 @@ def test_summary_counts_closed_items_without_earned_determination() -> None:
     assert result["resolution_item_count"] == 3
     assert result["closed_items_count"] == 2
     assert result["closed_items_without_earned_determination_count"] == 1
+
+
+def test_summary_counts_item_blocking_hitl_and_no_further_progress_flags() -> None:
+    items = [
+        _item("i1", blocking=True, requires_hitl=True, no_further_progress=True),
+        _item("i2", blocking=True),
+        _item("i3"),
+    ]
+    mem = _mem(resolution_items=items)
+    result = build_prompt_observability_summary(mem)
+    assert result["items_blocking_count"] == 2
+    assert result["items_requires_hitl_count"] == 1
+    assert result["items_no_further_progress_count"] == 1
 
 
 def test_summary_counts_closed_items_without_basis() -> None:

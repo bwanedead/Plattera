@@ -63,7 +63,10 @@ def test_build_prompt_observability_summary_reports_loop_health_facts() -> None:
                 "item_id": "i-open",
                 "title": "Open item",
                 "kind": "work_unit",
-                "status": "open",
+                "status": "blocked",
+                "blocking": True,
+                "requires_hitl": True,
+                "no_further_progress": True,
                 "evidence_refs": ["artifact://ref-1"],
                 "verification_basis": "Compared against the source excerpt.",
             },
@@ -135,6 +138,9 @@ def test_build_prompt_observability_summary_reports_loop_health_facts() -> None:
     assert summary["resolution_item_count"] == 3
     assert summary["items_with_evidence_count"] == 1
     assert summary["items_with_verification_basis_count"] == 2
+    assert summary["items_blocking_count"] == 1
+    assert summary["items_requires_hitl_count"] == 1
+    assert summary["items_no_further_progress_count"] == 1
     assert summary["closed_items_count"] == 2
     assert summary["closed_items_without_earned_determination_count"] == 1
     assert summary["closed_items_without_basis_count"] == 1

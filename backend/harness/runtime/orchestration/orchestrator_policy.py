@@ -228,6 +228,23 @@ def closure_enforcement_failure(
             "closure enforcement requires HITL before this action",
         )
 
+    resolution_state = effective_resolution_state(loop_memory=loop_memory, action_plan=action_plan)
+    items_requiring_hitl = [
+        str(getattr(row, "item_id", "") or "").strip()
+        for row in (getattr(resolution_state, "items", ()) or ())
+        if bool(getattr(row, "requires_hitl", False))
+    ]
+    items_requiring_hitl = [item_id for item_id in items_requiring_hitl if item_id]
+    if items_requiring_hitl:
+        target = "publish" if is_publish else "complete"
+        return (
+            f"closure_{target}_items_require_hitl",
+            (
+                "closure enforcement requires HITL integration for one or more resolution items "
+                f"before {target}: {items_requiring_hitl}"
+            ),
+        )
+
     if is_publish and not bool(getattr(cs, "ready_to_publish", False)):
         return (
             "closure_publish_not_ready",

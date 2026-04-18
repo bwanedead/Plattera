@@ -61,8 +61,14 @@ def _dim(dimension_id: str, status: str = "closed", *, requires_hitl: bool = Fal
     return ClosureDimension(dimension_id=dimension_id, title=dimension_id, status=status, requires_hitl=requires_hitl)
 
 
-def _item(item_id: str) -> ResolutionItem:
-    return ResolutionItem(item_id=item_id, title=item_id, kind="work_unit", status="closed")
+def _item(item_id: str, *, requires_hitl: bool = False) -> ResolutionItem:
+    return ResolutionItem(
+        item_id=item_id,
+        title=item_id,
+        kind="work_unit",
+        status="closed",
+        requires_hitl=requires_hitl,
+    )
 
 
 def _hard_enforced_policy(**overrides: object) -> dict[str, object]:
@@ -146,6 +152,23 @@ def test_closure_enforcement_blocks_complete_when_not_ready_to_close() -> None:
     assert reason_code == "closure_complete_not_ready"
 
 
+def test_closure_enforcement_blocks_complete_when_resolution_item_requires_hitl() -> None:
+    """An item-level outstanding HITL requirement is a complete_run blocker."""
+    mem = _loop_memory_with_closure(
+        dimensions=[_dim("layer_a")],
+        ready_to_close=True,
+        work_universe_posture="audited",
+        resolution_items=[_item("i1", requires_hitl=True)],
+    )
+    plan = ActionPlan(complete_run=True)
+    ctx = {"domain_closure_policy": _hard_enforced_policy()}
+    result = closure_enforcement_failure(run_ctx=ctx, loop_memory=mem, action_plan=plan)
+    assert result is not None
+    reason_code, message = result
+    assert reason_code == "closure_complete_items_require_hitl"
+    assert "i1" in message
+
+
 def test_closure_enforcement_allows_complete_when_all_conditions_met() -> None:
     """All required dimensions closed, ready_to_close=True → allowed."""
     mem = _loop_memory_with_closure(
@@ -179,6 +202,46 @@ def test_closure_enforcement_allows_publish_when_ready_to_publish() -> None:
     plan = ActionPlan(action_type="publish_workspace_artifact")
     ctx = {
         "domain_closure_policy": _hard_enforced_policy(enforce_on_complete=False, enforce_on_publish=True)
+    }
+    assert closure_enforcement_failure(run_ctx=ctx, loop_memory=mem, action_plan=plan) is None
+
+
+def test_closure_enforcement_blocks_publish_when_resolution_item_requires_hitl() -> None:
+    """An item-level outstanding HITL requirement is a publish blocker."""
+    mem = _loop_memory_with_closure(
+        dimensions=[_dim("layer_a")],
+        ready_to_publish=True,
+        work_universe_posture="audited",
+        resolution_items=[_item("i1", requires_hitl=True)],
+    )
+    plan = ActionPlan(action_type="publish_workspace_artifact")
+    ctx = {
+        "domain_closure_policy": _hard_enforced_policy(
+            enforce_on_complete=False,
+            enforce_on_publish=True,
+        )
+    }
+    result = closure_enforcement_failure(run_ctx=ctx, loop_memory=mem, action_plan=plan)
+    assert result is not None
+    reason_code, message = result
+    assert reason_code == "closure_publish_items_require_hitl"
+    assert "i1" in message
+
+
+def test_closure_enforcement_allows_publish_when_resolution_items_do_not_require_hitl() -> None:
+    """False or absent item-level HITL flags do not block publish on their own."""
+    mem = _loop_memory_with_closure(
+        dimensions=[_dim("layer_a")],
+        ready_to_publish=True,
+        work_universe_posture="audited",
+        resolution_items=[_item("i1"), _item("i2", requires_hitl=False)],
+    )
+    plan = ActionPlan(action_type="publish_workspace_artifact")
+    ctx = {
+        "domain_closure_policy": _hard_enforced_policy(
+            enforce_on_complete=False,
+            enforce_on_publish=True,
+        )
     }
     assert closure_enforcement_failure(run_ctx=ctx, loop_memory=mem, action_plan=plan) is None
 

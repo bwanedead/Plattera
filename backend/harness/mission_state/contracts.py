@@ -26,7 +26,7 @@ class ResolutionRelation(BaseModel):
     source_item_id: str = Field(min_length=1, max_length=128)
     target_item_id: str = Field(min_length=1, max_length=128)
     relation_type: str = Field(min_length=1, max_length=64)
-    summary: str | None = Field(default=None, max_length=240)
+    summary: str | None = Field(default=None, max_length=400)
     opaque_payload: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -39,9 +39,12 @@ class ResolutionItem(BaseModel):
     status: str = Field(min_length=1, max_length=64)
     determination: str | None = Field(default=None, max_length=32)
     summary: str | None = Field(default=None, max_length=500)
-    verification_basis: str | None = Field(default=None, max_length=240)
-    next_needed_step: str | None = Field(default=None, max_length=240)
-    completion_criteria: str | None = Field(default=None, max_length=240)
+    verification_basis: str | None = Field(default=None, max_length=500)
+    next_needed_step: str | None = Field(default=None, max_length=400)
+    completion_criteria: str | None = Field(default=None, max_length=400)
+    blocking: bool | None = None
+    requires_hitl: bool = False
+    no_further_progress: bool = False
     dependencies: list[str] = Field(default_factory=list, max_length=16)
     evidence_refs: list[str] = Field(default_factory=list, max_length=24)
     notes: str | None = Field(default=None, max_length=500)
@@ -76,8 +79,8 @@ class ClosureDimension(BaseModel):
     requires_hitl: bool = False
     no_further_progress: bool = False
     evidence_refs: list[str] = Field(default_factory=list, max_length=24)
-    verification_basis: str | None = Field(default=None, max_length=240)
-    next_needed_step: str | None = Field(default=None, max_length=240)
+    verification_basis: str | None = Field(default=None, max_length=500)
+    next_needed_step: str | None = Field(default=None, max_length=400)
     opaque_payload: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -104,9 +107,9 @@ class MissionSuccessCondition(BaseModel):
     status: str = Field(min_length=1, max_length=64)
     determination: str | None = Field(default=None, max_length=32)
     summary: str | None = Field(default=None, max_length=500)
-    completion_criteria: str | None = Field(default=None, max_length=240)
-    verification_basis: str | None = Field(default=None, max_length=240)
-    next_needed_step: str | None = Field(default=None, max_length=240)
+    completion_criteria: str | None = Field(default=None, max_length=400)
+    verification_basis: str | None = Field(default=None, max_length=500)
+    next_needed_step: str | None = Field(default=None, max_length=400)
     dependencies: list[str] = Field(default_factory=list, max_length=16)
     evidence_refs: list[str] = Field(default_factory=list, max_length=24)
     opaque_payload: dict[str, Any] = Field(default_factory=dict)
