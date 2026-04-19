@@ -20,8 +20,11 @@ _STABLE_DOCTRINE_LAYERS = frozenset({"harness_trunk", "family_branch", "domain_b
 def projection_document(projection: SharedStateProjection | None) -> dict[str, Any]:
     if projection is None:
         return {}
+    mission_state_visible = prompt_visible_projection_state(projection.mission_state)
+    if isinstance(mission_state_visible, dict):
+        mission_state_visible.pop("resolution_state", None)
     return {
-        "mission_state": prompt_visible_projection_state(projection.mission_state),
+        "mission_state": mission_state_visible,
         "resolution_state": prompt_visible_projection_state(projection.resolution_state),
         "latest_refs": dict(projection.latest_refs),
         "active_item_id": projection.active_item_id,

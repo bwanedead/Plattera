@@ -54,8 +54,15 @@ _FULL_RUN_CONTEXT_FIELDS = (
 _FULL_STRUCTURED_STATE_FIELDS = (
     "compacted_continuity_summary",
     "recent_continuity_journal_entries",
+    "recent_turn_timeline",
+    "prompt_observability_summary",
+)
+_STATE_REPAIR_STRUCTURED_STATE_FIELDS = (
+    "compacted_continuity_summary",
+    "recent_continuity_journal_entries",
     "recent_kernel_step_records",
     "recent_kernel_step_result_records",
+    "recent_turn_timeline",
     "prompt_observability_summary",
 )
 _RESUME_RUN_CONTEXT_FIELDS = (
@@ -75,6 +82,7 @@ _RESUME_RUN_CONTEXT_FIELDS = (
 _RESUME_STRUCTURED_STATE_FIELDS = (
     "compacted_continuity_summary",
     "recent_continuity_journal_entries",
+    "recent_turn_timeline",
     "prompt_observability_summary",
 )
 
@@ -99,7 +107,7 @@ _PROMPT_MODE_SPECS: dict[PromptMode, PromptModeSpec] = {
         include_surface_payloads=True,
         include_tool_ids=True,
         run_context_fields=_FULL_RUN_CONTEXT_FIELDS,
-        structured_state_fields=_FULL_STRUCTURED_STATE_FIELDS,
+        structured_state_fields=_STATE_REPAIR_STRUCTURED_STATE_FIELDS,
         mode_packet_key=None,
         call_phase="choose_action_state_repair",
     ),

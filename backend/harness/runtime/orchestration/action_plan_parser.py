@@ -41,6 +41,52 @@ def is_repairable_action_plan_error(reason_code: str) -> bool:
     return reason_code in _REPAIRABLE_REASON_CODES
 
 
+def _parse_error(message: str) -> ModelActionParseError:
+    return ModelActionParseError("invalid_model_action_json", message)
+
+
+def _json_object_or_null(value: Any, field_name: str) -> dict[str, Any] | None:
+    if value is None:
+        return None
+    if isinstance(value, dict):
+        return dict(value)
+    raise _parse_error(f"{field_name} must be a JSON object or null")
+
+
+def _json_bool_with_default(payload: Mapping[str, Any], key: str, *, default: bool) -> bool:
+    if key not in payload:
+        return default
+    value = payload.get(key)
+    if type(value) is not bool:
+        raise _parse_error(f"{key} must be a JSON boolean")
+    return value
+
+
+def _optional_text(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _extract_text(raw_response: Mapping[str, Any] | str) -> str:
+    if isinstance(raw_response, str):
+        text = raw_response.strip()
+        if not text:
+            raise _parse_error("model output was empty")
+        return text
+    if raw_response.get("success") is False:
+        raise ModelActionParseError(
+            "model_call_failed",
+            str(raw_response.get("error") or "model caller reported failure"),
+        )
+    for key in ("text", "content", "output_text"):
+        value = raw_response.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    raise _parse_error("model caller did not return text")
+
+
 def parse_action_plan_response(
     raw_response: Mapping[str, Any] | str,
     *,
@@ -54,23 +100,20 @@ def parse_action_plan_response(
     try:
         payload = json.loads(text)
     except Exception as exc:
-        raise ModelActionParseError("invalid_model_action_json", "model output was not valid JSON") from exc
+        raise _parse_error("model output was not valid JSON") from exc
     if not isinstance(payload, dict):
-        raise ModelActionParseError("invalid_model_action_json", "model output must be a JSON object")
+        raise _parse_error("model output must be a JSON object")
 
     unknown_keys = sorted(set(payload.keys()) - _ALLOWED_ACTION_PLAN_KEYS)
     if unknown_keys:
-        raise ModelActionParseError(
-            "invalid_model_action_json",
-            f"unexpected action plan keys: {', '.join(unknown_keys)}",
-        )
+        raise _parse_error(f"unexpected action plan keys: {', '.join(unknown_keys)}")
 
     action_type = _optional_text(payload.get("action_type"))
     action_inputs = payload.get("action_inputs")
     if action_inputs is None:
         action_inputs = {}
     if not isinstance(action_inputs, Mapping):
-        raise ModelActionParseError("invalid_model_action_json", "action_inputs must be an object")
+        raise _parse_error("action_inputs must be an object")
 
     # Omitted low-information control flags default to false on the external seam.
     # Internal normalization may still promote no-dispatch shapes to skip_execution=True
@@ -80,96 +123,58 @@ def parse_action_plan_response(
     skip_execution = _json_bool_with_default(payload, "skip_execution", default=False)
 
     if complete_run and wait_for_human:
-        raise ModelActionParseError("invalid_model_action_json", "complete_run and wait_for_human are mutually exclusive")
-
+        raise _parse_error("complete_run and wait_for_human are mutually exclusive")
     if complete_run and payload.get("hitl_request") is not None:
-        raise ModelActionParseError("invalid_model_action_json", "complete_run and hitl_request are mutually exclusive")
+        raise _parse_error("complete_run and hitl_request are mutually exclusive")
 
-    hitl_raw = payload.get("hitl_request")
-    if hitl_raw is None:
-        hitl_out: dict[str, Any] | None = None
-    elif isinstance(hitl_raw, dict):
-        hitl_out = dict(hitl_raw)
-    else:
-        raise ModelActionParseError("invalid_model_action_json", "hitl_request must be a JSON object or null")
+    hitl_out = _json_object_or_null(payload.get("hitl_request"), "hitl_request")
 
     if wait_for_human and hitl_out is None:
-        raise ModelActionParseError(
-            "invalid_model_action_json",
-            "wait_for_human requires a non-null hitl_request object",
-        )
+        raise _parse_error("wait_for_human requires a non-null hitl_request object")
 
     if hitl_out is not None:
         try:
             normalize_hitl_request(hitl_out, iteration=0)
         except ValueError as exc:
-            raise ModelActionParseError(
-                "invalid_model_action_json",
-                f"hitl_request failed canonical validation: {exc}",
-            ) from exc
+            raise _parse_error(f"hitl_request failed canonical validation: {exc}") from exc
 
-    cons_raw = payload.get("hitl_consumed_prompt_ids")
     try:
-        consumed_out = validate_hitl_consumed_prompt_ids(cons_raw)
+        consumed_out = validate_hitl_consumed_prompt_ids(payload.get("hitl_consumed_prompt_ids"))
     except ValueError as exc:
-        raise ModelActionParseError(
-            "invalid_model_action_json",
-            f"hitl_consumed_prompt_ids failed canonical validation: {exc}",
-        ) from exc
+        raise _parse_error(f"hitl_consumed_prompt_ids failed canonical validation: {exc}") from exc
 
-    state_patch_raw = payload.get("state_patch")
-    if state_patch_raw is None:
-        state_patch_out: dict[str, Any] | None = None
-    elif isinstance(state_patch_raw, dict):
-        state_patch_out = dict(state_patch_raw)
-    else:
-        raise ModelActionParseError(
-            "invalid_model_action_json",
-            "state_patch must be a JSON object or null",
-        )
+    state_patch_out = _json_object_or_null(payload.get("state_patch"), "state_patch")
 
     implicit_no_dispatch_turn = (
         not complete_run
         and not action_type
         and (state_patch_out is not None or hitl_out is not None)
     )
-
     if implicit_no_dispatch_turn:
         skip_execution = True
 
     if not complete_run and not wait_for_human:
         if not action_type:
             if not skip_execution:
-                raise ModelActionParseError(
-                    "invalid_model_action_json",
+                raise _parse_error(
                     "action_type is required unless completing, waiting, or authoring an explicit state/HITL-only turn",
                 )
             if action_inputs:
-                raise ModelActionParseError(
-                    "invalid_model_action_json",
-                    "action_inputs must be empty when action_type is null on a no-dispatch turn",
-                )
+                raise _parse_error("action_inputs must be empty when action_type is null on a no-dispatch turn")
             if state_patch_out is None and hitl_out is None:
-                raise ModelActionParseError(
-                    "invalid_model_action_json",
+                raise _parse_error(
                     "state_patch or hitl_request is required when action_type is null on a no-dispatch turn",
                 )
         elif available_tool_ids and action_type not in available_tool_ids:
-            raise ModelActionParseError("invalid_model_action_json", f"unknown action_type: {action_type}")
+            raise _parse_error(f"unknown action_type: {action_type}")
 
     cje_raw = payload.get("continuity_journal_entry")
     if cje_raw is None:
         cje_out: dict[str, Any] | None = None
     elif not isinstance(cje_raw, dict):
-        raise ModelActionParseError(
-            "invalid_model_action_json",
-            "continuity_journal_entry must be a JSON object or null",
-        )
+        raise _parse_error("continuity_journal_entry must be a JSON object or null")
     elif len(cje_raw) < 1:
-        raise ModelActionParseError(
-            "invalid_model_action_json",
-            "continuity_journal_entry must be a non-empty JSON object when present",
-        )
+        raise _parse_error("continuity_journal_entry must be a non-empty JSON object when present")
     else:
         cje_out = normalize_continuity_journal_entry(dict(cje_raw))
 
@@ -179,10 +184,7 @@ def parse_action_plan_response(
     elif isinstance(opm_raw, str):
         opm_out = _optional_text(opm_raw)
     else:
-        raise ModelActionParseError(
-            "invalid_model_action_json",
-            "operator_progress_message must be a string or null",
-        )
+        raise _parse_error("operator_progress_message must be a string or null")
 
     return ActionPlan(
         action_type=action_type or None,
@@ -198,42 +200,3 @@ def parse_action_plan_response(
         continuity_journal_entry=cje_out,
         operator_progress_message=opm_out,
     )
-
-
-# ---------------------------------------------------------------------------
-# Internal helpers
-# ---------------------------------------------------------------------------
-
-
-def _extract_text(raw_response: Mapping[str, Any] | str) -> str:
-    if isinstance(raw_response, str):
-        text = raw_response.strip()
-        if not text:
-            raise ModelActionParseError("invalid_model_action_json", "model output was empty")
-        return text
-    if raw_response.get("success") is False:
-        raise ModelActionParseError(
-            "model_call_failed",
-            str(raw_response.get("error") or "model caller reported failure"),
-        )
-    for key in ("text", "content", "output_text"):
-        value = raw_response.get(key)
-        if isinstance(value, str) and value.strip():
-            return value.strip()
-    raise ModelActionParseError("invalid_model_action_json", "model caller did not return text")
-
-
-def _optional_text(value: Any) -> str | None:
-    if value is None:
-        return None
-    text = str(value).strip()
-    return text or None
-
-
-def _json_bool_with_default(payload: Mapping[str, Any], key: str, *, default: bool) -> bool:
-    if key not in payload:
-        return default
-    value = payload.get(key)
-    if type(value) is not bool:
-        raise ModelActionParseError("invalid_model_action_json", f"{key} must be a JSON boolean")
-    return value

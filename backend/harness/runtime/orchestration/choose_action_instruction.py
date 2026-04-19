@@ -98,7 +98,7 @@ Summary-field shorthand: mission summary fields such as `blocker_summary`, `veri
 
 _OBSERVABILITY_AND_REPAIR_TEXT = """\
 ### Observability and repair
-Envelope fields such as `compacted_continuity_summary`, `recent_continuity_journal_entries`, `recent_kernel_step_records`, and `recent_kernel_step_result_records` are host-owned memory views. Do not rewrite them.
+Envelope fields such as `compacted_continuity_summary`, `recent_continuity_journal_entries`, and `recent_turn_timeline` are host-owned memory views. `recent_turn_timeline` is a deterministic, drop-only chronological projection of recent turn mechanics (action_type, execution_state, skip/wait/complete flags, refs-changed signal, artifact_ref_count) — not a semantic summary. Do not rewrite these fields.
 
 `prompt_observability_summary` is host-authored loop-health context. It may reveal drift, stall risk, thin proof posture, missing graph edges, malformed sequence lanes, closure blockers, or repair-loop risk. It does not decide the mission for you.
 

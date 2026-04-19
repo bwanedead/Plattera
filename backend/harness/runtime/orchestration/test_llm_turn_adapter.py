@@ -364,8 +364,9 @@ def test_choose_action_prompt_carries_prior_journal_progress_and_compacted_summa
     assert "prior folded block" in p
     assert "turn_note" in p
     assert "recent_continuity_journal_entries" in p
-    assert "recent_kernel_step_records" in p
-    assert "recent_kernel_step_result_records" in p
+    assert "recent_turn_timeline" in p
+    assert "recent_kernel_step_records" not in p
+    assert "recent_kernel_step_result_records" not in p
     assert "skipped" in p
 
 

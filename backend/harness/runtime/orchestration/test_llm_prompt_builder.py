@@ -14,6 +14,7 @@ from harness.runtime.orchestration.llm_prompt_builder import (
     build_compaction_prompt_document,
     build_repair_prompt_document,
     build_resume_prompt_document,
+    build_state_repair_prompt_document,
 )
 
 
@@ -144,7 +145,108 @@ def test_full_choose_action_prompt_document_separates_layers() -> None:
     # The mechanical instruction text now carries only envelope contract content.
     assert "no-dispatch state-authoring turns are valid" in prompt_text
     assert "state_patch_feedback" in prompt_text
-    assert "closure_state dimensions merge by dimension_id" in prompt_text
+    assert "closure_state dimensions merge by `dimension_id`" in prompt_text
+
+
+def test_full_choose_action_prompt_uses_slim_turn_timeline_instead_of_raw_recent_arrays() -> None:
+    doc = build_choose_action_prompt_document(
+        composed_input=_composed_input(),
+        opaque_launch_context={"run_id": "r-1"},
+        context=_context(),
+        projection=_projection(),
+        journal_verbatim_keep_n=2,
+    )
+
+    structured_state = doc.prompt_body["structured_state"]
+    assert "recent_turn_timeline" in structured_state
+    assert "recent_kernel_step_records" not in structured_state
+    assert "recent_kernel_step_result_records" not in structured_state
+    assert "recent_continuity_journal_entries" in structured_state
+
+    timeline = structured_state["recent_turn_timeline"]
+    assert isinstance(timeline, list) and timeline
+    first = timeline[0]
+    for key in (
+        "kernel_turn_index",
+        "action_type",
+        "execution_state",
+        "skip_execution",
+        "wait_for_human",
+        "complete_run",
+        "latest_refs_changed",
+        "result_truncated",
+        "artifact_ref_count",
+    ):
+        assert key in first
+
+
+def test_full_choose_action_projection_has_single_resolution_state_copy() -> None:
+    doc = build_choose_action_prompt_document(
+        composed_input=_composed_input(),
+        opaque_launch_context={"run_id": "r-1"},
+        context=_context(),
+        projection=_projection(),
+        journal_verbatim_keep_n=2,
+    )
+    projection_blob = doc.prompt_body["run_context"]["projection"]
+    assert "resolution_state" in projection_blob
+    assert "resolution_state" not in projection_blob["mission_state"]
+
+
+def test_state_repair_prompt_retains_raw_recent_arrays_as_exception_overlay() -> None:
+    doc = build_state_repair_prompt_document(
+        composed_input=_composed_input(),
+        opaque_launch_context={"run_id": "r-1"},
+        context=_context(),
+        projection=_projection(),
+        journal_verbatim_keep_n=2,
+    )
+    structured_state = doc.prompt_body["structured_state"]
+    assert doc.mode == "state_repair"
+    assert "recent_kernel_step_records" in structured_state
+    assert "recent_kernel_step_result_records" in structured_state
+    assert "recent_turn_timeline" in structured_state
+    assert "recent_continuity_journal_entries" in structured_state
+
+
+def test_full_choose_action_prompt_is_smaller_when_raw_recent_arrays_are_dropped() -> None:
+    # Build the current (slim) prompt.
+    slim_doc = build_choose_action_prompt_document(
+        composed_input=_composed_input(),
+        opaque_launch_context={"run_id": "r-1"},
+        context=_context(),
+        projection=_projection(),
+        journal_verbatim_keep_n=2,
+    )
+
+    # Reconstruct a hypothetical "fat" version that still carried the raw arrays
+    # and a duplicated nested mission_state.resolution_state, for comparison.
+    fat_body = json.loads(json.dumps(slim_doc.prompt_body))
+    from harness.runtime.memory.continuity_journal import (
+        recent_step_records_for_prompt,
+        recent_step_result_records_for_prompt,
+    )
+
+    ctx = _context()
+    fat_body["structured_state"]["recent_kernel_step_records"] = recent_step_records_for_prompt(
+        ctx.loop_memory.continuity.continuity_journal_entries,
+        ctx.loop_memory.continuity.kernel_step_records,
+        ctx.loop_memory.continuity.kernel_step_result_records,
+        keep_n=2,
+    )
+    fat_body["structured_state"]["recent_kernel_step_result_records"] = (
+        recent_step_result_records_for_prompt(
+            ctx.loop_memory.continuity.continuity_journal_entries,
+            ctx.loop_memory.continuity.kernel_step_records,
+            ctx.loop_memory.continuity.kernel_step_result_records,
+            keep_n=2,
+        )
+    )
+    proj = fat_body["run_context"]["projection"]
+    proj["mission_state"]["resolution_state"] = proj["resolution_state"]
+    fat_text = slim_doc.instruction_text + "\n\n" + json.dumps(fat_body, ensure_ascii=False)
+
+    assert len(slim_doc.prompt_text) < len(fat_text)
 
 
 def test_full_choose_action_prompt_document_preserves_stable_top_level_key_order() -> None:

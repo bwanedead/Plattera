@@ -12,6 +12,7 @@ from ..memory.continuity_journal import (
     recent_journal_entries_for_prompt,
     recent_step_records_for_prompt,
     recent_step_result_records_for_prompt,
+    verbatim_turn_indices,
 )
 from .contracts import OrchestratorContext, SharedStateProjection
 from .loop_health_summary import build_prompt_observability_summary
@@ -141,7 +142,7 @@ def _build_run_context(
 ) -> dict[str, Any]:
     cont = context.loop_memory.continuity
     hitl_pend, hitl_ans, hitl_st = hitl_prompt_visible_slice(context.loop_memory.hitl)
-    return {
+    run_context: dict[str, Any] = {
         "iteration": context.loop_memory.iterations,
         "session_id": context.session_id,
         "request_id_prefix": context.request_id_prefix,
@@ -149,13 +150,19 @@ def _build_run_context(
         "latest_refs": dict(cont.latest_refs),
         "active_item_id": cont.active_item_id,
         "state_patch_feedback": dict(cont.state_patch_feedback),
-        "contract_feedback": jsonable(context.loop_memory.contract_feedback),
-        "operator_progress_message": cont.operator_progress_message,
         "hitl_state": hitl_st,
-        "pending_hitl_requests": hitl_pend,
-        "answered_hitl_responses": hitl_ans,
         "projection": projection_document(projection),
     }
+    contract_feedback = jsonable(context.loop_memory.contract_feedback)
+    if contract_feedback:
+        run_context["contract_feedback"] = contract_feedback
+    if cont.operator_progress_message is not None:
+        run_context["operator_progress_message"] = cont.operator_progress_message
+    if hitl_pend:
+        run_context["pending_hitl_requests"] = hitl_pend
+    if hitl_ans:
+        run_context["answered_hitl_responses"] = hitl_ans
+    return run_context
 
 
 def _build_structured_state(
@@ -165,7 +172,7 @@ def _build_structured_state(
     closure_policy: Mapping[str, Any] | None,
 ) -> dict[str, Any]:
     cont = context.loop_memory.continuity
-    return {
+    structured: dict[str, Any] = {
         "compacted_continuity_summary": cont.compacted_continuity_summary,
         "recent_continuity_journal_entries": recent_journal_entries_for_prompt(
             cont.continuity_journal_entries,
@@ -190,6 +197,102 @@ def _build_structured_state(
             closure_policy=closure_policy,
         ),
     }
+    timeline = _build_recent_turn_timeline(
+        cont.continuity_journal_entries,
+        cont.kernel_step_records,
+        cont.kernel_step_result_records,
+        keep_n=journal_verbatim_keep_n,
+    )
+    if timeline:
+        structured["recent_turn_timeline"] = timeline
+    return structured
+
+
+def _build_recent_turn_timeline(
+    journal_entries: list[dict[str, Any]],
+    step_records: list[dict[str, Any]],
+    step_result_records: list[dict[str, Any]],
+    *,
+    keep_n: int,
+) -> list[dict[str, Any]]:
+    """Deterministic drop-only projection of recent turn mechanics.
+
+    Emits one small row per recent kernel turn (aligned by ``kernel_turn_index``)
+    with only mechanical facts already present in stored step and step-result
+    rows. No semantic interpretation or mission-relevance decisions happen here.
+    """
+    kept = verbatim_turn_indices(
+        journal_entries, step_records, step_result_records, keep_n=keep_n
+    )
+    if not kept:
+        return []
+
+    step_by_turn: dict[int, dict[str, Any]] = {}
+    for row in step_records:
+        try:
+            ki = int(row.get("kernel_turn_index"))
+        except (TypeError, ValueError):
+            continue
+        if ki in kept:
+            step_by_turn[ki] = row
+
+    result_by_turn: dict[int, dict[str, Any]] = {}
+    for row in step_result_records:
+        try:
+            ki = int(row.get("kernel_turn_index"))
+        except (TypeError, ValueError):
+            continue
+        if ki in kept:
+            result_by_turn[ki] = row
+
+    ordered_turns = sorted(kept)
+    prior_refs: Mapping[str, Any] | None = None
+    # Seed prior_refs from the row immediately before the first kept turn, if any,
+    # so the first emitted row's latest_refs_changed is meaningful.
+    first_turn = ordered_turns[0]
+    prior_candidates = [
+        row for row in step_records
+        if _safe_turn_index(row) is not None and _safe_turn_index(row) < first_turn
+    ]
+    if prior_candidates:
+        prior_candidates.sort(key=lambda r: int(r["kernel_turn_index"]))
+        prior_refs = prior_candidates[-1].get("latest_refs_snapshot") or {}
+
+    timeline: list[dict[str, Any]] = []
+    for turn in ordered_turns:
+        step = step_by_turn.get(turn, {})
+        result = result_by_turn.get(turn, {})
+        current_refs = step.get("latest_refs_snapshot")
+        if current_refs is None:
+            current_refs = result.get("latest_refs_snapshot") or {}
+        refs_changed = False
+        if prior_refs is not None:
+            refs_changed = dict(current_refs or {}) != dict(prior_refs or {})
+        artifact_refs = result.get("artifact_refs") or []
+        row: dict[str, Any] = {
+            "kernel_turn_index": int(turn),
+            "action_type": step.get("action_type"),
+            "execution_state": step.get("execution_state") or result.get("execution_state"),
+            "execution_reason_code": step.get("execution_reason_code")
+            or result.get("execution_reason_code"),
+            "skip_execution": bool(step.get("skip_execution", False)),
+            "wait_for_human": bool(step.get("wait_for_human", False)),
+            "complete_run": bool(step.get("complete_run", False)),
+            "active_item_id_snapshot": step.get("active_item_id_snapshot"),
+            "latest_refs_changed": bool(refs_changed),
+            "result_truncated": bool(result.get("result_truncated", False)),
+            "artifact_ref_count": len(artifact_refs) if isinstance(artifact_refs, list) else 0,
+        }
+        timeline.append(row)
+        prior_refs = current_refs or prior_refs
+    return timeline
+
+
+def _safe_turn_index(row: Mapping[str, Any]) -> int | None:
+    try:
+        return int(row.get("kernel_turn_index"))
+    except (TypeError, ValueError):
+        return None
 
 
 def _assemble_prompt_document(
