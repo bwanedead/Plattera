@@ -7,35 +7,49 @@ from services.llm.openai import OpenAIService
 
 
 class _FakeChatCompletions:
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        finish_reason: str = "stop",
+        content: str | None = '{"ok":true}',
+        model_name: str = "gpt-5.4-mini",
+        usage: SimpleNamespace | None = None,
+    ) -> None:
         self.last_kwargs = None
+        self._finish_reason = finish_reason
+        self._content = content
+        self._model_name = model_name
+        self._usage = usage or SimpleNamespace(
+            total_tokens=42,
+            prompt_tokens=21,
+            completion_tokens=21,
+            reasoning_tokens=5,
+        )
 
     def create(self, **kwargs):
         self.last_kwargs = kwargs
         return SimpleNamespace(
             choices=[
                 SimpleNamespace(
-                    finish_reason="stop",
-                    message=SimpleNamespace(content='{"ok":true}'),
+                    finish_reason=self._finish_reason,
+                    message=SimpleNamespace(content=self._content),
                 )
             ],
-            usage=SimpleNamespace(
-                total_tokens=42,
-                prompt_tokens=21,
-                completion_tokens=21,
-                reasoning_tokens=5,
-            ),
+            usage=self._usage,
+            model=self._model_name,
         )
 
 
 class _FakeClient:
-    def __init__(self) -> None:
-        self.chat = SimpleNamespace(completions=_FakeChatCompletions())
+    def __init__(self, completions: _FakeChatCompletions | None = None) -> None:
+        self.chat = SimpleNamespace(completions=completions or _FakeChatCompletions())
 
 
-def _service_with_fake_client() -> tuple[OpenAIService, _FakeChatCompletions]:
+def _service_with_fake_client(
+    completions: _FakeChatCompletions | None = None,
+) -> tuple[OpenAIService, _FakeChatCompletions]:
     service = OpenAIService()
-    fake_client = _FakeClient()
+    fake_client = _FakeClient(completions=completions)
     service.client = fake_client
     return service, fake_client.chat.completions
 
@@ -79,3 +93,91 @@ def test_call_text_keeps_default_budget_for_non_action_phase() -> None:
     assert completions.last_kwargs is not None
     assert completions.last_kwargs["max_completion_tokens"] == 16_000
     assert completions.last_kwargs["reasoning_effort"] == "high"
+
+
+def test_call_text_truncation_preserves_provider_metadata_and_partial_text() -> None:
+    service, _ = _service_with_fake_client(
+        _FakeChatCompletions(
+            finish_reason="length",
+            content='{"partial": true',
+            usage=SimpleNamespace(
+                total_tokens=32000,
+                prompt_tokens=12000,
+                completion_tokens=20000,
+                reasoning_tokens=7000,
+            ),
+        )
+    )
+
+    result = service.call_text("prompt", "gpt-5.4-mini")
+
+    assert result["success"] is False
+    assert result["error"] == "OpenAI returned truncated response (finish_reason: length)"
+    assert result["text"] == '{"partial": true'
+    assert result["finish_reason"] == "length"
+    assert result["usage"] == {
+        "prompt_tokens": 12000,
+        "completion_tokens": 20000,
+        "reasoning_tokens": 7000,
+        "total_tokens": 32000,
+    }
+    assert result["char_count"] == len('{"partial": true')
+    assert result["model"] == "gpt-5.4-mini"
+    assert result["provider_model"] == "gpt-5.4-mini"
+    assert result["api_model"] == "gpt-5.4-mini"
+
+
+def test_call_text_content_filter_preserves_usage_metadata() -> None:
+    service, _ = _service_with_fake_client(
+        _FakeChatCompletions(
+            finish_reason="content_filter",
+            content=None,
+            usage=SimpleNamespace(
+                total_tokens=99,
+                prompt_tokens=44,
+                completion_tokens=55,
+                reasoning_tokens=None,
+            ),
+        )
+    )
+
+    result = service.call_text("prompt", "gpt-5.4-mini")
+
+    assert result["success"] is False
+    assert result["finish_reason"] == "content_filter"
+    assert result["usage"] == {
+        "prompt_tokens": 44,
+        "completion_tokens": 55,
+        "reasoning_tokens": None,
+        "total_tokens": 99,
+    }
+    assert result["text"] is None
+    assert result["char_count"] == 0
+
+
+def test_call_text_empty_response_preserves_provider_envelope_fields() -> None:
+    service, _ = _service_with_fake_client(
+        _FakeChatCompletions(
+            finish_reason="stop",
+            content="",
+            usage=SimpleNamespace(
+                total_tokens=17,
+                prompt_tokens=10,
+                completion_tokens=7,
+                reasoning_tokens=1,
+            ),
+        )
+    )
+
+    result = service.call_text("prompt", "gpt-5.4-mini")
+
+    assert result["success"] is False
+    assert result["error"] == "OpenAI returned empty text response"
+    assert result["finish_reason"] == "stop"
+    assert result["usage"] == {
+        "prompt_tokens": 10,
+        "completion_tokens": 7,
+        "reasoning_tokens": 1,
+        "total_tokens": 17,
+    }
+    assert result["char_count"] == 0

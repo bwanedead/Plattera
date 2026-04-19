@@ -24,6 +24,7 @@ from harness.runtime.orchestration.contracts import (
     TerminalEvaluation,
 )
 from harness.runtime.composition.contracts import ComposedTurnInput, TurnBlock
+from harness.runtime.memory import LoopMemoryState
 from harness.runtime.memory.resume_snapshot import parse_kernel_resume_snapshot
 from harness.runtime.orchestration.lifecycle import (
     KernelPromptEventTraceObserver,
@@ -338,6 +339,114 @@ class PatchOnNoopRefusedPack:
                 }
             },
         )
+
+
+class _SparseNoDispatchActionPlanPack:
+    """Sparse state patch without explicit skip_execution via ActionPlan."""
+
+    def initialize(self, context: OrchestratorContext) -> None:
+        pass
+
+    def sync(self, context: OrchestratorContext) -> SharedStateProjection:
+        ms = context.loop_memory.continuity.mission_state.model_copy(
+            update={"mission_id": "m-sparse-ap", "loop_family": "orchestration_kernel"}
+        )
+        rs = context.loop_memory.continuity.resolution_state
+        return SharedStateProjection(
+            mission_state=ms,
+            resolution_state=rs,
+        )
+
+    def evaluate_terminal(self, context: OrchestratorContext, projection: SharedStateProjection | None) -> TerminalEvaluation | None:
+        if context.loop_memory.iterations >= 2:
+            return TerminalEvaluation(terminal_class="completed", reason_code="done")
+        return None
+
+    def choose_action(self, context: OrchestratorContext, projection: SharedStateProjection | None) -> ActionPlan:
+        if context.loop_memory.iterations == 1:
+            return ActionPlan(
+                state_patch={"mission": {"work_universe_posture": "audited"}},
+                continuity_journal_entry={"step": "sparse no-dispatch action plan"},
+            )
+        return ActionPlan(complete_run=True, continuity_journal_entry={"step": "complete"})
+
+
+class _SparseNoDispatchDictPack:
+    """Sparse state patch without explicit skip_execution via dict coercion."""
+
+    def initialize(self, context: OrchestratorContext) -> None:
+        pass
+
+    def sync(self, context: OrchestratorContext) -> SharedStateProjection:
+        ms = context.loop_memory.continuity.mission_state.model_copy(
+            update={"mission_id": "m-sparse-dict", "loop_family": "orchestration_kernel"}
+        )
+        rs = context.loop_memory.continuity.resolution_state
+        return SharedStateProjection(
+            mission_state=ms,
+            resolution_state=rs,
+        )
+
+    def evaluate_terminal(self, context: OrchestratorContext, projection: SharedStateProjection | None) -> TerminalEvaluation | None:
+        if context.loop_memory.iterations >= 2:
+            return TerminalEvaluation(terminal_class="completed", reason_code="done")
+        return None
+
+    def choose_action(self, context: OrchestratorContext, projection: SharedStateProjection | None) -> dict[str, Any]:
+        if context.loop_memory.iterations == 1:
+            return {
+                "state_patch": {"mission": {"work_universe_posture": "audited"}},
+                "continuity_journal_entry": {"step": "sparse no-dispatch dict"},
+            }
+        return {"complete_run": True, "continuity_journal_entry": {"step": "complete"}}
+
+
+class _SparseHitlActionPlanPack:
+    """Sparse HITL-only no-dispatch turn via ActionPlan."""
+
+    def initialize(self, context: OrchestratorContext) -> None:
+        pass
+
+    def sync(self, context: OrchestratorContext) -> SharedStateProjection:
+        return SharedStateProjection(
+            mission_state=new_mission_state(mission_id="m-hitl-ap", loop_family="orchestration_kernel"),
+            resolution_state=new_resolution_state(),
+        )
+
+    def evaluate_terminal(self, context: OrchestratorContext, projection: SharedStateProjection | None) -> TerminalEvaluation | None:
+        if context.loop_memory.iterations >= 2:
+            return TerminalEvaluation(terminal_class="completed", reason_code="done")
+        return None
+
+    def choose_action(self, context: OrchestratorContext, projection: SharedStateProjection | None) -> ActionPlan:
+        return ActionPlan(
+            hitl_request={"message": "Need async guidance", "choices": [], "context": {}},
+            continuity_journal_entry={"step": "sparse hitl action plan"},
+        )
+
+
+class _SparseHitlDictPack:
+    """Sparse HITL-only no-dispatch turn via dict coercion."""
+
+    def initialize(self, context: OrchestratorContext) -> None:
+        pass
+
+    def sync(self, context: OrchestratorContext) -> SharedStateProjection:
+        return SharedStateProjection(
+            mission_state=new_mission_state(mission_id="m-hitl-dict", loop_family="orchestration_kernel"),
+            resolution_state=new_resolution_state(),
+        )
+
+    def evaluate_terminal(self, context: OrchestratorContext, projection: SharedStateProjection | None) -> TerminalEvaluation | None:
+        if context.loop_memory.iterations >= 2:
+            return TerminalEvaluation(terminal_class="completed", reason_code="done")
+        return None
+
+    def choose_action(self, context: OrchestratorContext, projection: SharedStateProjection | None) -> dict[str, Any]:
+        return {
+            "hitl_request": {"message": "Need async guidance", "choices": [], "context": {}},
+            "continuity_journal_entry": {"step": "sparse hitl dict"},
+        }
 
 
 class CompleteRunWithSkippedItemRowsPack:
@@ -1282,6 +1391,80 @@ def test_state_patch_not_applied_when_step_refused() -> None:
     assert any(e.get("event_kind") == "state_patch_outcome" for e in result.trace_events)
 
 
+def test_sparse_no_dispatch_action_plan_commits_patch_without_explicit_skip_execution() -> None:
+    result = run_orchestration_kernel_loop(
+        orchestration_adapter=_SparseNoDispatchActionPlanPack(),
+        session_manager=FakeSessionManager(),
+        session_id="sess-sparse-ap",
+        run_artifact_ref=None,
+        request_id_prefix="req-sparse-ap",
+        opaque_run_context={},
+        max_iterations=3,
+    )
+
+    assert result.terminal_class == "completed"
+    assert result.runtime_state["mission_state"].work_universe_posture == "audited"
+    fb = result.runtime_state["state_patch_feedback"]
+    assert fb.get("outcome") == "applied"
+
+
+def test_sparse_no_dispatch_dict_plan_commits_patch_without_explicit_skip_execution() -> None:
+    result = run_orchestration_kernel_loop(
+        orchestration_adapter=_SparseNoDispatchDictPack(),
+        session_manager=FakeSessionManager(),
+        session_id="sess-sparse-dict",
+        run_artifact_ref=None,
+        request_id_prefix="req-sparse-dict",
+        opaque_run_context={},
+        max_iterations=3,
+    )
+
+    assert result.terminal_class == "completed"
+    assert result.runtime_state["mission_state"].work_universe_posture == "audited"
+    fb = result.runtime_state["state_patch_feedback"]
+    assert fb.get("outcome") == "applied"
+
+
+def test_sparse_hitl_action_plan_emits_async_request_without_explicit_skip_execution() -> None:
+    sm = FakeSessionManager()
+    result = run_orchestration_kernel_loop(
+        orchestration_adapter=_SparseHitlActionPlanPack(),
+        session_manager=sm,
+        session_id="sess-hitl-ap",
+        run_artifact_ref=None,
+        request_id_prefix="req-hitl-ap",
+        opaque_run_context={},
+        max_iterations=3,
+    )
+
+    assert result.terminal_class == "completed"
+    assert len(sm.steps) == 0
+    assert result.runtime_state["pending_hitl_requests_count"] == 1
+    assert result.runtime_state["hitl_state"] == "async_prompts_pending"
+    fb = result.runtime_state["state_patch_feedback"]
+    assert fb.get("outcome") == "no_patch"
+
+
+def test_sparse_hitl_dict_plan_emits_async_request_without_explicit_skip_execution() -> None:
+    sm = FakeSessionManager()
+    result = run_orchestration_kernel_loop(
+        orchestration_adapter=_SparseHitlDictPack(),
+        session_manager=sm,
+        session_id="sess-hitl-dict",
+        run_artifact_ref=None,
+        request_id_prefix="req-hitl-dict",
+        opaque_run_context={},
+        max_iterations=3,
+    )
+
+    assert result.terminal_class == "completed"
+    assert len(sm.steps) == 0
+    assert result.runtime_state["pending_hitl_requests_count"] == 1
+    assert result.runtime_state["hitl_state"] == "async_prompts_pending"
+    fb = result.runtime_state["state_patch_feedback"]
+    assert fb.get("outcome") == "no_patch"
+
+
 # ---------------------------------------------------------------------------
 # image_evidence propagated through explicit turn-completion observation
 # ---------------------------------------------------------------------------
@@ -1599,3 +1782,57 @@ def test_image_evidence_empty_list_when_no_evidence() -> None:
     tool_turn = next((r for r in observer.records if r.get("tool_request") is not None), None)
     assert tool_turn is not None
     assert tool_turn["tool_result_raw"]["image_evidence"] == []
+
+
+class _MissingIdempotencyDispatchPack:
+    def initialize(self, context: OrchestratorContext) -> None:
+        pass
+
+    def sync(self, context: OrchestratorContext) -> SharedStateProjection:
+        return SharedStateProjection(
+            mission_state=new_mission_state(mission_id="m-idem", loop_family="orchestration_kernel"),
+            resolution_state=new_resolution_state(),
+        )
+
+    def evaluate_terminal(self, context: OrchestratorContext, projection: SharedStateProjection | None) -> TerminalEvaluation | None:
+        if context.loop_memory.iterations >= 2:
+            return TerminalEvaluation(terminal_class="completed", reason_code="done")
+        return None
+
+    def choose_action(self, context: OrchestratorContext, projection: SharedStateProjection | None) -> ActionPlan:
+        if context.loop_memory.iterations == 1:
+            return ActionPlan(
+                action_type="noop",
+                action_inputs={"kind": "dispatch"},
+                continuity_journal_entry={"step": "dispatch without model-authored idempotency"},
+            )
+        return ActionPlan(complete_run=True, continuity_journal_entry={"step": "complete"})
+
+
+def test_orchestrator_host_fills_missing_dispatch_idempotency_consistently() -> None:
+    observer = _TurnCompletionRecorder()
+    sm = FakeSessionManager()
+    sm.start_session(
+        __import__("harness.execution.contracts", fromlist=["ExecutionSessionStartRequest"])
+        .ExecutionSessionStartRequest(run_id="r-idem", session_id="sess-idem")
+    )
+    mem = LoopMemoryState()
+
+    run_orchestration_kernel_loop(
+        orchestration_adapter=_MissingIdempotencyDispatchPack(),
+        session_manager=sm,
+        session_id="sess-idem",
+        run_artifact_ref=None,
+        request_id_prefix="req-idem",
+        opaque_run_context={},
+        max_iterations=3,
+        lifecycle=OrchestrationLifecycle(turn_completion_observer=observer),
+        initial_loop_memory=mem,
+    )
+
+    assert len(sm.steps) == 1
+    generated = sm.steps[0].idempotency_key
+    assert generated == "req-idem:iter:1:dispatch:noop"
+    assert mem.continuity.kernel_step_records[0]["idempotency_key"] == generated
+    tool_turn = next(r for r in observer.records if r.get("tool_request") is not None)
+    assert tool_turn["tool_request"]["idempotency_key"] == generated

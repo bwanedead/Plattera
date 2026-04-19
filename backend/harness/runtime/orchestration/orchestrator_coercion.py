@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Any
 
 from ...execution.contracts import ExecutionStepRequest
@@ -43,7 +44,7 @@ def coerce_kernel_action_plan(value: Any) -> ActionPlan | None:
     if value is None:
         return None
     if isinstance(value, ActionPlan):
-        return value
+        return _normalize_no_dispatch_action_plan(value)
     if isinstance(value, dict):
         raw_sp = value.get("state_patch")
         sp_coerced: dict[str, Any] | None = dict(raw_sp) if isinstance(raw_sp, dict) else None
@@ -64,7 +65,7 @@ def coerce_kernel_action_plan(value: Any) -> ActionPlan | None:
         opm_out: str | None = str(opm).strip() if opm is not None else None
         if opm_out == "":
             opm_out = None
-        return ActionPlan(
+        return _normalize_no_dispatch_action_plan(ActionPlan(
             action_type=str(value.get("action_type") or "").strip() or None,
             action_inputs=dict(value.get("action_inputs") or {}),
             idempotency_key=str(value.get("idempotency_key") or ""),
@@ -77,7 +78,7 @@ def coerce_kernel_action_plan(value: Any) -> ActionPlan | None:
             state_patch=sp_coerced,
             continuity_journal_entry=cje,
             operator_progress_message=opm_out,
-        )
+        ))
     action_inputs = getattr(value, "action_inputs", None)
     raw_sp = getattr(value, "state_patch", None)
     sp_obj = dict(raw_sp) if isinstance(raw_sp, dict) else None
@@ -95,7 +96,7 @@ def coerce_kernel_action_plan(value: Any) -> ActionPlan | None:
     opm_attr: str | None = str(opm_raw).strip() if opm_raw is not None else None
     if opm_attr == "":
         opm_attr = None
-    return ActionPlan(
+    return _normalize_no_dispatch_action_plan(ActionPlan(
         action_type=str(getattr(value, "action_type", "") or "").strip() or None,
         action_inputs=action_inputs if isinstance(action_inputs, dict) else {},
         idempotency_key=str(getattr(value, "idempotency_key", "") or ""),
@@ -108,7 +109,21 @@ def coerce_kernel_action_plan(value: Any) -> ActionPlan | None:
         state_patch=sp_obj,
         continuity_journal_entry=cje_obj,
         operator_progress_message=opm_attr,
-    )
+    ))
+
+
+def _normalize_no_dispatch_action_plan(action_plan: ActionPlan) -> ActionPlan:
+    """Promote unambiguous sparse no-dispatch turns to ``skip_execution=True``.
+
+    This keeps generic runtime adapters aligned with the parser-backed LLM seam:
+    if a turn omits ``action_type`` but authors durable state or HITL transport,
+    it is mechanically a no-dispatch turn rather than a deferred patch.
+    """
+    if action_plan.complete_run or action_plan.action_type is not None or action_plan.skip_execution:
+        return action_plan
+    if action_plan.state_patch is None and action_plan.hitl_request is None:
+        return action_plan
+    return replace(action_plan, skip_execution=True)
 
 
 def coerce_step_request(value: Any, *, session_id: str) -> ExecutionStepRequest | None:

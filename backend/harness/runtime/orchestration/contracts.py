@@ -38,6 +38,7 @@ class ActionPlan:
 
     action_type: str | None = None
     action_inputs: dict[str, Any] = field(default_factory=dict)
+    # Transport-only dispatch dedupe key. External seam may omit it; host fills it before execution.
     idempotency_key: str = ""
     skip_execution: bool = False
     wait_for_human: bool = False

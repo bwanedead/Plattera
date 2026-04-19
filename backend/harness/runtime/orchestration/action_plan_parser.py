@@ -72,9 +72,12 @@ def parse_action_plan_response(
     if not isinstance(action_inputs, Mapping):
         raise ModelActionParseError("invalid_model_action_json", "action_inputs must be an object")
 
-    complete_run = _require_json_bool(payload, "complete_run")
-    wait_for_human = _require_json_bool(payload, "wait_for_human")
-    skip_execution = _require_json_bool(payload, "skip_execution")
+    # Omitted low-information control flags default to false on the external seam.
+    # Internal normalization may still promote no-dispatch shapes to skip_execution=True
+    # when the authored turn is clearly state/HITL-only.
+    complete_run = _json_bool_with_default(payload, "complete_run", default=False)
+    wait_for_human = _json_bool_with_default(payload, "wait_for_human", default=False)
+    skip_execution = _json_bool_with_default(payload, "skip_execution", default=False)
 
     if complete_run and wait_for_human:
         raise ModelActionParseError("invalid_model_action_json", "complete_run and wait_for_human are mutually exclusive")
@@ -125,22 +128,31 @@ def parse_action_plan_response(
             "state_patch must be a JSON object or null",
         )
 
+    implicit_no_dispatch_turn = (
+        not complete_run
+        and not action_type
+        and (state_patch_out is not None or hitl_out is not None)
+    )
+
+    if implicit_no_dispatch_turn:
+        skip_execution = True
+
     if not complete_run and not wait_for_human:
         if not action_type:
             if not skip_execution:
                 raise ModelActionParseError(
                     "invalid_model_action_json",
-                    "action_type is required unless completing, waiting, or authoring an explicit skip_execution state_patch turn",
+                    "action_type is required unless completing, waiting, or authoring an explicit state/HITL-only turn",
                 )
             if action_inputs:
                 raise ModelActionParseError(
                     "invalid_model_action_json",
-                    "action_inputs must be empty when action_type is null on a skip_execution turn",
+                    "action_inputs must be empty when action_type is null on a no-dispatch turn",
                 )
-            if state_patch_out is None:
+            if state_patch_out is None and hitl_out is None:
                 raise ModelActionParseError(
                     "invalid_model_action_json",
-                    "state_patch is required when action_type is null on a skip_execution turn",
+                    "state_patch or hitl_request is required when action_type is null on a no-dispatch turn",
                 )
         elif available_tool_ids and action_type not in available_tool_ids:
             raise ModelActionParseError("invalid_model_action_json", f"unknown action_type: {action_type}")
@@ -218,9 +230,9 @@ def _optional_text(value: Any) -> str | None:
     return text or None
 
 
-def _require_json_bool(payload: Mapping[str, Any], key: str) -> bool:
+def _json_bool_with_default(payload: Mapping[str, Any], key: str, *, default: bool) -> bool:
     if key not in payload:
-        raise ModelActionParseError("invalid_model_action_json", f"{key} is required and must be a boolean")
+        return default
     value = payload.get(key)
     if type(value) is not bool:
         raise ModelActionParseError("invalid_model_action_json", f"{key} must be a JSON boolean")

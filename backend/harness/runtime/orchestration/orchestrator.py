@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import replace
 from typing import Any
 
 from ...execution.contracts import ExecutionState
@@ -56,6 +57,26 @@ def _action_id_for_plan(action_plan: ActionPlan) -> str:
     if action_plan.wait_for_human:
         return "wait_for_human"
     return str(action_plan.action_type or "no_action")
+
+
+def _materialize_dispatch_idempotency_key(
+    action_plan: ActionPlan,
+    *,
+    request_id_prefix: str,
+    iteration: int,
+) -> ActionPlan:
+    """Host-own transport idempotency for real dispatch turns only."""
+    if (
+        action_plan.action_type is None
+        or action_plan.skip_execution
+        or action_plan.wait_for_human
+        or action_plan.complete_run
+    ):
+        return action_plan
+    if str(action_plan.idempotency_key).strip():
+        return action_plan
+    generated = f"{request_id_prefix}:iter:{int(iteration)}:dispatch:{action_plan.action_type}"
+    return replace(action_plan, idempotency_key=generated)
 
 
 def _handle_policy_block(
@@ -214,6 +235,11 @@ def run_orchestration_kernel_loop(
         action_plan = coerce_kernel_action_plan(orchestration_adapter.choose_action(context, projection))
         if action_plan is None:
             continue
+        action_plan = _materialize_dispatch_idempotency_key(
+            action_plan,
+            request_id_prefix=request_id_prefix,
+            iteration=iterations,
+        )
 
         patch_present = bool(action_plan.state_patch)
 

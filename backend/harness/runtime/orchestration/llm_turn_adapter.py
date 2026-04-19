@@ -121,6 +121,8 @@ class LlmTurnOrchestrationAdapter(OrchestrationAdapter):
             observer = context.raw_llm_io_observer
             if observer is None:
                 return
+            raw_response_text = extract_audit_text(raw_response)
+            provider_audit = _provider_audit_fields(raw_response, raw_response_text=raw_response_text)
             record = lifecycle_jsonable(
                 {
                     "turn_index": int(context.loop_memory.iterations),
@@ -128,7 +130,8 @@ class LlmTurnOrchestrationAdapter(OrchestrationAdapter):
                     "finished_at_epoch_seconds": time.time(),
                     "prompt_mode": prompt_mode,
                     "raw_prompt_text": prompt,
-                    "raw_llm_response_text": extract_audit_text(raw_response),
+                    "raw_llm_response_text": raw_response_text,
+                    **provider_audit,
                     "parse_ok": parse_ok,
                     "parse_reason_code": parse_rc,
                     "parsed_action_plan": lifecycle_jsonable(plan) if plan is not None else None,
@@ -270,4 +273,52 @@ def _turn_snapshot(composed_input: ComposedTurnInput) -> dict[str, Any]:
             for surface_id, payload in composed_input.surface_payloads.items()
         },
         "tool_ids": list(composed_input.tool_handlers.keys()),
+    }
+
+
+def _provider_audit_fields(
+    raw_response: Any,
+    *,
+    raw_response_text: str,
+) -> dict[str, Any]:
+    if not isinstance(raw_response, Mapping):
+        return {
+            "provider_finish_reason": None,
+            "provider_prompt_tokens": None,
+            "provider_completion_tokens": None,
+            "provider_reasoning_tokens": None,
+            "provider_total_tokens": None,
+            "provider_error": None,
+            "provider_model": None,
+            "api_model": None,
+            "raw_llm_response_char_count": len(raw_response_text) if raw_response_text else 0,
+            "raw_llm_response_tail": raw_response_text[-1000:] if raw_response_text else None,
+        }
+
+    usage = raw_response.get("usage")
+    prompt_tokens = None
+    completion_tokens = None
+    reasoning_tokens = None
+    total_tokens = None
+    if isinstance(usage, Mapping):
+        prompt_tokens = usage.get("prompt_tokens")
+        completion_tokens = usage.get("completion_tokens")
+        reasoning_tokens = usage.get("reasoning_tokens")
+        total_tokens = usage.get("total_tokens")
+
+    char_count = len(raw_response_text) if raw_response_text else raw_response.get("char_count")
+    if not isinstance(char_count, int):
+        char_count = 0
+
+    return {
+        "provider_finish_reason": raw_response.get("finish_reason"),
+        "provider_prompt_tokens": prompt_tokens,
+        "provider_completion_tokens": completion_tokens,
+        "provider_reasoning_tokens": reasoning_tokens,
+        "provider_total_tokens": total_tokens,
+        "provider_error": raw_response.get("error"),
+        "provider_model": raw_response.get("provider_model") or raw_response.get("model"),
+        "api_model": raw_response.get("api_model"),
+        "raw_llm_response_char_count": char_count,
+        "raw_llm_response_tail": raw_response_text[-1000:] if raw_response_text else None,
     }

@@ -348,6 +348,55 @@ class OpenAIService(LLMService):
             return default_max, "high"
 
         return default_max, None
+
+    @staticmethod
+    def _extract_message_content(response: Any) -> str | None:
+        """Best-effort text extraction from the first response choice."""
+        if not getattr(response, "choices", None):
+            return None
+        message = getattr(response.choices[0], "message", None)
+        if message is None:
+            return None
+        content = getattr(message, "content", None)
+        if isinstance(content, str):
+            return content
+        return None
+
+    @staticmethod
+    def _usage_payload(response: Any) -> dict[str, int | None] | None:
+        usage = getattr(response, "usage", None)
+        if usage is None:
+            return None
+        return {
+            "prompt_tokens": getattr(usage, "prompt_tokens", None),
+            "completion_tokens": getattr(usage, "completion_tokens", None),
+            "reasoning_tokens": getattr(usage, "reasoning_tokens", None),
+            "total_tokens": getattr(usage, "total_tokens", None),
+        }
+
+    def _text_failure_result(
+        self,
+        *,
+        model: str,
+        api_model_name: str,
+        response: Any,
+        error: str,
+        finish_reason: str | None,
+    ) -> Dict[str, Any]:
+        partial_text = self._extract_message_content(response)
+        char_count = len(partial_text) if isinstance(partial_text, str) else 0
+        provider_model = getattr(response, "model", None) or api_model_name
+        return {
+            "success": False,
+            "error": error,
+            "text": partial_text,
+            "model": model,
+            "finish_reason": finish_reason,
+            "usage": self._usage_payload(response),
+            "char_count": char_count,
+            "provider_model": provider_model,
+            "api_model": api_model_name,
+        }
     
     def call_text(self, prompt: str, model: str, **kwargs) -> Dict[str, Any]:
         """Make text-only API call to OpenAI"""
@@ -431,10 +480,11 @@ class OpenAIService(LLMService):
             
             response = self.client.chat.completions.create(**completion_params)
             finish_reason = response.choices[0].finish_reason if response.choices else None
-            token_usage = response.usage.total_tokens if response.usage else 0
-            prompt_tokens = response.usage.prompt_tokens if response.usage else None
-            completion_tokens = response.usage.completion_tokens if response.usage else None
-            reasoning_tokens = getattr(response.usage, "reasoning_tokens", None) if response.usage else None
+            usage_payload = self._usage_payload(response)
+            token_usage = usage_payload["total_tokens"] if usage_payload else 0
+            prompt_tokens = usage_payload["prompt_tokens"] if usage_payload else None
+            completion_tokens = usage_payload["completion_tokens"] if usage_payload else None
+            reasoning_tokens = usage_payload["reasoning_tokens"] if usage_payload else None
             logger.info(f"📨 TEXT response received: finish_reason='{finish_reason}', tokens={token_usage}{ctx}")
             logger.info(
                 f"📊 TEXT TOKEN USAGE ► prompt={prompt_tokens} completion={completion_tokens} "
@@ -443,32 +493,36 @@ class OpenAIService(LLMService):
 
             if finish_reason == "length":
                 logger.warning(f"⚠️ Text response truncated due to token limit (model={model}){ctx}")
-                return {
-                    "success": False,
-                    "error": f"OpenAI returned truncated response (finish_reason: {finish_reason})",
-                    "text": None,
-                    "model": model
-                }
+                return self._text_failure_result(
+                    model=model,
+                    api_model_name=api_model_name,
+                    response=response,
+                    error=f"OpenAI returned truncated response (finish_reason: {finish_reason})",
+                    finish_reason=finish_reason,
+                )
             if finish_reason == "content_filter":
                 logger.warning(f"⚠️ Text response blocked by content filter (model={model}){ctx}")
-                return {
-                    "success": False,
-                    "error": f"OpenAI blocked response (finish_reason: {finish_reason})",
-                    "text": None,
-                    "model": model
-                }
-            if not response.choices or not response.choices[0].message.content:
+                return self._text_failure_result(
+                    model=model,
+                    api_model_name=api_model_name,
+                    response=response,
+                    error=f"OpenAI blocked response (finish_reason: {finish_reason})",
+                    finish_reason=finish_reason,
+                )
+            response_text = self._extract_message_content(response)
+            if not response.choices or not response_text:
                 logger.warning(f"❌ Empty text response content (model={model}){ctx}")
-                return {
-                    "success": False,
-                    "error": "OpenAI returned empty text response",
-                    "text": None,
-                    "model": model
-                }
+                return self._text_failure_result(
+                    model=model,
+                    api_model_name=api_model_name,
+                    response=response,
+                    error="OpenAI returned empty text response",
+                    finish_reason=finish_reason,
+                )
             
             return {
                 "success": True,
-                "text": response.choices[0].message.content,
+                "text": response_text,
                 "tokens_used": token_usage,
                 "model": model,
                 "usage": {

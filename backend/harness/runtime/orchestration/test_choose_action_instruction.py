@@ -4,7 +4,18 @@ from harness.runtime.orchestration.choose_action_instruction import CHOOSE_ACTIO
 from harness.runtime.orchestration.resume_instruction import RESUME_INSTRUCTION
 
 
-def test_choose_action_instruction_teaches_work_universe_posture_and_hitl_context() -> None:
+def test_choose_action_instruction_teaches_minimality_and_sparse_updates() -> None:
+    text = CHOOSE_ACTION_INSTRUCTION.lower()
+    assert "emit the smallest valid object" in text
+    assert "omit irrelevant keys" in text
+    assert "existing rows" in text
+    assert "identity + changed fields only" in text
+    assert "omitted stable fields remain unchanged" in text
+    assert "do not author transport-only ceremony such as `idempotency_key`" in text
+    assert 'async hitl: `{"hitl_request": {...}}`' in text
+
+
+def test_choose_action_instruction_teaches_state_patch_and_hitl_reference_law() -> None:
     text = CHOOSE_ACTION_INSTRUCTION.lower()
     assert "work_universe_posture" in text
     assert "complete_run" in text and "mechanical complete/publish gate" in text
@@ -24,6 +35,22 @@ def test_choose_action_instruction_teaches_work_universe_posture_and_hitl_contex
     assert "other / needs nuance" in text
     assert "what would have to be true in reality" not in text
     assert "peer agreement is a clue" not in text
+
+
+def test_choose_action_instruction_omits_idempotency_from_model_facing_shapes() -> None:
+    text = CHOOSE_ACTION_INSTRUCTION
+    assert '"idempotency_key"' not in text
+
+
+def test_choose_action_instruction_includes_tiny_examples() -> None:
+    text = CHOOSE_ACTION_INSTRUCTION
+    assert 'Minimal dispatch:' in text
+    assert 'Minimal existing-row update:' in text
+    assert 'Minimal new row:' in text
+    assert 'Minimal HITL:' in text
+    assert 'Minimal complete:' in text
+    assert '{"action_type":"hydrate_artifact_refs"' in text
+    assert '{"complete_run":true' in text
 
 
 def test_resume_instruction_mentions_remaining_hitls_and_audit_requirement() -> None:

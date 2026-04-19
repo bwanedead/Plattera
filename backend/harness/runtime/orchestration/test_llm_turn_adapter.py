@@ -122,20 +122,21 @@ def test_coerce_action_plan_rejects_non_object_state_patch() -> None:
         _coerce_action_plan(json.dumps(payload), available_tool_ids=("select_tool",))
 
 
-def test_coerce_action_plan_rejects_null_action_type_without_skip_execution() -> None:
+def test_coerce_action_plan_accepts_null_action_type_with_state_patch_and_omitted_skip_execution() -> None:
     payload = {
         "action_type": None,
         "action_inputs": {},
         "idempotency_key": "ik-1",
-        "skip_execution": False,
         "wait_for_human": False,
         "complete_run": False,
         "rationale": None,
         "state_patch": {"mission": {"active_mode": "investigating"}},
         "continuity_journal_entry": _LLM_CJ,
     }
-    with pytest.raises(ModelActionParseError, match="action_type is required unless completing, waiting, or authoring an explicit skip_execution state_patch turn"):
-        _coerce_action_plan(json.dumps(payload), available_tool_ids=("select_tool",))
+    plan = _coerce_action_plan(json.dumps(payload), available_tool_ids=("select_tool",))
+    assert plan.action_type is None
+    assert plan.skip_execution is True
+    assert plan.state_patch == {"mission": {"active_mode": "investigating"}}
 
 
 def test_coerce_action_plan_rejects_null_action_type_without_state_patch() -> None:
@@ -150,7 +151,7 @@ def test_coerce_action_plan_rejects_null_action_type_without_state_patch() -> No
         "state_patch": None,
         "continuity_journal_entry": _LLM_CJ,
     }
-    with pytest.raises(ModelActionParseError, match="state_patch is required when action_type is null on a skip_execution turn"):
+    with pytest.raises(ModelActionParseError, match="state_patch or hitl_request is required when action_type is null on a no-dispatch turn"):
         _coerce_action_plan(json.dumps(payload), available_tool_ids=("select_tool",))
 
 
@@ -166,7 +167,7 @@ def test_coerce_action_plan_rejects_action_inputs_on_state_authoring_skip_turn()
         "state_patch": {"mission": {"active_mode": "investigating"}},
         "continuity_journal_entry": _LLM_CJ,
     }
-    with pytest.raises(ModelActionParseError, match="action_inputs must be empty when action_type is null on a skip_execution turn"):
+    with pytest.raises(ModelActionParseError, match="action_inputs must be empty when action_type is null on a no-dispatch turn"):
         _coerce_action_plan(json.dumps(payload), available_tool_ids=("select_tool",))
 
 
@@ -962,7 +963,7 @@ def test_choose_action_prompt_includes_summary_shorthand_explanation() -> None:
     adapter.choose_action(ctx, projection=None)
 
     assert "blocker_summary" in captured[0]
-    assert "shorthand" in captured[0].lower() or "normalizes" in captured[0].lower()
+    assert "normalizes" in captured[0].lower()
 
 
 def test_choose_action_prompt_includes_closure_state_contract() -> None:
@@ -979,9 +980,8 @@ def test_choose_action_prompt_includes_closure_state_contract() -> None:
 
     prompt = captured[0]
     assert "closure_state" in prompt
-    assert "closure_state dimensions merge by dimension_id" in prompt
-    # "generic run-level closure ledger" was removed; closure semantics now live in surface.py doctrine blocks
-    assert "closure_state shape:" in prompt
+    assert "closure_state dimensions merge by `dimension_id`" in prompt
+    assert "`closure_state shape:`" in prompt
 
 
 def test_choose_action_prompt_explicitly_allows_state_authoring_skip_turns() -> None:
@@ -996,11 +996,9 @@ def test_choose_action_prompt_explicitly_allows_state_authoring_skip_turns() -> 
     adapter.choose_action(ctx, projection=None)
 
     prompt = captured[0]
-    assert "no-dispatch turn" in prompt
-    assert "action_type null" in prompt
-    assert "Use only canonical `state_patch.mission` and `state_patch.resolution`" in prompt
-    assert '"kind": "open_question"' in prompt
     assert "No-dispatch state-authoring turns are valid" in prompt
+    assert "action_type` is absent or null" in prompt
+    assert "Use only canonical `state_patch.mission` and `state_patch.resolution`" in prompt
     assert "record closure posture before dispatching another tool" not in prompt
 
 
@@ -1394,6 +1392,11 @@ def test_choose_action_emits_raw_io_on_clean_success() -> None:
     assert rec["prompt_mode"] == "full_choose_action"
     assert rec["repair_attempted"] is False
     assert isinstance(rec["raw_prompt_text"], str) and len(rec["raw_prompt_text"]) > 0
+    assert rec["raw_llm_response_char_count"] == len(_VALID_PLAN_JSON)
+    assert rec["raw_llm_response_tail"] == _VALID_PLAN_JSON
+    assert rec["provider_finish_reason"] is None
+    assert rec["provider_total_tokens"] is None
+    assert rec["provider_error"] is None
     assert "noop" in str(rec.get("parsed_action_plan") or "")
 
 
@@ -1442,6 +1445,139 @@ def test_choose_action_emits_raw_io_on_provider_failure() -> None:
     assert rec["parse_ok"] is False
     assert rec["parse_reason_code"] == "model_call_failed"
     assert rec["repair_attempted"] is False
+
+
+def test_choose_action_emits_provider_metadata_on_truncation_failure() -> None:
+    """Provider-envelope facts should survive into raw I/O audit on truncation."""
+    records: list[dict[str, Any]] = []
+    partial_text = '{"action_type": "noop"'
+
+    def caller(prompt: str, model: str, **_kwargs: Any) -> dict[str, Any]:
+        return {
+            "success": False,
+            "error": "Provider returned truncated response (finish_reason: length)",
+            "text": partial_text,
+            "model": model,
+            "finish_reason": "length",
+            "usage": {
+                "prompt_tokens": 12000,
+                "completion_tokens": 20000,
+                "reasoning_tokens": 7000,
+                "total_tokens": 32000,
+            },
+            "char_count": len(partial_text),
+            "provider_model": "provider-model-1",
+            "api_model": "api-model-1",
+        }
+
+    adapter = _minimal_llm_adapter(caller=caller)
+
+    with pytest.raises(ModelActionParseError):
+        adapter.choose_action(
+            _orch_context(iterations=1, raw_llm_io_observer=_RawIoRecorder(records)),
+            projection=None,
+        )
+
+    assert len(records) == 1
+    rec = records[0]
+    assert rec["parse_ok"] is False
+    assert rec["parse_reason_code"] == "model_call_failed"
+    assert rec["repair_attempted"] is False
+    assert rec["raw_llm_response_text"] == partial_text
+    assert rec["raw_llm_response_char_count"] == len(partial_text)
+    assert rec["raw_llm_response_tail"] == partial_text
+    assert rec["provider_finish_reason"] == "length"
+    assert rec["provider_prompt_tokens"] == 12000
+    assert rec["provider_completion_tokens"] == 20000
+    assert rec["provider_reasoning_tokens"] == 7000
+    assert rec["provider_total_tokens"] == 32000
+    assert rec["provider_error"] == "Provider returned truncated response (finish_reason: length)"
+    assert rec["provider_model"] == "provider-model-1"
+    assert rec["api_model"] == "api-model-1"
+
+
+def test_choose_action_emits_provider_metadata_on_content_filter_failure() -> None:
+    records: list[dict[str, Any]] = []
+
+    def caller(prompt: str, model: str, **_kwargs: Any) -> dict[str, Any]:
+        return {
+            "success": False,
+            "error": "Provider blocked response (finish_reason: content_filter)",
+            "text": None,
+            "model": model,
+            "finish_reason": "content_filter",
+            "usage": {
+                "prompt_tokens": 44,
+                "completion_tokens": 55,
+                "reasoning_tokens": None,
+                "total_tokens": 99,
+            },
+            "char_count": 0,
+            "provider_model": "provider-model-2",
+            "api_model": "api-model-2",
+        }
+
+    adapter = _minimal_llm_adapter(caller=caller)
+
+    with pytest.raises(ModelActionParseError):
+        adapter.choose_action(
+            _orch_context(iterations=1, raw_llm_io_observer=_RawIoRecorder(records)),
+            projection=None,
+        )
+
+    rec = records[0]
+    assert rec["parse_reason_code"] == "model_call_failed"
+    assert rec["provider_finish_reason"] == "content_filter"
+    assert rec["provider_prompt_tokens"] == 44
+    assert rec["provider_completion_tokens"] == 55
+    assert rec["provider_reasoning_tokens"] is None
+    assert rec["provider_total_tokens"] == 99
+    assert rec["provider_model"] == "provider-model-2"
+    assert rec["api_model"] == "api-model-2"
+    assert rec["raw_llm_response_text"] == "Provider blocked response (finish_reason: content_filter)"
+    assert rec["raw_llm_response_char_count"] == len("Provider blocked response (finish_reason: content_filter)")
+
+
+def test_choose_action_emits_provider_metadata_on_empty_response_failure() -> None:
+    records: list[dict[str, Any]] = []
+
+    def caller(prompt: str, model: str, **_kwargs: Any) -> dict[str, Any]:
+        return {
+            "success": False,
+            "error": "OpenAI returned empty text response",
+            "text": None,
+            "model": model,
+            "finish_reason": "stop",
+            "usage": {
+                "prompt_tokens": 10,
+                "completion_tokens": 7,
+                "reasoning_tokens": 1,
+                "total_tokens": 17,
+            },
+            "char_count": 0,
+            "provider_model": "provider-model-3",
+            "api_model": "api-model-3",
+        }
+
+    adapter = _minimal_llm_adapter(caller=caller)
+
+    with pytest.raises(ModelActionParseError):
+        adapter.choose_action(
+            _orch_context(iterations=1, raw_llm_io_observer=_RawIoRecorder(records)),
+            projection=None,
+        )
+
+    rec = records[0]
+    assert rec["parse_reason_code"] == "model_call_failed"
+    assert rec["provider_finish_reason"] == "stop"
+    assert rec["provider_prompt_tokens"] == 10
+    assert rec["provider_completion_tokens"] == 7
+    assert rec["provider_reasoning_tokens"] == 1
+    assert rec["provider_total_tokens"] == 17
+    assert rec["provider_model"] == "provider-model-3"
+    assert rec["api_model"] == "api-model-3"
+    assert rec["raw_llm_response_text"] == "OpenAI returned empty text response"
+    assert rec["raw_llm_response_char_count"] == len("OpenAI returned empty text response")
 
 
 def test_choose_action_works_with_no_raw_io_cb() -> None:
