@@ -97,6 +97,8 @@ def _item(
     structure_kind: str | None = None,
     materiality: str | None = None,
     evidence_refs: list[str] | None = None,
+    sequence_scope: str | None = None,
+    sequence_index: int | None = None,
 ) -> ResolutionItem:
     return ResolutionItem(
         item_id=item_id,
@@ -112,6 +114,8 @@ def _item(
         structure_kind=structure_kind,
         materiality=materiality,
         evidence_refs=list(evidence_refs or []),
+        sequence_scope=sequence_scope,
+        sequence_index=sequence_index,
     )
 
 
@@ -353,6 +357,10 @@ def _flags(**kwargs) -> list[str]:
         turns_since_resolution_item_count_change=None,
         new_resolution_items_since_last_complete_run_attempt=0,
         repeated_complete_run_without_state_change_count=0,
+        sequenced_items_missing_scope_count=0,
+        sequenced_items_missing_index_count=0,
+        duplicate_sequence_positions_count=0,
+        sequence_scope_order_gaps_count=0,
         group_items_without_subclaims_count=0,
         critical_closed_items_without_evidence_count=0,
         critical_closed_items_without_verification_basis_count=0,
@@ -468,6 +476,19 @@ def test_flags_surface_group_and_critical_rigor_gaps() -> None:
     assert "blocking_items_without_relations:1" in result
 
 
+def test_flags_surface_sequence_structure_gaps() -> None:
+    result = _flags(
+        sequenced_items_missing_scope_count=1,
+        sequenced_items_missing_index_count=2,
+        duplicate_sequence_positions_count=3,
+        sequence_scope_order_gaps_count=1,
+    )
+    assert "sequenced_items_missing_scope:1" in result
+    assert "sequenced_items_missing_index:2" in result
+    assert "duplicate_sequence_positions:3" in result
+    assert "sequence_scope_order_gaps:1" in result
+
+
 def test_flags_capped_at_eight() -> None:
     """Output never exceeds 8 flags even when all conditions fire."""
     result = _flags(
@@ -496,6 +517,11 @@ def test_summary_returns_all_required_top_level_keys() -> None:
     for key in (
         "prompt_event_count",
         "resolution_item_count",
+        "sequenced_item_count",
+        "sequenced_items_missing_scope_count",
+        "sequenced_items_missing_index_count",
+        "duplicate_sequence_positions_count",
+        "sequence_scope_order_gaps_count",
         "atomic_item_count",
         "group_item_count",
         "group_items_without_subclaims_count",
@@ -542,6 +568,42 @@ def test_summary_counts_item_blocking_hitl_and_no_further_progress_flags() -> No
     assert result["items_blocking_count"] == 2
     assert result["items_requires_hitl_count"] == 1
     assert result["items_no_further_progress_count"] == 1
+
+
+def test_summary_counts_sequence_advisories() -> None:
+    items = [
+        _item("lane-a-1", status="open", sequence_scope="lane-a", sequence_index=1),
+        _item("lane-a-dup", status="open", sequence_scope="lane-a", sequence_index=1),
+        _item("lane-a-gap", status="open", sequence_scope="lane-a", sequence_index=3),
+        _item("lane-missing-scope", status="open", sequence_index=1),
+        _item("lane-missing-index", status="open", sequence_scope="lane-b"),
+        _item("unsequenced", status="open"),
+    ]
+    mem = _mem(resolution_items=items)
+    result = build_prompt_observability_summary(mem)
+    assert result["sequenced_item_count"] == 3
+    assert result["sequenced_items_missing_scope_count"] == 1
+    assert result["sequenced_items_missing_index_count"] == 1
+    assert result["duplicate_sequence_positions_count"] == 1
+    assert result["sequence_scope_order_gaps_count"] == 1
+    flags = result["mechanical_flags"]
+    assert "sequenced_items_missing_scope:1" in flags
+    assert "sequenced_items_missing_index:1" in flags
+    assert "duplicate_sequence_positions:1" in flags
+    assert "sequence_scope_order_gaps:1" in flags
+
+
+def test_summary_does_not_flag_lane_that_is_contiguous_but_starts_later() -> None:
+    items = [
+        _item("lane-c-3", status="open", sequence_scope="lane-c", sequence_index=3),
+        _item("lane-c-4", status="open", sequence_scope="lane-c", sequence_index=4),
+    ]
+    mem = _mem(resolution_items=items)
+    result = build_prompt_observability_summary(mem)
+    assert result["sequenced_item_count"] == 2
+    assert result["duplicate_sequence_positions_count"] == 0
+    assert result["sequence_scope_order_gaps_count"] == 0
+    assert "sequence_scope_order_gaps:" not in result["mechanical_flags"]
 
 
 def test_summary_counts_group_structure_and_thin_critical_proof_gaps() -> None:

@@ -18,6 +18,11 @@ _ZERO_INT_FIELDS = (
     "success_conditions_with_earned_determination_count",
     "success_conditions_with_verification_basis_count",
     "resolution_item_count",
+    "sequenced_item_count",
+    "sequenced_items_missing_scope_count",
+    "sequenced_items_missing_index_count",
+    "duplicate_sequence_positions_count",
+    "sequence_scope_order_gaps_count",
     "atomic_item_count",
     "group_item_count",
     "group_items_without_subclaims_count",
@@ -38,18 +43,8 @@ _ZERO_INT_FIELDS = (
     "closed_dimensions_without_earned_determination_count",
     "closed_dimensions_without_basis_count",
 )
-_OPTIONAL_INT_FIELDS = (
-    "turns_since_last_tool_execution",
-    "turns_since_latest_refs_change",
-    "turns_since_last_state_patch_applied",
-    "turns_since_resolution_item_count_change",
-)
-_STR_FIELDS = (
-    "last_prompt_event_id",
-    "last_state_patch_outcome",
-    "last_state_patch_reason_code",
-    "work_universe_posture",
-)
+_OPTIONAL_INT_FIELDS = ("turns_since_last_tool_execution", "turns_since_latest_refs_change", "turns_since_last_state_patch_applied", "turns_since_resolution_item_count_change")
+_STR_FIELDS = ("last_prompt_event_id", "last_state_patch_outcome", "last_state_patch_reason_code", "work_universe_posture")
 def _nonblank_strs(values: Any) -> list[str]:
     return [value for value in values if isinstance(value, str) and value.strip()] if isinstance(values, list) else []
 def _prompt_observability_summary_from_payload(
@@ -81,8 +76,4 @@ def _prompt_observability_summary_from_trace_events(events: list[dict[str, Any]]
     ]
     last_payload = _as_dict(prompt_events[-1].get("payload")) if prompt_events else {}
     metadata = _as_dict(_as_dict(last_payload.get("prompt_event")).get("metadata"))
-    return PromptObservabilitySummary(
-        prompt_event_count=len(prompt_events),
-        last_prompt_event_id=_as_str(metadata.get("prompt_event_id")),
-        last_prompt_event_surface=_as_str(metadata.get("surface")) or _as_str(last_payload.get("surface")),
-    )
+    return PromptObservabilitySummary(prompt_event_count=len(prompt_events), last_prompt_event_id=_as_str(metadata.get("prompt_event_id")), last_prompt_event_surface=_as_str(metadata.get("surface")) or _as_str(last_payload.get("surface")))

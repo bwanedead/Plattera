@@ -12,7 +12,11 @@ def test_choose_action_instruction_teaches_work_universe_posture_and_hitl_contex
     assert "hitl_request.context" in text
     assert "independently-resolvable unit" in text
     assert "structure_kind" in text
+    assert "sequence_scope" in text
+    assert "sequence_index" in text
     assert "subclaim_of" in text
+    assert "prerequisite_of" in text
+    assert "dependency graph" in text
     assert "primary_evidence_ref" in text
     assert "question_regions" in text
     assert "strongest available verification method" in text

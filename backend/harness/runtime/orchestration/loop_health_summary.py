@@ -31,6 +31,7 @@ def build_prompt_observability_summary(
     work_universe_posture = _as_optional_text(getattr(cont.mission_state, "work_universe_posture", None)) or "initial"
     feedback = dict(cont.state_patch_feedback) if isinstance(cont.state_patch_feedback, Mapping) else {}
     relation_index = _relation_index(resolution_relations)
+    sequence_metrics = _sequence_metrics(resolution_items)
 
     closed_items_count = sum(1 for row in resolution_items if _is_closed_status(getattr(row, "status", None)))
     atomic_item_count = sum(
@@ -167,6 +168,11 @@ def build_prompt_observability_summary(
             1 for row in success_conditions if _has_text(getattr(row, "verification_basis", None))
         ),
         "resolution_item_count": len(resolution_items),
+        "sequenced_item_count": sequence_metrics["sequenced_item_count"],
+        "sequenced_items_missing_scope_count": sequence_metrics["sequenced_items_missing_scope_count"],
+        "sequenced_items_missing_index_count": sequence_metrics["sequenced_items_missing_index_count"],
+        "duplicate_sequence_positions_count": sequence_metrics["duplicate_sequence_positions_count"],
+        "sequence_scope_order_gaps_count": sequence_metrics["sequence_scope_order_gaps_count"],
         "atomic_item_count": atomic_item_count,
         "group_item_count": group_item_count,
         "group_items_without_subclaims_count": group_items_without_subclaims_count,
@@ -206,6 +212,10 @@ def build_prompt_observability_summary(
         turns_since_resolution_item_count_change=turns_since_resolution_item_count_change,
         new_resolution_items_since_last_complete_run_attempt=new_resolution_items_since_last_complete_run_attempt,
         repeated_complete_run_without_state_change_count=repeated_complete_run_without_state_change_count,
+        sequenced_items_missing_scope_count=sequence_metrics["sequenced_items_missing_scope_count"],
+        sequenced_items_missing_index_count=sequence_metrics["sequenced_items_missing_index_count"],
+        duplicate_sequence_positions_count=sequence_metrics["duplicate_sequence_positions_count"],
+        sequence_scope_order_gaps_count=sequence_metrics["sequence_scope_order_gaps_count"],
         group_items_without_subclaims_count=group_items_without_subclaims_count,
         critical_closed_items_without_evidence_count=critical_closed_items_without_evidence_count,
         critical_closed_items_without_verification_basis_count=(
@@ -444,6 +454,10 @@ def _mechanical_flags(
     turns_since_resolution_item_count_change: int | None,
     new_resolution_items_since_last_complete_run_attempt: int,
     repeated_complete_run_without_state_change_count: int,
+    sequenced_items_missing_scope_count: int,
+    sequenced_items_missing_index_count: int,
+    duplicate_sequence_positions_count: int,
+    sequence_scope_order_gaps_count: int,
     group_items_without_subclaims_count: int,
     critical_closed_items_without_evidence_count: int,
     critical_closed_items_without_verification_basis_count: int,
@@ -482,6 +496,14 @@ def _mechanical_flags(
         flags.append(
             f"resolution_items_outnumber_success_conditions:{resolution_item_count}_vs_{success_condition_count}"
         )
+    if sequenced_items_missing_scope_count > 0:
+        flags.append(f"sequenced_items_missing_scope:{sequenced_items_missing_scope_count}")
+    if sequenced_items_missing_index_count > 0:
+        flags.append(f"sequenced_items_missing_index:{sequenced_items_missing_index_count}")
+    if duplicate_sequence_positions_count > 0:
+        flags.append(f"duplicate_sequence_positions:{duplicate_sequence_positions_count}")
+    if sequence_scope_order_gaps_count > 0:
+        flags.append(f"sequence_scope_order_gaps:{sequence_scope_order_gaps_count}")
     if group_items_without_subclaims_count > 0:
         flags.append(f"group_items_without_subclaims:{group_items_without_subclaims_count}")
     if critical_closed_items_without_evidence_count > 0:
@@ -591,3 +613,42 @@ def _item_has_any_relation(
             or item_id in relation_index.get("targets", set())
         )
     )
+
+
+def _sequence_metrics(items: list[Any]) -> dict[str, int]:
+    scoped_positions: dict[str, list[int]] = {}
+    sequenced_item_count = 0
+    sequenced_items_missing_scope_count = 0
+    sequenced_items_missing_index_count = 0
+
+    for row in items:
+        sequence_scope = _as_optional_text(getattr(row, "sequence_scope", None))
+        sequence_index = _as_int(getattr(row, "sequence_index", None))
+        if sequence_scope is None and sequence_index is None:
+            continue
+        if sequence_scope is None:
+            sequenced_items_missing_scope_count += 1
+            continue
+        if sequence_index is None:
+            sequenced_items_missing_index_count += 1
+            continue
+        sequenced_item_count += 1
+        scoped_positions.setdefault(sequence_scope, []).append(sequence_index)
+
+    duplicate_sequence_positions_count = 0
+    sequence_scope_order_gaps_count = 0
+    for positions in scoped_positions.values():
+        unique_positions = sorted(set(positions))
+        duplicate_sequence_positions_count += max(0, len(positions) - len(unique_positions))
+        if unique_positions and unique_positions != list(
+            range(unique_positions[0], unique_positions[0] + len(unique_positions))
+        ):
+            sequence_scope_order_gaps_count += 1
+
+    return {
+        "sequenced_item_count": sequenced_item_count,
+        "sequenced_items_missing_scope_count": sequenced_items_missing_scope_count,
+        "sequenced_items_missing_index_count": sequenced_items_missing_index_count,
+        "duplicate_sequence_positions_count": duplicate_sequence_positions_count,
+        "sequence_scope_order_gaps_count": sequence_scope_order_gaps_count,
+    }

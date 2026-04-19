@@ -44,6 +44,8 @@ class ResolutionItem(BaseModel):
     next_needed_step: str | None = Field(default=None, max_length=400)
     completion_criteria: str | None = Field(default=None, max_length=400)
     structure_kind: ResolutionItemStructureKind | None = None
+    sequence_scope: str | None = Field(default=None, max_length=128)
+    sequence_index: int | None = Field(default=None, ge=1)
     blocking: bool | None = None
     requires_hitl: bool = False
     no_further_progress: bool = False

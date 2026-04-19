@@ -65,6 +65,8 @@ def test_build_prompt_observability_summary_reports_loop_health_facts() -> None:
                 "kind": "work_unit",
                 "status": "blocked",
                 "structure_kind": "group",
+                "sequence_scope": "lane-a",
+                "sequence_index": 1,
                 "blocking": True,
                 "requires_hitl": True,
                 "no_further_progress": True,
@@ -77,6 +79,7 @@ def test_build_prompt_observability_summary_reports_loop_health_facts() -> None:
                 "kind": "work_unit",
                 "status": "closed",
                 "materiality": "critical",
+                "sequence_index": 2,
             },
             {
                 "item_id": "i-closed-earned",
@@ -84,6 +87,8 @@ def test_build_prompt_observability_summary_reports_loop_health_facts() -> None:
                 "kind": "work_unit",
                 "status": "closed",
                 "structure_kind": "atomic",
+                "sequence_scope": "lane-a",
+                "sequence_index": 3,
                 "determination": "earned",
                 "verification_basis": "Resolved against source evidence.",
                 "completion_criteria": "The disputed span matches the source.",
@@ -140,6 +145,11 @@ def test_build_prompt_observability_summary_reports_loop_health_facts() -> None:
     assert summary["success_condition_count"] == 2
     assert summary["success_conditions_with_earned_determination_count"] == 1
     assert summary["resolution_item_count"] == 3
+    assert summary["sequenced_item_count"] == 2
+    assert summary["sequenced_items_missing_scope_count"] == 1
+    assert summary["sequenced_items_missing_index_count"] == 0
+    assert summary["duplicate_sequence_positions_count"] == 0
+    assert summary["sequence_scope_order_gaps_count"] == 1
     assert summary["atomic_item_count"] == 1
     assert summary["group_item_count"] == 1
     assert summary["group_items_without_subclaims_count"] == 1
