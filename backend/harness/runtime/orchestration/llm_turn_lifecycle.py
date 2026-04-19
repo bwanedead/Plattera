@@ -85,7 +85,7 @@ class LlmTurnPreChooseActionParticipant(PreChooseActionParticipant):
     continuity_compaction_prompt_char_threshold: int | None = None
     continuity_compaction_trigger_fraction: float | None = None
     continuity_compaction_max_prompt_chars: int | None = None
-    continuity_journal_verbatim_keep_n: int = 5
+    continuity_journal_verbatim_keep_n: int = 3
     prompt_event_observer: PromptEventObserver | None = field(
         default=None,
         repr=False,

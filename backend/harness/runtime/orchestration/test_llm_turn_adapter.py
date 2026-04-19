@@ -360,7 +360,8 @@ def test_choose_action_prompt_carries_prior_journal_progress_and_compacted_summa
     adapter.choose_action(ctx, projection=None)
     assert len(captured) == 1
     p = captured[0]
-    assert "status line for operator" in p
+    # operator_progress_message is no longer surfaced in default full_choose_action run_context.
+    assert "status line for operator" not in p
     assert "prior folded block" in p
     assert "turn_note" in p
     assert "recent_continuity_journal_entries" in p
@@ -1097,12 +1098,17 @@ def test_choose_action_prompt_includes_host_owned_prompt_observability_summary()
 
     prompt = captured[0]
     assert '"prompt_observability_summary"' in prompt
-    assert '"consecutive_no_dispatch_turns": 1' in prompt
-    assert '"turns_since_last_tool_execution": 1' in prompt
-    assert '"turns_since_latest_refs_change": 1' in prompt
+    # Compact prompt-visible observability keeps structural anchors and
+    # non-empty signals; broad zero/no-op counters are dropped from transport.
     assert '"last_state_patch_outcome": "rejected"' in prompt
+    assert '"last_state_patch_reason_code": "mission_unknown_keys"' in prompt
     assert '"success_condition_count": 1' in prompt
-    assert '"closed_items_without_basis_count": 1' in prompt
+    assert '"resolution_item_count": 1' in prompt
+    assert '"work_universe_posture"' in prompt
+    # Non-anchor count fields from the full summary are no longer surfaced.
+    assert '"consecutive_no_dispatch_turns"' not in prompt
+    assert '"turns_since_last_tool_execution"' not in prompt
+    assert '"closed_items_without_basis_count"' not in prompt
 
 
 def test_choose_action_prompt_hides_max_iterations_from_model_visible_launch_context() -> None:

@@ -38,6 +38,16 @@ class PromptBuildDocument:
 
 _FULL_RUN_CONTEXT_FIELDS = (
     "iteration",
+    "launch_context",
+    "state_patch_feedback",
+    "contract_feedback",
+    "hitl_state",
+    "pending_hitl_requests",
+    "answered_hitl_responses",
+    "projection",
+)
+_STATE_REPAIR_RUN_CONTEXT_FIELDS = (
+    "iteration",
     "session_id",
     "request_id_prefix",
     "launch_context",
@@ -67,13 +77,8 @@ _STATE_REPAIR_STRUCTURED_STATE_FIELDS = (
 )
 _RESUME_RUN_CONTEXT_FIELDS = (
     "iteration",
-    "session_id",
-    "request_id_prefix",
     "launch_context",
-    "latest_refs",
-    "active_item_id",
     "state_patch_feedback",
-    "operator_progress_message",
     "hitl_state",
     "pending_hitl_requests",
     "answered_hitl_responses",
@@ -106,7 +111,7 @@ _PROMPT_MODE_SPECS: dict[PromptMode, PromptModeSpec] = {
         include_surface_packet_blocks=True,
         include_surface_payloads=True,
         include_tool_ids=True,
-        run_context_fields=_FULL_RUN_CONTEXT_FIELDS,
+        run_context_fields=_STATE_REPAIR_RUN_CONTEXT_FIELDS,
         structured_state_fields=_STATE_REPAIR_STRUCTURED_STATE_FIELDS,
         mode_packet_key=None,
         call_phase="choose_action_state_repair",

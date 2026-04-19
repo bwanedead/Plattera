@@ -207,6 +207,96 @@ def test_state_repair_prompt_retains_raw_recent_arrays_as_exception_overlay() ->
     assert "recent_kernel_step_result_records" in structured_state
     assert "recent_turn_timeline" in structured_state
     assert "recent_continuity_journal_entries" in structured_state
+    # state_repair is the exception lane and still carries the richer run_context anchors.
+    run_context = doc.prompt_body["run_context"]
+    for expected_key in (
+        "session_id",
+        "request_id_prefix",
+        "latest_refs",
+        "active_item_id",
+    ):
+        assert expected_key in run_context
+
+
+def test_full_choose_action_run_context_drops_duplicate_transport_fields() -> None:
+    doc = build_choose_action_prompt_document(
+        composed_input=_composed_input(),
+        opaque_launch_context={"run_id": "r-1"},
+        context=_context(),
+        projection=_projection(),
+        journal_verbatim_keep_n=2,
+    )
+    run_context = doc.prompt_body["run_context"]
+    for dropped_key in (
+        "session_id",
+        "request_id_prefix",
+        "latest_refs",
+        "active_item_id",
+        "operator_progress_message",
+    ):
+        assert dropped_key not in run_context
+    # Projection carries latest_refs / active_item_id as the canonical copy.
+    assert "projection" in run_context
+    assert "latest_refs" in run_context["projection"]
+
+
+def test_resume_prompt_run_context_matches_slim_shape() -> None:
+    context = _context()
+    context.loop_memory.hitl.hitl_state = "answered_unintegrated"
+    doc = build_resume_prompt_document(
+        composed_input=_composed_input(),
+        opaque_launch_context={"run_id": "r-1"},
+        context=context,
+        projection=_projection(),
+        journal_verbatim_keep_n=2,
+    )
+    run_context = doc.prompt_body["run_context"]
+    for dropped_key in (
+        "session_id",
+        "request_id_prefix",
+        "latest_refs",
+        "active_item_id",
+        "operator_progress_message",
+    ):
+        assert dropped_key not in run_context
+
+
+def test_compact_prompt_visible_observability_drops_zero_counters() -> None:
+    doc = build_choose_action_prompt_document(
+        composed_input=_composed_input(),
+        opaque_launch_context={"run_id": "r-1"},
+        context=_context(),
+        projection=_projection(),
+        journal_verbatim_keep_n=2,
+    )
+    summary = doc.prompt_body["structured_state"]["prompt_observability_summary"]
+    # Structural anchors always present.
+    assert "work_universe_posture" in summary
+    assert "resolution_item_count" in summary
+    assert "success_condition_count" in summary
+    assert "closure_dimension_count" in summary
+    # Zero-valued optional counters must not appear in the compact transport.
+    for dropped_key in (
+        "consecutive_no_dispatch_turns",
+        "turns_since_last_tool_execution",
+        "turns_since_latest_refs_change",
+        "sequenced_item_count",
+        "atomic_item_count",
+        "closed_items_without_basis_count",
+    ):
+        assert dropped_key not in summary
+
+
+def test_default_continuity_journal_verbatim_keep_n_is_three() -> None:
+    from harness.runtime.orchestration.llm_turn_adapter import LlmTurnOrchestrationAdapter
+    from harness.runtime.orchestration.llm_turn_lifecycle import LlmTurnPreChooseActionParticipant
+
+    assert LlmTurnOrchestrationAdapter.__dataclass_fields__[
+        "continuity_journal_verbatim_keep_n"
+    ].default == 3
+    assert LlmTurnPreChooseActionParticipant.__dataclass_fields__[
+        "continuity_journal_verbatim_keep_n"
+    ].default == 3
 
 
 def test_full_choose_action_prompt_is_smaller_when_raw_recent_arrays_are_dropped() -> None:

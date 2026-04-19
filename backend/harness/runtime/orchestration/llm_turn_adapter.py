@@ -42,7 +42,7 @@ class LlmTurnOrchestrationAdapter(OrchestrationAdapter):
     text_model_caller: TextModelCaller
     model_name: str
     opaque_launch_context: Mapping[str, Any] = field(default_factory=dict)
-    continuity_journal_verbatim_keep_n: int = 5
+    continuity_journal_verbatim_keep_n: int = 3
 
     def initialize(self, context: OrchestratorContext) -> None:
         del context

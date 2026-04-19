@@ -192,9 +192,11 @@ def _build_structured_state(
             cont.kernel_step_result_records,
             keep_n=journal_verbatim_keep_n,
         ),
-        "prompt_observability_summary": build_prompt_observability_summary(
-            context.loop_memory,
-            closure_policy=closure_policy,
+        "prompt_observability_summary": _compact_prompt_observability_summary(
+            build_prompt_observability_summary(
+                context.loop_memory,
+                closure_policy=closure_policy,
+            )
         ),
     }
     timeline = _build_recent_turn_timeline(
@@ -293,6 +295,64 @@ def _safe_turn_index(row: Mapping[str, Any]) -> int | None:
         return int(row.get("kernel_turn_index"))
     except (TypeError, ValueError):
         return None
+
+
+_ALWAYS_KEEP_OBSERVABILITY_KEYS: tuple[str, ...] = (
+    "work_universe_posture",
+    "resolution_item_count",
+    "success_condition_count",
+    "closure_dimension_count",
+)
+_OPTIONAL_OBSERVABILITY_COUNTERS: tuple[str, ...] = (
+    "repeated_state_patch_reason_code_streak",
+    "turns_since_last_state_patch_applied",
+    "consecutive_same_active_item_turns",
+    "turns_since_resolution_item_count_change",
+    "new_resolution_items_since_last_complete_run_attempt",
+    "repeated_complete_run_without_state_change_count",
+)
+
+
+def _compact_prompt_observability_summary(full_summary: Mapping[str, Any]) -> dict[str, Any]:
+    """Drop-only projection of the full observability summary for prompt transport.
+
+    Keeps structural anchors always, optional mechanical counters only when
+    non-zero/non-null, ``closure_readiness_projection`` only when it carries
+    non-empty blocker arrays, ``mechanical_flags`` only when non-empty, and
+    ``last_state_patch_reason_code`` only when present. No semantic
+    relevance decisions — this is transport compression.
+    """
+    compact: dict[str, Any] = {}
+    for key in _ALWAYS_KEEP_OBSERVABILITY_KEYS:
+        if key in full_summary:
+            compact[key] = full_summary[key]
+
+    if "last_state_patch_outcome" in full_summary:
+        compact["last_state_patch_outcome"] = full_summary["last_state_patch_outcome"]
+    reason_code = full_summary.get("last_state_patch_reason_code")
+    if reason_code:
+        compact["last_state_patch_reason_code"] = reason_code
+
+    for key in _OPTIONAL_OBSERVABILITY_COUNTERS:
+        value = full_summary.get(key)
+        if value:  # drop None and 0
+            compact[key] = value
+
+    projection = full_summary.get("closure_readiness_projection")
+    if isinstance(projection, Mapping):
+        kept_projection: dict[str, list[str]] = {}
+        for proj_key in ("complete_run_blockers", "publish_blockers"):
+            rows = projection.get(proj_key) or []
+            if rows:
+                kept_projection[proj_key] = list(rows)
+        if kept_projection:
+            compact["closure_readiness_projection"] = kept_projection
+
+    flags = full_summary.get("mechanical_flags") or []
+    if flags:
+        compact["mechanical_flags"] = list(flags)
+
+    return compact
 
 
 def _assemble_prompt_document(
