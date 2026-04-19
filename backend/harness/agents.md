@@ -74,6 +74,7 @@ After edits, ensure no reintroduction of superseded wire keys or ownership vocab
 ## Links
 
 - Docs: `docs/architecture/harness/harness-sanity-refactor-brief.md` (especially §13 snapshot, §14 rationale)
+- Docs: `docs/architecture/harness/agent-engine-constitution.md`
 - Docs: `docs/architecture/harness/transcript-edit-live-loop-testing.md`
 - Docs: `docs/architecture/harness/run-summary-build-refactor-brief.md`
 - Related: `docs/architecture/harness/harness-constitution.md`

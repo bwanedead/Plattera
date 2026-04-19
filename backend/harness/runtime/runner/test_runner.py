@@ -449,6 +449,16 @@ def test_default_model_caller_passes_through_call_options(monkeypatch) -> None:
     assert kwargs_sent.get("call_options") is opts
 
 
+def test_select_model_name_prefers_launch_context_over_cli_env(monkeypatch) -> None:
+    monkeypatch.setenv("HARNESS_CLI_MODEL", "gpt-5.4-mini")
+    assert runner_module._select_model_name({"model": "gpt-5.4"}) == "gpt-5.4"
+
+
+def test_select_model_name_falls_back_to_cli_env(monkeypatch) -> None:
+    monkeypatch.setenv("HARNESS_CLI_MODEL", "gpt-5.4-mini")
+    assert runner_module._select_model_name({}) == "gpt-5.4-mini"
+
+
 def test_runner_injects_domain_closure_policy_into_orchestration_context(tmp_path: Path, monkeypatch) -> None:
     captured: dict[str, Any] = {}
     policy = DomainClosurePolicy(

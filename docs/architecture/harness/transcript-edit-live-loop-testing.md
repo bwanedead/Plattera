@@ -100,6 +100,12 @@ $ctx = "{""dossier_id"":""9f5eecb6-cd7e-483c-b691-b76aa7132e8e"",""transcription
 python -m harness.cli.start --run-id $runId --loop-kind transcript_edit --python-module harness.runtime.runner.entrypoint --module-arg=--domain-id --module-arg=transcript_edit --module-arg=--launch-context-json --module-arg=$ctx
 ```
 
+Optional model override from CLI:
+
+```powershell
+python -m harness.cli.start --run-id $runId --loop-kind transcript_edit --model gpt-5.4-mini --python-module harness.runtime.runner.entrypoint --module-arg=--domain-id --module-arg=transcript_edit --module-arg=--launch-context-json --module-arg=$ctx
+```
+
 Guidance:
 
 - use a fresh unique `run_id` for every live run
@@ -110,8 +116,12 @@ Guidance:
   localize, re-check, and escalate honestly instead of compressing everything
   into a shallow few-turn pass
 - omit `model` from launch context unless you explicitly want to override the
-  harness default model (default is `gpt-5.4`; use `gpt-5.4-mini` explicitly
-  for faster/cheaper test runs where full quality is not required)
+  harness default model
+- the harness default remains `gpt-5.4`
+- for cheaper exploratory runs, prefer `harness.cli.start --model gpt-5.4-mini`
+- if both launch context `model` and CLI `--model` are set, launch context
+  wins; CLI `--model` is a convenience fallback for runs where the context JSON
+  omits `model`
 
 Check status:
 

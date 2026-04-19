@@ -24,7 +24,13 @@ def _print_json(obj: dict[str, Any]) -> None:
     sys.stdout.flush()
 
 
-def _child_env(*, paths, run_id: str, loop_kind: str) -> dict[str, str]:
+def _child_env(
+    *,
+    paths,
+    run_id: str,
+    loop_kind: str,
+    model: str | None = None,
+) -> dict[str, str]:
     base = os.environ.copy()
     base["HARNESS_CLI_RUN_ID"] = run_id
     base["HARNESS_CLI_DONE_FILE"] = paths.done_file
@@ -32,6 +38,8 @@ def _child_env(*, paths, run_id: str, loop_kind: str) -> dict[str, str]:
     base["HARNESS_CLI_STDOUT_LOG"] = paths.stdout_log
     base["HARNESS_CLI_STDERR_LOG"] = paths.stderr_log
     base["HARNESS_CLI_LOOP_KIND"] = loop_kind
+    if str(model or "").strip():
+        base["HARNESS_CLI_MODEL"] = str(model).strip()
     return base
 
 
@@ -57,6 +65,7 @@ def start_run(
     loop_kind: str,
     mode: str,
     spawn_argv: list[str],
+    model: str | None = None,
     child_env_extra: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     state = new_run_state(
@@ -70,7 +79,7 @@ def start_run(
     paths = state.paths
     Path(paths.run_dir).mkdir(parents=True, exist_ok=True)
 
-    env = _child_env(paths=paths, run_id=run_id, loop_kind=loop_kind)
+    env = _child_env(paths=paths, run_id=run_id, loop_kind=loop_kind, model=model)
     if child_env_extra:
         env.update(child_env_extra)
 
@@ -106,6 +115,7 @@ def start_run(
             "status": state.status,
             "mode": mode,
             "loop_kind": loop_kind,
+            "model": str(model or "").strip() or None,
             "error": str(exc),
         }
 
@@ -128,6 +138,7 @@ def start_run(
         "status": state.status,
         "mode": mode,
         "loop_kind": loop_kind,
+        "model": str(model or "").strip() or None,
     }
 
 
@@ -146,6 +157,14 @@ def main() -> None:
         "--mode",
         default=None,
         help="Opaque mode tag stored in state (default: stub or python module name).",
+    )
+    parser.add_argument(
+        "--model",
+        default=None,
+        help=(
+            "Optional model override for the child run. "
+            "Passed through via HARNESS_CLI_MODEL and used only if launch context omits model."
+        ),
     )
     g = parser.add_mutually_exclusive_group()
     g.add_argument(
@@ -182,6 +201,7 @@ def main() -> None:
         loop_kind=loop_kind,
         mode=mode,
         spawn_argv=spawn_argv,
+        model=str(args.model or "").strip() or None,
     )
     _print_json(out)
     if out.get("status", "").startswith("spawn_failed"):

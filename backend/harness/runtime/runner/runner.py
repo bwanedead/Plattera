@@ -443,7 +443,10 @@ def _build_default_model_caller(*, model_name: str) -> Callable[..., Mapping[str
 
 
 def _select_model_name(context: Mapping[str, Any]) -> str:
-    return str(context.get("model") or "gpt-5.4").strip() or "gpt-5.4"
+    return (
+        str(context.get("model") or os.environ.get("HARNESS_CLI_MODEL") or "gpt-5.4").strip()
+        or "gpt-5.4"
+    )
 
 
 def _select_run_id(context: Mapping[str, Any]) -> str:

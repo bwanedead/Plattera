@@ -97,6 +97,22 @@ def test_start_spawns_stub_writes_state_and_artifacts(isolated_harness_root):
     assert st.spawn_argv[0] == sys.executable
 
 
+def test_start_carries_model_override_into_child_metadata(isolated_harness_root):
+    rid = "spawn-model-1"
+    out = start_run(
+        run_id=rid,
+        loop_kind="harness_cli",
+        mode="stub",
+        spawn_argv=build_stub_argv(),
+        model="gpt-5.4-mini",
+    )
+    assert out["status"] == "started"
+    assert out["model"] == "gpt-5.4-mini"
+    st = rs.read_state(rid)
+    assert st is not None
+    assert st.spawn_argv[0] == sys.executable
+
+
 def test_start_spawn_failure_records_state(isolated_harness_root, monkeypatch):
     def boom(*_a, **_k):
         raise OSError("simulated_spawn_failure")
@@ -246,3 +262,29 @@ def test_cli_start_module_invocation_smoke(isolated_harness_root):
     meta = json.loads(proc.stdout.strip())
     assert meta["run_id"] == rid
     assert meta["status"] == "started"
+
+
+def test_cli_start_module_invocation_accepts_model_override(isolated_harness_root):
+    rid = "cli-model-smoke"
+    proc = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "harness.cli.start",
+            "--run-id",
+            rid,
+            "--stub",
+            "--model",
+            "gpt-5.4-mini",
+        ],
+        cwd=Path(__file__).resolve().parents[2],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        env={**os.environ, "PYTHONUTF8": "1"},
+    )
+    assert proc.returncode == 0, proc.stderr
+    meta = json.loads(proc.stdout.strip())
+    assert meta["run_id"] == rid
+    assert meta["status"] == "started"
+    assert meta["model"] == "gpt-5.4-mini"
