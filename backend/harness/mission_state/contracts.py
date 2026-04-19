@@ -8,6 +8,7 @@ MISSION_STATE_VERSION = "mission_state.v1"
 RESOLUTION_STATE_VERSION = "resolution_state.v1"
 CLOSURE_STATE_VERSION = "closure_state.v1"
 WorkUniversePosture = Literal["initial", "partial", "believed_adequate", "audited"]
+ResolutionItemStructureKind = Literal["atomic", "group"]
 
 
 class ResolutionItemHistoryEntry(BaseModel):
@@ -42,6 +43,7 @@ class ResolutionItem(BaseModel):
     verification_basis: str | None = Field(default=None, max_length=500)
     next_needed_step: str | None = Field(default=None, max_length=400)
     completion_criteria: str | None = Field(default=None, max_length=400)
+    structure_kind: ResolutionItemStructureKind | None = None
     blocking: bool | None = None
     requires_hitl: bool = False
     no_further_progress: bool = False

@@ -24,13 +24,30 @@ def build_prompt_observability_summary(
     cont = loop_memory.continuity
     step_records = list(cont.kernel_step_records)
     resolution_items = list(getattr(cont.resolution_state, "items", ()) or ())
+    resolution_relations = list(getattr(cont.resolution_state, "relations", ()) or ())
     success_conditions = list(getattr(cont.mission_state, "success_conditions", ()) or ())
     closure_state = cont.mission_state.closure_state
     closure_dimensions = list(getattr(closure_state, "dimensions", ()) or ())
     work_universe_posture = _as_optional_text(getattr(cont.mission_state, "work_universe_posture", None)) or "initial"
     feedback = dict(cont.state_patch_feedback) if isinstance(cont.state_patch_feedback, Mapping) else {}
+    relation_index = _relation_index(resolution_relations)
 
     closed_items_count = sum(1 for row in resolution_items if _is_closed_status(getattr(row, "status", None)))
+    atomic_item_count = sum(
+        1 for row in resolution_items if _as_optional_text(getattr(row, "structure_kind", None)) == "atomic"
+    )
+    group_item_count = sum(
+        1 for row in resolution_items if _as_optional_text(getattr(row, "structure_kind", None)) == "group"
+    )
+    group_items_without_subclaims_count = sum(
+        1
+        for row in resolution_items
+        if _as_optional_text(getattr(row, "structure_kind", None)) == "group"
+        and not _group_item_has_subclaims(
+            str(getattr(row, "item_id", "") or ""),
+            relation_index=relation_index,
+        )
+    )
     items_blocking_count = sum(
         1 for row in resolution_items if bool(getattr(row, "blocking", False))
     )
@@ -57,6 +74,29 @@ def build_prompt_observability_summary(
         for row in resolution_items
         if _is_closed_status(getattr(row, "status", None))
         and not _has_text(getattr(row, "completion_criteria", None))
+    )
+    critical_closed_items_without_evidence_count = sum(
+        1
+        for row in resolution_items
+        if _is_closed_status(getattr(row, "status", None))
+        and _materiality(getattr(row, "materiality", None)) == "critical"
+        and not bool(getattr(row, "evidence_refs", ()) or ())
+    )
+    critical_closed_items_without_verification_basis_count = sum(
+        1
+        for row in resolution_items
+        if _is_closed_status(getattr(row, "status", None))
+        and _materiality(getattr(row, "materiality", None)) == "critical"
+        and not _has_text(getattr(row, "verification_basis", None))
+    )
+    blocking_items_without_relations_count = sum(
+        1
+        for row in resolution_items
+        if bool(getattr(row, "blocking", False))
+        and not _item_has_any_relation(
+            str(getattr(row, "item_id", "") or ""),
+            relation_index=relation_index,
+        )
     )
     closed_dimensions_without_earned_determination_count = sum(
         1
@@ -127,6 +167,9 @@ def build_prompt_observability_summary(
             1 for row in success_conditions if _has_text(getattr(row, "verification_basis", None))
         ),
         "resolution_item_count": len(resolution_items),
+        "atomic_item_count": atomic_item_count,
+        "group_item_count": group_item_count,
+        "group_items_without_subclaims_count": group_items_without_subclaims_count,
         "items_with_evidence_count": sum(
             1 for row in resolution_items if bool(getattr(row, "evidence_refs", ()) or ())
         ),
@@ -140,6 +183,11 @@ def build_prompt_observability_summary(
         "closed_items_without_earned_determination_count": closed_items_without_earned_determination_count,
         "closed_items_without_basis_count": closed_items_without_basis_count,
         "closed_items_without_completion_criteria_count": closed_items_without_completion_criteria_count,
+        "critical_closed_items_without_evidence_count": critical_closed_items_without_evidence_count,
+        "critical_closed_items_without_verification_basis_count": (
+            critical_closed_items_without_verification_basis_count
+        ),
+        "blocking_items_without_relations_count": blocking_items_without_relations_count,
         "closure_dimension_count": len(closure_dimensions),
         "closure_dimensions_with_earned_determination_count": sum(
             1 for row in closure_dimensions if _has_earned_determination(getattr(row, "determination", None))
@@ -158,6 +206,12 @@ def build_prompt_observability_summary(
         turns_since_resolution_item_count_change=turns_since_resolution_item_count_change,
         new_resolution_items_since_last_complete_run_attempt=new_resolution_items_since_last_complete_run_attempt,
         repeated_complete_run_without_state_change_count=repeated_complete_run_without_state_change_count,
+        group_items_without_subclaims_count=group_items_without_subclaims_count,
+        critical_closed_items_without_evidence_count=critical_closed_items_without_evidence_count,
+        critical_closed_items_without_verification_basis_count=(
+            critical_closed_items_without_verification_basis_count
+        ),
+        blocking_items_without_relations_count=blocking_items_without_relations_count,
         complete_run_blockers=list(closure_readiness_projection.get("complete_run_blockers", ())),
     )
     return summary
@@ -390,6 +444,10 @@ def _mechanical_flags(
     turns_since_resolution_item_count_change: int | None,
     new_resolution_items_since_last_complete_run_attempt: int,
     repeated_complete_run_without_state_change_count: int,
+    group_items_without_subclaims_count: int,
+    critical_closed_items_without_evidence_count: int,
+    critical_closed_items_without_verification_basis_count: int,
+    blocking_items_without_relations_count: int,
     complete_run_blockers: list[str],
 ) -> list[str]:
     flags: list[str] = []
@@ -424,6 +482,19 @@ def _mechanical_flags(
         flags.append(
             f"resolution_items_outnumber_success_conditions:{resolution_item_count}_vs_{success_condition_count}"
         )
+    if group_items_without_subclaims_count > 0:
+        flags.append(f"group_items_without_subclaims:{group_items_without_subclaims_count}")
+    if critical_closed_items_without_evidence_count > 0:
+        flags.append(
+            f"critical_closed_items_without_evidence:{critical_closed_items_without_evidence_count}"
+        )
+    if critical_closed_items_without_verification_basis_count > 0:
+        flags.append(
+            "critical_closed_items_without_verification_basis:"
+            f"{critical_closed_items_without_verification_basis_count}"
+        )
+    if blocking_items_without_relations_count > 0:
+        flags.append(f"blocking_items_without_relations:{blocking_items_without_relations_count}")
     if not closure_ready_to_close and complete_run_blockers:
         flags.append("complete_run_blockers_present")
     return flags[:8]
@@ -469,3 +540,54 @@ def _has_earned_determination(value: Any) -> bool:
 
 def _has_text(value: Any) -> bool:
     return bool(str(value or "").strip())
+
+
+def _materiality(value: Any) -> str | None:
+    text = _as_optional_text(value)
+    return text.lower() if text is not None else None
+
+
+def _relation_index(relations: list[Any]) -> dict[str, set[str]]:
+    sources: set[str] = set()
+    targets: set[str] = set()
+    group_parent_ids: set[str] = set()
+    for row in relations:
+        source_item_id = _as_optional_text(getattr(row, "source_item_id", None))
+        target_item_id = _as_optional_text(getattr(row, "target_item_id", None))
+        relation_type = _as_optional_text(getattr(row, "relation_type", None))
+        relation_type = relation_type.lower() if relation_type is not None else None
+        if source_item_id is not None:
+            sources.add(source_item_id)
+        if target_item_id is not None:
+            targets.add(target_item_id)
+        if relation_type == "subclaim_of" and target_item_id is not None:
+            group_parent_ids.add(target_item_id)
+        if relation_type == "aggregates" and source_item_id is not None:
+            group_parent_ids.add(source_item_id)
+    return {
+        "sources": sources,
+        "targets": targets,
+        "group_parent_ids": group_parent_ids,
+    }
+
+
+def _group_item_has_subclaims(
+    item_id: str,
+    *,
+    relation_index: Mapping[str, set[str]],
+) -> bool:
+    return bool(item_id and item_id in relation_index.get("group_parent_ids", set()))
+
+
+def _item_has_any_relation(
+    item_id: str,
+    *,
+    relation_index: Mapping[str, set[str]],
+) -> bool:
+    return bool(
+        item_id
+        and (
+            item_id in relation_index.get("sources", set())
+            or item_id in relation_index.get("targets", set())
+        )
+    )

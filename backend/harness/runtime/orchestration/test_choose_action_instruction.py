@@ -10,7 +10,12 @@ def test_choose_action_instruction_teaches_work_universe_posture_and_hitl_contex
     assert "complete_run" in text and "mechanical complete/publish gate" in text
     assert "mission_state" in text and "resolution_state" in text
     assert "hitl_request.context" in text
-    assert "supporting_refs" in text
+    assert "independently-resolvable unit" in text
+    assert "structure_kind" in text
+    assert "subclaim_of" in text
+    assert "primary_evidence_ref" in text
+    assert "question_regions" in text
+    assert "strongest available verification method" in text
     assert "unable to determine" in text
     assert "other / needs nuance" in text
     assert "what would have to be true in reality" not in text

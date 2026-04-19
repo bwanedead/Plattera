@@ -64,6 +64,7 @@ def test_build_prompt_observability_summary_reports_loop_health_facts() -> None:
                 "title": "Open item",
                 "kind": "work_unit",
                 "status": "blocked",
+                "structure_kind": "group",
                 "blocking": True,
                 "requires_hitl": True,
                 "no_further_progress": True,
@@ -75,15 +76,18 @@ def test_build_prompt_observability_summary_reports_loop_health_facts() -> None:
                 "title": "Closed item without full proof",
                 "kind": "work_unit",
                 "status": "closed",
+                "materiality": "critical",
             },
             {
                 "item_id": "i-closed-earned",
                 "title": "Closed item with full proof",
                 "kind": "work_unit",
                 "status": "closed",
+                "structure_kind": "atomic",
                 "determination": "earned",
                 "verification_basis": "Resolved against source evidence.",
                 "completion_criteria": "The disputed span matches the source.",
+                "evidence_refs": ["artifact://ref-2"],
             },
         ]
     )
@@ -136,7 +140,10 @@ def test_build_prompt_observability_summary_reports_loop_health_facts() -> None:
     assert summary["success_condition_count"] == 2
     assert summary["success_conditions_with_earned_determination_count"] == 1
     assert summary["resolution_item_count"] == 3
-    assert summary["items_with_evidence_count"] == 1
+    assert summary["atomic_item_count"] == 1
+    assert summary["group_item_count"] == 1
+    assert summary["group_items_without_subclaims_count"] == 1
+    assert summary["items_with_evidence_count"] == 2
     assert summary["items_with_verification_basis_count"] == 2
     assert summary["items_blocking_count"] == 1
     assert summary["items_requires_hitl_count"] == 1
@@ -145,6 +152,9 @@ def test_build_prompt_observability_summary_reports_loop_health_facts() -> None:
     assert summary["closed_items_without_earned_determination_count"] == 1
     assert summary["closed_items_without_basis_count"] == 1
     assert summary["closed_items_without_completion_criteria_count"] == 1
+    assert summary["critical_closed_items_without_evidence_count"] == 1
+    assert summary["critical_closed_items_without_verification_basis_count"] == 1
+    assert summary["blocking_items_without_relations_count"] == 1
     assert summary["closure_dimension_count"] == 2
     assert summary["closure_dimensions_with_earned_determination_count"] == 1
     assert summary["closed_dimensions_without_earned_determination_count"] == 1

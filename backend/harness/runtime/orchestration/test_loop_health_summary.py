@@ -11,6 +11,7 @@ from harness.mission_state import (
     ClosureState,
     MissionSuccessCondition,
     ResolutionItem,
+    ResolutionRelation,
     new_mission_state,
     new_resolution_state,
 )
@@ -30,6 +31,7 @@ from harness.runtime.orchestration.loop_health_summary import (
 def _mem(
     *,
     resolution_items: list[ResolutionItem] | None = None,
+    resolution_relations: list[ResolutionRelation] | None = None,
     success_conditions: list[MissionSuccessCondition] | None = None,
     dimensions: list[ClosureDimension] | None = None,
     ready_to_close: bool = False,
@@ -53,8 +55,13 @@ def _mem(
         }
     )
     rs = new_resolution_state()
-    if resolution_items:
-        rs = rs.model_copy(update={"items": list(resolution_items)})
+    if resolution_items or resolution_relations:
+        rs = rs.model_copy(
+            update={
+                "items": list(resolution_items or []),
+                "relations": list(resolution_relations or []),
+            }
+        )
     ms = ms.model_copy(update={"resolution_state": rs})
     mem = LoopMemoryState()
     mem.continuity.mission_state = ms
@@ -87,6 +94,9 @@ def _item(
     blocking: bool | None = None,
     requires_hitl: bool = False,
     no_further_progress: bool = False,
+    structure_kind: str | None = None,
+    materiality: str | None = None,
+    evidence_refs: list[str] | None = None,
 ) -> ResolutionItem:
     return ResolutionItem(
         item_id=item_id,
@@ -99,6 +109,17 @@ def _item(
         blocking=blocking,
         requires_hitl=requires_hitl,
         no_further_progress=no_further_progress,
+        structure_kind=structure_kind,
+        materiality=materiality,
+        evidence_refs=list(evidence_refs or []),
+    )
+
+
+def _rel(source_item_id: str, target_item_id: str, relation_type: str) -> ResolutionRelation:
+    return ResolutionRelation(
+        source_item_id=source_item_id,
+        target_item_id=target_item_id,
+        relation_type=relation_type,
     )
 
 
@@ -332,6 +353,10 @@ def _flags(**kwargs) -> list[str]:
         turns_since_resolution_item_count_change=None,
         new_resolution_items_since_last_complete_run_attempt=0,
         repeated_complete_run_without_state_change_count=0,
+        group_items_without_subclaims_count=0,
+        critical_closed_items_without_evidence_count=0,
+        critical_closed_items_without_verification_basis_count=0,
+        blocking_items_without_relations_count=0,
         complete_run_blockers=[],
     )
     base.update(kwargs)
@@ -430,6 +455,19 @@ def test_flags_ready_to_close_with_blockers_suppresses_flag() -> None:
     assert "complete_run_blockers_present" not in result
 
 
+def test_flags_surface_group_and_critical_rigor_gaps() -> None:
+    result = _flags(
+        group_items_without_subclaims_count=1,
+        critical_closed_items_without_evidence_count=2,
+        critical_closed_items_without_verification_basis_count=3,
+        blocking_items_without_relations_count=1,
+    )
+    assert "group_items_without_subclaims:1" in result
+    assert "critical_closed_items_without_evidence:2" in result
+    assert "critical_closed_items_without_verification_basis:3" in result
+    assert "blocking_items_without_relations:1" in result
+
+
 def test_flags_capped_at_eight() -> None:
     """Output never exceeds 8 flags even when all conditions fire."""
     result = _flags(
@@ -458,6 +496,9 @@ def test_summary_returns_all_required_top_level_keys() -> None:
     for key in (
         "prompt_event_count",
         "resolution_item_count",
+        "atomic_item_count",
+        "group_item_count",
+        "group_items_without_subclaims_count",
         "closed_items_count",
         "items_blocking_count",
         "items_requires_hitl_count",
@@ -465,6 +506,9 @@ def test_summary_returns_all_required_top_level_keys() -> None:
         "closed_items_without_earned_determination_count",
         "closed_items_without_basis_count",
         "closed_items_without_completion_criteria_count",
+        "critical_closed_items_without_evidence_count",
+        "critical_closed_items_without_verification_basis_count",
+        "blocking_items_without_relations_count",
         "closure_dimension_count",
         "success_condition_count",
         "work_universe_posture",
@@ -498,6 +542,41 @@ def test_summary_counts_item_blocking_hitl_and_no_further_progress_flags() -> No
     assert result["items_blocking_count"] == 2
     assert result["items_requires_hitl_count"] == 1
     assert result["items_no_further_progress_count"] == 1
+
+
+def test_summary_counts_group_structure_and_thin_critical_proof_gaps() -> None:
+    items = [
+        _item("group-ok", status="open", structure_kind="group"),
+        _item("atomic-a", status="open", structure_kind="atomic"),
+        _item("group-missing", status="open", structure_kind="group"),
+        _item(
+            "critical-no-evidence",
+            status="closed",
+            materiality="critical",
+            verification_basis="Compared against the strongest available source.",
+        ),
+        _item(
+            "critical-no-basis",
+            status="closed",
+            materiality="critical",
+            evidence_refs=["artifact://focused"],
+        ),
+        _item("blocking-no-rel", status="blocked", blocking=True),
+    ]
+    relations = [_rel("atomic-a", "group-ok", "subclaim_of")]
+    mem = _mem(resolution_items=items, resolution_relations=relations)
+    result = build_prompt_observability_summary(mem)
+    assert result["atomic_item_count"] == 1
+    assert result["group_item_count"] == 2
+    assert result["group_items_without_subclaims_count"] == 1
+    assert result["critical_closed_items_without_evidence_count"] == 1
+    assert result["critical_closed_items_without_verification_basis_count"] == 1
+    assert result["blocking_items_without_relations_count"] == 1
+    flags = result["mechanical_flags"]
+    assert "group_items_without_subclaims:1" in flags
+    assert "critical_closed_items_without_evidence:1" in flags
+    assert "critical_closed_items_without_verification_basis:1" in flags
+    assert "blocking_items_without_relations:1" in flags
 
 
 def test_summary_counts_closed_items_without_basis() -> None:

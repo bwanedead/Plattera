@@ -18,6 +18,9 @@ _ZERO_INT_FIELDS = (
     "success_conditions_with_earned_determination_count",
     "success_conditions_with_verification_basis_count",
     "resolution_item_count",
+    "atomic_item_count",
+    "group_item_count",
+    "group_items_without_subclaims_count",
     "items_with_evidence_count",
     "items_with_verification_basis_count",
     "items_blocking_count",
@@ -27,6 +30,9 @@ _ZERO_INT_FIELDS = (
     "closed_items_without_earned_determination_count",
     "closed_items_without_basis_count",
     "closed_items_without_completion_criteria_count",
+    "critical_closed_items_without_evidence_count",
+    "critical_closed_items_without_verification_basis_count",
+    "blocking_items_without_relations_count",
     "closure_dimension_count",
     "closure_dimensions_with_earned_determination_count",
     "closed_dimensions_without_earned_determination_count",
@@ -44,12 +50,8 @@ _STR_FIELDS = (
     "last_state_patch_reason_code",
     "work_universe_posture",
 )
-
-
 def _nonblank_strs(values: Any) -> list[str]:
     return [value for value in values if isinstance(value, str) and value.strip()] if isinstance(values, list) else []
-
-
 def _prompt_observability_summary_from_payload(
     payload: dict[str, Any], *, default_surface: str | None = None
 ) -> PromptObservabilitySummary:
