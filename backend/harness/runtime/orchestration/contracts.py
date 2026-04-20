@@ -47,6 +47,10 @@ class ActionPlan:
     hitl_request: dict[str, Any] | None = None
     # Mechanical acknowledgment: drop matching rows from ``answered_hitl_responses`` (LLM declares integration).
     hitl_consumed_prompt_ids: tuple[str, ...] = ()
+    # Required on every LLM-authored choose-action turn: short decision note carrying
+    # why-this-move and expected-gain. Enforced by ``action_plan_parser``; the parser
+    # rejects plans whose rationale is missing or whitespace-only. Host-synthesized
+    # plans (non-LLM paths) may omit it, hence the optional field type.
     rationale: str | None = None
     state_patch: dict[str, Any] | None = None
     # LLM-authored continuity (not work-state mutation). Optional: omission means no continuity delta this turn.

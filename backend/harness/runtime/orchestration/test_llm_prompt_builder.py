@@ -485,6 +485,66 @@ def test_repair_prompt_document_includes_misplaced_closure_state_target() -> Non
     assert "move_state_patch_closure_state_under_mission" in doc.prompt_body["repair_context"]["repair_targets"]
 
 
+def test_repair_prompt_document_derives_add_missing_rationale_target() -> None:
+    """Missing rationale in the prior response and a rationale-mentioning parse error should
+    drive the repair lane to surface add_missing_rationale as a structural repair target."""
+    from harness.runtime.orchestration.repair_lane import _derive_repair_context
+
+    prior_obj = {
+        "action_type": "noop",
+        "action_inputs": {},
+        "state_patch": None,
+    }
+    prior_text = json.dumps(prior_obj)
+    _, targets = _derive_repair_context(
+        prior_text,
+        "rationale is required on every turn: short decision note with why-this-move and expected-gain",
+    )
+    assert "add_missing_rationale" in targets
+
+    doc = build_repair_prompt_document(
+        available_tool_ids=("noop",),
+        prior_prompt_mode="full_choose_action",
+        parse_reason_code="invalid_model_action_json",
+        parse_error_detail="rationale is required on every turn",
+        previous_response_text=prior_text,
+        previous_response_object=prior_obj,
+        repair_targets=targets,
+    )
+    assert "add_missing_rationale" in doc.prompt_body["repair_context"]["repair_targets"]
+
+
+def test_repair_prompt_document_derives_add_missing_rationale_on_blank_rationale() -> None:
+    from harness.runtime.orchestration.repair_lane import _derive_repair_context
+
+    prior_obj = {
+        "action_type": "noop",
+        "action_inputs": {},
+        "rationale": "   ",
+        "state_patch": None,
+    }
+    _, targets = _derive_repair_context(
+        json.dumps(prior_obj),
+        "rationale must be a non-empty string explaining why this move",
+    )
+    assert "add_missing_rationale" in targets
+
+
+def test_repair_prompt_document_does_not_derive_rationale_target_when_error_unrelated() -> None:
+    from harness.runtime.orchestration.repair_lane import _derive_repair_context
+
+    prior_obj = {
+        "action_type": "noop",
+        "action_inputs": {},
+        "state_patch": {"closure_state": {"overall_status": "open"}},
+    }
+    _, targets = _derive_repair_context(
+        json.dumps(prior_obj),
+        "move closure_state under mission",
+    )
+    assert "add_missing_rationale" not in targets
+
+
 def test_compaction_prompt_document_uses_explicit_mode_packet() -> None:
     doc = build_compaction_prompt_document(
         prior_compacted_continuity_summary="older summary",

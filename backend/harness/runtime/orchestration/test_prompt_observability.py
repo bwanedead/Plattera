@@ -170,3 +170,110 @@ def test_build_prompt_observability_summary_reports_loop_health_facts() -> None:
     assert summary["closed_dimensions_without_earned_determination_count"] == 1
     assert summary["closed_dimensions_without_basis_count"] == 1
     assert summary["work_universe_posture"] == "partial"
+
+
+def test_build_prompt_observability_summary_distinguishes_progress_from_true_stall() -> None:
+    progress_memory = LoopMemoryState()
+    progress_memory.continuity.active_item_id = "item-1"
+    progress_memory.continuity.kernel_step_records.extend(
+        [
+            {
+                "kernel_turn_index": 1,
+                "action_type": "hydrate_artifact_refs",
+                "action_inputs": {"ref_slot": "working"},
+                "active_item_id_snapshot": "item-1",
+                "latest_refs_snapshot": {"working": "ref-1"},
+                "work_state_signature": "state-a",
+                "skip_execution": False,
+                "wait_for_human": False,
+                "complete_run": False,
+                "execution_state": "executed",
+                "execution_reason_code": None,
+            },
+            {
+                "kernel_turn_index": 2,
+                "action_type": "hydrate_artifact_refs",
+                "action_inputs": {"ref_slot": "working"},
+                "active_item_id_snapshot": "item-1",
+                "latest_refs_snapshot": {"working": "ref-1"},
+                "work_state_signature": "state-b",
+                "skip_execution": False,
+                "wait_for_human": False,
+                "complete_run": False,
+                "execution_state": "executed",
+                "execution_reason_code": None,
+            },
+            {
+                "kernel_turn_index": 3,
+                "action_type": "hydrate_artifact_refs",
+                "action_inputs": {"ref_slot": "working"},
+                "active_item_id_snapshot": "item-1",
+                "latest_refs_snapshot": {"working": "ref-1"},
+                "work_state_signature": "state-c",
+                "skip_execution": False,
+                "wait_for_human": False,
+                "complete_run": False,
+                "execution_state": "executed",
+                "execution_reason_code": None,
+            },
+        ]
+    )
+    progress_summary = build_prompt_observability_summary(progress_memory)
+    assert progress_summary["same_ref_bundle_reread_no_gain_streak"] == 1
+    assert progress_summary["same_item_same_ref_bundle_stall_streak"] == 1
+    assert not any(
+        flag.startswith("same_ref_bundle_reread_no_gain:")
+        or flag.startswith("same_item_same_ref_bundle_stall:")
+        for flag in progress_summary["mechanical_flags"]
+    )
+
+    stall_memory = LoopMemoryState()
+    stall_memory.continuity.active_item_id = "item-1"
+    stall_memory.continuity.kernel_step_records.extend(
+        [
+            {
+                "kernel_turn_index": 1,
+                "action_type": "hydrate_artifact_refs",
+                "action_inputs": {"ref_slot": "working"},
+                "active_item_id_snapshot": "item-1",
+                "latest_refs_snapshot": {"working": "ref-1"},
+                "work_state_signature": "state-a",
+                "skip_execution": False,
+                "wait_for_human": False,
+                "complete_run": False,
+                "execution_state": "executed",
+                "execution_reason_code": None,
+            },
+            {
+                "kernel_turn_index": 2,
+                "action_type": "hydrate_artifact_refs",
+                "action_inputs": {"ref_slot": "working"},
+                "active_item_id_snapshot": "item-1",
+                "latest_refs_snapshot": {"working": "ref-1"},
+                "work_state_signature": "state-a",
+                "skip_execution": False,
+                "wait_for_human": False,
+                "complete_run": False,
+                "execution_state": "executed",
+                "execution_reason_code": None,
+            },
+            {
+                "kernel_turn_index": 3,
+                "action_type": "hydrate_artifact_refs",
+                "action_inputs": {"ref_slot": "working"},
+                "active_item_id_snapshot": "item-1",
+                "latest_refs_snapshot": {"working": "ref-1"},
+                "work_state_signature": "state-a",
+                "skip_execution": False,
+                "wait_for_human": False,
+                "complete_run": False,
+                "execution_state": "executed",
+                "execution_reason_code": None,
+            },
+        ]
+    )
+    stall_summary = build_prompt_observability_summary(stall_memory)
+    assert stall_summary["same_ref_bundle_reread_no_gain_streak"] == 3
+    assert stall_summary["same_item_same_ref_bundle_stall_streak"] == 3
+    assert "same_ref_bundle_reread_no_gain:3" in stall_summary["mechanical_flags"]
+    assert "same_item_same_ref_bundle_stall:3" in stall_summary["mechanical_flags"]

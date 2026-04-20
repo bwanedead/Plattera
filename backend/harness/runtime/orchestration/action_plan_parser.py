@@ -168,6 +168,19 @@ def parse_action_plan_response(
         elif available_tool_ids and action_type not in available_tool_ids:
             raise _parse_error(f"unknown action_type: {action_type}")
 
+    rationale_raw = payload.get("rationale")
+    if rationale_raw is None:
+        raise _parse_error(
+            "rationale is required on every turn: short decision note with why-this-move and expected-gain",
+        )
+    if not isinstance(rationale_raw, str):
+        raise _parse_error("rationale must be a string")
+    rationale_text = rationale_raw.strip()
+    if not rationale_text:
+        raise _parse_error(
+            "rationale must be a non-empty string explaining why this move and what gain is expected",
+        )
+
     cje_raw = payload.get("continuity_journal_entry")
     if cje_raw is None:
         cje_out: dict[str, Any] | None = None
@@ -195,7 +208,7 @@ def parse_action_plan_response(
         complete_run=complete_run,
         hitl_request=hitl_out,
         hitl_consumed_prompt_ids=consumed_out,
-        rationale=_optional_text(payload.get("rationale")),
+        rationale=rationale_text,
         state_patch=state_patch_out,
         continuity_journal_entry=cje_out,
         operator_progress_message=opm_out,

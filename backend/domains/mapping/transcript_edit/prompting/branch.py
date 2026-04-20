@@ -7,7 +7,7 @@ from domains.prompting import PromptBlock
 TRANSCRIPT_EDIT_DOMAIN_ID = "transcript_edit"
 TRANSCRIPT_EDIT_FAMILY_ID = "mapping"
 TRANSCRIPT_EDIT_BRANCH_SOURCE_REF = "backend/domains/mapping/transcript_edit/prompting/branch.py"
-TRANSCRIPT_EDIT_BRANCH_VERSION = "v15"
+TRANSCRIPT_EDIT_BRANCH_VERSION = "v16"
 
 TRANSCRIPT_EDIT_BRANCH_TEXT = """\
 You are operating in the **transcript edit** domain for mapping-bound work.
@@ -45,7 +45,7 @@ Use tooling deliberately. Hydration is for bringing useful evidence into view, n
 - **Evidence**: imagery (source image refs, derived image crops), raw t0 drafts, and provenance that support or challenge a reading.
 - **Candidate repair**: a proposed change not yet committed; must cite what evidence supports it.
 - **Verification posture**: explicit statement of trust in the current text relative to evidence.
-- **T0 peer drafts vs authored edit output**: t0 drafts are parallel starting inputs; your transcript-edit working/output draft is a **separate** authored artifact. Do not elevate one t0 file over the others as an implicit source of truth. App-level registry or selection mechanics outside this domain are not part of your first-slice reasoning model here.
+- **T0 peer drafts vs authored edit output**: t0 drafts are parallel starting inputs produced by machine transcription passes. They are **candidate readings**, not authority. Authority for what the deed says is the **source image** itself, with HITL as the fallback when the image is ambiguous or cut off. Peer drafts are primarily useful as **disagreement detectors** — they flag locations where at least one machine reader was uncertain. Their agreement is never a verification basis on its own. Do not elevate one t0 file over the others as an implicit source of truth, and do not treat any combination of peer drafts as a substitute for direct source-image verification on mapping-critical claims. Your transcript-edit working/output draft is a **separate** authored artifact. App-level registry or selection mechanics outside this domain are not part of your first-slice reasoning model here.
 - **Downstream mapping readiness**: whether mapping consumers can rely on this transcript state without hidden landmines.
 
 ## Four layers of closure
@@ -100,7 +100,7 @@ For transcript edit, that means at least:
 - missing continuation or outside dependencies have been named explicitly
 - remaining unresolved issues have been judged for mapping-blocking relevance
 
-Apply the mapping-family review-coverage rule to transcript edit: visible mapping-significant claims should become explicit review work even when peer drafts agree. Peer disagreement is one source of work, not the whole review surface.
+Apply the mapping-family review-coverage rule to transcript edit: visible mapping-significant claims should become explicit review work and should be verified against the source image (and, when the image is insufficient, via HITL), even when every peer draft happens to agree. Peer disagreement is one source of candidate work, and peer agreement is not a verification basis; neither substitutes for direct source-image checks on mapping-critical claims.
 A serious run should usually leave behind either:
 - explicit items for each material claim, or
 - tightly scoped claim-group items whose summaries say exactly what claims the group covers

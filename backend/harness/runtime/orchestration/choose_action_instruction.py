@@ -16,15 +16,16 @@ Core rule: emit the smallest valid object.
 - Do not emit `null` just for completeness.
 - Omitted falsey control flags default to false.
 - Missing `action_inputs` means `{}`.
-- Missing prose fields means no prose delta.
+- `rationale` is required and must be a non-empty short string on every turn; missing or blank rationale fails parsing.
+- Missing other prose fields means no prose delta.
 - Do not author transport-only ceremony such as `idempotency_key`; the host owns it.
 
-Minimal valid turn shapes:
-- dispatch: `{"action_type": "tool_id", "action_inputs": {...}}`
-- state-only delta: `{"state_patch": {...}}`
-- async HITL: `{"hitl_request": {...}}` or `{"hitl_request": {...}, "state_patch": {...}}`
-- blocking HITL: `{"wait_for_human": true, "hitl_request": {...}}` or `{"wait_for_human": true, "hitl_request": {...}, "state_patch": {...}}`
-- complete: `{"complete_run": true, "state_patch": {...}}`
+Minimal valid turn shapes (note `rationale` is required in every shape):
+- dispatch: `{"action_type": "tool_id", "action_inputs": {...}, "rationale": "..."}`
+- state-only delta: `{"state_patch": {...}, "rationale": "..."}`
+- async HITL: `{"hitl_request": {...}, "rationale": "..."}` or with a `state_patch`
+- blocking HITL: `{"wait_for_human": true, "hitl_request": {...}, "rationale": "..."}` or with a `state_patch`
+- complete: `{"complete_run": true, "state_patch": {...}, "rationale": "..."}`
 """
 
 _MECHANICAL_HEADER = (
@@ -37,9 +38,14 @@ _TURN_CONTRACT_TEXT = """\
 - Choose `action_type` only from the provided `tool_ids` when dispatching a tool.
 - No-dispatch state-authoring turns are valid.
 - If `action_type` is absent or null and `state_patch` or `hitl_request` is present, the host treats the turn as no-dispatch.
-- `continuity_journal_entry`: optional non-empty JSON object for genuinely new continuity only. Author only the raw payload you want stored; do not wrap it inside `author_payload`, `kernel_turn_index`, or other host-shaped keys.
+- `rationale`: REQUIRED on every turn. Short non-empty string (one to three sentences) that explains:
+  - why this move now,
+  - what new distinction or gain is expected from it,
+  - if relevant, what you will do if the move yields no new distinction.
+  Keep it compact and decision-focused. Do not pad with restated doctrine or restated mission text. A missing or blank rationale will fail parsing and force a repair turn.
+  Good example: "Hydrate saved revision once to check whether closure layers match the saved draft; if no mismatch appears, stop rereading and either patch closure or mark audit exhausted."
+- `continuity_journal_entry`: optional non-empty JSON object for genuinely new durable insight beyond what the rationale captured. Author only the raw payload you want stored; do not wrap it inside `author_payload`, `kernel_turn_index`, or other host-shaped keys. The host always records a canonical per-turn continuity record derived from your rationale and the turn outcome, so omitting this field does not erase continuity.
 - `operator_progress_message`: optional short user-facing status line. Omit it unless the user-facing status actually changed.
-- `rationale`: optional. Use prose only when it adds durable information not already captured structurally.
 """
 
 _STATE_PATCH_MECHANICS_TEXT = """\
@@ -105,6 +111,16 @@ Envelope fields such as `compacted_continuity_summary`, `recent_continuity_journ
 `state_patch_feedback` reports the kernel outcome of the prior patch (`applied` / `rejected` / `not_applied` / `no_patch`). If the prior patch was semantically right but mechanically malformed, prefer the smallest local repair rather than rewriting broad state.
 
 `contract_feedback` reports the mechanical outcome of the prior choose-action parse attempt. If `repair_attempted` is true, your last response failed parsing and needed repair; adjust the output shape accordingly.
+
+### Reread guard and mechanical-flag triggers
+Before re-issuing an action on a ref bundle already read recently, name the new distinction the reread is supposed to produce in the rationale. If none can be named, pivot: a different item, a stronger bounded check, a state-patch that promotes what you already know, or HITL.
+
+`prompt_observability_summary.mechanical_flags` may include `same_ref_bundle_reread_no_gain:N` and `same_item_same_ref_bundle_stall:N`. When either fires, pivoting is mandatory on the next turn — another reread on the same bundle without a concrete new distinction is spin, not investigation.
+
+### Itemization and per-item resolution
+Before leaving orientation and after any fresh read, make the work explicit: each mission-essential claim, defect, ambiguity, dependency, or deliverable becomes a row in `resolution.items` (atomic) or an honest group node with explicit atomic sub-items linked through `resolution.relations`. Every `mission.success_conditions` row should have at least one item that can earn it.
+
+Each `resolution.items` row is a mini-mission: orient to it, run the strongest bounded check available *for that item*, then promote the new distinction into its authored fields (`determination`, `verification_basis`, `completion_criteria`, or split into sub-items). A closed item should be able to answer, in its own fields, what verified it.
 """
 
 _HITL_TEXT = """\
@@ -122,21 +138,21 @@ When bounded choices could force a false answer, include a safe fallback such as
 """
 
 _EXAMPLES_TEXT = """\
-### Tiny examples
+### Tiny examples (rationale is required on every turn)
 Minimal dispatch:
-`{"action_type":"hydrate_artifact_refs","action_inputs":{"ref_ids":["artifact://1"]}}`
+`{"action_type":"hydrate_artifact_refs","action_inputs":{"ref_ids":["artifact://1"]},"rationale":"Load artifact://1 to verify the parcel-1 range label against source; if the label matches draft-2, close the range-conflict item, otherwise escalate."}`
 
 Minimal existing-row update:
-`{"state_patch":{"resolution":{"items":[{"item_id":"range-conflict","status":"blocked","requires_hitl":true}]}}}`
+`{"state_patch":{"resolution":{"items":[{"item_id":"range-conflict","status":"blocked","requires_hitl":true}]}},"rationale":"Mark range-conflict blocked pending HITL — in-run checks exhausted."}`
 
 Minimal new row:
-`{"state_patch":{"resolution":{"items":[{"item_id":"item-1","title":"Unverified range","kind":"open_question","status":"open"}]}}}`
+`{"state_patch":{"resolution":{"items":[{"item_id":"item-1","title":"Unverified range","kind":"open_question","status":"open"}]}},"rationale":"Open an explicit item for the unverified range so it is tracked separately from the parcel handoff bucket."}`
 
 Minimal HITL:
-`{"wait_for_human":true,"hitl_request":{"message":"Which range governs?","choices":["Range 75 governs","Range 74 governs","Preserve contradiction as unresolved","Other / needs nuance"],"context":{"primary_evidence_ref":"artifact://crop-1","question_regions":["north_range_label"]}},"state_patch":{"resolution":{"items":[{"item_id":"range-conflict","requires_hitl":true,"no_further_progress":true}]}}}`
+`{"wait_for_human":true,"hitl_request":{"message":"Which range governs?","choices":["Range 75 governs","Range 74 governs","Preserve contradiction as unresolved","Other / needs nuance"],"context":{"primary_evidence_ref":"artifact://crop-1","question_regions":["north_range_label"]}},"state_patch":{"resolution":{"items":[{"item_id":"range-conflict","requires_hitl":true,"no_further_progress":true}]}},"rationale":"Source-only checks cannot disambiguate Range 75 vs 74; escalate to human with the focused crop."}`
 
 Minimal complete:
-`{"complete_run":true,"state_patch":{"mission":{"work_universe_posture":"audited"}}}`
+`{"complete_run":true,"state_patch":{"mission":{"work_universe_posture":"audited"}},"rationale":"Audit sweep confirmed all open items closed or explicitly blocked; promote posture to audited and complete."}`
 """
 
 _OUTPUT_FORMAT_TEXT = (

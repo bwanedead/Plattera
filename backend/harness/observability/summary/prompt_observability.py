@@ -14,6 +14,8 @@ _ZERO_INT_FIELDS = (
     "consecutive_same_active_item_turns",
     "new_resolution_items_since_last_complete_run_attempt",
     "repeated_complete_run_without_state_change_count",
+    "same_ref_bundle_reread_no_gain_streak",
+    "same_item_same_ref_bundle_stall_streak",
     "success_condition_count",
     "success_conditions_with_earned_determination_count",
     "success_conditions_with_verification_basis_count",

@@ -58,6 +58,14 @@ def _derive_repair_context(
     if "continuity_journal_entry" not in parsed and "continuity_journal_entry" in error_lower:
         repair_targets.append("add_missing_continuity_journal_entry")
 
+    # Missing or blank rationale: rationale is required on every turn. Surface the target
+    # whenever the parse error mentions rationale, so repair knows to author the shortest
+    # honest rationale consistent with the already-chosen move rather than reshape the plan.
+    if "rationale" in error_lower:
+        rationale_raw = parsed.get("rationale")
+        if rationale_raw is None or (isinstance(rationale_raw, str) and not rationale_raw.strip()):
+            repair_targets.append("add_missing_rationale")
+
     # Misplaced closure_state: authored at state_patch top-level instead of under mission.
     state_patch = parsed.get("state_patch")
     if isinstance(state_patch, dict) and "closure_state" in state_patch:

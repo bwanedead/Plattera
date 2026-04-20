@@ -106,6 +106,8 @@ class PromptObservabilitySummary(BaseModel):
     turns_since_resolution_item_count_change: int | None = Field(default=None, ge=0)
     new_resolution_items_since_last_complete_run_attempt: int = Field(default=0, ge=0)
     repeated_complete_run_without_state_change_count: int = Field(default=0, ge=0)
+    same_ref_bundle_reread_no_gain_streak: int = Field(default=0, ge=0)
+    same_item_same_ref_bundle_stall_streak: int = Field(default=0, ge=0)
     success_condition_count: int = Field(default=0, ge=0)
     success_conditions_with_earned_determination_count: int = Field(default=0, ge=0)
     success_conditions_with_verification_basis_count: int = Field(default=0, ge=0)

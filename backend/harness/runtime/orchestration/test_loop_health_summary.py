@@ -137,6 +137,32 @@ def _condition(condition_id: str, *, status: str = "open", determination: str | 
     )
 
 
+def _step_record(
+    turn_index: int,
+    *,
+    action_type: str = "hydrate_artifact_refs",
+    action_inputs: dict | None = None,
+    active_item_id: str | None = None,
+    latest_refs_snapshot: dict | None = None,
+    work_state_signature: str | None = None,
+    skip_execution: bool = False,
+    execution_state: str = "executed",
+) -> dict:
+    return {
+        "kernel_turn_index": turn_index,
+        "action_type": action_type,
+        "action_inputs": dict(action_inputs or {}),
+        "active_item_id_snapshot": active_item_id,
+        "latest_refs_snapshot": dict(latest_refs_snapshot or {}),
+        "work_state_signature": work_state_signature,
+        "skip_execution": skip_execution,
+        "wait_for_human": False,
+        "complete_run": False,
+        "execution_state": execution_state,
+        "execution_reason_code": None,
+    }
+
+
 def _projection(
     *,
     closure_policy: dict | None = None,
@@ -357,6 +383,8 @@ def _flags(**kwargs) -> list[str]:
         turns_since_resolution_item_count_change=None,
         new_resolution_items_since_last_complete_run_attempt=0,
         repeated_complete_run_without_state_change_count=0,
+        same_ref_bundle_reread_no_gain_streak=0,
+        same_item_same_ref_bundle_stall_streak=0,
         sequenced_items_missing_scope_count=0,
         sequenced_items_missing_index_count=0,
         duplicate_sequence_positions_count=0,
@@ -489,8 +517,8 @@ def test_flags_surface_sequence_structure_gaps() -> None:
     assert "sequence_scope_order_gaps:1" in result
 
 
-def test_flags_capped_at_eight() -> None:
-    """Output never exceeds 8 flags even when all conditions fire."""
+def test_flags_capped_at_ten() -> None:
+    """Output never exceeds 10 flags even when all conditions fire."""
     result = _flags(
         feedback={"reason_code": "r"},
         repeated_state_patch_reason_code_streak=3,
@@ -498,12 +526,130 @@ def test_flags_capped_at_eight() -> None:
         turns_since_resolution_item_count_change=6,
         new_resolution_items_since_last_complete_run_attempt=3,
         repeated_complete_run_without_state_change_count=1,
+        same_ref_bundle_reread_no_gain_streak=5,
+        same_item_same_ref_bundle_stall_streak=5,
         resolution_item_count=10,
         success_condition_count=1,
         closure_ready_to_close=False,
         complete_run_blockers=["ready_to_close_false"],
     )
-    assert len(result) <= 8
+    assert len(result) <= 10
+
+
+def test_flags_same_ref_bundle_reread_no_gain() -> None:
+    result = _flags(same_ref_bundle_reread_no_gain_streak=3)
+    assert "same_ref_bundle_reread_no_gain:3" in result
+
+
+def test_flags_same_ref_bundle_reread_below_threshold() -> None:
+    result = _flags(same_ref_bundle_reread_no_gain_streak=2)
+    assert not any(f.startswith("same_ref_bundle_reread_no_gain") for f in result)
+
+
+def test_flags_same_item_same_ref_bundle_stall() -> None:
+    result = _flags(same_item_same_ref_bundle_stall_streak=4)
+    assert "same_item_same_ref_bundle_stall:4" in result
+
+
+def test_flags_same_item_same_ref_bundle_stall_below_threshold() -> None:
+    result = _flags(same_item_same_ref_bundle_stall_streak=2)
+    assert not any(f.startswith("same_item_same_ref_bundle_stall") for f in result)
+
+
+# ---------------------------------------------------------------------------
+# Anti-spin streak semantics
+# ---------------------------------------------------------------------------
+
+
+def test_summary_same_ref_bundle_progress_is_not_counted_as_no_gain() -> None:
+    records = [
+        _step_record(
+            1,
+            action_inputs={"ref_slot": "working"},
+            latest_refs_snapshot={"working": "ref-1"},
+            work_state_signature="state-a",
+        ),
+        _step_record(
+            2,
+            action_inputs={"ref_slot": "working"},
+            latest_refs_snapshot={"working": "ref-1"},
+            work_state_signature="state-b",
+        ),
+        _step_record(
+            3,
+            action_inputs={"ref_slot": "working"},
+            latest_refs_snapshot={"working": "ref-1"},
+            work_state_signature="state-c",
+        ),
+    ]
+    result = build_prompt_observability_summary(_mem(step_records=records))
+    assert result["same_ref_bundle_reread_no_gain_streak"] == 1
+    assert not any(flag.startswith("same_ref_bundle_reread_no_gain:") for flag in result["mechanical_flags"])
+
+
+def test_summary_same_item_same_ref_bundle_progress_is_not_counted_as_stall() -> None:
+    records = [
+        _step_record(
+            1,
+            action_inputs={"ref_slot": "working"},
+            active_item_id="item-1",
+            latest_refs_snapshot={"working": "ref-1"},
+            work_state_signature="state-a",
+        ),
+        _step_record(
+            2,
+            action_inputs={"ref_slot": "working"},
+            active_item_id="item-1",
+            latest_refs_snapshot={"working": "ref-1"},
+            work_state_signature="state-b",
+        ),
+        _step_record(
+            3,
+            action_inputs={"ref_slot": "working"},
+            active_item_id="item-1",
+            latest_refs_snapshot={"working": "ref-1"},
+            work_state_signature="state-c",
+        ),
+    ]
+    mem = _mem(step_records=records)
+    mem.continuity.active_item_id = "item-1"
+    result = build_prompt_observability_summary(mem)
+    assert result["same_ref_bundle_reread_no_gain_streak"] == 1
+    assert result["same_item_same_ref_bundle_stall_streak"] == 1
+    assert not any(flag.startswith("same_item_same_ref_bundle_stall:") for flag in result["mechanical_flags"])
+
+
+def test_summary_same_item_same_ref_bundle_same_state_counts_true_no_gain_and_stall() -> None:
+    records = [
+        _step_record(
+            1,
+            action_inputs={"ref_slot": "working"},
+            active_item_id="item-1",
+            latest_refs_snapshot={"working": "ref-1"},
+            work_state_signature="state-a",
+        ),
+        _step_record(
+            2,
+            action_inputs={"ref_slot": "working"},
+            active_item_id="item-1",
+            latest_refs_snapshot={"working": "ref-1"},
+            work_state_signature="state-a",
+        ),
+        _step_record(
+            3,
+            action_inputs={"ref_slot": "working"},
+            active_item_id="item-1",
+            latest_refs_snapshot={"working": "ref-1"},
+            work_state_signature="state-a",
+        ),
+    ]
+    mem = _mem(step_records=records)
+    mem.continuity.active_item_id = "item-1"
+    result = build_prompt_observability_summary(mem)
+    assert result["same_ref_bundle_reread_no_gain_streak"] == 3
+    assert result["same_item_same_ref_bundle_stall_streak"] == 3
+    assert "same_ref_bundle_reread_no_gain:3" in result["mechanical_flags"]
+    assert "same_item_same_ref_bundle_stall:3" in result["mechanical_flags"]
 
 
 # ---------------------------------------------------------------------------

@@ -12,7 +12,17 @@ def test_choose_action_instruction_teaches_minimality_and_sparse_updates() -> No
     assert "identity + changed fields only" in text
     assert "omitted stable fields remain unchanged" in text
     assert "do not author transport-only ceremony such as `idempotency_key`" in text
-    assert 'async hitl: `{"hitl_request": {...}}`' in text
+    assert 'async hitl: `{"hitl_request": {...}, "rationale": "..."}`' in text
+
+
+def test_choose_action_instruction_requires_rationale_on_every_turn() -> None:
+    text = CHOOSE_ACTION_INSTRUCTION
+    assert "REQUIRED on every turn" in text
+    assert "why this move now" in text
+    assert "what new distinction or gain is expected" in text
+    lowered = text.lower()
+    assert "rationale is required" in lowered
+    assert "missing or blank rationale" in lowered
 
 
 def test_choose_action_instruction_teaches_state_patch_and_hitl_reference_law() -> None:

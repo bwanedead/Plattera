@@ -7,6 +7,7 @@ move on the agent's behalf.
 
 from __future__ import annotations
 
+import hashlib
 import json
 from collections.abc import Mapping
 from typing import Any
@@ -130,6 +131,8 @@ def build_prompt_observability_summary(
     repeated_complete_run_without_state_change_count = _repeated_complete_run_without_state_change_count(
         step_records
     )
+    same_ref_bundle_reread_no_gain_streak = _same_ref_bundle_reread_no_gain_streak(step_records)
+    same_item_same_ref_bundle_stall_streak = _same_item_same_ref_bundle_stall_streak(step_records)
 
     closure_readiness_projection = _closure_readiness_projection(
         closure_policy=closure_policy,
@@ -160,6 +163,8 @@ def build_prompt_observability_summary(
         "turns_since_resolution_item_count_change": turns_since_resolution_item_count_change,
         "new_resolution_items_since_last_complete_run_attempt": new_resolution_items_since_last_complete_run_attempt,
         "repeated_complete_run_without_state_change_count": repeated_complete_run_without_state_change_count,
+        "same_ref_bundle_reread_no_gain_streak": same_ref_bundle_reread_no_gain_streak,
+        "same_item_same_ref_bundle_stall_streak": same_item_same_ref_bundle_stall_streak,
         "success_condition_count": len(success_conditions),
         "success_conditions_with_earned_determination_count": sum(
             1 for row in success_conditions if _has_earned_determination(getattr(row, "determination", None))
@@ -212,6 +217,8 @@ def build_prompt_observability_summary(
         turns_since_resolution_item_count_change=turns_since_resolution_item_count_change,
         new_resolution_items_since_last_complete_run_attempt=new_resolution_items_since_last_complete_run_attempt,
         repeated_complete_run_without_state_change_count=repeated_complete_run_without_state_change_count,
+        same_ref_bundle_reread_no_gain_streak=same_ref_bundle_reread_no_gain_streak,
+        same_item_same_ref_bundle_stall_streak=same_item_same_ref_bundle_stall_streak,
         sequenced_items_missing_scope_count=sequence_metrics["sequenced_items_missing_scope_count"],
         sequenced_items_missing_index_count=sequence_metrics["sequenced_items_missing_index_count"],
         duplicate_sequence_positions_count=sequence_metrics["duplicate_sequence_positions_count"],
@@ -315,6 +322,86 @@ def _new_resolution_items_since_last_complete_run_attempt(
                 return 0
             return max(0, current_count - snap)
     return 0
+
+
+def _ref_bundle_signature_for_step(row: Mapping[str, Any]) -> str | None:
+    action_type = _as_optional_text(row.get("action_type"))
+    if action_type is None:
+        return None
+    inputs = row.get("action_inputs") if isinstance(row.get("action_inputs"), Mapping) else {}
+    try:
+        payload = json.dumps(
+            {"action_type": action_type, "action_inputs": dict(inputs)},
+            sort_keys=True,
+            default=str,
+            ensure_ascii=False,
+        )
+    except (TypeError, ValueError):
+        return None
+    return hashlib.sha1(payload.encode("utf-8")).hexdigest()[:10]
+
+
+def _same_ref_bundle_reread_no_gain_streak(step_records: list[dict[str, Any]]) -> int:
+    """Trailing turns: same action+inputs fingerprint **and** unchanged refs **and** unchanged authored state.
+
+    "No gain" requires that nothing moved: not the ref bundle, not the resolution/mission
+    state signature. A run that keeps reading the same crop but is still closing subclaims
+    each turn is progress, not spin — the `work_state_signature` changes and the streak resets.
+    """
+    if not step_records:
+        return 0
+    tail = step_records[-1]
+    latest_sig = _ref_bundle_signature_for_step(tail)
+    if latest_sig is None:
+        return 0
+    latest_refs_sig = _stable_signature(tail.get("latest_refs_snapshot"))
+    latest_state_sig = _as_optional_text(tail.get("work_state_signature"))
+    if latest_state_sig is None:
+        return 0
+    streak = 0
+    for row in reversed(step_records):
+        if _ref_bundle_signature_for_step(row) != latest_sig:
+            break
+        if _stable_signature(row.get("latest_refs_snapshot")) != latest_refs_sig:
+            break
+        if _as_optional_text(row.get("work_state_signature")) != latest_state_sig:
+            break
+        streak += 1
+    return streak
+
+
+def _same_item_same_ref_bundle_stall_streak(step_records: list[dict[str, Any]]) -> int:
+    """Trailing turns: same active item + same action+inputs fingerprint + unchanged authored state + unchanged refs.
+
+    A genuine stall is when nothing is moving. Repeated turns on the same item with the same
+    ref bundle are fine if each turn closes a subclaim, updates a determination, or otherwise
+    changes `work_state_signature`. Only flag when state and refs both stay frozen.
+    """
+    if not step_records:
+        return 0
+    tail = step_records[-1]
+    latest_sig = _ref_bundle_signature_for_step(tail)
+    if latest_sig is None:
+        return 0
+    active_item_id = _as_optional_text(tail.get("active_item_id_snapshot"))
+    if active_item_id is None:
+        return 0
+    latest_state_sig = _as_optional_text(tail.get("work_state_signature"))
+    if latest_state_sig is None:
+        return 0
+    latest_refs_sig = _stable_signature(tail.get("latest_refs_snapshot"))
+    streak = 0
+    for row in reversed(step_records):
+        if _as_optional_text(row.get("active_item_id_snapshot")) != active_item_id:
+            break
+        if _ref_bundle_signature_for_step(row) != latest_sig:
+            break
+        if _as_optional_text(row.get("work_state_signature")) != latest_state_sig:
+            break
+        if _stable_signature(row.get("latest_refs_snapshot")) != latest_refs_sig:
+            break
+        streak += 1
+    return streak
 
 
 def _repeated_complete_run_without_state_change_count(step_records: list[dict[str, Any]]) -> int:
@@ -454,6 +541,8 @@ def _mechanical_flags(
     turns_since_resolution_item_count_change: int | None,
     new_resolution_items_since_last_complete_run_attempt: int,
     repeated_complete_run_without_state_change_count: int,
+    same_ref_bundle_reread_no_gain_streak: int,
+    same_item_same_ref_bundle_stall_streak: int,
     sequenced_items_missing_scope_count: int,
     sequenced_items_missing_index_count: int,
     duplicate_sequence_positions_count: int,
@@ -484,6 +573,10 @@ def _mechanical_flags(
         flags.append(
             f"repeated_complete_run_without_state_change:{repeated_complete_run_without_state_change_count}"
         )
+    if same_ref_bundle_reread_no_gain_streak >= 3:
+        flags.append(f"same_ref_bundle_reread_no_gain:{same_ref_bundle_reread_no_gain_streak}")
+    if same_item_same_ref_bundle_stall_streak >= 3:
+        flags.append(f"same_item_same_ref_bundle_stall:{same_item_same_ref_bundle_stall_streak}")
     if resolution_item_count >= 3 and success_condition_count == 0:
         flags.append(
             f"success_conditions_empty_with_resolution_items:{resolution_item_count}"
@@ -519,7 +612,7 @@ def _mechanical_flags(
         flags.append(f"blocking_items_without_relations:{blocking_items_without_relations_count}")
     if not closure_ready_to_close and complete_run_blockers:
         flags.append("complete_run_blockers_present")
-    return flags[:8]
+    return flags[:10]
 
 
 def _stable_signature(value: Any) -> str:

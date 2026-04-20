@@ -1,7 +1,9 @@
-# Harness Sanity Baseline
+# Agent Sanity Baseline
 
 This document defines the stable behavioral baseline for what "sane" generic
-harness behavior means.
+agent behavior means inside the harness. It describes how the agent should
+think, reason, and conduct itself — as distinct from the harness machinery
+(seams, contracts, prompt transport) that surrounds it.
 
 It is intentionally more explicit and less compressed than prompt doctrine.
 Its purpose is not to be pasted into model prompts. Its purpose is to preserve

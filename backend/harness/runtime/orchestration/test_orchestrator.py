@@ -1213,7 +1213,7 @@ def _fake_llm_action_json(ik_suffix: str) -> str:
             "skip_execution": False,
             "wait_for_human": False,
             "complete_run": False,
-            "rationale": None,
+            "rationale": f"stub rationale {ik_suffix}",
             "state_patch": None,
             "continuity_journal_entry": {"llm_stub_turn": ik_suffix},
             "operator_progress_message": None,
@@ -1306,7 +1306,9 @@ class ContinuityJournalTwoTurnPack:
         it = context.loop_memory.iterations
         if it == 2:
             assert len(context.loop_memory.continuity.continuity_journal_entries) == 1
-            assert context.loop_memory.continuity.continuity_journal_entries[0]["author_payload"].get("mark") == "t1"
+            first_payload = context.loop_memory.continuity.continuity_journal_entries[0]["author_payload"]
+            assert first_payload["author_addendum"].get("mark") == "t1"
+            assert first_payload["host_derived"]["kernel_turn_index"] == 1
             assert context.loop_memory.continuity.operator_progress_message == "hello op"
             return ActionPlan(
                 complete_run=True,

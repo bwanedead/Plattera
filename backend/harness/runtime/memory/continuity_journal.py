@@ -58,6 +58,162 @@ def wrap_journal_entry(*, kernel_turn_index: int, author_payload: dict[str, Any]
     return {"kernel_turn_index": int(kernel_turn_index), "author_payload": dict(author_payload)}
 
 
+# Compact caps for host-derived continuity fields (mechanical; semantically bounded).
+_HOST_RATIONALE_MAX_CHARS = 1200
+_HOST_ACTION_TARGET_MAX_CHARS = 400
+_HOST_NET_EFFECT_MAX_CHARS = 400
+_HOST_REF_IDS_IN_SUMMARY = 8
+
+
+def _clip(text: str, max_chars: int) -> str:
+    if len(text) <= max_chars:
+        return text
+    return text[:max_chars].rstrip() + "…"
+
+
+def _summarize_action_target(
+    action_type: str | None,
+    action_inputs: Mapping[str, Any],
+) -> str:
+    """Compact string naming what this action targeted (ref bundle or input keys).
+
+    Visible in the journal so repeated rereads of the same bundle are legible
+    from memory alone, without needing prompt_observability_summary.
+    """
+    if not action_type:
+        return ""
+    ref_ids = action_inputs.get("ref_ids")
+    if isinstance(ref_ids, (list, tuple)) and ref_ids:
+        refs = [str(x).strip() for x in ref_ids if isinstance(x, str) and str(x).strip()]
+        shown = refs[:_HOST_REF_IDS_IN_SUMMARY]
+        suffix = "" if len(refs) <= _HOST_REF_IDS_IN_SUMMARY else f" (+{len(refs) - _HOST_REF_IDS_IN_SUMMARY} more)"
+        return _clip("refs: " + ", ".join(shown) + suffix, _HOST_ACTION_TARGET_MAX_CHARS)
+    if action_inputs:
+        keys = sorted(str(k) for k in action_inputs.keys())
+        return _clip("inputs: " + ", ".join(keys[:8]), _HOST_ACTION_TARGET_MAX_CHARS)
+    return ""
+
+
+def _ref_bundle_signature(
+    action_type: str | None,
+    action_inputs: Mapping[str, Any],
+) -> str | None:
+    """Short hash over action_type + inputs; stable fingerprint for repeated-reread detection."""
+    if not action_type:
+        return None
+    try:
+        payload = json.dumps(
+            {"action_type": action_type, "action_inputs": dict(action_inputs)},
+            sort_keys=True,
+            default=str,
+            ensure_ascii=False,
+        )
+    except (TypeError, ValueError):
+        return None
+    return hashlib.sha1(payload.encode("utf-8")).hexdigest()[:10]
+
+
+def _refs_changed(
+    prior_refs: Mapping[str, Any] | None,
+    post_refs: Mapping[str, Any],
+) -> bool:
+    if prior_refs is None:
+        return bool(post_refs)
+    try:
+        prior_blob = json.dumps(dict(prior_refs), sort_keys=True, default=str, ensure_ascii=False)
+        post_blob = json.dumps(dict(post_refs), sort_keys=True, default=str, ensure_ascii=False)
+    except (TypeError, ValueError):
+        return True
+    return prior_blob != post_blob
+
+
+def _derive_net_effect(
+    *,
+    execution_state: str,
+    execution_reason_code: str | None,
+    skip_execution: bool,
+    complete_run: bool,
+    wait_for_human: bool,
+    patch_outcome: str | None,
+    refs_changed: bool,
+) -> str:
+    if complete_run:
+        return "terminal: complete_run signaled"
+    if wait_for_human:
+        return "blocked: awaiting HITL"
+    if skip_execution:
+        if patch_outcome == "applied":
+            return "no-dispatch; state patch applied"
+        if patch_outcome in {"rejected", "not_applied"}:
+            return f"no-dispatch; state patch {patch_outcome}"
+        return "no-dispatch; no state delta"
+    state = (execution_state or "").strip().lower()
+    if state == "executed":
+        if refs_changed:
+            return "tool executed; refs changed"
+        return "tool executed; no ref delta"
+    if state == "refused":
+        return f"tool refused: {execution_reason_code or 'unknown'}"
+    if state:
+        return f"tool {state}"
+    return ""
+
+
+def build_host_derived_continuity_payload(
+    *,
+    kernel_turn_index: int,
+    active_item_id_snapshot: str | None,
+    rationale: str | None,
+    action_type: str | None,
+    action_inputs: Mapping[str, Any],
+    skip_execution: bool,
+    wait_for_human: bool,
+    complete_run: bool,
+    execution_state: str,
+    execution_reason_code: str | None,
+    patch_outcome: str | None,
+    prior_latest_refs: Mapping[str, Any] | None,
+    post_latest_refs: Mapping[str, Any],
+    author_addendum: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Canonical host-derived continuity payload for a single turn.
+
+    Always emitted, even when the model omits ``continuity_journal_entry``. The
+    shape carries why-this-move (rationale) and the turn's net effect so that
+    future turns can read memory and see what happened, not just re-read raw
+    artifacts. Model-authored continuity, when present, is nested under
+    ``author_addendum`` — never substituted for the canonical record.
+    """
+    refs_changed = _refs_changed(prior_latest_refs, post_latest_refs)
+    net_effect = _derive_net_effect(
+        execution_state=execution_state,
+        execution_reason_code=execution_reason_code,
+        skip_execution=skip_execution,
+        complete_run=complete_run,
+        wait_for_human=wait_for_human,
+        patch_outcome=patch_outcome,
+        refs_changed=refs_changed,
+    )
+    clipped_rationale = _clip(str(rationale or "").strip(), _HOST_RATIONALE_MAX_CHARS) or None
+    host_derived: dict[str, Any] = {
+        "kernel_turn_index": int(kernel_turn_index),
+        "active_item_id": active_item_id_snapshot,
+        "action_type": action_type,
+        "action_target_summary": _summarize_action_target(action_type, action_inputs),
+        "action_ref_bundle_signature": _ref_bundle_signature(action_type, action_inputs),
+        "rationale": clipped_rationale,
+        "execution_state": str(execution_state) if execution_state else None,
+        "execution_reason_code": execution_reason_code,
+        "patch_outcome": patch_outcome,
+        "refs_changed": bool(refs_changed),
+        "net_effect": _clip(net_effect, _HOST_NET_EFFECT_MAX_CHARS) or None,
+    }
+    payload: dict[str, Any] = {"host_derived": host_derived}
+    if author_addendum:
+        payload["author_addendum"] = dict(author_addendum)
+    return payload
+
+
 def _turn_index(row: dict[str, Any]) -> int | None:
     try:
         return int(row["kernel_turn_index"])
@@ -302,22 +458,50 @@ def apply_kernel_turn_continuity_carriage(
     execution_state: str,
     execution_reason_code: str | None,
 ) -> None:
-    """Append journal + step record; update operator progress when the model supplies a new string."""
+    """Append journal + step record; always emit a canonical host-derived journal entry.
+
+    The host-derived entry carries why-this-move (rationale), the ref bundle
+    signature, the patch outcome, and a net-effect summary. Model-authored
+    ``continuity_journal_entry`` is preserved as ``author_addendum`` inside the
+    same payload — it never replaces the host record and never erases continuity
+    by omission.
+    """
     cont = loop_memory.continuity
-    if continuity_journal_entry is not None:
-        cont.continuity_journal_entries.append(
-            wrap_journal_entry(
-                kernel_turn_index=int(iteration),
-                author_payload=dict(continuity_journal_entry),
-            )
+    active_item_id_snapshot = cont.active_item_id
+    if active_item_id_snapshot is None:
+        active_item_id_snapshot = cont.resolution_state.active_item_id
+
+    prior_step = cont.kernel_step_records[-1] if cont.kernel_step_records else None
+    prior_refs = prior_step.get("latest_refs_snapshot") if isinstance(prior_step, dict) else None
+    patch_outcome_raw = cont.state_patch_feedback.get("outcome") if isinstance(cont.state_patch_feedback, dict) else None
+    patch_outcome = str(patch_outcome_raw) if patch_outcome_raw else None
+
+    host_payload = build_host_derived_continuity_payload(
+        kernel_turn_index=int(iteration),
+        active_item_id_snapshot=active_item_id_snapshot,
+        rationale=rationale,
+        action_type=action_type,
+        action_inputs=dict(action_inputs),
+        skip_execution=bool(skip_execution),
+        wait_for_human=bool(wait_for_human),
+        complete_run=bool(complete_run),
+        execution_state=str(execution_state),
+        execution_reason_code=execution_reason_code,
+        patch_outcome=patch_outcome,
+        prior_latest_refs=prior_refs if isinstance(prior_refs, Mapping) else None,
+        post_latest_refs=dict(latest_refs_snapshot),
+        author_addendum=continuity_journal_entry if continuity_journal_entry else None,
+    )
+    cont.continuity_journal_entries.append(
+        wrap_journal_entry(
+            kernel_turn_index=int(iteration),
+            author_payload=host_payload,
         )
+    )
     if operator_progress_message is not None:
         clamped = clamp_operator_progress_message(operator_progress_message)
         if clamped is not None:
             cont.operator_progress_message = clamped
-    active_item_id_snapshot = cont.active_item_id
-    if active_item_id_snapshot is None:
-        active_item_id_snapshot = cont.resolution_state.active_item_id
     cont.kernel_step_records.append(
         {
             "kernel_turn_index": int(iteration),

@@ -10,7 +10,7 @@ from ..branch import TRANSCRIPT_EDIT_DOMAIN_ID
 TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_SOURCE_REF = (
     "backend/domains/mapping/transcript_edit/prompting/surfaces/procedural_guidance.py"
 )
-TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_VERSION = "v14"
+TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_VERSION = "v15"
 
 TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_TEXT = """\
 Use this guidance to shape your movement through transcript-edit work. This is **guidance**, not a hard script. The harness still owns orchestration. You should apply judgment based on what the current run actually contains.
@@ -27,14 +27,18 @@ That does **not** mean repeatedly loading everything over and over.
 It means becoming clear about the landscape quickly enough that you can start turning real transcript concerns into explicit work.
 
 ## What t0 means in this domain
-`t0` is the initial transcription output surface for the dossier or segment in scope. It may produce more than one draft because parallel or redundant transcription passes can expose uncertainty early. When multiple t0 drafts exist, their disagreements are not noise to ignore. They are often strong starting signals for where the transcript may contain real error, ambiguity, or evidence-sensitive text that deserves review.
+`t0` is the initial transcription output surface for the dossier or segment in scope. It may produce more than one draft because parallel or redundant transcription passes can expose uncertainty early.
+
+**Peer drafts are candidate readings, not authority.** They are other machines' attempts at the same problem you are solving. Authority for what the deed says is the **source image** (and, when the source is ambiguous or cut off, a HITL answer from a human). Peer drafts are useful primarily as disagreement detectors — places where at least one machine reader was uncertain, which is a signal that a human-grade check against the source image is warranted.
 
 Treat redundant draft disagreement as:
-- a clue about where Layer 1 closure may be open
-- a prompt to inspect evidence and determine whether one reading is better supported
+- a **disagreement detector**: a location where the source image should be checked directly
 - a source of candidate mission-state items when the disagreement touches mapping-relevant text
 
-But do not limit yourself to draft disagreement alone. Mapping-critical content must be reviewed even when redundant drafts happen to agree.
+Treat redundant draft **agreement** as:
+- weak negative evidence only — at best a reason to deprioritize, never a substitute for direct source-image verification when the claim is mapping-critical
+
+Do not limit yourself to draft disagreement alone. Mapping-critical content must be reviewed directly against the source image even when every peer draft happens to agree. Agreement between peer drafts is not a verification basis; the source image (and HITL when the image is insufficient) is.
 
 ## How to turn transcript-edit reality into work
 In transcript-edit, a good work inventory should cover the visible mapping-significant claims and problems that stand between the run and trustworthy transcript reality.
@@ -68,7 +72,7 @@ The transcript-edit-specific inflection on top of the generic harness method is 
 1. derive the mission-essential conditions for transcript trust in this run, not just the first visible disagreements
 2. inventory the visible mapping-significant claims, disagreements, contradictions, cutoffs, and dependencies that stand between the run and transcript trust
 3. create explicit items for each material claim or tightly scoped claim-group the mission depends on, not only for peer disagreements
-4. treat peer draft agreement as a clue, not proof, when the point is material
+4. treat peer drafts as candidate readings and disagreement detectors only; authority for a mapping-critical claim is the source image, with HITL as the fallback — peer-draft agreement is never a verification basis on its own
 5. keep early layer posture provisional with statuses like `unassessed`, `in_review`, or `open` until the relevant review coverage has actually been worked, and use `determination` when you want that provisional vs earned distinction to remain explicit in persisted state
 6. inspect the strongest available transcript-edit evidence for the active item
 7. if the item is mapping-critical and the source is not trivially legible, localize and enlarge the exact claim region with a targeted move (crop/zoom/annotate) rather than another broad pass
