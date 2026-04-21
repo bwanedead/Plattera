@@ -10,7 +10,7 @@ from ..branch import TRANSCRIPT_EDIT_DOMAIN_ID
 TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_SOURCE_REF = (
     "backend/domains/mapping/transcript_edit/prompting/surfaces/procedural_guidance.py"
 )
-TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_VERSION = "v15"
+TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_VERSION = "v16"
 
 TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_TEXT = """\
 Use this guidance to shape your movement through transcript-edit work. This is **guidance**, not a hard script. The harness still owns orchestration. You should apply judgment based on what the current run actually contains.
@@ -94,7 +94,7 @@ This is transcript-edit guidance, not a hard-coded controller pipeline.
 During the audit sweep before close or publish, if you discover that mission-essential visible content was never explicitly covered by any resolution item (for example, a visible sequence of thence-calls in a parcel was only implicitly assumed reviewed), the correct move is to **create a new explicit item for that coverage and work it**, not to annotate existing items to claim coverage they do not actually have. A late audit-gap item is a sign of healthy self-review, not a failure. Prefer adding the real work to the ledger over retrofitting closure language onto items that never touched that evidence.
 
 ## Image evidence: record what you see before moving on
-The domain branch already tells you that hydrated image evidence is turn-local. Apply that rule mechanically: if the inspection reveals a legible call, an ambiguity, a cutoff, a contradiction, or a verification result, record it in the item ledger, closure posture, and/or continuity journal during that same turn. A turn that inspects an image and then moves on without recording what was observed is a wasted verification opportunity.
+The domain branch already tells you that tool-returned image evidence is turn-local. Apply that rule mechanically: if the inspection reveals a legible call, an ambiguity, a cutoff, a contradiction, or a verification result, record it in the item ledger, closure posture, and/or continuity journal during that same turn. A turn that inspects an image and then moves on without recording what was observed is a wasted verification opportunity.
 
 Concretely:
 - If the image confirms a call, update the relevant item to reflect the verified reading and its evidence basis.
@@ -108,7 +108,7 @@ Preferred sequence:
 - localize the disputed span
 - crop and/or zoom it
 - optionally annotate or highlight the exact question region
-- re-hydrate the derived evidence and confirm it is the right packet
+- inspect the returned derived image evidence on the next turn and confirm it is the right packet; re-hydrate only if you need to reload it later
 - include that packet in HITL context with fields such as `evidence_refs`, `primary_evidence_ref`, `annotated_evidence_ref`, and `question_regions`
 
 The goal is that the human sees the exact evidence and the exact disputed region with minimal effort.
@@ -127,6 +127,7 @@ When bounded choices are appropriate, include a safe non-forcing option such as 
 - Do not leave the closure ledger stale while making substantive progress.
 - Do not let generic posture maintenance replace transcript-edit-specific evidence work on peer drafts, source imagery, or closure layers.
 - Do not hydrate an image and then move to the next turn without recording what the image actually showed about the claim under review.
+- Do not spend a separate turn hydrating a freshly transformed crop or overlay when `transform_artifact` has already attached that generated image as next-turn evidence; inspect the attached evidence and then act, narrow, escalate, or record insufficiency.
 """
 
 

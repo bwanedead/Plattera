@@ -79,11 +79,11 @@ def build_transcript_edit_tool_specs() -> tuple[SemanticToolSpec, ...]:
             category="image_transform",
             purpose=(
                 "Apply a spatial or annotation transform to a source or derived image ref. "
-                "Returns a new image:derived:* ref that can be hydrated on later turns. "
+                "Returns a new image:derived:* ref and model-visible image evidence for the next turn. "
                 "Sub-actions: crop, expand, zoom, annotate, reference_overlay. "
                 "Use annotate to highlight, draw bounding boxes, or add labels. "
                 "Use reference_overlay to obtain a grid-labeled version of the image so you can "
-                "identify precise subregions and then supply explicit box or box_norm coordinates "
+                "identify precise subregions on the next turn and then supply explicit box or box_norm coordinates "
                 "to a subsequent crop."
             ),
             expected_request_shape=(
@@ -99,11 +99,11 @@ def build_transcript_edit_tool_specs() -> tuple[SemanticToolSpec, ...]:
                 "[0.5, 0.0, 1.0, 0.5] = top-right quadrant. "
                 "Vague region descriptions are NOT accepted — you must supply explicit geometry. "
                 "REFERENCE_OVERLAY — draws a labeled coordinate grid over the image so you can read "
-                "exact normalized bounds for any cell and use them in a subsequent crop. "
+                "exact normalized bounds from the returned image evidence and use them in a subsequent crop. "
                 "params: {cols: int (default 4), rows: int (default 4), "
                 "line_color: [R,G,B] (default [200,200,200]), label_color: [R,G,B] (default [255,0,0])}. "
                 "Each cell label shows (col,row) and its exact box_norm bounds. "
-                "Typical workflow: reference_overlay → hydrate to see the grid → crop with explicit box_norm."
+                "Typical workflow: reference_overlay → inspect returned image evidence next turn → crop with explicit box_norm."
             ),
             expected_request_json_shape={
                 "type": "object",
@@ -137,8 +137,10 @@ def build_transcript_edit_tool_specs() -> tuple[SemanticToolSpec, ...]:
                 "params": {"cols": 4, "rows": 6},
             },
             expected_result_shape=(
-                "outputs.derived_ref_id: new image:derived:* ref for use in hydrate_artifact_refs or HITL payloads. "
+                "outputs.derived_ref_id: new image:derived:* ref for later reuse or HITL payloads. "
                 "outputs.parent_ref_id, sub_action, basename, width_height. "
+                "image_evidence: model-visible generated image for the next choose_action turn; "
+                "a separate hydrate_artifact_refs call is not required just to inspect the new crop/overlay. "
                 "On retryable param error: outputs.error.code = invalid_transform_params, "
                 "outputs.error.repair_hint contains the corrected shape to use."
             ),

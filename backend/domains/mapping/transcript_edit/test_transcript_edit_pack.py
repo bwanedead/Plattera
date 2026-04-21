@@ -443,6 +443,19 @@ def test_tool_spec_hydrate_exposes_original_source_only() -> None:
     assert "processed" not in result_lower
 
 
+def test_tool_spec_transform_returns_next_turn_image_evidence() -> None:
+    """transform_artifact should not teach an immediate hydrate turn for new crops."""
+    specs = build_transcript_edit_tool_specs()
+    transform = next(s for s in specs if s.tool_id == "transform_artifact")
+    purpose_lower = transform.purpose.lower()
+    request_lower = transform.expected_request_shape.lower()
+    result_lower = transform.expected_result_shape.lower()
+
+    assert "model-visible image evidence for the next turn" in purpose_lower
+    assert "inspect returned image evidence next turn" in request_lower
+    assert "separate hydrate_artifact_refs call is not required" in result_lower
+
+
 def test_startup_context_artifact_description_names_original_only() -> None:
     """The artifact kind table at the bottom of startup context must describe only :original."""
     from domains.mapping.transcript_edit.payloads import (
@@ -468,10 +481,12 @@ def test_startup_context_artifact_description_names_original_only() -> None:
 
 
 def test_branch_teaches_turn_local_image_evidence() -> None:
-    """Branch doctrine must explicitly state that hydrated image content is turn-local."""
+    """Branch doctrine must teach transform-attached image evidence as turn-local."""
     blocks = build_transcript_edit_branch_blocks()
     text = blocks[0].text.lower()
-    assert "hydrated image evidence is turn-local" in text or "turn-local" in text
+    assert "turn-local" in text
+    assert "transform_artifact" in text
+    assert "re-hydrate" in text or "reload it" in text
     assert "record" in text
     assert "same turn" in text
 
@@ -488,3 +503,16 @@ def test_procedural_guidance_reinforces_image_observation_recording() -> None:
     assert "record" in text or "update" in text
     # Must warn against moving on without recording
     assert "moving on" in text or "move" in text or "without recording" in text
+
+
+def test_procedural_guidance_discourages_fresh_transform_rehydrate_waste() -> None:
+    """Procedural guidance should tell the model not to burn a turn re-hydrating a fresh crop."""
+    from domains.mapping.transcript_edit.prompting.surfaces.procedural_guidance import (
+        build_transcript_edit_procedural_guidance_blocks,
+    )
+
+    blocks = build_transcript_edit_procedural_guidance_blocks()
+    text = blocks[0].text.lower()
+    assert "returned derived image evidence" in text or "attached evidence" in text
+    assert "next turn" in text
+    assert "re-hydrate only if you need to reload it later" in text or "separate turn hydrating" in text

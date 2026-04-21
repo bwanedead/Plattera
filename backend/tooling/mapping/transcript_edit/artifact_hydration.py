@@ -11,7 +11,7 @@ from collections.abc import Callable
 from typing import Any
 
 from .draft_loading import hydrate_t0_draft_refs, hydrate_transcript_edit_working_draft
-from .image_loading import hydrate_source_image_context
+from .image_loading import hydrate_source_image_context, image_evidence_from_path
 from .paths import (
     UnsafeArtifactPathSegmentError,
     transcript_edit_derived_images_dir,
@@ -188,16 +188,11 @@ def make_hydrate_artifact_refs_handler(
                 abs_path = desc.get("absolute_path")
                 if abs_path:
                     from pathlib import Path as _Path
-                    from .image_loading import read_image_as_b64, _infer_media_type
                     dp = _Path(str(abs_path))
                     if dp.is_file():
-                        b64 = read_image_as_b64(dp)
-                        if b64:
-                            image_evidence_collected.append({
-                                "ref_id": rid,
-                                "b64": b64,
-                                "media_type": _infer_media_type(dp.suffix),
-                            })
+                        evidence = image_evidence_from_path(rid, dp)
+                        if evidence:
+                            image_evidence_collected.append(evidence)
 
         for rid in unknown_refs:
             errors.append({"ref_id": rid, "code": "unknown_ref_kind", "message": "Ref prefix not recognized."})

@@ -31,6 +31,18 @@ def read_image_as_b64(path: Path) -> str | None:
     except Exception:
         return None
 
+
+def image_evidence_from_path(ref_id: str, path: Path) -> dict[str, Any] | None:
+    """Return model-visible image evidence payload for an on-disk image, if readable."""
+    b64 = read_image_as_b64(path)
+    if not b64:
+        return None
+    return {
+        "ref_id": str(ref_id),
+        "b64": b64,
+        "media_type": _infer_media_type(path.suffix),
+    }
+
 _IMAGE_REF_RE = re.compile(
     r"^image:assoc:(?P<tid>[^:]+):(?P<slot>original)$",
 )

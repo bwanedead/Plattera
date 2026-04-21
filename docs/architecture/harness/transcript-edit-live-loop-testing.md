@@ -38,6 +38,8 @@ Before running or modifying anything, read:
 
 - [`AGENTS.md`](../../../AGENTS.md)
 - [`docs/architecture/harness/harness-constitution.md`](./harness-constitution.md)
+- [`docs/architecture/harness/agent-engine-constitution.md`](./agent-engine-constitution.md)
+- [`docs/architecture/harness/agent-sanity-baseline.md`](./agent-sanity-baseline.md)
 - [`docs/architecture/harness/hitl-constitution.md`](./hitl-constitution.md)
 - [`docs/architecture/harness/cli-constitution.md`](./cli-constitution.md)
 - [`docs/architecture/harness/domain-pack-constitution.md`](./domain-pack-constitution.md)
@@ -141,6 +143,38 @@ If `watch` returns a HITL prompt, answer it:
 python -m harness.cli.answer --run-id $runId --prompt-id <prompt_id_from_watch> --choice "<your answer>" --note "<optional note>"
 ```
 
+If a run dies because the child process exited, the network disconnected, or
+the provider returned a resumable failure, check status before starting over:
+
+```powershell
+python -m harness.cli.status --run-id $runId
+```
+
+If status includes:
+
+```json
+{
+  "interrupted": {
+    "kind": "interrupted_resumable"
+  }
+}
+```
+
+resume the same logical run instead of launching a new run:
+
+```powershell
+python -m harness.cli.resume --run-id $runId
+python -m harness.cli.watch --run-id $runId --timeout 120
+```
+
+Resume is mechanical. It restores the last completed `kernel_resume.json`
+checkpoint and starts the next turn in the same run directory. It does not
+replay a half-failed LLM call and it does not infer mission meaning. If the run
+was started with `--model`, the resumed child preserves that model override.
+
+If status reports `interrupted_no_checkpoint`, the run cannot be resumed from
+the CLI control plane and should be treated as a failed/incomplete test run.
+
 Architectural rule:
 
 - `HITL` semantics are harness-owned, not CLI-owned
@@ -187,6 +221,7 @@ Harness CLI run-state and child logs:
 ```text
 backend/harness/cli_artifacts/cli_runs/<run_id>/
   state.json
+  kernel_resume.json
   stdout.log
   stderr.log
   result.json
@@ -195,6 +230,7 @@ backend/harness/cli_artifacts/cli_runs/<run_id>/
   audit/events.jsonl
   audit/index.json
   audit/review.md
+  audit/human/timeline.md
   audit/turn_0001.json
   audit/turn_0002.json
   ...
@@ -204,11 +240,17 @@ What the audit files are for:
 
 - `audit/events.jsonl`: canonical append-only event stream for the run
 - `audit/review.md`: quick human-readable run summary
+- `audit/human/timeline.md`: live-updating readable per-turn timeline with
+  model-authored prose, action inputs, tool results, state patch feedback,
+  HITL facts, mission snapshots, resolution items, closure state, and
+  observability flags; use this first when monitoring a live run
 - `audit/index.json`: run-level audit index
 - `audit/turn_000N.json`: exact turn ledger including prompt text, raw LLM
   response text, repair I/O when applicable, parsed action plan, tool
   request/result, and before/after state snapshots; these are forensic
   per-turn expansions, not the canonical event stream
+- `kernel_resume.json`: last completed-turn checkpoint used by
+  `harness.cli.resume`; it is a mechanical snapshot, not a semantic summary
 
 This `cli_runs/` folder is operator control-plane metadata. The transcript-edit
 domain data path itself is app-native backend plumbing, not a CLI-only sandbox:
@@ -257,6 +299,8 @@ Current domain + harness docs:
 - [`docs/architecture/mapping/mapping-family-intent.md`](../mapping/mapping-family-intent.md)
 - [`docs/architecture/harness/transcript-edit-domain.md`](./transcript-edit-domain.md)
 - [`docs/architecture/harness/harness-constitution.md`](./harness-constitution.md)
+- [`docs/architecture/harness/agent-engine-constitution.md`](./agent-engine-constitution.md)
+- [`docs/architecture/harness/agent-sanity-baseline.md`](./agent-sanity-baseline.md)
 - [`docs/architecture/harness/hitl-constitution.md`](./hitl-constitution.md)
 - [`docs/architecture/harness/cli-constitution.md`](./cli-constitution.md)
 - [`docs/architecture/harness/domain-pack-constitution.md`](./domain-pack-constitution.md)
@@ -280,6 +324,8 @@ Always report:
 
 - run id and launch context
 - terminal status/reason
+- whether the run was resumed from `kernel_resume.json`, and from which
+  status/reason if applicable
 - which tools the model called and in what order
 - whether `state_patch` was applied/rejected/not_applied and why
 - what transcript-edit working/output refs were produced
@@ -287,6 +333,8 @@ Always report:
 - whether the model caught the known practice-deed quirks from the cheat sheet
 - whether a failure was a model reasoning failure or a system/contract seam
   failure
+- the key observations from `audit/human/timeline.md` when diagnosing turn
+  coherence, repeated reads, or itemization quality
 
 If behavior reveals a repeated sane near-miss action shape, preserve the raw
 payload and cite

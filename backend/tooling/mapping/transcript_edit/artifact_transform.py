@@ -19,7 +19,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from .image_loading import hydrate_source_image_context
+from .image_loading import hydrate_source_image_context, image_evidence_from_path
 from .paths import (
     UnsafeArtifactPathSegmentError,
     transcript_edit_derived_images_dir,
@@ -105,7 +105,7 @@ def make_transform_artifact_handler(
         except Exception as exc:
             return _error_result("derived_persist_failed", f"Could not save derived descriptor: {exc}")
 
-        return {
+        result: dict[str, Any] = {
             "executed": True,
             "artifact_refs": [derived_ref_id],
             "outputs": {
@@ -116,6 +116,10 @@ def make_transform_artifact_handler(
                 "width_height": width_height,
             },
         }
+        evidence = image_evidence_from_path(derived_ref_id, derived_path)
+        if evidence:
+            result["image_evidence"] = [evidence]
+        return result
 
     return handler
 

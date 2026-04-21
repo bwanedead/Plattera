@@ -158,6 +158,11 @@ def test_crop_with_box_succeeds(tmp_path, monkeypatch):
     assert derived.startswith("image:derived:")
     w, h = result["outputs"]["width_height"]
     assert w == 50 and h == 40
+    evidence = result["image_evidence"]
+    assert len(evidence) == 1
+    assert evidence[0]["ref_id"] == derived
+    assert evidence[0]["media_type"] == "image/png"
+    assert base64.b64decode(evidence[0]["b64"])
 
 
 def test_crop_with_box_norm_succeeds(tmp_path, monkeypatch):
@@ -202,6 +207,7 @@ def test_reference_overlay_produces_derived_ref(tmp_path, monkeypatch):
 
     assert result["executed"] is True, f"Unexpected failure: {result}"
     assert result["outputs"]["derived_ref_id"].startswith("image:derived:")
+    assert result["image_evidence"][0]["ref_id"] == result["outputs"]["derived_ref_id"]
     w, h = result["outputs"]["width_height"]
     # Source is 100x80; overlay preserves dimensions
     assert w == 100 and h == 80
