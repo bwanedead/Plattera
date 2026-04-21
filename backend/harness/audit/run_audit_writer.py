@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from .event_log import AuditEventLog
+from .human_timeline import write_human_timeline
 from .normalize import audit_jsonable
 
 _LOG = logging.getLogger(__name__)
@@ -180,6 +181,12 @@ class RunAuditWriter:
 
     def _write_turn_record(self, turn_idx: int, record: dict[str, Any]) -> None:
         _write_json_atomic(self._dir / f"turn_{turn_idx:04d}.json", record)  # type: ignore[arg-type]
+        self._refresh_human_timeline()
+
+    def _refresh_human_timeline(self) -> None:
+        if self._dir is None:
+            return
+        write_human_timeline(self._dir, self._turns)
 
     def _write_index(
         self,
