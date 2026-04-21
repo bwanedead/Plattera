@@ -5,7 +5,7 @@ import enum
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 
 from .contracts import OrchestratorContext, SharedStateProjection
 from .trace_collector import KernelTraceCollector
@@ -49,6 +49,7 @@ class OrchestrationLifecycle:
     prompt_event_observer: PromptEventObserver | None = None
     raw_llm_io_observer: RawLlmIoObserver | None = None
     turn_completion_observer: TurnCompletionObserver | None = None
+    resume_checkpoint_writer: Callable[[Mapping[str, Any]], None] | None = None
 
 
 class KernelPromptEventTraceObserver:

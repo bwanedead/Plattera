@@ -44,7 +44,27 @@ def status_run(*, run_id: str) -> dict[str, Any]:
     else:
         alive = is_pid_alive(pid)
 
-    return {
+    # Mechanical dead-run classification: if the process is not alive and there is
+    # no done sentinel, surface whether a resume checkpoint exists so operators can
+    # decide whether to invoke ``harness.cli.resume``.
+    interrupted_classification: dict[str, Any] | None = None
+    if alive is False and not done_p.is_file() and not result_p.is_file():
+        from .resume import classify_resumability
+        cls = classify_resumability(run_id)
+        resumability = cls.get("resumability")
+        if resumability == "resumable":
+            interrupted_classification = {
+                "kind": "interrupted_resumable",
+                "checkpoint_path": cls.get("checkpoint_path"),
+                "resume_command": cls.get("resume_command"),
+            }
+        else:
+            interrupted_classification = {
+                "kind": "interrupted_no_checkpoint",
+                "reason_code": cls.get("reason_code") or resumability,
+            }
+
+    out: dict[str, Any] = {
         "run_id": run_id,
         "state": "ok",
         "status": state.status,
@@ -64,6 +84,9 @@ def status_run(*, run_id: str) -> dict[str, Any]:
             "stderr_log": state.paths.stderr_log,
         },
     }
+    if interrupted_classification is not None:
+        out["interrupted"] = interrupted_classification
+    return out
 
 
 def main() -> None:

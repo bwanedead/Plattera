@@ -14,6 +14,7 @@ from dataclasses import asdict, is_dataclass
 import json
 import logging
 import os
+import tempfile
 from pathlib import Path
 import time
 from typing import Any
@@ -328,6 +329,7 @@ class RuntimeRunner:
         tracer = KernelTraceCollector(session_id=session_id, request_id=request_id_prefix, run_id=run_id)
 
         audit_writer = _build_audit_writer(run_id=run_id, session_id=session_id, request_id=request_id_prefix)
+        resume_checkpoint_writer = _build_resume_checkpoint_writer()
         prompt_event_observer = KernelPromptEventTraceObserver(tracer=tracer)
         lifecycle = OrchestrationLifecycle(
             pre_choose_action_participant=LlmTurnPreChooseActionParticipant(
@@ -340,6 +342,7 @@ class RuntimeRunner:
             prompt_event_observer=prompt_event_observer,
             raw_llm_io_observer=audit_writer,
             turn_completion_observer=audit_writer,
+            resume_checkpoint_writer=resume_checkpoint_writer,
         )
         orchestration_adapter = LlmTurnOrchestrationAdapter(
             composed_input=composed,
@@ -472,9 +475,17 @@ def _select_max_iterations(context: Mapping[str, Any]) -> int:
 
 
 def _load_resume_document(context: Mapping[str, Any]) -> tuple[dict[str, Any] | None, str | None]:
-    """Return ``(resume_dict, error_code)``. At most one of path vs inline may be set."""
+    """Return ``(resume_dict, error_code)``. At most one of path vs inline may be set.
+
+    Falls back to the ``HARNESS_CLI_RESUME_FILE`` env var when neither context key is set,
+    so the CLI resume command can inject a checkpoint via child env without mutating launch JSON.
+    """
     path_raw = context.get("kernel_resume_snapshot_path") or context.get("resume_snapshot_path")
     inline = context.get("kernel_resume_snapshot") or context.get("resume_snapshot")
+    if path_raw is None and inline is None:
+        env_path = os.environ.get("HARNESS_CLI_RESUME_FILE", "").strip()
+        if env_path:
+            path_raw = env_path
     if path_raw is not None and inline is not None:
         return None, "resume_snapshot_conflict_path_and_inline"
     if path_raw is not None:
@@ -551,6 +562,41 @@ def _build_audit_writer(*, run_id: str = "", session_id: str = "", request_id: s
         )
     except Exception:
         return RunAuditWriter(None, run_id=run_id, session_id=session_id, request_id=request_id)
+
+
+def _build_resume_checkpoint_writer() -> Callable[[Mapping[str, Any]], None] | None:
+    """Return a writer that atomically persists per-turn resume snapshots under the CLI run dir.
+
+    No-op when the runner is not hosted inside a CLI run (no HARNESS_CLI_RUN_ID).
+    """
+    cli_run_id = os.environ.get("HARNESS_CLI_RUN_ID", "").strip()
+    if not cli_run_id:
+        return None
+    try:
+        from harness.cli.run_state import run_dir as cli_run_dir
+        target = cli_run_dir(cli_run_id) / "kernel_resume.json"
+    except Exception:
+        return None
+
+    def _write(snapshot: Mapping[str, Any]) -> None:
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            text = json.dumps(dict(snapshot), ensure_ascii=False, indent=2, sort_keys=True)
+            fd, tmp = tempfile.mkstemp(dir=target.parent, prefix=".tmp_resume_", suffix=".json")
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as f:
+                    f.write(text)
+                os.replace(tmp, target)
+            except Exception:
+                try:
+                    os.unlink(tmp)
+                except OSError:
+                    pass
+                raise
+        except Exception:
+            _LOG.warning("kernel_resume checkpoint write failed", exc_info=True)
+
+    return _write
 
 
 def _maybe_update_cli_run_state(status: str) -> None:

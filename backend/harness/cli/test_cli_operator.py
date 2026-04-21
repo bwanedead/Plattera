@@ -111,6 +111,7 @@ def test_start_carries_model_override_into_child_metadata(isolated_harness_root)
     st = rs.read_state(rid)
     assert st is not None
     assert st.spawn_argv[0] == sys.executable
+    assert st.extra["model"] == "gpt-5.4-mini"
 
 
 def test_start_spawn_failure_records_state(isolated_harness_root, monkeypatch):

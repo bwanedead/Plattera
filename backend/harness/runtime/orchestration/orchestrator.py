@@ -79,6 +79,30 @@ def _materialize_dispatch_idempotency_key(
     return replace(action_plan, idempotency_key=generated)
 
 
+def _write_resume_checkpoint(
+    *,
+    lifecycle: OrchestrationLifecycle,
+    loop_memory: LoopMemoryState,
+    session_manager: ExecutionSessionManager,
+    session_id: str,
+    iteration: int,
+) -> None:
+    """Best-effort per-turn ``kernel_resume.json`` snapshot; never raises."""
+    writer = lifecycle.resume_checkpoint_writer
+    if writer is None:
+        return
+    try:
+        snap = build_kernel_resume_snapshot(
+            loop_memory=loop_memory,
+            session_manager=session_manager,
+            session_id=session_id,
+            next_iteration=iteration + 1,
+        )
+        writer(snap)
+    except Exception:
+        _LOG.warning("resume_checkpoint_write_failed", exc_info=True)
+
+
 def _handle_policy_block(
     *,
     turn_completion_observer: TurnCompletionObserver | None,
@@ -87,6 +111,9 @@ def _handle_policy_block(
     action_plan: ActionPlan,
     iteration: int,
     reason_code: str,
+    lifecycle: OrchestrationLifecycle,
+    session_manager: ExecutionSessionManager,
+    session_id: str,
 ) -> None:
     tracer.emit_execution_result(
         iteration=iteration,
@@ -117,6 +144,13 @@ def _handle_policy_block(
         step_result=None,
         loop_memory=loop_memory,
         terminal_decision="closure_enforcement_blocked",
+    )
+    _write_resume_checkpoint(
+        lifecycle=lifecycle,
+        loop_memory=loop_memory,
+        session_manager=session_manager,
+        session_id=session_id,
+        iteration=iteration,
     )
 
 
@@ -176,6 +210,12 @@ def run_orchestration_kernel_loop(
         run_artifact_ref=run_artifact_ref,
     )
     orchestration_adapter.initialize(context)
+
+    def _checkpoint(iter_idx: int) -> None:
+        _write_resume_checkpoint(
+            lifecycle=active_lifecycle, loop_memory=loop_memory,
+            session_manager=session_manager, session_id=session_id, iteration=iter_idx,
+        )
 
     for offset in range(max_iterations):
         iterations = start_iteration + offset
@@ -269,6 +309,9 @@ def run_orchestration_kernel_loop(
                 action_plan=action_plan,
                 iteration=iterations,
                 reason_code=reason_code,
+                lifecycle=active_lifecycle,
+                session_manager=session_manager,
+                session_id=session_id,
             )
             continue
 
@@ -314,6 +357,7 @@ def run_orchestration_kernel_loop(
                     action_plan=action_plan, step_result=None,
                     loop_memory=loop_memory, terminal_decision="wait_for_human",
                 )
+                _checkpoint(iterations)
                 return _make_result(
                     loop_memory=loop_memory,
                     terminal_class="waiting_human",
@@ -352,6 +396,9 @@ def run_orchestration_kernel_loop(
                 action_plan=action_plan,
                 iteration=iterations,
                 reason_code=reason_code,
+                lifecycle=active_lifecycle,
+                session_manager=session_manager,
+                session_id=session_id,
             )
             continue
 
@@ -376,6 +423,7 @@ def run_orchestration_kernel_loop(
                 action_plan=action_plan, step_result=None,
                 loop_memory=loop_memory, terminal_decision="complete_run",
             )
+            _checkpoint(iterations)
             return _make_result(
                 loop_memory=loop_memory,
                 terminal_class="completed",
@@ -437,6 +485,7 @@ def run_orchestration_kernel_loop(
                         action_plan=action_plan, step_result=step_result,
                         loop_memory=loop_memory, terminal_decision="refused",
                     )
+                    _checkpoint(iterations)
                     return _make_result(
                         loop_memory=loop_memory,
                         terminal_class="failed",
@@ -462,6 +511,7 @@ def run_orchestration_kernel_loop(
                     action_plan=action_plan, step_result=step_result,
                     loop_memory=loop_memory,
                 )
+                _checkpoint(iterations)
             else:
                 if step_result.dashboard is not None:
                     loop_memory.continuity.latest_refs = step_result.dashboard.latest_refs.model_dump(mode="json")
@@ -493,6 +543,7 @@ def run_orchestration_kernel_loop(
                     action_plan=action_plan, step_result=step_result,
                     loop_memory=loop_memory,
                 )
+                _checkpoint(iterations)
         else:
             sync_state_patch_when_no_step_dispatched(
                 loop_memory=loop_memory,
@@ -515,6 +566,7 @@ def run_orchestration_kernel_loop(
                 action_plan=action_plan, step_result=None,
                 loop_memory=loop_memory,
             )
+            _checkpoint(iterations)
 
     return _make_result(
         loop_memory=loop_memory,

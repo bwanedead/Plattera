@@ -68,6 +68,10 @@ def start_run(
     model: str | None = None,
     child_env_extra: dict[str, str] | None = None,
 ) -> dict[str, Any]:
+    model_str = str(model or "").strip()
+    extra: dict[str, Any] = {}
+    if model_str:
+        extra["model"] = model_str
     state = new_run_state(
         run_id=run_id,
         pid=0,
@@ -75,6 +79,7 @@ def start_run(
         mode=mode,
         spawn_argv=list(spawn_argv),
         status="spawning",
+        extra=extra or None,
     )
     paths = state.paths
     Path(paths.run_dir).mkdir(parents=True, exist_ok=True)
