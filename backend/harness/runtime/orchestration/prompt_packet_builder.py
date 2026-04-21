@@ -14,6 +14,7 @@ from ..memory.continuity_journal import (
     recent_step_result_records_for_prompt,
     verbatim_turn_indices,
 )
+from ..memory.tool_result_slices import build_recent_tool_result_slices
 from .contracts import OrchestratorContext, SharedStateProjection
 from .loop_health_summary import build_prompt_observability_summary
 from .prompt_modes import PromptBuildDocument, PromptMode, PromptModeSpec, require_prompt_mode_spec
@@ -207,6 +208,11 @@ def _build_structured_state(
     )
     if timeline:
         structured["recent_turn_timeline"] = timeline
+    tool_result_slices = build_recent_tool_result_slices(
+        cont.kernel_step_result_records,
+    )
+    if tool_result_slices:
+        structured["recent_tool_result_slices"] = tool_result_slices
     return structured
 
 

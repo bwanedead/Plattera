@@ -545,6 +545,157 @@ def test_repair_prompt_document_does_not_derive_rationale_target_when_error_unre
     assert "add_missing_rationale" not in targets
 
 
+def test_full_choose_action_includes_recent_tool_result_slices() -> None:
+    doc = build_choose_action_prompt_document(
+        composed_input=_composed_input(),
+        opaque_launch_context={"run_id": "r-1"},
+        context=_context(),
+        projection=_projection(),
+        journal_verbatim_keep_n=2,
+    )
+    structured = doc.prompt_body["structured_state"]
+    assert "recent_tool_result_slices" in structured
+    assert "recent_kernel_step_result_records" not in structured
+    slices = structured["recent_tool_result_slices"]
+    assert isinstance(slices, list) and slices
+    entry = slices[0]
+    for key in (
+        "kernel_turn_index",
+        "action_type",
+        "execution_state",
+        "result_truncated",
+        "artifact_refs",
+        "outputs_excerpt",
+        "outputs_excerpt_truncated",
+    ):
+        assert key in entry
+    # The previous turn's stored tool result (note=done) must be visible as bounded text.
+    blob = json.dumps(entry["outputs_excerpt"], ensure_ascii=False, sort_keys=True, default=str)
+    assert "done" in blob
+
+
+def test_full_choose_action_prompt_body_has_slices_not_raw_records() -> None:
+    doc = build_choose_action_prompt_document(
+        composed_input=_composed_input(),
+        opaque_launch_context={"run_id": "r-1"},
+        context=_context(),
+        projection=_projection(),
+        journal_verbatim_keep_n=2,
+    )
+    prompt_text = doc.prompt_text
+    assert "recent_tool_result_slices" in prompt_text
+    assert "recent_kernel_step_result_records" not in prompt_text
+
+
+def test_tool_result_slices_truncate_oversized_outputs() -> None:
+    from harness.runtime.memory.tool_result_slices import build_recent_tool_result_slices
+
+    big = "x" * 20000
+    rows = [
+        {
+            "kernel_turn_index": 1,
+            "action_type": "hydrate_artifact_refs",
+            "execution_state": "executed",
+            "execution_reason_code": None,
+            "artifact_refs": [],
+            "outputs_for_continuity": {"payload": big},
+            "result_truncated": False,
+        }
+    ]
+    slices = build_recent_tool_result_slices(rows, max_chars_per_result=500)
+    assert len(slices) == 1
+    entry = slices[0]
+    excerpt = entry["outputs_excerpt"]
+    excerpt_str = excerpt if isinstance(excerpt, str) else json.dumps(excerpt, default=str)
+    assert len(excerpt_str) <= 500
+    assert entry["outputs_excerpt_truncated"] is True
+
+
+def test_tool_result_slices_strip_binary_image_payloads() -> None:
+    from harness.runtime.memory.tool_result_slices import build_recent_tool_result_slices
+
+    rows = [
+        {
+            "kernel_turn_index": 1,
+            "action_type": "read_page",
+            "execution_state": "executed",
+            "artifact_refs": [],
+            "outputs_for_continuity": {
+                "note": "visible text",
+                "image_bytes": "AAAABBBBCCCC" * 200,
+                "nested": {"image_base64": "ZZZ" * 200, "caption": "ok"},
+            },
+            "result_truncated": False,
+        }
+    ]
+    slices = build_recent_tool_result_slices(rows)
+    blob = json.dumps(slices[0]["outputs_excerpt"], ensure_ascii=False, default=str)
+    assert "visible text" in blob
+    assert "image_bytes" not in blob
+    assert "image_base64" not in blob
+    assert "AAAABBBB" not in blob
+    assert "ZZZ" not in blob
+
+
+def test_tool_result_slices_respect_max_records_and_chronology() -> None:
+    from harness.runtime.memory.tool_result_slices import build_recent_tool_result_slices
+
+    rows = [
+        {
+            "kernel_turn_index": i,
+            "action_type": "noop",
+            "execution_state": "executed",
+            "artifact_refs": [],
+            "outputs_for_continuity": {"turn": i},
+            "result_truncated": False,
+        }
+        for i in (1, 2, 3, 4, 5)
+    ]
+    slices = build_recent_tool_result_slices(rows, max_records=3)
+    assert [s["kernel_turn_index"] for s in slices] == [3, 4, 5]
+
+
+def test_tool_result_slices_does_not_infer_semantic_conclusions() -> None:
+    from harness.runtime.memory.tool_result_slices import build_recent_tool_result_slices
+
+    rows = [
+        {
+            "kernel_turn_index": 1,
+            "action_type": "hydrate_artifact_refs",
+            "execution_state": "executed",
+            "artifact_refs": ["artifact://a"],
+            "outputs_for_continuity": {"result": "anything"},
+            "result_truncated": False,
+        }
+    ]
+    entry = build_recent_tool_result_slices(rows)[0]
+    # No host-authored interpretation, ranking, relevance flag, or conclusion.
+    for banned_key in (
+        "relevance",
+        "is_relevant",
+        "conclusion",
+        "summary",
+        "verdict",
+        "recommendation",
+        "semantic_tag",
+    ):
+        assert banned_key not in entry
+
+
+def test_state_repair_still_carries_raw_result_records_and_slices() -> None:
+    doc = build_state_repair_prompt_document(
+        composed_input=_composed_input(),
+        opaque_launch_context={"run_id": "r-1"},
+        context=_context(),
+        projection=_projection(),
+        journal_verbatim_keep_n=2,
+    )
+    structured = doc.prompt_body["structured_state"]
+    # state_repair is the exception lane: keep the richer mechanical surface.
+    assert "recent_kernel_step_result_records" in structured
+    assert "recent_tool_result_slices" in structured
+
+
 def test_compaction_prompt_document_uses_explicit_mode_packet() -> None:
     doc = build_compaction_prompt_document(
         prior_compacted_continuity_summary="older summary",
