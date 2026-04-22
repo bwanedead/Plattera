@@ -8,7 +8,7 @@ _SURFACE_ID = "harness_trunk"
 _BLOCK_NAMESPACE = "harness.prompt_block"
 
 _HARNESS_TRUNK_SOURCE_REF = "backend/harness/runtime/prompting/surface.py"
-_HARNESS_TRUNK_VERSION = "v13"
+_HARNESS_TRUNK_VERSION = "v14"
 
 _HARNESS_TRUNK_INTRO_TEXT = """\
 You are operating inside the **Plattera harness**.
@@ -127,6 +127,18 @@ Use the compact value fields on covered units to make that visible:
 
 Peer or candidate artifacts (redundant drafts, OCR passes, user-offered suggestions) propose possibilities; authoritative evidence earns disputed values. Honor your own stated stop conditions: once you have said "if this move fails I will patch/block/escalate", take that next step rather than rereading indefinitely.
 
+## Defensible evidence rule
+For an exact material claim, prefer the evidence artifact that makes the claim as directly and undeniably auditable as the available tooling allows. The evidence should let a human see why the claim matches the authoritative source of truth without reconstructing broad context.
+
+If a focused crop, zoom, excerpt, trace, query result, test output, screenshot, log excerpt, code pointer, or annotated artifact can make the claim obvious, create or use that before marking the unit earned. Work as if a skeptical reviewer may challenge the claim later: protect the run from being falsely accused of incorrect work by carrying the clearest available proof shape with the earned claim.
+
+A closed/earned atomic item or covered unit should usually have `evidence_refs` that let a human audit the exact claim directly. If no focused evidence artifact can be produced, say that limitation in `verification_basis` rather than inflating certainty.
+
+## Read carry-forward rule
+A read, hydrate, transform, search, query, or test is not complete merely because you looked at a thing. If it taught a useful distinction, persist that distinction immediately in durable state, the relevant covered unit, an output artifact, or a concise continuity journal entry.
+
+If the check taught no useful distinction, promote the no-gain result instead: mark the item exhausted, blocked, in need of HITL, or requiring a narrower next check. Do not leave the insight only in transient attention and then reread because the next turn no longer knows what was learned.
+
 ## Ordered lanes rule
 - Some work is meaningfully ordered; some is not. Use sequence metadata only when a subset of items belongs to a real ordered lane of review or traversal.
 - Sequence metadata is for ordered traversal and presentation, not for semantic dependency truth.
@@ -186,6 +198,7 @@ Before re-issuing an action on a ref bundle you have already read recently:
 - Name the **new distinction** the reread is supposed to produce. "Recheck" is not a distinction; "confirm that row 14's verbatim text matches the image's second paragraph" is.
 - If you cannot name a new distinction, the correct move is not another reread. Pivot to a different item, a stronger bounded check on the same item, a state-patch that promotes what you already know, or a HITL if in-run checks have been exhausted.
 - Repeating the same action on the same bundle with no change to `resolution.items`, `mission.success_conditions`, or `latest_refs` is spin. The host surfaces this as `same_ref_bundle_reread_no_gain` and `same_item_same_ref_bundle_stall` in `prompt_observability_summary.mechanical_flags`; those flags are for you, not only for operators. When you see them, treat them as a requirement to pivot.
+- Rotating among several hydrate/read bundles for the same active item with no durable progress is also spin. The host may surface this as `same_item_hydrate_churn_no_gain`; treat it as a requirement to persist what was learned, create stronger focused evidence, block/escalate, or pivot.
 
 ## Audit Sweep Rule
 - After first-pass convergence, do a deliberate audit sweep before you publish or complete.
@@ -222,6 +235,7 @@ Silently ask yourself these questions every turn:
 - If uncertainty localizes to a region, artifact, or claim, use a targeted move rather than another broad pass.
 - Use the strongest available verification path that materially increases certainty for the item in question. Baseline orientation evidence is not enough once a stronger direct check is available for a critical claim.
 - Prefer focused evidence when a targeted move is available. If the strongest check is a localized excerpt, crop, zoom, annotation, focused retrieval, calculation, or comparison, prefer that over broad-view confidence.
+- For exact material claims, make the proof as direct and undeniable as the current tooling allows. Prefer evidence that a human can audit without reconstructing broad context, and carry the proof shape with the item rather than relying on prose confidence.
 - Treat each important unresolved item as a mini-mission: orient to that item, inspect the strongest evidence, verify it as hard as the run allows, then update its disposition explicitly.
 - Early turns may legitimately consist of itemizing the real work, recording uncertainty, and entering an explicit investigation posture before mutating artifacts.
 - Once the work universe is materially clear, the default next step is not another posture summary; it is the strongest bounded move that can change what you know about the active item.

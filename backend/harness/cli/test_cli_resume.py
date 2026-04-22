@@ -152,6 +152,53 @@ def test_classify_completed_result_ignores_resumable_true(isolated_harness_root)
     assert res["reason_code"] == "complete_run"
 
 
+@pytest.mark.parametrize(
+    ("terminal_class", "reason_code", "command"),
+    [
+        ("paused", "paused_by_operator", "pause"),
+        ("stopped", "stopped_by_operator", "stop"),
+    ],
+)
+def test_classify_operator_interrupted_done_result_with_checkpoint_is_resumable(
+    isolated_harness_root,
+    terminal_class: str,
+    reason_code: str,
+    command: str,
+):
+    rid = f"{terminal_class}-done-run"
+    st = _write_dead_run(rid, with_checkpoint=True)
+    Path(st.paths.done_file).write_text(
+        json.dumps(
+            {
+                "status": terminal_class,
+                "terminal_class": terminal_class,
+                "reason_code": reason_code,
+                "resumable": True,
+                "interrupted_at_iteration": 3,
+                "control_request": {"command": command},
+            }
+        ),
+        encoding="utf-8",
+    )
+    _write_result(
+        rid,
+        {
+            "status": terminal_class,
+            "terminal_class": terminal_class,
+            "reason_code": reason_code,
+            "resumable": True,
+            "interrupted_at_iteration": 3,
+            "control_request": {"command": command},
+        },
+    )
+
+    res = classify_resumability(rid)
+
+    assert res["resumability"] == "failed_resumable"
+    assert res["reason_code"] == reason_code
+    assert res["resume_command"].endswith(rid)
+
+
 def test_classify_generic_failed_result_still_refuses(isolated_harness_root):
     rid = "generic-failed-run"
     _write_dead_run(rid, with_checkpoint=True)

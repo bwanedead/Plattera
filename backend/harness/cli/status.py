@@ -8,10 +8,13 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from harness.runtime.control import read_run_control_request
 from harness.runtime.hitl.watch import hitl_pending_path
 
 from ._process_util import is_pid_alive
-from .run_state import read_state
+from .run_state import read_state, run_dir
+
+_OPERATOR_INTERRUPT_REASON_CODES = {"paused_by_operator", "stopped_by_operator"}
 
 
 def _print_json(obj: dict[str, Any]) -> None:
@@ -36,6 +39,7 @@ def status_run(*, run_id: str) -> dict[str, Any]:
     done_p = Path(state.paths.done_file)
     result_p = Path(state.paths.result_file)
     hitl_p = hitl_pending_path(run_id)
+    result_payload = _read_result_payload(result_p) if result_p.is_file() else None
 
     pid = int(state.pid)
     alive: bool | None
@@ -44,24 +48,48 @@ def status_run(*, run_id: str) -> dict[str, Any]:
     else:
         alive = is_pid_alive(pid)
 
-    # Mechanical dead-run classification: if the process is not alive and there is
-    # no done sentinel, surface whether a resume checkpoint exists so operators can
-    # decide whether to invoke ``harness.cli.resume``.
+    # Mechanical dead-run classification: if the process is not alive, surface
+    # operator interruptions first; otherwise fall back to resume-checkpoint hints
+    # for abruptly interrupted runs with no terminal artifacts.
     interrupted_classification: dict[str, Any] | None = None
-    if alive is False and not done_p.is_file() and not result_p.is_file():
-        from .resume import classify_resumability
-        cls = classify_resumability(run_id)
-        resumability = cls.get("resumability")
-        if resumability == "resumable":
+    if alive is False:
+        result_reason_code = str((result_payload or {}).get("reason_code") or "").strip()
+        if result_reason_code in _OPERATOR_INTERRUPT_REASON_CODES:
             interrupted_classification = {
-                "kind": "interrupted_resumable",
-                "checkpoint_path": cls.get("checkpoint_path"),
-                "resume_command": cls.get("resume_command"),
+                "kind": result_reason_code,
+                "resumable": bool((result_payload or {}).get("resumable", True)),
+                "interrupted_at_iteration": (result_payload or {}).get("interrupted_at_iteration"),
+                "control_request": (result_payload or {}).get("control_request"),
             }
-        else:
-            interrupted_classification = {
-                "kind": "interrupted_no_checkpoint",
-                "reason_code": cls.get("reason_code") or resumability,
+        elif not result_p.is_file() and not done_p.is_file():
+            from .resume import classify_resumability
+            cls = classify_resumability(run_id)
+            resumability = cls.get("resumability")
+            if resumability == "resumable":
+                interrupted_classification = {
+                    "kind": "interrupted_resumable",
+                    "checkpoint_path": cls.get("checkpoint_path"),
+                    "resume_command": cls.get("resume_command"),
+                }
+            else:
+                interrupted_classification = {
+                    "kind": "interrupted_no_checkpoint",
+                    "reason_code": cls.get("reason_code") or resumability,
+                }
+
+    # Mechanical pending-control surface: if a live process has an un-consumed
+    # control.json, show the operator that a pause/stop is in flight.
+    control_classification: dict[str, Any] | None = None
+    if alive is True:
+        pending = read_run_control_request(run_dir(run_id) / "control.json")
+        if pending is not None:
+            control_classification = {
+                "command": pending.command,
+                "request_id": pending.request_id,
+                "status": "pending",
+                "requested_at_epoch_seconds": pending.requested_at_epoch_seconds,
+                "reason": pending.reason,
+                "requested_by": pending.requested_by,
             }
 
     out: dict[str, Any] = {
@@ -86,7 +114,17 @@ def status_run(*, run_id: str) -> dict[str, Any]:
     }
     if interrupted_classification is not None:
         out["interrupted"] = interrupted_classification
+    if control_classification is not None:
+        out["control"] = control_classification
     return out
+
+
+def _read_result_payload(path: Path) -> dict[str, Any] | None:
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    return raw if isinstance(raw, dict) else None
 
 
 def main() -> None:

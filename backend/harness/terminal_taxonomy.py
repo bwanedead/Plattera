@@ -9,4 +9,6 @@ TerminalClass = Literal[
     "waiting_evidence",
     "exhausted",
     "failed",
+    "paused",
+    "stopped",
 ]

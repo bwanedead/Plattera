@@ -7,7 +7,6 @@ from typing import Any
 from ...execution.contracts import ExecutionState
 from ...execution.session import ExecutionSessionManager
 
-from ...terminal_taxonomy import TerminalClass
 from .contracts import ActionPlan, KernelLoopResult, OrchestrationAdapter, OrchestratorContext
 from .lifecycle import OrchestrationLifecycle, TurnCompletionObserver
 from ..memory import LoopMemoryState
@@ -31,6 +30,7 @@ from .orchestrator_policy import (
     closure_enforcement_failure,
     resolution_inventory_enforcement_failure,
 )
+from .run_control import build_kernel_loop_result, maybe_exit_for_run_control
 from .orchestrator_turn import (
     accumulate_image_evidence,
     append_kernel_step_result_continuity,
@@ -220,6 +220,19 @@ def run_orchestration_kernel_loop(
     for offset in range(max_iterations):
         iterations = start_iteration + offset
         loop_memory.iterations = iterations
+        # Safe boundary: before a new iteration / before choose_action.
+        control_result = maybe_exit_for_run_control(
+            lifecycle=active_lifecycle,
+            loop_memory=loop_memory,
+            session_manager=session_manager,
+            session_id=session_id,
+            run_artifact_ref=run_artifact_ref,
+            tracer=tracer,
+            iteration=max(1, iterations - 1),
+            checkpoint_writer=_checkpoint,
+        )
+        if control_result is not None:
+            return control_result
         tracer.emit_iteration_start(iteration=iterations, hitl_state=loop_memory.hitl.hitl_state)
 
         hitl_poll_feedback_store(
@@ -231,7 +244,7 @@ def run_orchestration_kernel_loop(
 
         if loop_memory.hitl.hitl_state == "waiting" and loop_memory.hitl.blocking_prompt_id:
             if not hitl_has_answer_for_prompt(loop_memory.hitl, loop_memory.hitl.blocking_prompt_id):
-                return _make_result(
+                return build_kernel_loop_result(
                     loop_memory=loop_memory,
                     terminal_class="waiting_human",
                     reason_code="waiting_human_feedback",
@@ -256,7 +269,7 @@ def run_orchestration_kernel_loop(
 
         terminal = coerce_terminal_evaluation(orchestration_adapter.evaluate_terminal(context, projection))
         if terminal is not None:
-            return _make_result(
+            return build_kernel_loop_result(
                 loop_memory=loop_memory,
                 terminal_class=terminal.terminal_class,
                 reason_code=terminal.reason_code,
@@ -273,6 +286,19 @@ def run_orchestration_kernel_loop(
             participant.before_choose_action(context, projection, tracer=tracer)
 
         action_plan = coerce_kernel_action_plan(orchestration_adapter.choose_action(context, projection))
+        # Safe boundary: after choose_action completes / before tool dispatch.
+        control_result = maybe_exit_for_run_control(
+            lifecycle=active_lifecycle,
+            loop_memory=loop_memory,
+            session_manager=session_manager,
+            session_id=session_id,
+            run_artifact_ref=run_artifact_ref,
+            tracer=tracer,
+            iteration=iterations,
+            checkpoint_writer=_checkpoint,
+        )
+        if control_result is not None:
+            return control_result
         if action_plan is None:
             continue
         action_plan = _materialize_dispatch_idempotency_key(
@@ -358,7 +384,7 @@ def run_orchestration_kernel_loop(
                     loop_memory=loop_memory, terminal_decision="wait_for_human",
                 )
                 _checkpoint(iterations)
-                return _make_result(
+                return build_kernel_loop_result(
                     loop_memory=loop_memory,
                     terminal_class="waiting_human",
                     reason_code="waiting_human_feedback",
@@ -424,7 +450,7 @@ def run_orchestration_kernel_loop(
                 loop_memory=loop_memory, terminal_decision="complete_run",
             )
             _checkpoint(iterations)
-            return _make_result(
+            return build_kernel_loop_result(
                 loop_memory=loop_memory,
                 terminal_class="completed",
                 reason_code="complete_run",
@@ -486,7 +512,7 @@ def run_orchestration_kernel_loop(
                         loop_memory=loop_memory, terminal_decision="refused",
                     )
                     _checkpoint(iterations)
-                    return _make_result(
+                    return build_kernel_loop_result(
                         loop_memory=loop_memory,
                         terminal_class="failed",
                         reason_code=reason,
@@ -568,7 +594,7 @@ def run_orchestration_kernel_loop(
             )
             _checkpoint(iterations)
 
-    return _make_result(
+    return build_kernel_loop_result(
         loop_memory=loop_memory,
         terminal_class="exhausted",
         reason_code="max_iterations_reached",
@@ -577,61 +603,4 @@ def run_orchestration_kernel_loop(
         run_artifact_ref=run_artifact_ref,
         tracer=tracer,
         session_manager=session_manager,
-    )
-def _make_result(
-    *,
-    loop_memory: LoopMemoryState,
-    terminal_class: TerminalClass,
-    reason_code: str,
-    iterations: int,
-    session_id: str,
-    run_artifact_ref: str | None,
-    tracer: KernelTraceCollector,
-    session_manager: ExecutionSessionManager,
-    terminal_summary: str | None = None,
-) -> KernelLoopResult:
-    tracer.emit_terminal(
-        iteration=iterations,
-        terminal_class=terminal_class,
-        reason_code=reason_code,
-        terminal_summary=terminal_summary,
-    )
-    runtime_state = {
-        "hitl_state": loop_memory.hitl.hitl_state,
-        "blocking_prompt_id": loop_memory.hitl.blocking_prompt_id,
-        "pending_feedback_prompt_id": loop_memory.hitl.pending_feedback_prompt_id,
-        "pending_hitl_requests_count": len(loop_memory.hitl.pending_hitl_requests),
-        "answered_hitl_responses_count": len(loop_memory.hitl.answered_hitl_responses),
-        "active_item_id": loop_memory.continuity.active_item_id,
-        "llm_contact_count": loop_memory.telemetry.llm_contact_count,
-        "prompt_event_count": loop_memory.telemetry.prompt_event_count,
-        "last_prompt_event_id": loop_memory.telemetry.last_prompt_event_id,
-        "last_prompt_event_surface": loop_memory.telemetry.last_prompt_event_surface,
-        "mission_state": loop_memory.continuity.mission_state,
-        "resolution_state": loop_memory.continuity.resolution_state,
-        "state_patch_feedback": dict(loop_memory.continuity.state_patch_feedback),
-        "operator_progress_message": loop_memory.continuity.operator_progress_message,
-        "compacted_continuity_summary": loop_memory.continuity.compacted_continuity_summary,
-        "continuity_journal_entry_count": len(loop_memory.continuity.continuity_journal_entries),
-        "kernel_compaction_covered_through_turn_index": int(
-            loop_memory.continuity.kernel_compaction_covered_through_turn_index
-        ),
-    }
-    snap = build_kernel_resume_snapshot(
-        loop_memory=loop_memory,
-        session_manager=session_manager,
-        session_id=session_id,
-        next_iteration=iterations + 1,
-    )
-    return KernelLoopResult(
-        terminal_class=terminal_class,
-        reason_code=reason_code,
-        terminal_summary=terminal_summary,
-        iterations=iterations,
-        session_id=session_id,
-        run_artifact_ref=run_artifact_ref,
-        latest_refs=dict(loop_memory.continuity.latest_refs),
-        runtime_state=runtime_state,
-        trace_events=tracer.build_raw_events(),
-        kernel_resume_snapshot=snap,
     )

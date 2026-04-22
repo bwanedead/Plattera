@@ -509,6 +509,74 @@ def test_runner_injects_domain_closure_policy_into_orchestration_context(tmp_pat
     assert captured["domain_closure_policy"]["required_dimension_ids"] == ["layer_a"]
 
 
+@pytest.mark.parametrize(
+    ("terminal_class", "reason_code", "command"),
+    [
+        ("paused", "paused_by_operator", "pause"),
+        ("stopped", "stopped_by_operator", "stop"),
+    ],
+)
+def test_runner_writes_resumable_done_and_result_for_operator_interruption(
+    tmp_path: Path,
+    monkeypatch,
+    terminal_class: str,
+    reason_code: str,
+    command: str,
+) -> None:
+    run_id = f"run-{terminal_class}"
+    _seed_cli_run_state(tmp_path, monkeypatch, run_id)
+    control_request = {
+        "schema_version": 1,
+        "request_id": f"req-{terminal_class}",
+        "command": command,
+        "requested_at_epoch_seconds": 1.0,
+        "reason": "operator requested",
+        "requested_by": "cli",
+    }
+
+    def fake_loop(**_kwargs: Any) -> Any:
+        return SimpleNamespace(
+            terminal_class=terminal_class,
+            reason_code=reason_code,
+            terminal_summary="operator requested",
+            iterations=2,
+            session_id="sess-control",
+            run_artifact_ref=None,
+            latest_refs={},
+            runtime_state={
+                "control_request": control_request,
+                "resumable": True,
+                "interrupted_at_iteration": 2,
+            },
+            trace_events=[],
+            kernel_resume_snapshot={"schema_version": "kernel_resume.v1", "next_iteration": 3},
+        )
+
+    monkeypatch.setattr(runner_module, "run_orchestration_kernel_loop", fake_loop)
+
+    runner = RuntimeRunner(
+        adapter=FakeSurfaceAdapter(calls=[], surface=TurnSurface(surface_id="surface-a", blocks=(), payload={}, tool_bindings=())),
+        model_caller=lambda *args, **kwargs: "",
+        targets=_targets(tmp_path),
+    )
+
+    result = runner.run(launch_context={"run_id": run_id, "session_id": "sess-control", "request_id_prefix": "req-control"})
+
+    assert result.status == terminal_class
+    assert result.reason_code == reason_code
+
+    result_doc = json.loads((tmp_path / "result.json").read_text(encoding="utf-8"))
+    done_doc = json.loads((tmp_path / "done.json").read_text(encoding="utf-8"))
+
+    for payload in (result_doc, done_doc):
+        assert payload["status"] == terminal_class
+        assert payload["terminal_class"] == terminal_class
+        assert payload["reason_code"] == reason_code
+        assert payload["resumable"] is True
+        assert payload["interrupted_at_iteration"] == 2
+        assert payload["control_request"]["command"] == command
+
+
 # ── HITL lifecycle tests ───────────────────────────────────────────────────────
 
 

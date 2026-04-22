@@ -26,6 +26,11 @@ from harness.execution.contracts import ExecutionSessionStartRequest
 from harness.execution.executor import ExecutionExecutor
 from harness.execution.session import ExecutionSessionManager
 from harness.runtime.composition import ComposedTurnInput, DefaultTurnComposer, TurnSurface
+from harness.runtime.control import (
+    CONTROL_FILENAME,
+    RunControlRequest,
+    build_run_control_reader_for_path,
+)
 from harness.runtime.memory.resume_snapshot import (
     hydrate_session_manager_from_resume_payload,
     load_kernel_resume_snapshot_from_path,
@@ -76,8 +81,10 @@ class RuntimeRunner:
         terminal state.  This method owns the harness-level lifecycle: it polls the
         feedback store for the active blocking prompt and re-invokes the kernel from
         the stored resume snapshot when the answer arrives.  ``done.json`` is written
-        only when the run reaches a true terminal state (completed / failed /
-        exhausted, or a pause that timed out waiting for human input).
+        only when the current worker reaches a terminal artifact state
+        (completed / failed / exhausted / waiting_human after timeout /
+        operator paused / operator stopped). Paused and stopped remain
+        resumable operator interruptions when a checkpoint is available.
 
         Two lifecycle invariants enforced here:
 
@@ -330,6 +337,7 @@ class RuntimeRunner:
 
         audit_writer = _build_audit_writer(run_id=run_id, session_id=session_id, request_id=request_id_prefix)
         resume_checkpoint_writer = _build_resume_checkpoint_writer()
+        run_control_reader = _build_run_control_reader()
         prompt_event_observer = KernelPromptEventTraceObserver(tracer=tracer)
         lifecycle = OrchestrationLifecycle(
             pre_choose_action_participant=LlmTurnPreChooseActionParticipant(
@@ -343,6 +351,7 @@ class RuntimeRunner:
             raw_llm_io_observer=audit_writer,
             turn_completion_observer=audit_writer,
             resume_checkpoint_writer=resume_checkpoint_writer,
+            run_control_reader=run_control_reader,
         )
         orchestration_adapter = LlmTurnOrchestrationAdapter(
             composed_input=composed,
@@ -406,9 +415,22 @@ def run_runtime_from_env(
     ).run(launch_context=opaque_launch_context)
 
 
+_OPERATOR_INTERRUPTED_CLASSES = {"paused", "stopped"}
+
+
+def _extract_operator_control(loop_result: Any) -> dict[str, Any] | None:
+    rs = getattr(loop_result, "runtime_state", None)
+    if isinstance(rs, Mapping):
+        raw = rs.get("control_request")
+        if isinstance(raw, Mapping):
+            return dict(raw)
+    return None
+
+
 def _build_loop_result_payload(loop_result: Any) -> dict[str, Any]:
+    terminal_class = str(loop_result.terminal_class)
     payload: dict[str, Any] = {
-        "terminal_class": str(loop_result.terminal_class),
+        "terminal_class": terminal_class,
         "reason_code": loop_result.reason_code,
         "terminal_summary": getattr(loop_result, "terminal_summary", None),
         "iterations": loop_result.iterations,
@@ -421,12 +443,19 @@ def _build_loop_result_payload(loop_result: Any) -> dict[str, Any]:
     snap = getattr(loop_result, "kernel_resume_snapshot", None)
     if isinstance(snap, dict):
         payload["kernel_resume_snapshot"] = _jsonable(snap)
+    if terminal_class in _OPERATOR_INTERRUPTED_CLASSES:
+        payload["resumable"] = True
+        payload["interrupted_at_iteration"] = int(loop_result.iterations)
+        control = _extract_operator_control(loop_result)
+        if control is not None:
+            payload["control_request"] = control
     return payload
 
 
 def _build_loop_done_payload(loop_result: Any) -> dict[str, Any]:
-    return {
-        "terminal_class": str(loop_result.terminal_class),
+    terminal_class = str(loop_result.terminal_class)
+    payload: dict[str, Any] = {
+        "terminal_class": terminal_class,
         "reason_code": loop_result.reason_code,
         "terminal_summary": getattr(loop_result, "terminal_summary", None),
         "iterations": loop_result.iterations,
@@ -434,6 +463,13 @@ def _build_loop_done_payload(loop_result: Any) -> dict[str, Any]:
         "run_artifact_ref": loop_result.run_artifact_ref,
         "latest_refs": dict(loop_result.latest_refs),
     }
+    if terminal_class in _OPERATOR_INTERRUPTED_CLASSES:
+        payload["resumable"] = True
+        payload["interrupted_at_iteration"] = int(loop_result.iterations)
+        control = _extract_operator_control(loop_result)
+        if control is not None:
+            payload["control_request"] = control
+    return payload
 
 
 def _build_default_model_caller(*, model_name: str) -> Callable[..., Mapping[str, Any] | str]:
@@ -597,6 +633,19 @@ def _build_resume_checkpoint_writer() -> Callable[[Mapping[str, Any]], None] | N
             _LOG.warning("kernel_resume checkpoint write failed", exc_info=True)
 
     return _write
+
+
+def _build_run_control_reader() -> Callable[[], RunControlRequest | None] | None:
+    """Return a reader for ``<cli_run_dir>/control.json`` or ``None`` outside a CLI run."""
+    cli_run_id = os.environ.get("HARNESS_CLI_RUN_ID", "").strip()
+    if not cli_run_id:
+        return None
+    try:
+        from harness.cli.run_state import run_dir as cli_run_dir
+        path = cli_run_dir(cli_run_id) / CONTROL_FILENAME
+    except Exception:
+        return None
+    return build_run_control_reader_for_path(path)
 
 
 def _maybe_update_cli_run_state(status: str) -> None:

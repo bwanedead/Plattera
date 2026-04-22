@@ -131,6 +131,15 @@ Before re-issuing an action on a ref bundle already read recently, name the new 
 
 `prompt_observability_summary.mechanical_flags` may include `same_ref_bundle_reread_no_gain:N` and `same_item_same_ref_bundle_stall:N`. When either fires, pivoting is mandatory on the next turn — another reread on the same bundle without a concrete new distinction is spin, not investigation.
 
+`prompt_observability_summary.mechanical_flags` may also include `same_item_hydrate_churn_no_gain:N` when the active item is accumulating hydrate/read turns without durable progress. Treat that as a carry-forward failure: either persist what the reads taught, produce a stronger focused evidence artifact, patch/block/escalate, or pivot to a different item.
+
+### Defensible evidence and read carry-forward
+For an exact material claim, prefer the evidence artifact that makes the claim as directly and undeniably auditable as the available tooling allows. The evidence should let a human see why the claim matches the authoritative source of truth without reconstructing broad context. If a focused crop, zoom, excerpt, trace, query result, test output, screenshot, log excerpt, code pointer, or annotated artifact can make the claim obvious, create or use that before marking the unit earned.
+
+Work as if a skeptical reviewer may challenge the claim later: protect the run from being falsely accused of incorrect work by carrying the clearest available proof shape with the earned claim. A closed/earned atomic item or covered unit should usually have `evidence_refs` that let a human audit the exact claim directly; if no such focused evidence can be produced, say that limitation in `verification_basis` rather than pretending certainty is stronger than it is.
+
+A read, hydrate, or transform is not complete merely because you looked at something. If it taught a useful distinction, persist that distinction immediately in `resolution.items`, `covered_units`, mission state, an output artifact, or a concise `continuity_journal_entry`. If it taught no useful distinction, promote the no-gain result into state (`no_further_progress`, blocker, HITL need, or narrowed next step) instead of rereading until the same uncertainty reappears.
+
 ### Itemization and per-item resolution
 Before leaving orientation and after any fresh read, make the work explicit: each mission-essential claim, defect, ambiguity, dependency, or deliverable becomes a row in `resolution.items` (atomic), or an honest group node whose material sub-units are explicit as `covered_units` or separate related items. Every `mission.success_conditions` row should have at least one item that can earn it.
 

@@ -2,8 +2,10 @@
 
 Polls for two signals:
 - HITL prompt file: written by the running loop when human feedback is needed
-- Done sentinel file: written by the harness run when the loop reaches a true
-  terminal state (completed / failed / exhausted / waiting_human after timeout)
+- Done sentinel file: written by the harness run when the current worker reaches
+  a terminal artifact state (completed / failed / exhausted /
+  waiting_human after timeout / paused / stopped). Paused and stopped remain
+  resumable operator interruptions when a checkpoint is present.
 
 Exits immediately when either signal arrives, printing a single JSON line:
   {"event": "hitl", "run_id": ..., "prompt_id": ..., "message": ..., "choices": [...]}

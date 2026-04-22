@@ -103,6 +103,19 @@ def test_choose_action_instruction_teaches_covered_unit_value_fields() -> None:
     assert "if this fails i will patch/block/escalate" in lowered or "stop condition" in lowered
 
 
+def test_choose_action_instruction_teaches_defensible_evidence_and_read_carry_forward() -> None:
+    text = CHOOSE_ACTION_INSTRUCTION
+    lowered = text.lower()
+    assert "defensible evidence" in lowered
+    assert "directly and undeniably auditable" in lowered
+    assert "without reconstructing broad context" in lowered
+    assert "focused crop, zoom, excerpt, trace, query result, test output, screenshot, log excerpt, code pointer" in lowered
+    assert "falsely accused of incorrect work" in lowered
+    assert "a read, hydrate, or transform is not complete" in lowered
+    assert "persist that distinction immediately" in lowered
+    assert "same_item_hydrate_churn_no_gain" in text
+
+
 def test_surface_teaches_broad_to_specific_value_decomposition() -> None:
     from harness.runtime.prompting.surface import _HARNESS_TRUNK_METHOD_TEXT
     text = _HARNESS_TRUNK_METHOD_TEXT
@@ -114,6 +127,19 @@ def test_surface_teaches_broad_to_specific_value_decomposition() -> None:
     assert "not exhaustive" in lowered
     assert "authoritative evidence earns disputed values" in lowered
     assert "patch/block/escalate" in lowered or "stop condition" in lowered
+
+
+def test_surface_teaches_defensible_evidence_and_read_carry_forward() -> None:
+    from harness.runtime.prompting.surface import _HARNESS_TRUNK_METHOD_TEXT
+    text = _HARNESS_TRUNK_METHOD_TEXT
+    lowered = text.lower()
+    assert "defensible evidence rule" in lowered
+    assert "directly and undeniably auditable" in lowered
+    assert "without reconstructing broad context" in lowered
+    assert "falsely accused of incorrect work" in lowered
+    assert "read carry-forward rule" in lowered
+    assert "persist that distinction immediately" in lowered
+    assert "same_item_hydrate_churn_no_gain" in text
 
 
 def test_surface_teaches_group_covered_units_rule() -> None:

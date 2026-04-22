@@ -17,6 +17,10 @@ from typing import Any, Mapping
 from ._process_util import is_pid_alive
 from .run_state import read_state, run_dir, write_state
 from .start import _child_env, _popen_flags, _backend_cwd
+from harness.runtime.control import (
+    CONTROL_FILENAME,
+    consume_run_control_request,
+)
 from harness.runtime.memory.resume_snapshot import (
     load_kernel_resume_snapshot_from_path,
     parse_kernel_resume_snapshot,
@@ -34,6 +38,8 @@ _RESULT_RESUMABLE_REASON_CODES = {
     "connection_timeout",
     "timeout",
     "transient_failure",
+    "paused_by_operator",
+    "stopped_by_operator",
 }
 
 
@@ -101,13 +107,38 @@ def classify_resumability(run_id: str) -> dict[str, Any]:
     checkpoint = _checkpoint_path(run_id)
     pid_alive = is_pid_alive(int(state.pid)) if state.pid else False
 
+    result_doc: dict[str, Any] | None = None
+    result_reason_code: str | None = None
+    if result_p.is_file():
+        result_doc, result_err = _read_result_file(result_p)
+        if result_doc is None and not done_p.is_file():
+            return {
+                "run_id": run_id,
+                "resumability": "terminal_result",
+                "reason_code": result_err or "run_has_result_file",
+                "checkpoint_path": str(checkpoint) if checkpoint.is_file() else None,
+            }
+        if result_doc is not None:
+            result_reason_code = _result_reason_code(result_doc)
+
     if done_p.is_file():
-        return {
-            "run_id": run_id,
-            "resumability": "terminal_done",
-            "reason_code": "run_has_done_sentinel",
-            "checkpoint_path": str(checkpoint) if checkpoint.is_file() else None,
-        }
+        if result_doc is not None and _result_allows_resume(result_doc):
+            if pid_alive:
+                return {
+                    "run_id": run_id,
+                    "resumability": "process_alive",
+                    "reason_code": "run_still_running",
+                    "pid": int(state.pid),
+                    "checkpoint_path": str(checkpoint) if checkpoint.is_file() else None,
+                }
+        else:
+            reason_code = result_reason_code or "run_has_done_sentinel"
+            return {
+                "run_id": run_id,
+                "resumability": "terminal_done",
+                "reason_code": reason_code,
+                "checkpoint_path": str(checkpoint) if checkpoint.is_file() else None,
+            }
     if pid_alive:
         return {
             "run_id": run_id,
@@ -116,11 +147,8 @@ def classify_resumability(run_id: str) -> dict[str, Any]:
             "pid": int(state.pid),
             "checkpoint_path": str(checkpoint) if checkpoint.is_file() else None,
         }
-
-    result_doc: dict[str, Any] | None = None
-    result_reason_code: str | None = None
     if result_p.is_file():
-        result_doc, result_err = _read_result_file(result_p)
+        assert result_doc is not None or done_p.is_file()
         if result_doc is None:
             return {
                 "run_id": run_id,
@@ -192,6 +220,9 @@ def resume_run(*, run_id: str) -> dict[str, Any]:
         return {"status": "refused", "run_id": run_id, "reason_code": "missing_state"}
 
     checkpoint = str(_checkpoint_path(run_id).resolve())
+    # Consume any pending operator control request so the resumed run does not
+    # immediately honor a stale pause/stop on its first safe boundary.
+    consume_run_control_request(run_dir(run_id) / CONTROL_FILENAME)
     paths = state.paths
     model_env = state.extra.get("model") if isinstance(state.extra, dict) else None
     env = _child_env(paths=paths, run_id=run_id, loop_kind=state.loop_kind, model=model_env)

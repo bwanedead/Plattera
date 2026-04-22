@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Protocol
 from collections.abc import Callable, Mapping
 
+from ..control import RunControlRequest
 from .contracts import OrchestratorContext, SharedStateProjection
 from .trace_collector import KernelTraceCollector
 
@@ -50,6 +51,9 @@ class OrchestrationLifecycle:
     raw_llm_io_observer: RawLlmIoObserver | None = None
     turn_completion_observer: TurnCompletionObserver | None = None
     resume_checkpoint_writer: Callable[[Mapping[str, Any]], None] | None = None
+    # Optional zero-arg reader for operator-authored run control requests.
+    # Returns ``None`` when no request is pending. Invalid files are treated as absent.
+    run_control_reader: Callable[[], RunControlRequest | None] | None = None
 
 
 class KernelPromptEventTraceObserver:

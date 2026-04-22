@@ -1838,3 +1838,147 @@ def test_orchestrator_host_fills_missing_dispatch_idempotency_consistently() -> 
     assert mem.continuity.kernel_step_records[0]["idempotency_key"] == generated
     tool_turn = next(r for r in observer.records if r.get("tool_request") is not None)
     assert tool_turn["tool_request"]["idempotency_key"] == generated
+
+
+# ---------------------------------------------------------------------------
+# Run control (pause / stop) boundary checks
+# ---------------------------------------------------------------------------
+
+
+class _ControlRecordingSessionManager(FakeSessionManager):
+    pass
+
+
+class _ControlChooseActionPack:
+    """Exposes whether ``choose_action`` ran; never returns a terminal."""
+
+    def __init__(self) -> None:
+        self.choose_action_calls = 0
+
+    def initialize(self, context: OrchestratorContext) -> None:
+        pass
+
+    def sync(self, context: OrchestratorContext) -> SharedStateProjection:
+        return SharedStateProjection(
+            mission_state=new_mission_state(mission_id="m-ctl", loop_family="orchestration_kernel"),
+            resolution_state=new_resolution_state(),
+        )
+
+    def evaluate_terminal(self, context: OrchestratorContext, projection: SharedStateProjection | None) -> TerminalEvaluation | None:
+        return None
+
+    def choose_action(self, context: OrchestratorContext, projection: SharedStateProjection | None) -> ActionPlan:
+        self.choose_action_calls += 1
+        return ActionPlan(
+            action_type="noop",
+            action_inputs={},
+            idempotency_key=f"ik-{context.loop_memory.iterations}",
+            continuity_journal_entry=_PACK_CJ,
+        )
+
+
+def _control_request(command: str, *, reason: str | None = None):
+    from harness.runtime.control import CONTROL_SCHEMA_VERSION, RunControlRequest
+    return RunControlRequest(
+        schema_version=CONTROL_SCHEMA_VERSION,
+        request_id="req-test-1",
+        command=command,
+        requested_at_epoch_seconds=1.0,
+        reason=reason,
+        requested_by="cli",
+    )
+
+
+def test_run_control_pause_before_choose_action_exits_without_model_call() -> None:
+    from harness.runtime.control import RunControlRequest
+    pack = _ControlChooseActionPack()
+    sm = _ControlRecordingSessionManager()
+    checkpoints: list[dict] = []
+
+    def _writer(snap):  # capture resume snapshots
+        checkpoints.append(dict(snap))
+
+    reader_request: RunControlRequest | None = _control_request("pause", reason="tea break")
+
+    def _reader():
+        return reader_request
+
+    result = run_orchestration_kernel_loop(
+        orchestration_adapter=pack,
+        session_manager=sm,
+        session_id="s-ctl-pause",
+        run_artifact_ref=None,
+        request_id_prefix="r-ctl-pause",
+        max_iterations=5,
+        lifecycle=OrchestrationLifecycle(
+            resume_checkpoint_writer=_writer,
+            run_control_reader=_reader,
+        ),
+    )
+    assert result.terminal_class == "paused"
+    assert result.reason_code == "paused_by_operator"
+    assert pack.choose_action_calls == 0
+    assert len(sm.steps) == 0
+    # Checkpoint was written before exit.
+    assert checkpoints, "expected a resume checkpoint before paused exit"
+    assert result.kernel_resume_snapshot is not None
+    # Control request metadata propagated into runtime_state.
+    ctl = result.runtime_state.get("control_request")
+    assert isinstance(ctl, dict)
+    assert ctl.get("command") == "pause"
+    assert ctl.get("reason") == "tea break"
+    assert result.runtime_state.get("resumable") is True
+
+
+def test_run_control_stop_after_choose_action_exits_without_tool_dispatch() -> None:
+    from harness.runtime.control import RunControlRequest
+    pack = _ControlChooseActionPack()
+    sm = _ControlRecordingSessionManager()
+
+    # Fire on the second call so choose_action runs once first (post-choose boundary).
+    reader_calls = {"n": 0}
+
+    def _reader() -> RunControlRequest | None:
+        reader_calls["n"] += 1
+        # n==1: pre-choose on iter 1 ► no control (let choose_action run).
+        # n==2: post-choose on iter 1 ► fire stop.
+        if reader_calls["n"] >= 2:
+            return _control_request("stop")
+        return None
+
+    result = run_orchestration_kernel_loop(
+        orchestration_adapter=pack,
+        session_manager=sm,
+        session_id="s-ctl-stop",
+        run_artifact_ref=None,
+        request_id_prefix="r-ctl-stop",
+        max_iterations=5,
+        lifecycle=OrchestrationLifecycle(run_control_reader=_reader),
+    )
+    assert result.terminal_class == "stopped"
+    assert result.reason_code == "stopped_by_operator"
+    assert pack.choose_action_calls == 1
+    # No tool dispatch should have occurred at the post-choose boundary.
+    assert len(sm.steps) == 0
+
+
+def test_run_control_reader_errors_do_not_crash_loop() -> None:
+    pack = _ControlChooseActionPack()
+    sm = _ControlRecordingSessionManager()
+
+    def _boom():
+        raise RuntimeError("io_error")
+
+    # Cap iterations so the loop exits via exhaustion rather than running forever.
+    result = run_orchestration_kernel_loop(
+        orchestration_adapter=pack,
+        session_manager=sm,
+        session_id="s-ctl-err",
+        run_artifact_ref=None,
+        request_id_prefix="r-ctl-err",
+        max_iterations=2,
+        lifecycle=OrchestrationLifecycle(run_control_reader=_boom),
+    )
+    # Reader errors are swallowed; loop exhausts normally.
+    assert result.terminal_class == "exhausted"
+    assert result.reason_code == "max_iterations_reached"
