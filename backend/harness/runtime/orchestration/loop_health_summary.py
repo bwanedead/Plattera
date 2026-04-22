@@ -49,6 +49,7 @@ def build_prompt_observability_summary(
             str(getattr(row, "item_id", "") or ""),
             relation_index=relation_index,
         )
+        and not bool(getattr(row, "covered_units", ()) or ())
     )
     items_blocking_count = sum(
         1 for row in resolution_items if bool(getattr(row, "blocking", False))
@@ -133,6 +134,9 @@ def build_prompt_observability_summary(
     )
     same_ref_bundle_reread_no_gain_streak = _same_ref_bundle_reread_no_gain_streak(step_records)
     same_item_same_ref_bundle_stall_streak = _same_item_same_ref_bundle_stall_streak(step_records)
+    same_item_hydrate_churn_no_gain_streak = _same_item_hydrate_churn_no_gain_streak(step_records)
+
+    covered_units_metrics = _covered_units_metrics(resolution_items)
 
     closure_readiness_projection = _closure_readiness_projection(
         closure_policy=closure_policy,
@@ -165,6 +169,17 @@ def build_prompt_observability_summary(
         "repeated_complete_run_without_state_change_count": repeated_complete_run_without_state_change_count,
         "same_ref_bundle_reread_no_gain_streak": same_ref_bundle_reread_no_gain_streak,
         "same_item_same_ref_bundle_stall_streak": same_item_same_ref_bundle_stall_streak,
+        "same_item_hydrate_churn_no_gain_streak": same_item_hydrate_churn_no_gain_streak,
+        "covered_units_with_candidates_count": covered_units_metrics["covered_units_with_candidates_count"],
+        "closed_candidate_units_missing_determined_value_count": covered_units_metrics[
+            "closed_candidate_units_missing_determined_value_count"
+        ],
+        "closed_value_units_missing_evidence_count": covered_units_metrics[
+            "closed_value_units_missing_evidence_count"
+        ],
+        "earned_units_missing_verification_basis_count": covered_units_metrics[
+            "earned_units_missing_verification_basis_count"
+        ],
         "success_condition_count": len(success_conditions),
         "success_conditions_with_earned_determination_count": sum(
             1 for row in success_conditions if _has_earned_determination(getattr(row, "determination", None))
@@ -219,6 +234,16 @@ def build_prompt_observability_summary(
         repeated_complete_run_without_state_change_count=repeated_complete_run_without_state_change_count,
         same_ref_bundle_reread_no_gain_streak=same_ref_bundle_reread_no_gain_streak,
         same_item_same_ref_bundle_stall_streak=same_item_same_ref_bundle_stall_streak,
+        same_item_hydrate_churn_no_gain_streak=same_item_hydrate_churn_no_gain_streak,
+        closed_candidate_units_missing_determined_value_count=covered_units_metrics[
+            "closed_candidate_units_missing_determined_value_count"
+        ],
+        closed_value_units_missing_evidence_count=covered_units_metrics[
+            "closed_value_units_missing_evidence_count"
+        ],
+        earned_units_missing_verification_basis_count=covered_units_metrics[
+            "earned_units_missing_verification_basis_count"
+        ],
         sequenced_items_missing_scope_count=sequence_metrics["sequenced_items_missing_scope_count"],
         sequenced_items_missing_index_count=sequence_metrics["sequenced_items_missing_index_count"],
         duplicate_sequence_positions_count=sequence_metrics["duplicate_sequence_positions_count"],
@@ -404,6 +429,88 @@ def _same_item_same_ref_bundle_stall_streak(step_records: list[dict[str, Any]]) 
     return streak
 
 
+def _same_item_hydrate_churn_no_gain_streak(step_records: list[dict[str, Any]]) -> int:
+    """Trailing turns: same active item + action_type=hydrate_artifact_refs + unchanged refs + unchanged state.
+
+    Advisory signal for "rotating hydrate" churn — repeatedly hydrating refs on the
+    same item without the ref bundle or work state advancing, and without any save
+    happening in between. Purely structural: only inspects action_type, active item,
+    refs snapshot, and work_state_signature.
+    """
+    if not step_records:
+        return 0
+    tail = step_records[-1]
+    if _as_optional_text(tail.get("action_type")) != "hydrate_artifact_refs":
+        return 0
+    active_item_id = _as_optional_text(tail.get("active_item_id_snapshot"))
+    if active_item_id is None:
+        return 0
+    latest_state_sig = _as_optional_text(tail.get("work_state_signature"))
+    if latest_state_sig is None:
+        return 0
+    latest_refs_sig = _stable_signature(tail.get("latest_refs_snapshot"))
+    streak = 0
+    for row in reversed(step_records):
+        if _as_optional_text(row.get("action_type")) != "hydrate_artifact_refs":
+            break
+        if _as_optional_text(row.get("active_item_id_snapshot")) != active_item_id:
+            break
+        if _as_optional_text(row.get("work_state_signature")) != latest_state_sig:
+            break
+        if _stable_signature(row.get("latest_refs_snapshot")) != latest_refs_sig:
+            break
+        streak += 1
+    return streak
+
+
+def _covered_units_metrics(items: list[Any]) -> dict[str, int]:
+    """Advisory-only structural metrics over covered_units across all resolution items.
+
+    Does not decide whether a value is correct; only flags shape-level gaps:
+    - ``covered_units_with_candidates_count``: units whose ``candidate_values`` is non-empty.
+    - ``closed_candidate_units_missing_determined_value_count``: closed/earned units with
+      candidates but no ``determined_value``.
+    - ``closed_value_units_missing_evidence_count``: closed/earned units with
+      ``candidate_values`` or ``determined_value`` but no ``evidence_refs``.
+    - ``earned_units_missing_verification_basis_count``: earned units missing
+      ``verification_basis`` text.
+    """
+    covered_units_with_candidates = 0
+    closed_candidate_missing_determined = 0
+    closed_value_missing_evidence = 0
+    earned_missing_basis = 0
+    for item in items:
+        units = getattr(item, "covered_units", None) or ()
+        for unit in units:
+            status = _as_optional_text(getattr(unit, "status", None))
+            determination = _as_optional_text(getattr(unit, "determination", None))
+            determination_lower = determination.lower() if determination else ""
+            closed_or_earned = _is_closed_status(status) or determination_lower == "earned"
+            candidate_values = getattr(unit, "candidate_values", None) or ()
+            has_candidates = bool(candidate_values)
+            determined_value = _as_optional_text(getattr(unit, "determined_value", None))
+            evidence_refs = getattr(unit, "evidence_refs", None) or ()
+            verification_basis = _as_optional_text(getattr(unit, "verification_basis", None))
+            if has_candidates:
+                covered_units_with_candidates += 1
+                if closed_or_earned and determined_value is None:
+                    closed_candidate_missing_determined += 1
+            if (
+                closed_or_earned
+                and (has_candidates or determined_value is not None)
+                and not bool(evidence_refs)
+            ):
+                closed_value_missing_evidence += 1
+            if determination_lower == "earned" and verification_basis is None:
+                earned_missing_basis += 1
+    return {
+        "covered_units_with_candidates_count": covered_units_with_candidates,
+        "closed_candidate_units_missing_determined_value_count": closed_candidate_missing_determined,
+        "closed_value_units_missing_evidence_count": closed_value_missing_evidence,
+        "earned_units_missing_verification_basis_count": earned_missing_basis,
+    }
+
+
 def _repeated_complete_run_without_state_change_count(step_records: list[dict[str, Any]]) -> int:
     attempts = [row for row in step_records if bool(row.get("complete_run"))]
     if len(attempts) < 2:
@@ -543,6 +650,10 @@ def _mechanical_flags(
     repeated_complete_run_without_state_change_count: int,
     same_ref_bundle_reread_no_gain_streak: int,
     same_item_same_ref_bundle_stall_streak: int,
+    same_item_hydrate_churn_no_gain_streak: int,
+    closed_candidate_units_missing_determined_value_count: int,
+    closed_value_units_missing_evidence_count: int,
+    earned_units_missing_verification_basis_count: int,
     sequenced_items_missing_scope_count: int,
     sequenced_items_missing_index_count: int,
     duplicate_sequence_positions_count: int,
@@ -577,6 +688,20 @@ def _mechanical_flags(
         flags.append(f"same_ref_bundle_reread_no_gain:{same_ref_bundle_reread_no_gain_streak}")
     if same_item_same_ref_bundle_stall_streak >= 3:
         flags.append(f"same_item_same_ref_bundle_stall:{same_item_same_ref_bundle_stall_streak}")
+    if same_item_hydrate_churn_no_gain_streak >= 3:
+        flags.append(f"same_item_hydrate_churn_no_gain:{same_item_hydrate_churn_no_gain_streak}")
+    if closed_candidate_units_missing_determined_value_count > 0:
+        flags.append(
+            f"closed_candidate_unit_missing_determined_value:{closed_candidate_units_missing_determined_value_count}"
+        )
+    if closed_value_units_missing_evidence_count > 0:
+        flags.append(
+            f"closed_value_unit_missing_evidence:{closed_value_units_missing_evidence_count}"
+        )
+    if earned_units_missing_verification_basis_count > 0:
+        flags.append(
+            f"earned_unit_missing_verification_basis:{earned_units_missing_verification_basis_count}"
+        )
     if resolution_item_count >= 3 and success_condition_count == 0:
         flags.append(
             f"success_conditions_empty_with_resolution_items:{resolution_item_count}"
@@ -612,7 +737,7 @@ def _mechanical_flags(
         flags.append(f"blocking_items_without_relations:{blocking_items_without_relations_count}")
     if not closure_ready_to_close and complete_run_blockers:
         flags.append("complete_run_blockers_present")
-    return flags[:10]
+    return flags[:16]
 
 
 def _stable_signature(value: Any) -> str:

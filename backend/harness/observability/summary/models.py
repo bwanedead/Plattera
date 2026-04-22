@@ -108,6 +108,11 @@ class PromptObservabilitySummary(BaseModel):
     repeated_complete_run_without_state_change_count: int = Field(default=0, ge=0)
     same_ref_bundle_reread_no_gain_streak: int = Field(default=0, ge=0)
     same_item_same_ref_bundle_stall_streak: int = Field(default=0, ge=0)
+    same_item_hydrate_churn_no_gain_streak: int = Field(default=0, ge=0)
+    covered_units_with_candidates_count: int = Field(default=0, ge=0)
+    closed_candidate_units_missing_determined_value_count: int = Field(default=0, ge=0)
+    closed_value_units_missing_evidence_count: int = Field(default=0, ge=0)
+    earned_units_missing_verification_basis_count: int = Field(default=0, ge=0)
     success_condition_count: int = Field(default=0, ge=0)
     success_conditions_with_earned_determination_count: int = Field(default=0, ge=0)
     success_conditions_with_verification_basis_count: int = Field(default=0, ge=0)
@@ -139,7 +144,7 @@ class PromptObservabilitySummary(BaseModel):
     closure_readiness_projection: ClosureReadinessProjection = Field(
         default_factory=ClosureReadinessProjection
     )
-    mechanical_flags: list[str] = Field(default_factory=list, max_length=12)
+    mechanical_flags: list[str] = Field(default_factory=list, max_length=16)
 
 
 class SharedRunSummaryEnvelope(BaseModel):

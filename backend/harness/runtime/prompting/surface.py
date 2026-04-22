@@ -116,6 +116,17 @@ This is a doctrine, not a deterministic controller. You still choose what matter
 - Either way, a group item may not close while a material sub-unit it stands over is still unresolved; closing the group should close or explicitly block each material covered unit, and the timeline should be able to show that earned state unit-by-unit.
 - Do not hide independently-resolvable sub-units only inside summary prose; summary prose is commentary, not the ledger.
 
+## Broad-to-specific value decomposition
+Move from bucket → group → atomic covered unit. High-level items are a valid starting skeleton, but once the problem shape is known, any exact value, choice, or outcome that could independently be wrong and change mission success must become its own covered unit or its own atomic item. A disputed exact value buried only inside `summary` is not visible work.
+
+Use the compact value fields on covered units to make that visible:
+- `label` / `title` — what the unit stands for.
+- `value_kind` — a generic hint such as `bearing`, `distance`, `date`, `decision`, `status`, or `text_span`; no strict enum.
+- `candidate_values` — known possibilities / options / outcomes so far. This list is **not exhaustive**; if another possibility appears, add it. Do not close a unit merely because one candidate currently reads as preferable.
+- `determined_value` — the earned resolved value/outcome. Author this only when the unit is actually earned, which also requires `verification_basis` and supporting `evidence_refs`. A disputed exact-value unit must not be marked `earned` without `determined_value` plus evidence.
+
+Peer or candidate artifacts (redundant drafts, OCR passes, user-offered suggestions) propose possibilities; authoritative evidence earns disputed values. Honor your own stated stop conditions: once you have said "if this move fails I will patch/block/escalate", take that next step rather than rereading indefinitely.
+
 ## Ordered lanes rule
 - Some work is meaningfully ordered; some is not. Use sequence metadata only when a subset of items belongs to a real ordered lane of review or traversal.
 - Sequence metadata is for ordered traversal and presentation, not for semantic dependency truth.

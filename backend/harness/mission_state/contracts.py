@@ -51,6 +51,10 @@ class ResolutionCoveredUnit(BaseModel):
     next_needed_step: str | None = Field(default=None, max_length=400)
     evidence_refs: list[str] = Field(default_factory=list, max_length=24)
     materiality: str | None = Field(default=None, max_length=32)
+    label: str | None = Field(default=None, max_length=128)
+    value_kind: str | None = Field(default=None, max_length=64)
+    candidate_values: list[str] = Field(default_factory=list, max_length=16)
+    determined_value: str | None = Field(default=None, max_length=400)
     opaque_payload: dict[str, Any] = Field(default_factory=dict)
 
 

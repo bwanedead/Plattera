@@ -390,6 +390,70 @@ def test_timeline_renders_covered_units_per_resolution_item(tmp_path: Path) -> N
     assert "p1-call-2-distance | open | unassessed" in body
 
 
+def test_timeline_renders_covered_unit_work_graph_value_fields(tmp_path: Path) -> None:
+    writer = RunAuditWriter(tmp_path / "run1")
+    writer.observe_llm_io({"turn_index": 1, "parse_ok": True})
+    writer.observe_turn_completed(
+        {
+            "turn_index": 1,
+            "tool_request": None,
+            "tool_result_raw": None,
+            "resolution_state_after": {
+                "items": [
+                    {
+                        "item_id": "parcel1-operative-call-group-source-verification",
+                        "title": "Parcel 1 operative call group",
+                        "kind": "claim_group",
+                        "status": "in_review",
+                        "structure_kind": "group",
+                        "covered_units": [
+                            {
+                                "unit_id": "p1-nw-bearing",
+                                "title": "NW corner bearing",
+                                "label": "NW corner bearing",
+                                "value_kind": "bearing",
+                                "status": "open",
+                                "candidate_values": ["N.2\u00b000'W.", "N.4\u00b000'W."],
+                                "materiality": "mapping_critical",
+                            },
+                            {
+                                "unit_id": "p1-nw-distance",
+                                "title": "NW corner distance",
+                                "label": "NW corner distance",
+                                "value_kind": "distance",
+                                "status": "closed",
+                                "determination": "earned",
+                                "determined_value": "1638 feet",
+                                "evidence_refs": ["image:derived:crop-nw"],
+                                "verification_basis": "Crop confirms the distance is 1638 feet.",
+                            },
+                        ],
+                    }
+                ],
+            },
+            "latest_refs_after": {},
+            "state_patch_feedback": {"outcome": "applied"},
+        }
+    )
+    body = _timeline_path(tmp_path / "run1").read_text(encoding="utf-8")
+    # Covered-unit prose/value fields still surface under Resolution Items.
+    assert "value_kind:bearing" in body
+    assert "candidate_values:" in body
+    assert "N.2\u00b000'W." in body
+    assert "1638 feet" in body
+    assert "materiality:mapping_critical" in body
+    assert "label: NW corner bearing" in body
+    # Work Graph compact projection.
+    assert "Work Graph" in body
+    assert "parcel1-operative-call-group-source-verification" in body
+    assert "NW corner bearing (p1-nw-bearing)" in body
+    assert "candidates: N.2\u00b000'W.; N.4\u00b000'W." in body
+    assert "determined: none" in body
+    assert "NW corner distance (p1-nw-distance)" in body
+    assert "determined: 1638 feet" in body
+    assert "evidence: image:derived:crop-nw" in body
+
+
 def test_timeline_renders_saved_artifact_payload_section(tmp_path: Path) -> None:
     writer = RunAuditWriter(tmp_path / "run1")
     draft_payload = {
@@ -454,6 +518,37 @@ def test_timeline_renders_saved_artifact_payload_section(tmp_path: Path) -> None
     assert "Range 75 governs" in body
     assert "evidence_refs:" in body
     assert "image:assoc:tx-1:original" in body
+
+
+def test_timeline_renders_saved_artifact_payload_with_plain_string_transcripts(tmp_path: Path) -> None:
+    writer = RunAuditWriter(tmp_path / "run1")
+    draft_payload = {
+        "source_transcript_verbatim": "Parcel 1: Township 5 North, Range 75 West; thence from NW corner...",
+        "normalized_or_mapping_transcript": "Parcel 1: T5N R75W; from NW corner E 100 ft...",
+    }
+    writer.observe_turn_completed(
+        {
+            "turn_index": 2,
+            "tool_request": {
+                "action_type": "save_workspace_artifact",
+                "action_inputs": {"draft_payload": draft_payload, "rationale": "save"},
+            },
+            "tool_result_raw": {
+                "execution_state": "executed",
+                "outputs": {"artifact_kind": "transcript_edit_working"},
+                "artifact_refs": ["transcript_edit:working:rev:0002"],
+                "refusal": None,
+            },
+            "state_patch_feedback": {"outcome": "applied"},
+        }
+    )
+    body = _timeline_path(tmp_path / "run1").read_text(encoding="utf-8")
+    assert "source_transcript_verbatim.text:" in body
+    assert "Range 75 West" in body
+    assert "normalized_or_mapping_transcript.text:" in body
+    assert "T5N R75W" in body
+    assert "source_transcript_verbatim.text: none" not in body
+    assert "normalized_or_mapping_transcript.text: none" not in body
 
 
 def test_timeline_rewrites_earlier_turn_sections_when_updated(tmp_path: Path) -> None:

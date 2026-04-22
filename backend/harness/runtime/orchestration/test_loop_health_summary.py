@@ -10,6 +10,7 @@ from harness.mission_state import (
     ClosureDimension,
     ClosureState,
     MissionSuccessCondition,
+    ResolutionCoveredUnit,
     ResolutionItem,
     ResolutionRelation,
     new_mission_state,
@@ -99,6 +100,7 @@ def _item(
     evidence_refs: list[str] | None = None,
     sequence_scope: str | None = None,
     sequence_index: int | None = None,
+    covered_units: list[ResolutionCoveredUnit] | None = None,
 ) -> ResolutionItem:
     return ResolutionItem(
         item_id=item_id,
@@ -116,6 +118,7 @@ def _item(
         evidence_refs=list(evidence_refs or []),
         sequence_scope=sequence_scope,
         sequence_index=sequence_index,
+        covered_units=list(covered_units or []),
     )
 
 
@@ -385,6 +388,10 @@ def _flags(**kwargs) -> list[str]:
         repeated_complete_run_without_state_change_count=0,
         same_ref_bundle_reread_no_gain_streak=0,
         same_item_same_ref_bundle_stall_streak=0,
+        same_item_hydrate_churn_no_gain_streak=0,
+        closed_candidate_units_missing_determined_value_count=0,
+        closed_value_units_missing_evidence_count=0,
+        earned_units_missing_verification_basis_count=0,
         sequenced_items_missing_scope_count=0,
         sequenced_items_missing_index_count=0,
         duplicate_sequence_positions_count=0,
@@ -554,6 +561,32 @@ def test_flags_same_item_same_ref_bundle_stall() -> None:
 def test_flags_same_item_same_ref_bundle_stall_below_threshold() -> None:
     result = _flags(same_item_same_ref_bundle_stall_streak=2)
     assert not any(f.startswith("same_item_same_ref_bundle_stall") for f in result)
+
+
+def test_flags_same_item_hydrate_churn_no_gain_at_threshold() -> None:
+    result = _flags(same_item_hydrate_churn_no_gain_streak=3)
+    assert "same_item_hydrate_churn_no_gain:3" in result
+
+
+def test_flags_same_item_hydrate_churn_below_threshold() -> None:
+    result = _flags(same_item_hydrate_churn_no_gain_streak=2)
+    assert not any(f.startswith("same_item_hydrate_churn_no_gain") for f in result)
+
+
+def test_flags_closed_candidate_unit_missing_determined_value() -> None:
+    result = _flags(closed_candidate_units_missing_determined_value_count=2)
+    assert "closed_candidate_unit_missing_determined_value:2" in result
+
+
+def test_flags_closed_value_unit_missing_evidence() -> None:
+    result = _flags(closed_value_units_missing_evidence_count=1)
+    assert "closed_value_unit_missing_evidence:1" in result
+
+
+
+def test_flags_earned_unit_missing_verification_basis() -> None:
+    result = _flags(earned_units_missing_verification_basis_count=3)
+    assert "earned_unit_missing_verification_basis:3" in result
 
 
 # ---------------------------------------------------------------------------
@@ -807,6 +840,40 @@ def test_summary_counts_closure_dimensions() -> None:
     assert result["closure_dimension_count"] == 2
     assert result["closed_dimensions_without_earned_determination_count"] == 1
     assert result["closed_dimensions_without_basis_count"] == 1
+
+
+def test_group_item_with_covered_units_counts_as_decomposed() -> None:
+    """A group item that carries covered_units should not be flagged as missing subclaims."""
+    covered = [
+        ResolutionCoveredUnit(unit_id="u1", title="sub-a"),
+        ResolutionCoveredUnit(unit_id="u2", title="sub-b"),
+    ]
+    items = [
+        _item("group-via-covered", status="open", structure_kind="group", covered_units=covered),
+        _item("group-bare", status="open", structure_kind="group"),
+    ]
+    mem = _mem(resolution_items=items)
+    result = build_prompt_observability_summary(mem)
+    assert result["group_item_count"] == 2
+    assert result["group_items_without_subclaims_count"] == 1
+
+
+def test_determined_value_without_evidence_flags_missing_evidence_even_without_candidates() -> None:
+    """Closed/earned units with determined_value must have evidence_refs regardless of candidates."""
+    covered_no_candidates = [
+        ResolutionCoveredUnit(
+            unit_id="u-exact",
+            title="exact-value",
+            status="closed",
+            determination="earned",
+            determined_value="1638 feet",
+            # no candidate_values, no evidence_refs — the exact loophole
+        ),
+    ]
+    items = [_item("parent", status="open", covered_units=covered_no_candidates)]
+    mem = _mem(resolution_items=items)
+    result = build_prompt_observability_summary(mem)
+    assert result["closed_value_units_missing_evidence_count"] == 1
 
 
 def test_summary_closure_readiness_projection_populated_from_policy() -> None:

@@ -37,6 +37,42 @@ def test_resolution_item_default_covered_units_is_empty_list() -> None:
     assert item.covered_units == []
 
 
+def test_covered_unit_accepts_work_graph_value_fields() -> None:
+    unit = ResolutionCoveredUnit.model_validate(
+        {
+            "unit_id": "u1",
+            "title": "NW corner bearing",
+            "label": "nw-bearing",
+            "value_kind": "bearing",
+            "candidate_values": ["N 2° 00' W", "N 4° 00' W"],
+            "determined_value": "N 4° 00' W",
+        }
+    )
+    assert unit.label == "nw-bearing"
+    assert unit.value_kind == "bearing"
+    assert unit.candidate_values == ["N 2° 00' W", "N 4° 00' W"]
+    assert unit.determined_value == "N 4° 00' W"
+
+
+def test_covered_unit_defaults_for_value_fields_are_empty_or_none() -> None:
+    unit = ResolutionCoveredUnit.model_validate({"unit_id": "u1", "title": "U One"})
+    assert unit.label is None
+    assert unit.value_kind is None
+    assert unit.candidate_values == []
+    assert unit.determined_value is None
+
+
+def test_covered_unit_candidate_values_has_max_length() -> None:
+    with pytest.raises(ValidationError):
+        ResolutionCoveredUnit.model_validate(
+            {
+                "unit_id": "u1",
+                "title": "U One",
+                "candidate_values": [f"v{i}" for i in range(17)],
+            }
+        )
+
+
 def test_resolution_item_accepts_covered_units_list() -> None:
     item = ResolutionItem.model_validate(
         {

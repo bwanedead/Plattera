@@ -105,6 +105,7 @@ def _render_turn(turn: Mapping[str, Any]) -> list[str]:
     out.extend(_render_hitl(turn))
     out.extend(_render_mission_snapshot(turn))
     out.extend(_render_resolution(turn))
+    out.extend(_render_work_graph(turn))
     out.extend(_render_closure(turn))
     out.extend(_render_observability(turn))
     return out
@@ -271,8 +272,12 @@ def _render_saved_artifact(turn: Mapping[str, Any]) -> list[str]:
         lines.append(f"  artifact_kind: {artifact_kind}")
 
     if isinstance(draft_payload, Mapping):
-        verbatim = _coerce_mapping(draft_payload.get("source_transcript_verbatim"))
-        verbatim_text = verbatim.get("text") if verbatim else None
+        verbatim_raw = draft_payload.get("source_transcript_verbatim")
+        if isinstance(verbatim_raw, str):
+            verbatim_text: str | None = verbatim_raw
+        else:
+            verbatim = _coerce_mapping(verbatim_raw)
+            verbatim_text = verbatim.get("text") if verbatim else None
         if isinstance(verbatim_text, str) and verbatim_text.strip():
             lines.append("  source_transcript_verbatim.text:")
             lines.extend(
@@ -281,8 +286,12 @@ def _render_saved_artifact(turn: Mapping[str, Any]) -> list[str]:
         else:
             lines.append("  source_transcript_verbatim.text: none")
 
-        mapping_view = _coerce_mapping(draft_payload.get("normalized_or_mapping_transcript"))
-        mapping_text = mapping_view.get("text") if mapping_view else None
+        mapping_raw = draft_payload.get("normalized_or_mapping_transcript")
+        if isinstance(mapping_raw, str):
+            mapping_text: str | None = mapping_raw
+        else:
+            mapping_view = _coerce_mapping(mapping_raw)
+            mapping_text = mapping_view.get("text") if mapping_view else None
         if isinstance(mapping_text, str) and mapping_text.strip():
             lines.append("  normalized_or_mapping_transcript.text:")
             lines.extend(
@@ -475,12 +484,28 @@ def _render_covered_unit(unit: Mapping[str, Any]) -> list[str]:
     header_parts = [f"      - {unit_id} | {status} | {determination}"]
     if unit.get("kind"):
         header_parts.append(f"kind:{unit['kind']}")
+    if unit.get("value_kind"):
+        header_parts.append(f"value_kind:{unit['value_kind']}")
     if unit.get("materiality"):
         header_parts.append(f"materiality:{unit['materiality']}")
     lines = [" | ".join(header_parts)]
+    label = unit.get("label")
+    if isinstance(label, str) and label.strip():
+        lines.append(f"        label: {label}")
     title = unit.get("title")
     if isinstance(title, str) and title.strip():
         lines.append(f"        title: {title}")
+    candidates = unit.get("candidate_values")
+    if isinstance(candidates, list) and candidates:
+        lines.append("        candidate_values:")
+        for cv in candidates[:16]:
+            lines.append(f"          - {cv}")
+    determined_value = unit.get("determined_value")
+    if isinstance(determined_value, str) and determined_value.strip():
+        lines.append("        determined_value:")
+        lines.extend(
+            _indented_prose(_bound_text(determined_value, PROSE_MAX_CHARS), indent="          ")
+        )
     for prose_key in ("summary", "verification_basis", "next_needed_step"):
         value = unit.get(prose_key)
         if isinstance(value, str) and value.strip():
@@ -496,6 +521,79 @@ def _render_covered_unit(unit: Mapping[str, Any]) -> list[str]:
         lines.extend(
             _labeled_json_block("        opaque_payload:", opaque, PROSE_MAX_CHARS, indent="          ")
         )
+    return lines
+
+
+def _render_work_graph(turn: Mapping[str, Any]) -> list[str]:
+    """Compact work-graph projection from resolution.items + covered_units.
+
+    Pure renderer. No host semantic conclusions. Shows each resolution item as a
+    parent row and each covered_unit as an indented compact row with value-bearing
+    fields (label/title, status, determination, candidate_values, determined_value,
+    evidence_refs, next_needed_step).
+    """
+    resolution = _coerce_mapping(turn.get("resolution_state_after")) or _coerce_mapping(
+        turn.get("resolution_state_before")
+    )
+    if not resolution:
+        return []
+    items = resolution.get("items") or []
+    if not isinstance(items, list) or not items:
+        return []
+    lines: list[str] = ["Work Graph"]
+    for item in items:
+        item = _coerce_mapping(item)
+        item_id = item.get("item_id") or "?"
+        item_kind = item.get("structure_kind") or item.get("kind") or "?"
+        item_status = item.get("status") or "?"
+        header_parts = [f"  - {item_id} | {item_kind} | {item_status}"]
+        if item.get("determination"):
+            header_parts.append(f"determination:{item['determination']}")
+        if item.get("blocking"):
+            header_parts.append("blocking:true")
+        lines.append(" | ".join(header_parts))
+        label_or_title = item.get("title") or item.get("item_id")
+        if isinstance(label_or_title, str) and label_or_title.strip():
+            lines.append(f"      title: {label_or_title}")
+        covered_units = item.get("covered_units")
+        if isinstance(covered_units, list) and covered_units:
+            for unit in covered_units:
+                unit = _coerce_mapping(unit)
+                lines.extend(_render_work_graph_unit(unit))
+    lines.append("")
+    return lines
+
+
+def _render_work_graph_unit(unit: Mapping[str, Any]) -> list[str]:
+    unit_id = unit.get("unit_id") or "?"
+    label = unit.get("label") or unit.get("title") or unit_id
+    status = unit.get("status") or "?"
+    header_parts = [f"    * {label} ({unit_id}) | {status}"]
+    if unit.get("determination"):
+        header_parts.append(f"determination:{unit['determination']}")
+    if unit.get("value_kind"):
+        header_parts.append(f"value_kind:{unit['value_kind']}")
+    lines = [" | ".join(header_parts)]
+    candidates = unit.get("candidate_values")
+    if isinstance(candidates, list) and candidates:
+        joined = "; ".join(str(c) for c in candidates[:16])
+        lines.append(f"        candidates: {joined}")
+    else:
+        lines.append("        candidates: none")
+    determined = unit.get("determined_value")
+    if isinstance(determined, str) and determined.strip():
+        lines.append(f"        determined: {_bound_text(determined, 240)}")
+    else:
+        lines.append("        determined: none")
+    refs = unit.get("evidence_refs")
+    if isinstance(refs, list) and refs:
+        joined_refs = ", ".join(str(r) for r in refs[:8])
+        lines.append(f"        evidence: {joined_refs}")
+    else:
+        lines.append("        evidence: none")
+    next_step = unit.get("next_needed_step")
+    if isinstance(next_step, str) and next_step.strip():
+        lines.append(f"        next: {_bound_text(next_step, 240)}")
     return lines
 
 

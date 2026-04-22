@@ -90,6 +90,32 @@ def test_choose_action_instruction_teaches_covered_units_merge_and_group_rule() 
     assert "covered-unit fields" in lowered
 
 
+def test_choose_action_instruction_teaches_covered_unit_value_fields() -> None:
+    text = CHOOSE_ACTION_INSTRUCTION
+    lowered = text.lower()
+    assert "label" in text and "value_kind" in text
+    assert "candidate_values" in text
+    assert "determined_value" in text
+    assert "not exhaustive" in lowered
+    assert "if another possibility appears, add it" in lowered
+    assert "authoritative evidence earns disputed values" in lowered
+    assert "bucket" in lowered and "group" in lowered and "atomic covered unit" in lowered
+    assert "if this fails i will patch/block/escalate" in lowered or "stop condition" in lowered
+
+
+def test_surface_teaches_broad_to_specific_value_decomposition() -> None:
+    from harness.runtime.prompting.surface import _HARNESS_TRUNK_METHOD_TEXT
+    text = _HARNESS_TRUNK_METHOD_TEXT
+    lowered = text.lower()
+    assert "broad-to-specific value decomposition" in lowered
+    assert "candidate_values" in text
+    assert "determined_value" in text
+    assert "value_kind" in text
+    assert "not exhaustive" in lowered
+    assert "authoritative evidence earns disputed values" in lowered
+    assert "patch/block/escalate" in lowered or "stop condition" in lowered
+
+
 def test_surface_teaches_group_covered_units_rule() -> None:
     from harness.runtime.prompting.surface import _HARNESS_TRUNK_METHOD_TEXT
     text = _HARNESS_TRUNK_METHOD_TEXT.lower()

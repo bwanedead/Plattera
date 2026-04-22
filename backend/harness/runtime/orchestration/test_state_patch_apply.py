@@ -851,3 +851,106 @@ def test_covered_units_new_unit_requires_unit_id_and_title() -> None:
     )
     assert skips2["resolution"]["items"].get("validation_failed", 0) == 1
     assert rs3.items == []
+
+
+def test_covered_units_accept_work_graph_value_fields_and_overlay() -> None:
+    ms, rs = _base_states()
+    _, rs2, _ = apply_state_patch(
+        mission_state=ms,
+        resolution_state=rs,
+        state_patch={
+            "resolution": {
+                "items": [
+                    {
+                        "item_id": "g1",
+                        "title": "Group",
+                        "kind": "claim_group",
+                        "status": "open",
+                        "covered_units": [
+                            {
+                                "unit_id": "u1",
+                                "title": "NW bearing",
+                                "label": "nw-bearing",
+                                "value_kind": "bearing",
+                                "candidate_values": ["N 2 W", "N 4 W"],
+                                "status": "open",
+                            }
+                        ],
+                    }
+                ],
+            }
+        },
+    )
+    unit = rs2.items[0].covered_units[0]
+    assert unit.label == "nw-bearing"
+    assert unit.value_kind == "bearing"
+    assert unit.candidate_values == ["N 2 W", "N 4 W"]
+    assert unit.determined_value is None
+
+    # Sparse patch: only unit_id + determined_value; other fields preserved.
+    _, rs3, _ = apply_state_patch(
+        mission_state=ms,
+        resolution_state=rs2,
+        state_patch={
+            "resolution": {
+                "items": [
+                    {
+                        "item_id": "g1",
+                        "covered_units": [
+                            {"unit_id": "u1", "determined_value": "N 4 W"}
+                        ],
+                    }
+                ],
+            }
+        },
+    )
+    unit3 = rs3.items[0].covered_units[0]
+    assert unit3.determined_value == "N 4 W"
+    assert unit3.label == "nw-bearing"
+    assert unit3.value_kind == "bearing"
+    assert unit3.candidate_values == ["N 2 W", "N 4 W"]
+    assert unit3.title == "NW bearing"
+
+
+def test_covered_units_candidate_values_replaced_when_supplied() -> None:
+    ms, rs = _base_states()
+    _, rs2, _ = apply_state_patch(
+        mission_state=ms,
+        resolution_state=rs,
+        state_patch={
+            "resolution": {
+                "items": [
+                    {
+                        "item_id": "g1",
+                        "title": "Group",
+                        "kind": "claim_group",
+                        "status": "open",
+                        "covered_units": [
+                            {
+                                "unit_id": "u1",
+                                "title": "U One",
+                                "candidate_values": ["a", "b"],
+                            }
+                        ],
+                    }
+                ],
+            }
+        },
+    )
+    _, rs3, _ = apply_state_patch(
+        mission_state=ms,
+        resolution_state=rs2,
+        state_patch={
+            "resolution": {
+                "items": [
+                    {
+                        "item_id": "g1",
+                        "covered_units": [
+                            {"unit_id": "u1", "candidate_values": ["a", "b", "c"]}
+                        ],
+                    }
+                ],
+            }
+        },
+    )
+    assert rs3.items[0].covered_units[0].candidate_values == ["a", "b", "c"]
