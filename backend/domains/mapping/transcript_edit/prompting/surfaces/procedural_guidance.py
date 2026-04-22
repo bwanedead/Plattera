@@ -10,7 +10,7 @@ from ..branch import TRANSCRIPT_EDIT_DOMAIN_ID
 TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_SOURCE_REF = (
     "backend/domains/mapping/transcript_edit/prompting/surfaces/procedural_guidance.py"
 )
-TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_VERSION = "v16"
+TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_VERSION = "v17"
 
 TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_TEXT = """\
 Use this guidance to shape your movement through transcript-edit work. This is **guidance**, not a hard script. The harness still owns orchestration. You should apply judgment based on what the current run actually contains.
@@ -113,6 +113,18 @@ Preferred sequence:
 
 The goal is that the human sees the exact evidence and the exact disputed region with minimal effort.
 When bounded choices are appropriate, include a safe non-forcing option such as `Unable to determine` or `Other / needs nuance`.
+
+## Expected saved payload shape
+When you call `save_workspace_artifact` with a transcript-edit working or output draft, structure `draft_payload` so the artifact is a source-faithful transcript artifact first and a handoff-metadata carrier second:
+
+- `source_transcript_verbatim` — the full available verbatim transcript of the source. Preserve source wording, source contradictions, source punctuation, and mark any missing continuation inline at the cutoff point. This is the **first output obligation** and must not be silently mutated by adjudications.
+- `normalized_or_mapping_transcript` — the corrected / mapping view that applies HITL adjudications and normalizations. Clearly labeled as non-verbatim. Do not let this view replace the verbatim view.
+- `issues` — unresolved Layer 1 / 2 / 3 concerns with scope and mapping-blocking judgment; mirrors the resolution ledger.
+- `parcel_metadata` — per-parcel scope, forwardability, adjudicated identifiers (for example: if HITL decides Range 75 is the governing range even though parcel body text says Range 74, record the adjudicated value here; do not overwrite the verbatim).
+- `hitl_decisions` — human adjudications consumed, with citations.
+- `evidence_refs` — source image refs and derived refs that back the above.
+
+Omit keys that genuinely do not apply yet (e.g., `hitl_decisions` before any HITL has been consumed). Do not omit `source_transcript_verbatim` as a convenience — saving parcel-scoped notes without the verbatim transcript is not a legitimate transcript-edit artifact.
 
 ## What not to do
 - Do not treat one peer draft as the implicit winner because it reads best.

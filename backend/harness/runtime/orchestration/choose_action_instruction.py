@@ -76,12 +76,18 @@ Do not put latest_refs_summary, terminal_summary, or prompt_observability_summar
 Do not copy host-maintained fields such as schema_version or updated_at_epoch_seconds into state_patch.
 
 `resolution.items` may include fields such as:
-`item_id`, `title`, `kind`, `status`, `determination`, `summary`, `verification_basis`, `next_needed_step`, `completion_criteria`, `structure_kind`, `sequence_scope`, `sequence_index`, `blocking`, `requires_hitl`, `no_further_progress`, `dependencies`, `evidence_refs`, `notes`, `materiality`, `scope`, `provenance`, `opaque_payload`.
+`item_id`, `title`, `kind`, `status`, `determination`, `summary`, `verification_basis`, `next_needed_step`, `completion_criteria`, `structure_kind`, `sequence_scope`, `sequence_index`, `blocking`, `requires_hitl`, `no_further_progress`, `dependencies`, `evidence_refs`, `notes`, `materiality`, `scope`, `provenance`, `covered_units`, `opaque_payload`.
 
 `structure_kind` is optional:
 - use `atomic` for the smallest mission-relevant independently-resolvable unit
-- use `group` only when one bounded verification move can honestly verify the whole group
-- if a row uses `structure_kind="group"`, keep its atomic sub-items explicit as separate `resolution.items` and connect them with `resolution.relations` such as `subclaim_of`
+- use `group` only when one bounded verification move can honestly verify the whole group, OR when it is more honest to keep one item that explicitly stands over a small set of sub-units
+- a group item's independently-reviewable sub-units may be authored in one of two shapes — pick whichever is more honest for the case, but do not mix both for the same sub-unit set:
+  - (a) separate atomic `resolution.items`, one per sub-unit, connected to the group via `resolution.relations` such as `subclaim_of`; or
+  - (b) a single group item carrying those sub-units in its `covered_units` list (one-level, non-recursive)
+- shape (a) is preferable when sub-units are large enough to deserve their own full item with independent `status`/`determination`/`summary`/`verification_basis` and cross-linking relations
+- shape (b) is preferable when sub-units are small enough that a one-level sub-ledger on the group captures their earned state cleanly without inflating the top-level item list
+
+`covered_units` is the one-level sub-ledger on a resolution item. It is a generic, non-recursive list of the smallest mission-relevant units the item stands over. Shape: `[{unit_id, title, kind?, status?, summary?, determination?, verification_basis?, next_needed_step?, evidence_refs?, materiality?, opaque_payload?}]`. The runtime merges covered_units by `unit_id`; per-field overlay is applied for existing units, and new units must carry `unit_id` and `title`. Emitting an empty `covered_units` list does not wipe prior units — send only deltas. When a group item actually stands over independently-reviewable sub-units and shape (b) above is the chosen representation, author those sub-units as `covered_units` so each one's earned state is visible, and close or explicitly block each material unit before closing the group. Do not hide critical sub-units only inside summary prose.
 - if order matters, use `sequence_scope` and `sequence_index`, and also author dependency meaning with relations such as `prerequisite_of` or `blocks`
 - sequence metadata helps traversal and presentation; it is not the dependency graph
 - high-impact items should usually prefer atomic representation and the strongest available verification method that materially increases certainty
@@ -118,9 +124,9 @@ Before re-issuing an action on a ref bundle already read recently, name the new 
 `prompt_observability_summary.mechanical_flags` may include `same_ref_bundle_reread_no_gain:N` and `same_item_same_ref_bundle_stall:N`. When either fires, pivoting is mandatory on the next turn — another reread on the same bundle without a concrete new distinction is spin, not investigation.
 
 ### Itemization and per-item resolution
-Before leaving orientation and after any fresh read, make the work explicit: each mission-essential claim, defect, ambiguity, dependency, or deliverable becomes a row in `resolution.items` (atomic) or an honest group node with explicit atomic sub-items linked through `resolution.relations`. Every `mission.success_conditions` row should have at least one item that can earn it.
+Before leaving orientation and after any fresh read, make the work explicit: each mission-essential claim, defect, ambiguity, dependency, or deliverable becomes a row in `resolution.items` (atomic), or an honest group node whose material sub-units are explicit as `covered_units` or separate related items. Every `mission.success_conditions` row should have at least one item that can earn it.
 
-Each `resolution.items` row is a mini-mission: orient to it, run the strongest bounded check available *for that item*, then promote the new distinction into its authored fields (`determination`, `verification_basis`, `completion_criteria`, or split into sub-items). A closed item should be able to answer, in its own fields, what verified it.
+Each `resolution.items` row is a mini-mission: orient to it, run the strongest bounded check available *for that item*, then promote the new distinction into its authored fields or into the relevant `covered_units` row (`status`, `determination`, `summary`, `verification_basis`, `completion_criteria`, or a more granular unit if the check split the claim). A closed item should be able to answer, in its own fields or covered-unit fields, what verified each material unit it stands over.
 """
 
 _HITL_TEXT = """\
@@ -134,22 +140,26 @@ Envelope `hitl_state`, `pending_hitl_requests`, and `answered_hitl_responses` ar
 Use `hitl_request.context` to carry the focused evidence packet the human needs. Preferred keys when relevant: `evidence_refs`, `primary_evidence_ref`, `annotated_evidence_ref`, `question_regions`, and `notes`.
 Before emitting HITL, prefer the most focused evidence packet the current tooling can produce for the disputed item.
 Add `state_patch` only when the HITL turn also needs a durable state delta.
+Ask the smallest question whose answer can be integrated into a specific item or covered unit. If the issue is a choice among alternatives, make the choices direct outcomes (for example: `Use option A`, `Use option B`, `Preserve as unresolved`, `Other / needs nuance`) rather than abstract descriptions that leave the operator guessing what decision is needed.
 When bounded choices could force a false answer, include a safe fallback such as `Unable to determine` or `Other / needs nuance`.
 """
 
 _EXAMPLES_TEXT = """\
 ### Tiny examples (rationale is required on every turn)
 Minimal dispatch:
-`{"action_type":"hydrate_artifact_refs","action_inputs":{"ref_ids":["artifact://1"]},"rationale":"Load artifact://1 to verify the parcel-1 range label against source; if the label matches draft-2, close the range-conflict item, otherwise escalate."}`
+`{"action_type":"hydrate_artifact_refs","action_inputs":{"ref_ids":["artifact://1"]},"rationale":"Load artifact://1 to verify item-a's source value; if it matches the candidate record, close that covered unit, otherwise mark the conflict."}`
 
 Minimal existing-row update:
-`{"state_patch":{"resolution":{"items":[{"item_id":"range-conflict","status":"blocked","requires_hitl":true}]}},"rationale":"Mark range-conflict blocked pending HITL — in-run checks exhausted."}`
+`{"state_patch":{"resolution":{"items":[{"item_id":"value-conflict","status":"blocked","requires_hitl":true}]}},"rationale":"Mark value-conflict blocked pending HITL; in-run checks exhausted."}`
 
 Minimal new row:
-`{"state_patch":{"resolution":{"items":[{"item_id":"item-1","title":"Unverified range","kind":"open_question","status":"open"}]}},"rationale":"Open an explicit item for the unverified range so it is tracked separately from the parcel handoff bucket."}`
+`{"state_patch":{"resolution":{"items":[{"item_id":"item-1","title":"Unverified source value","kind":"open_question","status":"open"}]}},"rationale":"Open an explicit item for the unverified source value so it is tracked separately from the broad handoff bucket."}`
+
+Minimal covered-unit group:
+`{"state_patch":{"resolution":{"items":[{"item_id":"group-1","title":"Verify compact claim group","kind":"verification_group","status":"in_review","structure_kind":"group","covered_units":[{"unit_id":"group-1-unit-a","title":"First material sub-unit","status":"open"},{"unit_id":"group-1-unit-b","title":"Second material sub-unit","status":"open"}]}]}},"rationale":"Track the compact group while keeping each material sub-unit visible for individual outcomes."}`
 
 Minimal HITL:
-`{"wait_for_human":true,"hitl_request":{"message":"Which range governs?","choices":["Range 75 governs","Range 74 governs","Preserve contradiction as unresolved","Other / needs nuance"],"context":{"primary_evidence_ref":"artifact://crop-1","question_regions":["north_range_label"]}},"state_patch":{"resolution":{"items":[{"item_id":"range-conflict","requires_hitl":true,"no_further_progress":true}]}},"rationale":"Source-only checks cannot disambiguate Range 75 vs 74; escalate to human with the focused crop."}`
+`{"wait_for_human":true,"hitl_request":{"message":"Which source value should govern this item?","choices":["Use option A","Use option B","Preserve as unresolved","Other / needs nuance"],"context":{"primary_evidence_ref":"artifact://focused-evidence","question_regions":["disputed_value"]}},"state_patch":{"resolution":{"items":[{"item_id":"value-conflict","requires_hitl":true,"no_further_progress":true}]}},"rationale":"Source-only checks cannot disambiguate the two candidate values; escalate to human with the focused evidence."}`
 
 Minimal complete:
 `{"complete_run":true,"state_patch":{"mission":{"work_universe_posture":"audited"}},"rationale":"Audit sweep confirmed all open items closed or explicitly blocked; promote posture to audited and complete."}`

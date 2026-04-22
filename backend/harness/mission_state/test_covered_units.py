@@ -1,0 +1,54 @@
+"""Validation tests for ``ResolutionCoveredUnit`` and its ``ResolutionItem`` binding."""
+
+from __future__ import annotations
+
+import pytest
+from pydantic import ValidationError
+
+from harness.mission_state import ResolutionCoveredUnit, ResolutionItem
+
+
+def test_covered_unit_requires_unit_id_and_title() -> None:
+    with pytest.raises(ValidationError):
+        ResolutionCoveredUnit.model_validate({"title": "no id"})
+    with pytest.raises(ValidationError):
+        ResolutionCoveredUnit.model_validate({"unit_id": "u1"})
+
+
+def test_covered_unit_allows_optional_fields_to_be_absent() -> None:
+    unit = ResolutionCoveredUnit.model_validate({"unit_id": "u1", "title": "U One"})
+    assert unit.status is None
+    assert unit.determination is None
+    assert unit.evidence_refs == []
+    assert unit.opaque_payload == {}
+
+
+def test_covered_unit_rejects_unknown_fields() -> None:
+    with pytest.raises(ValidationError):
+        ResolutionCoveredUnit.model_validate(
+            {"unit_id": "u1", "title": "U One", "bogus_field": 1}
+        )
+
+
+def test_resolution_item_default_covered_units_is_empty_list() -> None:
+    item = ResolutionItem.model_validate(
+        {"item_id": "i1", "title": "I One", "kind": "claim", "status": "open"}
+    )
+    assert item.covered_units == []
+
+
+def test_resolution_item_accepts_covered_units_list() -> None:
+    item = ResolutionItem.model_validate(
+        {
+            "item_id": "g1",
+            "title": "Group",
+            "kind": "claim_group",
+            "status": "open",
+            "covered_units": [
+                {"unit_id": "u1", "title": "U One", "status": "closed"},
+                {"unit_id": "u2", "title": "U Two"},
+            ],
+        }
+    )
+    assert [u.unit_id for u in item.covered_units] == ["u1", "u2"]
+    assert item.covered_units[0].status == "closed"

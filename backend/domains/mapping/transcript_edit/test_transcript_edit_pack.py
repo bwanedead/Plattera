@@ -505,6 +505,75 @@ def test_procedural_guidance_reinforces_image_observation_recording() -> None:
     assert "moving on" in text or "move" in text or "without recording" in text
 
 
+def test_branch_teaches_verbatim_first_output_contract() -> None:
+    blocks = build_transcript_edit_branch_blocks()
+    text = blocks[0].text
+    lowered = text.lower()
+    assert "transcript-edit output contract" in lowered
+    assert "first output obligation" in lowered
+    assert "verbatim transcript of the source" in lowered
+    assert "parcel segmentation and mapping handoff metadata are secondary" in lowered
+    assert "not replacements for this transcript" in lowered
+    assert "missing continuation" in lowered and "inline" in lowered
+    assert "corrected / mapping view" in lowered
+    assert "must not overwrite the verbatim" in lowered
+
+
+def test_branch_teaches_no_silent_verbatim_mutation_rule() -> None:
+    blocks = build_transcript_edit_branch_blocks()
+    text = blocks[0].text
+    lowered = text.lower()
+    assert "do not silently mutate the verbatim transcript" in lowered
+    assert "range 75" in lowered
+    assert "range 74" in lowered
+    assert "corrected / mapping transcript" in lowered
+    assert "parcel metadata" in lowered
+
+
+def test_branch_teaches_expected_saved_payload_shape() -> None:
+    blocks = build_transcript_edit_branch_blocks()
+    text = blocks[0].text
+    assert "source_transcript_verbatim" in text
+    assert "normalized_or_mapping_transcript" in text
+    assert "issues" in text
+    assert "parcel_metadata" in text
+    assert "hitl_decisions" in text
+    assert "evidence_refs" in text
+
+
+def test_procedural_guidance_teaches_saved_payload_shape() -> None:
+    from domains.mapping.transcript_edit.prompting.surfaces.procedural_guidance import (
+        build_transcript_edit_procedural_guidance_blocks,
+    )
+    blocks = build_transcript_edit_procedural_guidance_blocks()
+    text = blocks[0].text
+    lowered = text.lower()
+    assert "expected saved payload shape" in lowered
+    assert "source_transcript_verbatim" in text
+    assert "normalized_or_mapping_transcript" in text
+    assert "issues" in text
+    assert "parcel_metadata" in text
+    assert "hitl_decisions" in text
+    assert "evidence_refs" in text
+    assert "first output obligation" in lowered
+    assert "not silently mutated" in lowered or "do not omit" in lowered
+
+
+def test_save_tool_spec_mentions_source_faithful_payload_shape() -> None:
+    specs = build_transcript_edit_tool_specs()
+    save_spec = next(s for s in specs if s.tool_id == "save_workspace_artifact")
+    text = save_spec.purpose + " " + save_spec.expected_request_shape
+    lowered = text.lower()
+    assert "source-faithful" in lowered
+    assert "source_transcript_verbatim" in text
+    assert "normalized_or_mapping_transcript" in text
+    assert "issues" in text
+    assert "parcel_metadata" in text
+    assert "hitl_decisions" in text
+    assert "evidence_refs" in text
+    assert "do not silently mutate the verbatim" in lowered
+
+
 def test_procedural_guidance_discourages_fresh_transform_rehydrate_waste() -> None:
     """Procedural guidance should tell the model not to burn a turn re-hydrating a fresh crop."""
     from domains.mapping.transcript_edit.prompting.surfaces.procedural_guidance import (

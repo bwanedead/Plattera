@@ -707,3 +707,147 @@ def test_build_state_patch_feedback_propagates_repair_hint_from_reason_code() ->
 
     fb3 = _build_state_patch_feedback(None, outcome="rejected", iteration=1, reason_code="mission_unknown_keys")
     assert "repair_hint" in fb3
+
+
+def test_covered_units_upsert_by_unit_id_and_overlay_fields() -> None:
+    ms, rs = _base_states()
+    _, rs2, _ = apply_state_patch(
+        mission_state=ms,
+        resolution_state=rs,
+        state_patch={
+            "resolution": {
+                "items": [
+                    {
+                        "item_id": "g1",
+                        "title": "Group",
+                        "kind": "claim_group",
+                        "status": "open",
+                        "structure_kind": "group",
+                        "covered_units": [
+                            {
+                                "unit_id": "g1-u1",
+                                "title": "Unit one",
+                                "status": "open",
+                                "verification_basis": "BASIS_ONE",
+                                "evidence_refs": ["artifact://e1"],
+                            },
+                            {
+                                "unit_id": "g1-u2",
+                                "title": "Unit two",
+                                "status": "open",
+                            },
+                        ],
+                    }
+                ],
+            }
+        },
+    )
+    assert len(rs2.items[0].covered_units) == 2
+    assert rs2.items[0].covered_units[0].unit_id == "g1-u1"
+
+    # Per-field overlay on one unit; other unit and omitted fields unchanged.
+    _, rs3, _ = apply_state_patch(
+        mission_state=ms,
+        resolution_state=rs2,
+        state_patch={
+            "resolution": {
+                "items": [
+                    {
+                        "item_id": "g1",
+                        "covered_units": [
+                            {
+                                "unit_id": "g1-u1",
+                                "status": "closed",
+                                "determination": "earned",
+                            }
+                        ],
+                    }
+                ],
+            }
+        },
+    )
+    units = {u.unit_id: u for u in rs3.items[0].covered_units}
+    assert units["g1-u1"].status == "closed"
+    assert units["g1-u1"].determination == "earned"
+    assert units["g1-u1"].title == "Unit one"
+    assert units["g1-u1"].verification_basis == "BASIS_ONE"
+    assert units["g1-u1"].evidence_refs == ["artifact://e1"]
+    assert units["g1-u2"].status == "open"
+    assert units["g1-u2"].title == "Unit two"
+
+
+def test_covered_units_empty_list_does_not_wipe_prior_units() -> None:
+    ms, rs = _base_states()
+    _, rs2, _ = apply_state_patch(
+        mission_state=ms,
+        resolution_state=rs,
+        state_patch={
+            "resolution": {
+                "items": [
+                    {
+                        "item_id": "g1",
+                        "title": "Group",
+                        "kind": "claim_group",
+                        "status": "open",
+                        "covered_units": [
+                            {"unit_id": "u1", "title": "U One"},
+                        ],
+                    }
+                ],
+            }
+        },
+    )
+    _, rs3, _ = apply_state_patch(
+        mission_state=ms,
+        resolution_state=rs2,
+        state_patch={"resolution": {"items": [{"item_id": "g1", "covered_units": []}]}},
+    )
+    assert [u.unit_id for u in rs3.items[0].covered_units] == ["u1"]
+
+
+def test_covered_units_new_unit_requires_unit_id_and_title() -> None:
+    ms, rs = _base_states()
+    _, rs2, skips = apply_state_patch(
+        mission_state=ms,
+        resolution_state=rs,
+        state_patch={
+            "resolution": {
+                "items": [
+                    {
+                        "item_id": "g1",
+                        "title": "Group",
+                        "kind": "claim_group",
+                        "status": "open",
+                        "covered_units": [
+                            {"unit_id": "", "title": "No id"},
+                        ],
+                    }
+                ],
+            }
+        },
+    )
+    # Whole item row was skipped due to invalid covered_unit.
+    assert skips["resolution"]["items"].get("validation_failed", 0) == 1
+    assert rs2.items == []
+
+    _, rs3, skips2 = apply_state_patch(
+        mission_state=ms,
+        resolution_state=rs,
+        state_patch={
+            "resolution": {
+                "items": [
+                    {
+                        "item_id": "g1",
+                        "title": "Group",
+                        "kind": "claim_group",
+                        "status": "open",
+                        "covered_units": [
+                            {"unit_id": "u1"},  # missing title
+                        ],
+                    }
+                ],
+            }
+        },
+    )
+    assert skips2["resolution"]["items"].get("validation_failed", 0) == 1
+    assert rs3.items == []

@@ -100,6 +100,7 @@ def _render_turn(turn: Mapping[str, Any]) -> list[str]:
     out.extend(_render_repair(turn))
     out.extend(_render_action(turn))
     out.extend(_render_tool_result(turn))
+    out.extend(_render_saved_artifact(turn))
     out.extend(_render_state_patch(turn))
     out.extend(_render_hitl(turn))
     out.extend(_render_mission_snapshot(turn))
@@ -236,6 +237,80 @@ def _render_tool_result(turn: Mapping[str, Any]) -> list[str]:
     image_evidence = result.get("image_evidence") or []
     if isinstance(image_evidence, list) and image_evidence:
         lines.append(f"  image_evidence_count: {len(image_evidence)}")
+    lines.append("")
+    return lines
+
+
+def _render_saved_artifact(turn: Mapping[str, Any]) -> list[str]:
+    tool_request = _coerce_mapping(turn.get("tool_request"))
+    parsed = _coerce_mapping(turn.get("parsed_action_plan"))
+    action_type = tool_request.get("action_type") or parsed.get("action_type")
+    if action_type != "save_workspace_artifact":
+        return []
+    inputs = _coerce_mapping(tool_request.get("action_inputs")) or _coerce_mapping(
+        parsed.get("action_inputs")
+    )
+    if not inputs:
+        return []
+    draft_payload = inputs.get("draft_payload")
+    transcript_text = inputs.get("transcript_text")
+    result = _coerce_mapping(turn.get("tool_result_raw"))
+    artifact_refs = result.get("artifact_refs") or []
+
+    lines: list[str] = ["Saved Artifact"]
+    if isinstance(artifact_refs, list) and artifact_refs:
+        lines.append("  ref_ids:")
+        for ref in artifact_refs[:16]:
+            lines.append(f"    - {ref}")
+    else:
+        lines.append("  ref_ids: none")
+
+    outputs = _coerce_mapping(result.get("outputs"))
+    artifact_kind = outputs.get("artifact_kind") or outputs.get("kind")
+    if artifact_kind:
+        lines.append(f"  artifact_kind: {artifact_kind}")
+
+    if isinstance(draft_payload, Mapping):
+        verbatim = _coerce_mapping(draft_payload.get("source_transcript_verbatim"))
+        verbatim_text = verbatim.get("text") if verbatim else None
+        if isinstance(verbatim_text, str) and verbatim_text.strip():
+            lines.append("  source_transcript_verbatim.text:")
+            lines.extend(
+                _indented_prose(_bound_text(verbatim_text, PROSE_MAX_CHARS), indent="    ")
+            )
+        else:
+            lines.append("  source_transcript_verbatim.text: none")
+
+        mapping_view = _coerce_mapping(draft_payload.get("normalized_or_mapping_transcript"))
+        mapping_text = mapping_view.get("text") if mapping_view else None
+        if isinstance(mapping_text, str) and mapping_text.strip():
+            lines.append("  normalized_or_mapping_transcript.text:")
+            lines.extend(
+                _indented_prose(_bound_text(mapping_text, PROSE_MAX_CHARS), indent="    ")
+            )
+        else:
+            lines.append("  normalized_or_mapping_transcript.text: none")
+
+        issues = draft_payload.get("issues")
+        lines.extend(_labeled_json_block("  issues:", issues, PROSE_MAX_CHARS))
+        parcel_metadata = draft_payload.get("parcel_metadata")
+        lines.extend(_labeled_json_block("  parcel_metadata:", parcel_metadata, PROSE_MAX_CHARS))
+        hitl_decisions = draft_payload.get("hitl_decisions")
+        lines.extend(_labeled_json_block("  hitl_decisions:", hitl_decisions, PROSE_MAX_CHARS))
+        payload_evidence_refs = draft_payload.get("evidence_refs")
+        if isinstance(payload_evidence_refs, list) and payload_evidence_refs:
+            lines.append("  evidence_refs:")
+            for ref in payload_evidence_refs[:32]:
+                lines.append(f"    - {ref}")
+        else:
+            lines.append("  evidence_refs: none")
+    elif isinstance(transcript_text, str) and transcript_text.strip():
+        lines.append("  transcript_text:")
+        lines.extend(
+            _indented_prose(_bound_text(transcript_text, PROSE_MAX_CHARS), indent="    ")
+        )
+    else:
+        lines.append("  draft_payload: none")
     lines.append("")
     return lines
 
@@ -384,6 +459,43 @@ def _render_resolution_item(item: Mapping[str, Any]) -> list[str]:
         if isinstance(value, str) and value.strip():
             lines.append(f"    {prose_key}:")
             lines.extend(_indented_prose(_bound_text(value, PROSE_MAX_CHARS), indent="      "))
+    covered_units = item.get("covered_units")
+    if isinstance(covered_units, list) and covered_units:
+        lines.append("    covered_units:")
+        for unit in covered_units:
+            unit = _coerce_mapping(unit)
+            lines.extend(_render_covered_unit(unit))
+    return lines
+
+
+def _render_covered_unit(unit: Mapping[str, Any]) -> list[str]:
+    unit_id = unit.get("unit_id") or "?"
+    status = unit.get("status") or "?"
+    determination = unit.get("determination") or "?"
+    header_parts = [f"      - {unit_id} | {status} | {determination}"]
+    if unit.get("kind"):
+        header_parts.append(f"kind:{unit['kind']}")
+    if unit.get("materiality"):
+        header_parts.append(f"materiality:{unit['materiality']}")
+    lines = [" | ".join(header_parts)]
+    title = unit.get("title")
+    if isinstance(title, str) and title.strip():
+        lines.append(f"        title: {title}")
+    for prose_key in ("summary", "verification_basis", "next_needed_step"):
+        value = unit.get(prose_key)
+        if isinstance(value, str) and value.strip():
+            lines.append(f"        {prose_key}:")
+            lines.extend(_indented_prose(_bound_text(value, PROSE_MAX_CHARS), indent="          "))
+    refs = unit.get("evidence_refs")
+    if isinstance(refs, list) and refs:
+        lines.append("        evidence_refs:")
+        for ref in refs[:16]:
+            lines.append(f"          - {ref}")
+    opaque = unit.get("opaque_payload")
+    if opaque:
+        lines.extend(
+            _labeled_json_block("        opaque_payload:", opaque, PROSE_MAX_CHARS, indent="          ")
+        )
     return lines
 
 

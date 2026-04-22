@@ -43,6 +43,9 @@ def test_choose_action_instruction_teaches_state_patch_and_hitl_reference_law() 
     assert "strongest available verification method" in text
     assert "unable to determine" in text
     assert "other / needs nuance" in text
+    assert "smallest question whose answer can be integrated into a specific item or covered unit" in text
+    assert "direct outcomes" in text
+    assert "operator guessing" in text
     assert "what would have to be true in reality" not in text
     assert "peer agreement is a clue" not in text
 
@@ -57,10 +60,44 @@ def test_choose_action_instruction_includes_tiny_examples() -> None:
     assert 'Minimal dispatch:' in text
     assert 'Minimal existing-row update:' in text
     assert 'Minimal new row:' in text
+    assert 'Minimal covered-unit group:' in text
     assert 'Minimal HITL:' in text
     assert 'Minimal complete:' in text
     assert '{"action_type":"hydrate_artifact_refs"' in text
     assert '{"complete_run":true' in text
+    assert "Use option A" in text
+    assert "Which source value should govern this item?" in text
+    assert "Range" not in text
+    assert "parcel" not in text.lower()
+
+
+def test_choose_action_instruction_teaches_covered_units_merge_and_group_rule() -> None:
+    text = CHOOSE_ACTION_INSTRUCTION
+    lowered = text.lower()
+    assert "covered_units" in text
+    assert "merges covered_units by `unit_id`" in text
+    # New units must carry unit_id and title.
+    assert "new units must carry `unit_id` and `title`" in text
+    # Two allowed shapes for a group's sub-units — either separate atomic items with relations,
+    # or one group item carrying covered_units.
+    assert "group item" in lowered
+    assert "separate atomic `resolution.items`" in text
+    assert "subclaim_of" in text
+    assert "`covered_units` list" in text
+    assert "do not mix both for the same sub-unit set" in lowered
+    assert "do not hide critical sub-units only inside summary prose" in lowered
+    assert "material sub-units are explicit as `covered_units` or separate related items" in text
+    assert "covered-unit fields" in lowered
+
+
+def test_surface_teaches_group_covered_units_rule() -> None:
+    from harness.runtime.prompting.surface import _HARNESS_TRUNK_METHOD_TEXT
+    text = _HARNESS_TRUNK_METHOD_TEXT.lower()
+    assert "covered_units" in text
+    assert "may not close while a material sub-unit it stands over is still unresolved" in text
+    assert "visible problem universe" in text
+    assert "mission outcome, confidence, handoffability, safety, cost, or user trust" in text
+    assert "ask the smallest question whose answer can be integrated" in text
 
 
 def test_resume_instruction_mentions_remaining_hitls_and_audit_requirement() -> None:

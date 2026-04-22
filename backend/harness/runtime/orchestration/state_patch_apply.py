@@ -19,6 +19,7 @@ from ...mission_state import (
     ClosureState,
     MissionState,
     MissionSuccessCondition,
+    ResolutionCoveredUnit,
     ResolutionItem,
     ResolutionItemHistoryEntry,
     ResolutionRelation,
@@ -542,6 +543,56 @@ def _apply_state_patch_detailed(
     return ms, rs, row_skips, row_skip_details
 
 
+def _merge_covered_units_rows(
+    existing: Any,
+    patch_rows: list[Any],
+) -> list[dict[str, Any]] | None:
+    """Merge ``covered_units`` by ``unit_id`` with per-field overlay.
+
+    An empty list never wipes prior units (additive-only at this level). New units
+    must carry a ``unit_id`` and a ``title``; existing units accept per-field deltas.
+    Returns ``None`` if any row is structurally invalid (not an object, missing id,
+    or fails validation); caller then skips the whole item.
+    """
+    prior_list = existing if isinstance(existing, list) else []
+    by_id: dict[str, dict[str, Any]] = {}
+    order: list[str] = []
+    unit_field_names = ResolutionCoveredUnit.model_fields.keys()
+    for row in prior_list:
+        if not isinstance(row, dict):
+            continue
+        uid = row.get("unit_id")
+        if isinstance(uid, str) and uid:
+            by_id[uid] = dict(row)
+            order.append(uid)
+
+    for row in patch_rows:
+        if not isinstance(row, dict):
+            return None
+        uid_raw = row.get("unit_id")
+        uid = str(uid_raw).strip() if uid_raw is not None else ""
+        if not uid:
+            return None
+        base = dict(by_id.get(uid) or {})
+        for key, val in row.items():
+            if key not in unit_field_names:
+                continue
+            if key == "opaque_payload" and isinstance(val, dict):
+                prior_payload = base.get("opaque_payload") if isinstance(base.get("opaque_payload"), dict) else {}
+                base["opaque_payload"] = {**prior_payload, **val}
+            else:
+                base[key] = val
+        try:
+            validated = ResolutionCoveredUnit.model_validate(base).model_dump(mode="json")
+        except ValidationError:
+            return None
+        by_id[uid] = validated
+        if uid not in order:
+            order.append(uid)
+
+    return [by_id[uid] for uid in order]
+
+
 def _merge_resolution_item_row(
     existing: ResolutionItem | None,
     row: dict[str, Any],
@@ -575,6 +626,11 @@ def _merge_resolution_item_row(
                 base["history"] = normalized
         elif key == "context_notes" and isinstance(val, list):
             base["context_notes"] = list(val)
+        elif key == "covered_units" and isinstance(val, list):
+            merged_units = _merge_covered_units_rows(base.get("covered_units"), val)
+            if merged_units is None:
+                return None, [f"covered_units: invalid row shape"]
+            base["covered_units"] = merged_units
         else:
             base[key] = val
 

@@ -344,6 +344,118 @@ def test_render_timeline_is_pure_and_handles_empty_turns() -> None:
     assert "TURN" not in body
 
 
+def test_timeline_renders_covered_units_per_resolution_item(tmp_path: Path) -> None:
+    writer = RunAuditWriter(tmp_path / "run1")
+    writer.observe_llm_io({"turn_index": 1, "parse_ok": True})
+    writer.observe_turn_completed(
+        {
+            "turn_index": 1,
+            "tool_request": None,
+            "tool_result_raw": None,
+            "resolution_state_after": {
+                "items": [
+                    {
+                        "item_id": "p1-call-sequence",
+                        "status": "in_progress",
+                        "structure_kind": "group",
+                        "covered_units": [
+                            {
+                                "unit_id": "p1-call-1-bearing",
+                                "title": "Bearing N 45 E for call 1",
+                                "status": "closed",
+                                "determination": "earned",
+                                "verification_basis": "Confirmed against source crop artifact://src-1.",
+                                "evidence_refs": ["artifact://src-1"],
+                            },
+                            {
+                                "unit_id": "p1-call-2-distance",
+                                "title": "Distance 132.5 ft for call 2",
+                                "status": "open",
+                                "determination": "unassessed",
+                            },
+                        ],
+                    }
+                ],
+            },
+            "latest_refs_after": {},
+            "state_patch_feedback": {"outcome": "applied"},
+        }
+    )
+    body = _timeline_path(tmp_path / "run1").read_text(encoding="utf-8")
+    assert "covered_units:" in body
+    assert "p1-call-1-bearing | closed | earned" in body
+    assert "Bearing N 45 E for call 1" in body
+    assert "Confirmed against source crop artifact://src-1." in body
+    assert "artifact://src-1" in body
+    assert "p1-call-2-distance | open | unassessed" in body
+
+
+def test_timeline_renders_saved_artifact_payload_section(tmp_path: Path) -> None:
+    writer = RunAuditWriter(tmp_path / "run1")
+    draft_payload = {
+        "source_transcript_verbatim": {
+            "text": (
+                "Parcel 1: Township 5 North, Range 75 West; "
+                "thence from the NW corner running E 100 feet (parcel body says Range 74)..."
+            ),
+        },
+        "normalized_or_mapping_transcript": {
+            "text": "Parcel 1: Township 5 North, Range 75 West; thence from the NW corner running E 100 feet...",
+        },
+        "issues": [
+            {
+                "issue_id": "range-conflict",
+                "summary": "intro says Range 75; parcel body says Range 74",
+                "scope": "parcel-1",
+                "mapping_blocking": True,
+            }
+        ],
+        "parcel_metadata": [
+            {"parcel_id": "p1", "governing_range": "75", "forwardable": True},
+        ],
+        "hitl_decisions": [
+            {"prompt_id": "hitl-range", "decision": "Range 75 governs"},
+        ],
+        "evidence_refs": ["image:assoc:tx-1:original"],
+    }
+    writer.observe_turn_completed(
+        {
+            "turn_index": 4,
+            "tool_request": {
+                "action_type": "save_workspace_artifact",
+                "action_inputs": {
+                    "draft_payload": draft_payload,
+                    "rationale": "save verified parcel 1 verbatim + mapping view",
+                },
+            },
+            "tool_result_raw": {
+                "execution_state": "executed",
+                "outputs": {"artifact_kind": "transcript_edit_working"},
+                "artifact_refs": ["transcript_edit:working:rev:0003", "transcript_edit:working"],
+                "refusal": None,
+            },
+            "state_patch_feedback": {"outcome": "applied"},
+        }
+    )
+    body = _timeline_path(tmp_path / "run1").read_text(encoding="utf-8")
+    assert "Saved Artifact" in body
+    assert "transcript_edit:working:rev:0003" in body
+    assert "artifact_kind: transcript_edit_working" in body
+    assert "source_transcript_verbatim.text:" in body
+    assert "Range 75 West" in body
+    assert "Range 74" in body
+    assert "normalized_or_mapping_transcript.text:" in body
+    assert "issues:" in body
+    assert "range-conflict" in body
+    assert "parcel_metadata:" in body
+    assert "governing_range" in body
+    assert "hitl_decisions:" in body
+    assert "hitl-range" in body
+    assert "Range 75 governs" in body
+    assert "evidence_refs:" in body
+    assert "image:assoc:tx-1:original" in body
+
+
 def test_timeline_rewrites_earlier_turn_sections_when_updated(tmp_path: Path) -> None:
     writer = RunAuditWriter(tmp_path / "run1")
     writer.observe_llm_io(

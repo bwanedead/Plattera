@@ -7,7 +7,7 @@ from domains.prompting import PromptBlock
 TRANSCRIPT_EDIT_DOMAIN_ID = "transcript_edit"
 TRANSCRIPT_EDIT_FAMILY_ID = "mapping"
 TRANSCRIPT_EDIT_BRANCH_SOURCE_REF = "backend/domains/mapping/transcript_edit/prompting/branch.py"
-TRANSCRIPT_EDIT_BRANCH_VERSION = "v17"
+TRANSCRIPT_EDIT_BRANCH_VERSION = "v18"
 
 TRANSCRIPT_EDIT_BRANCH_TEXT = """\
 You are operating in the **transcript edit** domain for mapping-bound work.
@@ -151,6 +151,28 @@ This domain hard-enforces closure readiness for publish and complete actions: if
 This domain also expects an explicit `resolution_state.items` ledger for the concrete concerns you have investigated. Saving, requesting HITL, publishing, or completing with an empty item ledger is not a credible transcript-edit posture.
 
 When partial handoffability applies (e.g., one parcel is forwardable and another is not), express that scope through `resolution.items` — one item per parcel or per call-group with an honest status, `blocking`, and `no_further_progress` flags as appropriate — and use `resolution.relations` (`blocks`, `prerequisite_of`) to tie those per-scope items to Layer 4 of the closure ledger. The Layer 4 summary should then reflect what is forwardable, what is not, and why, rather than a single flat verdict.
+
+## Transcript-edit output contract
+The working / output artifact you save is not a bundle of parcel handoff notes. It is a **source-faithful transcript artifact** with secondary handoff metadata layered on top.
+
+**First output obligation: verbatim transcript of the source.**
+The saved artifact must carry the full available verbatim transcript of the source document — source wording, source contradictions, source punctuation, and any cutoff markers preserved. Parcel segmentation and mapping handoff metadata are secondary views, not replacements for this transcript. A missing continuation should be marked inline in the verbatim transcript at the cutoff point and also reflected in metadata.
+
+Human adjudications may produce a corrected / mapping view, but that view must not overwrite the verbatim source view.
+
+**Critical rule — do not silently mutate the verbatim transcript.**
+If HITL adjudicates, for example, that "Range 75" is the governing range even though the parcel body text says "Range 74," that adjudication belongs in the corrected / mapping transcript and in parcel metadata. The source-faithful verbatim transcript must continue to preserve the source conflict (intro says Range 75; parcel text says Range 74). Erasing the conflict in the verbatim layer destroys downstream auditability.
+
+**Expected saved payload shape.**
+When you save a working or output transcript-edit draft via `save_workspace_artifact`, the `draft_payload` should carry these keys:
+- `source_transcript_verbatim` — the full available verbatim transcript preserving source wording, contradictions, punctuation, cutoff markers; missing continuation marked inline
+- `normalized_or_mapping_transcript` — the corrected / mapping view with HITL adjudications and normalizations applied; clearly labeled as non-verbatim
+- `issues` — unresolved Layer 1 / 2 / 3 concerns, each with scope and mapping-blocking judgment
+- `parcel_metadata` — per-parcel handoff scope, forwardability, and adjudicated identifiers (e.g., governing range/township/section)
+- `hitl_decisions` — human adjudications consumed, with citations to the HITL exchange
+- `evidence_refs` — source image refs and derived refs that back the above
+
+Omit keys that truly do not apply (e.g., no HITL consumed yet), but do not omit the verbatim transcript as a convenience — that is the first output obligation.
 
 ## Working draft posture
 A saved working draft is not proof that the investigation is complete. But once the visible, verified portion of the transcript is mature enough to be useful, saving that working state is often the honest move even if publish / complete remain blocked.

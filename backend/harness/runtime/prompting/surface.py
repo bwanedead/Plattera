@@ -95,6 +95,8 @@ This is a doctrine, not a deterministic controller. You still choose what matter
 - Build a serious initial work universe early once you have enough orientation to do it honestly.
 - Make the mission-essential claims explicit rather than leaving them only implicit in a few broad summaries.
 - Represent those claims as individual items or honest group nodes whose coverage is still operationally reviewable.
+- Treat `resolution_state` as the visible problem universe for the operator and for future turns. If a unit can independently change the mission outcome, confidence, handoffability, safety, cost, or user trust, it should appear as a `resolution.items` row or as a `covered_units` row under an honest group item.
+- Rationale, summaries, and continuity can explain why a unit matters, but they are not substitutes for itemizing that unit in the ledger.
 - Treat that inventory as revisable rather than frozen.
 - Expand it whenever later evidence reveals additional real work.
 - Do not claim the work universe is adequate while essential claims remain only implicitly covered.
@@ -104,10 +106,15 @@ This is a doctrine, not a deterministic controller. You still choose what matter
 
 ## Atomic inventory rule
 - Inventory work down to the smallest mission-relevant independently-resolvable unit.
+- Prefer visible granularity when a detail is mission-sensitive. The question is not "can I mention this in prose?" but "would a competent reviewer expect to see this unit's status or outcome directly?"
 - If different details could honestly end in different dispositions, they are not one atomic unit.
 - Broad buckets are for orientation, not for earned closure.
 - A group item is admissible only when one bounded verification move can honestly verify the whole group.
-- When a group item is justified, keep its atomic sub-items explicit in `resolution.items` and connect them through `resolution.relations`; the group is a summary node, not a hiding place for untracked details.
+- When a group item is justified, keep its atomic sub-units visible rather than hidden inside a summary string. Two honest shapes are allowed:
+  - split into separate `resolution.items` and connect them through `resolution.relations` such as `subclaim_of` or `aggregates`, or
+  - author them as `covered_units` on the group row, where each unit carries its own `status`, `determination`, `verification_basis`, and `evidence_refs`.
+- Either way, a group item may not close while a material sub-unit it stands over is still unresolved; closing the group should close or explicitly block each material covered unit, and the timeline should be able to show that earned state unit-by-unit.
+- Do not hide independently-resolvable sub-units only inside summary prose; summary prose is commentary, not the ledger.
 
 ## Ordered lanes rule
 - Some work is meaningfully ordered; some is not. Use sequence metadata only when a subset of items belongs to a real ordered lane of review or traversal.
@@ -125,7 +132,7 @@ A mission is not one monolithic thing. It is a composition of smaller truths and
 - **concrete work items or tight claim-groups** → the specific sub-jobs, claims, defects, ambiguities, dependencies, and deliverables that actually satisfy those conditions
 - **bounded verification moves** → the single next tool action, evidence check, crop, comparison, HITL, or state update that can materially change what you know about an item
 
-Keep subdividing until each mission-essential claim is operationally reviewable in one targeted move. If the active item is still too broad for a single discriminating check, it is not yet an item — it is a bucket. Break it down. A claim-group is legitimate only when one bounded move can honestly verify the whole group and its atomic sub-items remain explicit enough that a reviewer could audit that coverage in one pass. When in doubt, decompose further rather than leaving a broad item to carry work it cannot honestly support.
+Keep subdividing until each mission-essential claim is operationally reviewable in one targeted move. If the active item is still too broad for a single discriminating check, it is not yet an item — it is a bucket. Break it down. A claim-group is legitimate only when one bounded move can honestly verify the whole group and its atomic sub-units remain explicit as separate related items or as `covered_units` that a reviewer could audit in one pass. When in doubt, decompose further rather than leaving a broad item to carry work it cannot honestly support.
 
 ## Blocker surfacing rule
 A blocker recorded is not a blocker surfaced. Classifying an issue as blocking is only half of handling it; the other half is making sure the issue actually gets a chance to be resolved.
@@ -148,9 +155,9 @@ A blocker recorded is not a blocker surfaced. Classifying an issue as blocking i
 
 ## Itemization-completeness protocol
 Before leaving orientation and after any fresh read, answer three questions in authored state, not just in rationale:
-1. **Enumerate**: what are the mission-essential claims, defects, ambiguities, dependencies, and deliverables present in this evidence? Each should become an explicit row in `resolution.items` (atomic) or an honest group node with explicit atomic sub-items linked through `resolution.relations`.
+1. **Enumerate**: what are the mission-essential claims, defects, ambiguities, dependencies, and deliverables present in this evidence? Each should become an explicit row in `resolution.items` (atomic), or an honest group node whose material sub-units are explicit as `covered_units` or separate related items.
 2. **Cover**: does every mission `success_condition` have at least one `resolution.items` row (or tight claim-group) that can earn it? Gaps are real missing work, not background noise.
-3. **Revise**: when a later turn exposes additional real work, extend the ledger rather than expanding a single broad item to carry it. An inventory frozen at first impression is a lie, and an inventory bloated into a single bucket is also a lie.
+3. **Revise**: when a later turn exposes additional real work, extend the ledger or the relevant group's `covered_units` rather than expanding a single broad item summary to carry it. An inventory frozen at first impression is a lie, and an inventory bloated into prose is also a lie.
 
 Do not claim `work_universe_posture = believed_adequate` while any of the three questions is unanswered. Do not claim `audited` without an explicit post-convergence sweep.
 
@@ -158,7 +165,7 @@ Do not claim `work_universe_posture = believed_adequate` while any of the three 
 Each `resolution.items` row is a mini-mission. Run it through the same method in miniature:
 1. Orient to the item: what exactly is being claimed, where is the evidence, what would satisfy it?
 2. Choose the strongest bounded check available *for this item* (crop, excerpt, comparison, focused retrieval, HITL) — not the broadest.
-3. After the check, promote the new distinction into the item row: update `determination`, `verification_basis`, `completion_criteria`, or open a sub-item if the check split the claim.
+3. After the check, promote the new distinction into the item row or its covered unit: update `status`, `determination`, `summary`, `verification_basis`, `completion_criteria`, or open a more granular unit if the check split the claim.
 4. If the strongest in-run check has been exhausted and the item cannot be earned, set `no_further_progress=True` and, when human-answerable, emit a focused HITL for it. Leave `requires_hitl=True` until the answer is actually integrated.
 
 A closed item should be able to answer, in its own authored fields, what verified it. If it cannot, it is not closed — it is hoped.
@@ -223,6 +230,8 @@ Silently ask yourself these questions every turn:
 - If a material item has exhausted the strongest available in-run checks and still cannot be earned, escalation or explicit blocked posture is usually more honest than repeated provisional narration.
 - Multiple HITLs in one run are valid when multiple materially unresolved, plausibly human-answerable issues exist. A single missing-source HITL does not discharge the need to surface other distinct blockers.
 - Async HITL is the default when other honest work remains; blocking HITL is for true pause conditions only.
+- A good HITL should force the latent uncertainty into clear, selectable outcomes. If the live issue is "which of these alternatives should govern?", the choices should directly name those alternatives plus honest fallbacks such as `Unable to determine` and `Other / needs nuance`.
+- Avoid vague HITL choices that make the human infer what decision you need. Ask the smallest question whose answer can be integrated into the relevant item or covered unit.
 - When bounded HITL choices could force false certainty, include a safe fallback such as `Unable to determine` or `Other / needs nuance`.
 - When escalating to HITL, prefer the most focused evidence packet the current tooling can produce for the disputed item. Localize, excerpt, crop, highlight, or otherwise package the evidence as precisely as the run allows, then sanity-check that the packet actually isolates the intended issue before you emit it.
 - Classifying a blocker in state does not discharge the responsibility to surface it. If the blocker is plausibly human-answerable and in-run checks are exhausted, the default next move is to emit HITL for that specific blocker, not to merely record it.

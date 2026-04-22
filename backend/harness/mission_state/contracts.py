@@ -31,6 +31,29 @@ class ResolutionRelation(BaseModel):
     opaque_payload: dict[str, Any] = Field(default_factory=dict)
 
 
+class ResolutionCoveredUnit(BaseModel):
+    """A generic, one-level sub-unit tracked inside a ``ResolutionItem``.
+
+    ``covered_units`` make the smallest independently-reviewable sub-units of a
+    group item explicit (for example, each enumerated sub-claim of a ``group``
+    resolution item). They are not recursive; they carry no domain semantics.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    unit_id: str = Field(min_length=1, max_length=128)
+    title: str = Field(min_length=1, max_length=240)
+    kind: str | None = Field(default=None, max_length=128)
+    status: str | None = Field(default=None, max_length=64)
+    summary: str | None = Field(default=None, max_length=500)
+    determination: str | None = Field(default=None, max_length=32)
+    verification_basis: str | None = Field(default=None, max_length=500)
+    next_needed_step: str | None = Field(default=None, max_length=400)
+    evidence_refs: list[str] = Field(default_factory=list, max_length=24)
+    materiality: str | None = Field(default=None, max_length=32)
+    opaque_payload: dict[str, Any] = Field(default_factory=dict)
+
+
 class ResolutionItem(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -57,6 +80,7 @@ class ResolutionItem(BaseModel):
     materiality: str | None = Field(default=None, max_length=32)
     scope: dict[str, Any] = Field(default_factory=dict)
     provenance: str | None = Field(default=None, max_length=128)
+    covered_units: list[ResolutionCoveredUnit] = Field(default_factory=list, max_length=32)
     opaque_payload: dict[str, Any] = Field(default_factory=dict)
 
 

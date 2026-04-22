@@ -150,13 +150,27 @@ def build_transcript_edit_tool_specs() -> tuple[SemanticToolSpec, ...]:
             category="write",
             purpose=(
                 "Append one agent-authored working draft revision to the transcript-edit workspace. "
-                "Does not mutate T0 raw drafts. Use transcript_text XOR draft_payload."
+                "Does not mutate T0 raw drafts. Use transcript_text XOR draft_payload. "
+                "Transcript-edit payload note: the saved artifact is a source-faithful transcript "
+                "artifact first and a handoff-metadata carrier second. When using draft_payload, "
+                "structure it with keys: source_transcript_verbatim (full available verbatim "
+                "transcript preserving source wording, contradictions, punctuation, cutoff markers "
+                "inline — the first output obligation), normalized_or_mapping_transcript (corrected "
+                "/ mapping view with HITL adjudications applied, clearly non-verbatim), issues "
+                "(unresolved Layer 1 / 2 / 3 concerns with scope and mapping-blocking judgment), "
+                "parcel_metadata (per-parcel scope, forwardability, adjudicated identifiers — e.g. "
+                "a HITL-adjudicated governing range goes here, NOT into the verbatim), "
+                "hitl_decisions (human adjudications consumed, with citations), and evidence_refs. "
+                "Do not silently mutate the verbatim transcript to apply adjudications."
             ),
             expected_request_shape=(
                 "transcript_text XOR draft_payload: the authored content. "
                 "base_revision_ref: optional prior revision ref. "
                 "evidence_refs: optional list of refs grounding this revision. "
-                "rationale: optional explanation."
+                "rationale: optional explanation. "
+                "For transcript-edit working/output drafts, prefer draft_payload structured with "
+                "source_transcript_verbatim, normalized_or_mapping_transcript, issues, "
+                "parcel_metadata, hitl_decisions, evidence_refs (see purpose above)."
             ),
             expected_request_json_shape={
                 "type": "object",
