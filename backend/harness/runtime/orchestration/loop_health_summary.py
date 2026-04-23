@@ -170,6 +170,7 @@ def build_prompt_observability_summary(
         "same_ref_bundle_reread_no_gain_streak": same_ref_bundle_reread_no_gain_streak,
         "same_item_same_ref_bundle_stall_streak": same_item_same_ref_bundle_stall_streak,
         "same_item_hydrate_churn_no_gain_streak": same_item_hydrate_churn_no_gain_streak,
+        "covered_unit_count": covered_units_metrics["covered_unit_count"],
         "covered_units_with_candidates_count": covered_units_metrics["covered_units_with_candidates_count"],
         "closed_candidate_units_missing_determined_value_count": covered_units_metrics[
             "closed_candidate_units_missing_determined_value_count"
@@ -227,6 +228,9 @@ def build_prompt_observability_summary(
         success_condition_count=len(success_conditions),
         resolution_item_count=len(resolution_items),
         closure_ready_to_close=bool(getattr(closure_state, "ready_to_close", False)),
+        work_universe_posture=work_universe_posture,
+        atomic_item_count=atomic_item_count,
+        covered_unit_count=covered_units_metrics["covered_unit_count"],
         repeated_state_patch_reason_code_streak=repeated_state_patch_reason_code_streak,
         consecutive_same_active_item_turns=consecutive_same_active_item_turns,
         turns_since_resolution_item_count_change=turns_since_resolution_item_count_change,
@@ -475,6 +479,7 @@ def _covered_units_metrics(items: list[Any]) -> dict[str, int]:
     - ``earned_units_missing_verification_basis_count``: earned units missing
       ``verification_basis`` text.
     """
+    covered_unit_count = 0
     covered_units_with_candidates = 0
     closed_candidate_missing_determined = 0
     closed_value_missing_evidence = 0
@@ -482,6 +487,7 @@ def _covered_units_metrics(items: list[Any]) -> dict[str, int]:
     for item in items:
         units = getattr(item, "covered_units", None) or ()
         for unit in units:
+            covered_unit_count += 1
             status = _as_optional_text(getattr(unit, "status", None))
             determination = _as_optional_text(getattr(unit, "determination", None))
             determination_lower = determination.lower() if determination else ""
@@ -504,6 +510,7 @@ def _covered_units_metrics(items: list[Any]) -> dict[str, int]:
             if determination_lower == "earned" and verification_basis is None:
                 earned_missing_basis += 1
     return {
+        "covered_unit_count": covered_unit_count,
         "covered_units_with_candidates_count": covered_units_with_candidates,
         "closed_candidate_units_missing_determined_value_count": closed_candidate_missing_determined,
         "closed_value_units_missing_evidence_count": closed_value_missing_evidence,
@@ -643,6 +650,9 @@ def _mechanical_flags(
     success_condition_count: int,
     resolution_item_count: int,
     closure_ready_to_close: bool,
+    work_universe_posture: str | None = None,
+    atomic_item_count: int = 0,
+    covered_unit_count: int = 0,
     repeated_state_patch_reason_code_streak: int,
     consecutive_same_active_item_turns: int,
     turns_since_resolution_item_count_change: int | None,
@@ -735,6 +745,27 @@ def _mechanical_flags(
         )
     if blocking_items_without_relations_count > 0:
         flags.append(f"blocking_items_without_relations:{blocking_items_without_relations_count}")
+    # Coarse work-graph flag: structural pressure when a partial posture has
+    # enough broad items to be "working", but no atomic items and no covered
+    # units, and the graph has been stable while the agent keeps reading or
+    # dwelling on the same active item. Strictly structural — no transcript,
+    # deed, or domain inspection.
+    if (
+        _as_optional_text(work_universe_posture) == "partial"
+        and resolution_item_count >= 3
+        and atomic_item_count == 0
+        and covered_unit_count == 0
+        and turns_since_resolution_item_count_change is not None
+        and turns_since_resolution_item_count_change >= 3
+        and (
+            consecutive_same_active_item_turns >= 2
+            or same_ref_bundle_reread_no_gain_streak >= 2
+            or same_item_hydrate_churn_no_gain_streak >= 2
+        )
+    ):
+        flags.append(
+            f"coarse_work_graph_under_active_investigation:{resolution_item_count}"
+        )
     if not closure_ready_to_close and complete_run_blockers:
         flags.append("complete_run_blockers_present")
     return flags[:16]

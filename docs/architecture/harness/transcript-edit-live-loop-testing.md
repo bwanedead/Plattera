@@ -131,6 +131,34 @@ Check status:
 python -m harness.cli.status --run-id $runId
 ```
 
+Request a graceful operator pause or stop:
+
+```powershell
+python -m harness.cli.pause --run-id $runId --reason "optional pause reason"
+python -m harness.cli.stop --run-id $runId --reason "optional stop reason"
+```
+
+Control semantics:
+
+- `pause` and `stop` are **graceful** operator controls; they do not kill the
+  child process and they do not cancel a tool mid-call
+- the runner honors them only at safe boundaries, including while waiting on a
+  blocking HITL prompt
+- while a live process has an unconsumed control request, `status` may show:
+
+```json
+{
+  "control": {
+    "command": "pause",
+    "status": "pending"
+  }
+}
+```
+
+- once honored, the run writes `result.json` and `done.json` with status
+  `paused` or `stopped`
+- paused/stopped runs remain resumable from `kernel_resume.json`
+
 Wait for either HITL or terminal completion:
 
 ```powershell
@@ -171,9 +199,39 @@ Resume is mechanical. It restores the last completed `kernel_resume.json`
 checkpoint and starts the next turn in the same run directory. It does not
 replay a half-failed LLM call and it does not infer mission meaning. If the run
 was started with `--model`, the resumed child preserves that model override.
+If the run had a pending `control.json`, resume consumes that stale control
+request before spawning the child so the resumed run does not immediately stop
+again.
 
 If status reports `interrupted_no_checkpoint`, the run cannot be resumed from
 the CLI control plane and should be treated as a failed/incomplete test run.
+
+If status reports:
+
+```json
+{
+  "interrupted": {
+    "kind": "paused_by_operator"
+  }
+}
+```
+
+or:
+
+```json
+{
+  "interrupted": {
+    "kind": "stopped_by_operator"
+  }
+}
+```
+
+the run was intentionally interrupted by operator control and should normally be
+resumed with:
+
+```powershell
+python -m harness.cli.resume --run-id $runId
+```
 
 Architectural rule:
 
@@ -206,6 +264,38 @@ The harness owns the resume: answering the active blocking prompt triggers
 auto-resume in the background process.  The CLI `answer` command is only an
 ingress surface; it does not decide whether or when to resume.
 
+Normal operator-control testing flow:
+
+```powershell
+# 1. Start run
+python -m harness.cli.start --run-id $runId --loop-kind transcript_edit ...
+
+# 2. Observe the live run
+python -m harness.cli.watch --run-id $runId --timeout 120
+
+# 3. Request a graceful pause or stop
+python -m harness.cli.pause --run-id $runId --reason "inspect current state"
+# or
+python -m harness.cli.stop --run-id $runId --reason "end this slice cleanly"
+
+# 4. Check whether the control is pending or already honored
+python -m harness.cli.status --run-id $runId
+
+# 5. After the run reaches paused/stopped, resume the same logical run if desired
+python -m harness.cli.resume --run-id $runId
+python -m harness.cli.watch --run-id $runId --timeout 120
+```
+
+Expected control behavior:
+
+- `watch` should eventually report a terminal event for `paused` / `stopped`
+  after the control is honored
+- during a blocked-HITL wait, pause/stop should still be honored without
+  waiting for HITL answer or timeout
+- the last turn record remains the kernel fact (for example `wait_for_human`);
+  run-level audit surfaces may show a separate terminal override for the
+  operator interruption
+
 HITL wait timeout: the background process polls for feedback for up to
 `hitl_wait_timeout_seconds` (default: 7200 s / 2 h).  If the timeout expires
 without an answer, the run returns `waiting_human` as the terminal state.
@@ -221,6 +311,7 @@ Harness CLI run-state and child logs:
 ```text
 backend/harness/cli_artifacts/cli_runs/<run_id>/
   state.json
+  control.json
   kernel_resume.json
   stdout.log
   stderr.log
@@ -251,6 +342,8 @@ What the audit files are for:
   per-turn expansions, not the canonical event stream
 - `kernel_resume.json`: last completed-turn checkpoint used by
   `harness.cli.resume`; it is a mechanical snapshot, not a semantic summary
+- `control.json`: optional operator-authored pause/stop request; present only
+  while a live control request is pending and normally consumed before resume
 
 This `cli_runs/` folder is operator control-plane metadata. The transcript-edit
 domain data path itself is app-native backend plumbing, not a CLI-only sandbox:
@@ -326,6 +419,8 @@ Always report:
 - terminal status/reason
 - whether the run was resumed from `kernel_resume.json`, and from which
   status/reason if applicable
+- whether operator control (`pause` / `stop`) was used, whether it was pending
+  or honored, and at what stage of the run it landed
 - which tools the model called and in what order
 - whether `state_patch` was applied/rejected/not_applied and why
 - what transcript-edit working/output refs were produced

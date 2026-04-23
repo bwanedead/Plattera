@@ -275,13 +275,23 @@ def test_compact_prompt_visible_observability_drops_zero_counters() -> None:
     assert "resolution_item_count" in summary
     assert "success_condition_count" in summary
     assert "closure_dimension_count" in summary
-    # Zero-valued optional counters must not appear in the compact transport.
+    # Graph-shape counters must appear even when zero — zero is diagnostically
+    # meaningful ("4 items, 0 atomic, 0 groups, 0 covered units").
+    for graph_shape_key in (
+        "atomic_item_count",
+        "group_item_count",
+        "covered_unit_count",
+        "covered_units_with_candidates_count",
+        "closed_value_units_missing_evidence_count",
+        "earned_units_missing_verification_basis_count",
+    ):
+        assert graph_shape_key in summary, f"graph-shape counter missing: {graph_shape_key}"
+    # Zero-valued optional counters (non-graph-shape) must not appear.
     for dropped_key in (
         "consecutive_no_dispatch_turns",
         "turns_since_last_tool_execution",
         "turns_since_latest_refs_change",
         "sequenced_item_count",
-        "atomic_item_count",
         "closed_items_without_basis_count",
     ):
         assert dropped_key not in summary

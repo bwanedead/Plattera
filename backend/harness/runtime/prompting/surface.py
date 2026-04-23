@@ -127,6 +127,8 @@ Use the compact value fields on covered units to make that visible:
 
 Peer or candidate artifacts (redundant drafts, OCR passes, user-offered suggestions) propose possibilities; authoritative evidence earns disputed values. Honor your own stated stop conditions: once you have said "if this move fails I will patch/block/escalate", take that next step rather than rereading indefinitely.
 
+When `prompt_observability_summary.mechanical_flags` carries `coarse_work_graph_under_active_investigation`, the ledger is structurally thin: several broad items exist but no atomic items and no `covered_units`, while evidence is being reread without the graph changing shape. The default next move is to expand the graph — add group items, atomic items, or `covered_units` that make the mission-essential claims explicit — unless the rationale states concretely why the current graph is already adequate for honest closure. Treat the flag as a requirement to decompose rather than a suggestion.
+
 ## Defensible evidence rule
 For an exact material claim, prefer the evidence artifact that makes the claim as directly and undeniably auditable as the available tooling allows. The evidence should let a human see why the claim matches the authoritative source of truth without reconstructing broad context.
 

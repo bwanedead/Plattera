@@ -109,6 +109,7 @@ class PromptObservabilitySummary(BaseModel):
     same_ref_bundle_reread_no_gain_streak: int = Field(default=0, ge=0)
     same_item_same_ref_bundle_stall_streak: int = Field(default=0, ge=0)
     same_item_hydrate_churn_no_gain_streak: int = Field(default=0, ge=0)
+    covered_unit_count: int = Field(default=0, ge=0)
     covered_units_with_candidates_count: int = Field(default=0, ge=0)
     closed_candidate_units_missing_determined_value_count: int = Field(default=0, ge=0)
     closed_value_units_missing_evidence_count: int = Field(default=0, ge=0)

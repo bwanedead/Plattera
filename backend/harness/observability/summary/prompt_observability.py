@@ -17,6 +17,7 @@ _ZERO_INT_FIELDS = (
     "same_ref_bundle_reread_no_gain_streak",
     "same_item_same_ref_bundle_stall_streak",
     "same_item_hydrate_churn_no_gain_streak",
+    "covered_unit_count",
     "covered_units_with_candidates_count",
     "closed_candidate_units_missing_determined_value_count",
     "closed_value_units_missing_evidence_count",

@@ -913,6 +913,108 @@ def test_summary_surfaces_work_universe_posture_and_projection_blocker() -> None
     assert "work_universe_not_audited:believed_adequate" in projection["publish_blockers"]
 
 
+def test_summary_covered_unit_count_exposed_even_when_zero() -> None:
+    """covered_unit_count is a graph-shape counter and must appear even at zero."""
+    items = [_item("i1", status="open")]
+    mem = _mem(resolution_items=items)
+    result = build_prompt_observability_summary(mem)
+    assert "covered_unit_count" in result
+    assert result["covered_unit_count"] == 0
+
+
+def test_summary_covered_unit_count_counts_all_units_across_items() -> None:
+    units_a = [ResolutionCoveredUnit(unit_id="u1", title="a")]
+    units_b = [
+        ResolutionCoveredUnit(unit_id="u2", title="b"),
+        ResolutionCoveredUnit(unit_id="u3", title="c"),
+    ]
+    items = [
+        _item("parent-a", status="open", covered_units=units_a),
+        _item("parent-b", status="open", covered_units=units_b),
+    ]
+    mem = _mem(resolution_items=items)
+    result = build_prompt_observability_summary(mem)
+    assert result["covered_unit_count"] == 3
+
+
+def test_flags_coarse_work_graph_fires_under_partial_with_stable_thin_graph() -> None:
+    """Partial posture + 3+ items + 0 atomic + 0 covered + stable + same active item → flag."""
+    result = _flags(
+        work_universe_posture="partial",
+        resolution_item_count=4,
+        atomic_item_count=0,
+        covered_unit_count=0,
+        turns_since_resolution_item_count_change=5,
+        consecutive_same_active_item_turns=3,
+    )
+    assert any(f.startswith("coarse_work_graph_under_active_investigation:") for f in result)
+
+
+def test_flags_coarse_work_graph_requires_partial_posture() -> None:
+    """Audited posture should not fire the coarse-graph flag even if the structure matches."""
+    result = _flags(
+        work_universe_posture="audited",
+        resolution_item_count=4,
+        atomic_item_count=0,
+        covered_unit_count=0,
+        turns_since_resolution_item_count_change=5,
+        consecutive_same_active_item_turns=3,
+    )
+    assert not any(f.startswith("coarse_work_graph_under_active_investigation") for f in result)
+
+
+def test_flags_coarse_work_graph_suppressed_when_atomic_items_exist() -> None:
+    """Presence of any atomic item suppresses the coarse-graph flag."""
+    result = _flags(
+        work_universe_posture="partial",
+        resolution_item_count=4,
+        atomic_item_count=1,
+        covered_unit_count=0,
+        turns_since_resolution_item_count_change=5,
+        consecutive_same_active_item_turns=3,
+    )
+    assert not any(f.startswith("coarse_work_graph_under_active_investigation") for f in result)
+
+
+def test_flags_coarse_work_graph_suppressed_when_covered_units_exist() -> None:
+    result = _flags(
+        work_universe_posture="partial",
+        resolution_item_count=4,
+        atomic_item_count=0,
+        covered_unit_count=2,
+        turns_since_resolution_item_count_change=5,
+        consecutive_same_active_item_turns=3,
+    )
+    assert not any(f.startswith("coarse_work_graph_under_active_investigation") for f in result)
+
+
+def test_flags_coarse_work_graph_requires_stable_and_dwell_signals() -> None:
+    """Structural shape alone is not enough; the graph must be stable and activity repeated."""
+    result = _flags(
+        work_universe_posture="partial",
+        resolution_item_count=4,
+        atomic_item_count=0,
+        covered_unit_count=0,
+        turns_since_resolution_item_count_change=1,
+        consecutive_same_active_item_turns=0,
+    )
+    assert not any(f.startswith("coarse_work_graph_under_active_investigation") for f in result)
+
+
+def test_flags_coarse_work_graph_fires_via_hydrate_churn_signal() -> None:
+    """Repeated hydrate churn on the same item can substitute for same-active-item dwell."""
+    result = _flags(
+        work_universe_posture="partial",
+        resolution_item_count=3,
+        atomic_item_count=0,
+        covered_unit_count=0,
+        turns_since_resolution_item_count_change=3,
+        consecutive_same_active_item_turns=0,
+        same_item_hydrate_churn_no_gain_streak=2,
+    )
+    assert any(f.startswith("coarse_work_graph_under_active_investigation:") for f in result)
+
+
 def test_summary_success_condition_coverage_counted() -> None:
     conds = [
         _condition("c1", determination="earned", verification_basis="reviewed"),

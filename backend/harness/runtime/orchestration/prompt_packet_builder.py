@@ -308,6 +308,15 @@ _ALWAYS_KEEP_OBSERVABILITY_KEYS: tuple[str, ...] = (
     "resolution_item_count",
     "success_condition_count",
     "closure_dimension_count",
+    # Graph-shape counters: zero is diagnostically meaningful, so keep them
+    # even when 0. Surfaces "4 items, 0 atomic, 0 groups, 0 covered units"
+    # rather than just "4 items".
+    "atomic_item_count",
+    "group_item_count",
+    "covered_unit_count",
+    "covered_units_with_candidates_count",
+    "closed_value_units_missing_evidence_count",
+    "earned_units_missing_verification_basis_count",
 )
 _OPTIONAL_OBSERVABILITY_COUNTERS: tuple[str, ...] = (
     "repeated_state_patch_reason_code_streak",

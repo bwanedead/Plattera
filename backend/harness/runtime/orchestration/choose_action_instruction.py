@@ -133,6 +133,8 @@ Before re-issuing an action on a ref bundle already read recently, name the new 
 
 `prompt_observability_summary.mechanical_flags` may also include `same_item_hydrate_churn_no_gain:N` when the active item is accumulating hydrate/read turns without durable progress. Treat that as a carry-forward failure: either persist what the reads taught, produce a stronger focused evidence artifact, patch/block/escalate, or pivot to a different item.
 
+`prompt_observability_summary.mechanical_flags` may also include `coarse_work_graph_under_active_investigation:N` when the ledger is structurally thin — several broad items exist but `atomic_item_count` and `covered_unit_count` are both 0 while reads continue. Default next move: expand the graph with group items, atomic items, or `covered_units` that make the mission-essential claims explicit, unless the rationale states concretely why the current shape is already adequate.
+
 ### Defensible evidence and read carry-forward
 For an exact material claim, prefer the evidence artifact that makes the claim as directly and undeniably auditable as the available tooling allows. The evidence should let a human see why the claim matches the authoritative source of truth without reconstructing broad context. If a focused crop, zoom, excerpt, trace, query result, test output, screenshot, log excerpt, code pointer, or annotated artifact can make the claim obvious, create or use that before marking the unit earned.
 
