@@ -818,6 +818,98 @@ def test_blocking_hitl_timeout_returns_waiting_human(tmp_path: Path, monkeypatch
     assert done_doc["status"] == "waiting_human"
 
 
+@pytest.mark.parametrize(
+    ("command", "status", "reason_code"),
+    [
+        ("pause", "paused", "paused_by_operator"),
+        ("stop", "stopped", "stopped_by_operator"),
+    ],
+)
+def test_blocking_hitl_honors_run_control_while_waiting(
+    tmp_path: Path,
+    monkeypatch,
+    command: str,
+    status: str,
+    reason_code: str,
+) -> None:
+    import services.agent_viewer.feedback_store as fb_mod
+    import config.paths as config_paths
+    import harness.runtime.runner.runner as runner_mod
+    from harness.runtime.control import write_run_control_request
+
+    run_id = f"run-hitl-{command}"
+    _seed_cli_run_state(tmp_path, monkeypatch, run_id)
+
+    monkeypatch.setattr(fb_mod, "list_entries", lambda **_kw: [])
+    monkeypatch.setattr(config_paths, "dossiers_artifacts_root", lambda: tmp_path / "artifacts")
+
+    control_path = cli_run_state.run_dir(run_id) / "control.json"
+    wrote_control = {"done": False}
+
+    def fake_sleep(_seconds: float) -> None:
+        if not wrote_control["done"]:
+            write_run_control_request(
+                control_path,
+                command=command,
+                reason="operator interrupt",
+            )
+            wrote_control["done"] = True
+
+    monkeypatch.setattr(runner_mod.time, "sleep", fake_sleep)
+
+    model_calls, model_caller = _blocking_hitl_model_caller()
+    adapter = FakeSurfaceAdapter(calls=[], surface=_surface([]))
+    runner = RuntimeRunner(adapter=adapter, model_caller=model_caller, targets=_targets(tmp_path))
+
+    result = runner.run(
+        launch_context={
+            "run_id": run_id,
+            "model": "gpt-5.4-mini",
+            "max_iterations": 5,
+            "loop_kind": "harness_cli",
+            "hitl_wait_timeout_seconds": 10,
+        }
+    )
+
+    assert result.status == status
+    assert result.reason_code == reason_code
+    assert len(model_calls) == 1, "runner should stop waiting without launching a resumed kernel slice"
+
+    result_doc = json.loads((tmp_path / "result.json").read_text(encoding="utf-8"))
+    done_doc = json.loads((tmp_path / "done.json").read_text(encoding="utf-8"))
+    for payload in (result_doc, done_doc):
+        assert payload["status"] == status
+        assert payload["terminal_class"] == status
+        assert payload["reason_code"] == reason_code
+        assert payload["resumable"] is True
+        assert payload["control_request"]["command"] == command
+    assert result_doc["runtime_state"]["blocking_prompt_id"] == "prompt-range-conflict"
+    terminal_event = next(e for e in result_doc["trace_events"] if e.get("event_kind") == "terminal_outcome")
+    assert terminal_event["reason_code"] == reason_code
+    assert terminal_event["payload"]["terminal_class"] == status
+
+    audit_dir = cli_run_state.run_dir(run_id) / "audit"
+    audit_index = json.loads((audit_dir / "index.json").read_text(encoding="utf-8"))
+    assert audit_index["terminal_class"] == status
+    assert audit_index["reason_code"] == reason_code
+    audit_turn = json.loads((audit_dir / "turn_0001.json").read_text(encoding="utf-8"))
+    assert audit_turn["terminal_decision"] == "wait_for_human"
+    event_lines = (audit_dir / "events.jsonl").read_text(encoding="utf-8").splitlines()
+    terminal_override = json.loads(event_lines[-1])
+    assert terminal_override["kind"] == "run_terminal_override"
+    assert terminal_override["payload"]["terminal_class"] == status
+    assert terminal_override["payload"]["reason_code"] == reason_code
+    assert terminal_override["session_id"] == run_id
+    assert terminal_override["request_id"] == run_id
+    timeline = (audit_dir / "human" / "timeline.md").read_text(encoding="utf-8")
+    assert "Run-Level Terminal Override" in timeline
+    assert f"- terminal_class: {status}" in timeline
+
+    state = cli_run_state.read_state(run_id)
+    assert state is not None
+    assert state.status == status
+
+
 def test_blocking_hitl_respects_logical_max_iterations_across_slices(tmp_path: Path, monkeypatch) -> None:
     """max_iterations is a logical-run budget, not a per-slice budget.
 

@@ -218,46 +218,15 @@ class RunAuditWriter:
         trace_events: list[dict[str, Any]],
         latest_refs: dict[str, Any],
     ) -> None:
-        tool_seq = _extract_tool_sequence(trace_events)
-        repairs = sum(1 for t in self._turns if t.get("repair_attempted"))
-        parse_failures = sum(1 for t in self._turns if not t.get("parse_ok") and not t.get("repair_records"))
-        lines: list[str] = [
-            "# Run Review",
-            "",
-            f"**Terminal:** `{terminal_class}`",
-            f"**Reason:** `{reason_code}`",
-            f"**Iterations:** {iterations}",
-            f"**LLM turns recorded:** {len(self._turns)}",
-            f"**Repairs attempted:** {repairs}",
-            f"**Parse failures (unrecovered):** {parse_failures}",
-            "",
-            "## Tool Sequence",
-        ]
-        if tool_seq:
-            lines.extend(f"- {entry}" for entry in tool_seq)
-        else:
-            lines.append("*(none recorded)*")
-        lines += ["", "## Per-Turn Summary"]
-        for t in self._turns:
-            tidx = t.get("turn_index", "?")
-            action = (t.get("tool_request") or {}).get("action_type") or (
-                "complete_run" if t.get("terminal_decision") == "complete_run"
-                else ("wait_for_human" if t.get("terminal_decision") == "wait_for_human" else "—")
-            )
-            repair_flag = " [repaired]" if t.get("repair_attempted") else ""
-            terminal_flag = f" [{t['terminal_decision']}]" if t.get("terminal_decision") else ""
-            refs_before = t.get("latest_refs_before") or {}
-            refs_after = t.get("latest_refs_after") or {}
-            new_keys = sorted(set(refs_after) - set(refs_before))
-            refs_note = f" refs+[{', '.join(new_keys)}]" if new_keys else ""
-            patch_fb = t.get("state_patch_feedback") or {}
-            patch_note = f" patch:{patch_fb.get('outcome', '')}" if patch_fb.get("outcome") else ""
-            lines.append(f"- turn {tidx}: `{action}`{repair_flag}{terminal_flag}{refs_note}{patch_note}")
-        lines += ["", "## Latest Refs"]
-        if latest_refs:
-            lines.extend(f"- `{k}`: {v}" for k, v in latest_refs.items())
-        else:
-            lines.append("*(empty)*")
+        lines = _build_review_lines(
+            turns=self._turns,
+            terminal_class=terminal_class,
+            reason_code=reason_code,
+            iterations=iterations,
+            trace_events=trace_events,
+            latest_refs=latest_refs,
+            run_terminal_override=None,
+        )
         (self._dir / "review.md").write_text("\n".join(lines) + "\n", encoding="utf-8")  # type: ignore[operator]
 
 
@@ -279,6 +248,147 @@ def _extract_tool_sequence(trace_events: list[dict[str, Any]]) -> list[str]:
         label = f"iter {iteration}: {action_type} [{state}]" if iteration is not None else f"{action_type} [{state}]"
         out.append(label)
     return out
+
+
+def rewrite_terminal_artifacts(
+    run_dir: Path | str | None,
+    *,
+    terminal_class: str,
+    reason_code: str,
+    iterations: int,
+    latest_refs: dict[str, Any],
+    trace_events: list[dict[str, Any]],
+    terminal_decision: str | None = None,
+    run_id: str = "",
+) -> None:
+    """Rewrite audit terminal artifacts after an outer lifecycle reclassification."""
+    if run_dir is None:
+        return
+    audit_dir = Path(run_dir) / "audit"
+    if not audit_dir.is_dir():
+        return
+    try:
+        turns = _load_turn_records(audit_dir)
+        event_log = AuditEventLog(run_dir)
+        last_turn_index = int(turns[-1].get("turn_index") or 0) if turns else None
+        session_id = str((turns[-1].get("session_id") if turns else "") or "")
+        request_id = str((turns[-1].get("request_id") if turns else "") or "")
+        override_payload = {
+            "terminal_class": terminal_class,
+            "reason_code": reason_code,
+            "iterations": iterations,
+            "latest_refs": latest_refs,
+            "terminal_decision": terminal_decision,
+            "run_id": run_id or None,
+            "session_id": session_id or None,
+            "request_id": request_id or None,
+        }
+        write_human_timeline(audit_dir, turns, run_terminal_override=override_payload)
+        _write_json_atomic(
+            audit_dir / "index.json",
+            {
+                "run_id": run_id,
+                "terminal_class": terminal_class,
+                "reason_code": reason_code,
+                "iterations": iterations,
+                "turn_count": len(turns),
+                "repairs_attempted": sum(1 for t in turns if t.get("repair_attempted")),
+                "latest_refs": latest_refs,
+            },
+        )
+        event_log.append(
+            "run_terminal_override",
+            override_payload,
+            turn_index=last_turn_index,
+            run_id=run_id,
+            session_id=session_id or None,
+            request_id=request_id or None,
+        )
+        lines = _build_review_lines(
+            turns=turns,
+            terminal_class=terminal_class,
+            reason_code=reason_code,
+            iterations=iterations,
+            trace_events=trace_events,
+            latest_refs=latest_refs,
+            run_terminal_override=override_payload,
+        )
+        (audit_dir / "review.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    except Exception:
+        _LOG.warning("rewrite_terminal_artifacts failed", exc_info=True)
+
+
+def _build_review_lines(
+    *,
+    turns: list[dict[str, Any]],
+    terminal_class: str,
+    reason_code: str,
+    iterations: int,
+    trace_events: list[dict[str, Any]],
+    latest_refs: dict[str, Any],
+    run_terminal_override: dict[str, Any] | None = None,
+) -> list[str]:
+    tool_seq = _extract_tool_sequence(trace_events)
+    repairs = sum(1 for t in turns if t.get("repair_attempted"))
+    parse_failures = sum(1 for t in turns if not t.get("parse_ok") and not t.get("repair_records"))
+    lines: list[str] = [
+        "# Run Review",
+        "",
+        f"**Terminal:** `{terminal_class}`",
+        f"**Reason:** `{reason_code}`",
+        f"**Iterations:** {iterations}",
+        f"**LLM turns recorded:** {len(turns)}",
+        f"**Repairs attempted:** {repairs}",
+        f"**Parse failures (unrecovered):** {parse_failures}",
+        "",
+        "## Tool Sequence",
+    ]
+    if tool_seq:
+        lines.extend(f"- {entry}" for entry in tool_seq)
+    else:
+        lines.append("*(none recorded)*")
+    if run_terminal_override:
+        lines += [
+            "",
+            "## Run-Level Terminal Override",
+            f"- terminal_class: `{run_terminal_override.get('terminal_class') or 'unknown'}`",
+            f"- reason_code: `{run_terminal_override.get('reason_code') or 'unknown'}`",
+            f"- terminal_decision: `{run_terminal_override.get('terminal_decision') or 'unknown'}`",
+        ]
+    lines += ["", "## Per-Turn Summary"]
+    for t in turns:
+        tidx = t.get("turn_index", "?")
+        action = (t.get("tool_request") or {}).get("action_type") or (
+            "complete_run" if t.get("terminal_decision") == "complete_run"
+            else ("wait_for_human" if t.get("terminal_decision") == "wait_for_human" else "—")
+        )
+        repair_flag = " [repaired]" if t.get("repair_attempted") else ""
+        terminal_flag = f" [{t['terminal_decision']}]" if t.get("terminal_decision") else ""
+        refs_before = t.get("latest_refs_before") or {}
+        refs_after = t.get("latest_refs_after") or {}
+        new_keys = sorted(set(refs_after) - set(refs_before))
+        refs_note = f" refs+[{', '.join(new_keys)}]" if new_keys else ""
+        patch_fb = t.get("state_patch_feedback") or {}
+        patch_note = f" patch:{patch_fb.get('outcome', '')}" if patch_fb.get("outcome") else ""
+        lines.append(f"- turn {tidx}: `{action}`{repair_flag}{terminal_flag}{refs_note}{patch_note}")
+    lines += ["", "## Latest Refs"]
+    if latest_refs:
+        lines.extend(f"- `{k}`: {v}" for k, v in latest_refs.items())
+    else:
+        lines.append("*(empty)*")
+    return lines
+
+
+def _load_turn_records(audit_dir: Path) -> list[dict[str, Any]]:
+    turns: list[dict[str, Any]] = []
+    for path in sorted(audit_dir.glob("turn_*.json")):
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if isinstance(raw, dict):
+            turns.append(raw)
+    return turns
 
 
 def _write_json_atomic(path: Path, payload: dict[str, Any]) -> None:

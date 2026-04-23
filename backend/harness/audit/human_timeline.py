@@ -53,7 +53,11 @@ _SECTION_BAR = "=" * 80
 _SUBSECTION_BAR = "-" * 80
 
 
-def write_human_timeline(audit_dir: Path, turns: list[dict[str, Any]]) -> None:
+def write_human_timeline(
+    audit_dir: Path,
+    turns: list[dict[str, Any]],
+    run_terminal_override: Mapping[str, Any] | None = None,
+) -> None:
     """Render and atomic-write ``<audit_dir>/human/timeline.md`` from ``turns``.
 
     Best-effort: exceptions are logged and suppressed so audit never blocks a
@@ -62,13 +66,16 @@ def write_human_timeline(audit_dir: Path, turns: list[dict[str, Any]]) -> None:
     try:
         target_dir = audit_dir / "human"
         target_dir.mkdir(parents=True, exist_ok=True)
-        body = render_timeline(turns)
+        body = render_timeline(turns, run_terminal_override=run_terminal_override)
         _atomic_write_text(target_dir / "timeline.md", body)
     except Exception:
         _LOG.warning("human_timeline write failed; timeline may be stale", exc_info=True)
 
 
-def render_timeline(turns: list[dict[str, Any]]) -> str:
+def render_timeline(
+    turns: list[dict[str, Any]],
+    run_terminal_override: Mapping[str, Any] | None = None,
+) -> str:
     """Render the full markdown-ish timeline body from accumulated turn records."""
     lines: list[str] = [
         "# Run Timeline (Human View)",
@@ -77,6 +84,18 @@ def render_timeline(turns: list[dict[str, Any]]) -> str:
         "text only — no host-authored semantic judgment.",
         "",
     ]
+    override = _coerce_mapping(run_terminal_override)
+    if override:
+        lines.extend(
+            [
+                "## Run-Level Terminal Override",
+                "",
+                f"- terminal_class: {override.get('terminal_class') or 'unknown'}",
+                f"- reason_code: {override.get('reason_code') or 'unknown'}",
+                f"- terminal_decision: {override.get('terminal_decision') or 'unknown'}",
+                "",
+            ]
+        )
     sorted_turns = sorted(
         (t for t in turns if isinstance(t, Mapping)),
         key=lambda t: _safe_turn_index(t),

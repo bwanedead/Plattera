@@ -10,7 +10,7 @@ doctrine, or pack-specific workflow language.
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from dataclasses import asdict, is_dataclass
+from dataclasses import asdict, dataclass, is_dataclass
 import json
 import logging
 import os
@@ -25,6 +25,7 @@ _LOG = logging.getLogger(__name__)
 from harness.execution.contracts import ExecutionSessionStartRequest
 from harness.execution.executor import ExecutionExecutor
 from harness.execution.session import ExecutionSessionManager
+from harness.audit.run_audit_writer import rewrite_terminal_artifacts
 from harness.runtime.composition import ComposedTurnInput, DefaultTurnComposer, TurnSurface
 from harness.runtime.control import (
     CONTROL_FILENAME,
@@ -112,6 +113,7 @@ class RuntimeRunner:
                 context = dict(context)
                 context["loop_kind"] = env_lk
         targets = self._targets or RuntimeArtifactTargets.from_env()
+        run_control_reader = _build_run_control_reader()
 
         try:
             adapter = self._resolve_adapter(context)
@@ -193,9 +195,29 @@ class RuntimeRunner:
                     run_id=canonical_run_id,
                     prompt_id=blocking_prompt_id,
                     timeout_seconds=wait_timeout,
+                    run_control_reader=run_control_reader,
                 )
 
-                if answer is None:
+                if answer.control_request is not None:
+                    _LOG.info(
+                        "RUNNER waiting_human_control_honored ► run_id=%s prompt_id=%s command=%s",
+                        canonical_run_id,
+                        blocking_prompt_id,
+                        answer.control_request.command,
+                    )
+                    result = _build_operator_interruption_result(
+                        loop_result=loop_result,
+                        control_request=answer.control_request,
+                    )
+                    _rewrite_cli_audit_for_operator_interruption(
+                        loop_result=loop_result,
+                        result=result,
+                        terminal_decision=result.status,
+                        run_id=canonical_run_id,
+                    )
+                    break
+
+                if answer.answer is None:
                     # Feedback did not arrive within the wait window.
                     # Return waiting_human as the terminal state so the caller knows
                     # the run is still paused (not completed or failed).
@@ -416,6 +438,16 @@ def run_runtime_from_env(
 
 
 _OPERATOR_INTERRUPTED_CLASSES = {"paused", "stopped"}
+_RUN_CONTROL_TERMINALS: dict[str, tuple[str, str]] = {
+    "pause": ("paused", "paused_by_operator"),
+    "stop": ("stopped", "stopped_by_operator"),
+}
+
+
+@dataclass(frozen=True)
+class BlockingHitlPollOutcome:
+    answer: dict[str, Any] | None = None
+    control_request: RunControlRequest | None = None
 
 
 def _extract_operator_control(loop_result: Any) -> dict[str, Any] | None:
@@ -470,6 +502,49 @@ def _build_loop_done_payload(loop_result: Any) -> dict[str, Any]:
         if control is not None:
             payload["control_request"] = control
     return payload
+
+
+def _build_operator_interruption_result(
+    *,
+    loop_result: Any,
+    control_request: RunControlRequest,
+) -> RuntimeRunResult:
+    terminal_class, reason_code = _RUN_CONTROL_TERMINALS.get(
+        control_request.command,
+        ("stopped", "stopped_by_operator"),
+    )
+    interrupted_at_iteration = int(getattr(loop_result, "iterations", 0))
+    control_payload = control_request.to_json_dict()
+    runtime_state = dict(getattr(loop_result, "runtime_state", {}) or {})
+    runtime_state["control_request"] = control_payload
+    runtime_state["resumable"] = True
+    runtime_state["interrupted_at_iteration"] = interrupted_at_iteration
+
+    trace_events = _override_terminal_trace_events(
+        getattr(loop_result, "trace_events", []) or [],
+        terminal_class=terminal_class,
+        reason_code=reason_code,
+        terminal_summary=control_request.reason,
+        iteration=interrupted_at_iteration,
+    )
+    result_payload = _build_loop_result_payload(loop_result)
+    done_payload = _build_loop_done_payload(loop_result)
+    for payload in (result_payload, done_payload):
+        payload["terminal_class"] = terminal_class
+        payload["reason_code"] = reason_code
+        payload["terminal_summary"] = control_request.reason
+        payload["resumable"] = True
+        payload["interrupted_at_iteration"] = interrupted_at_iteration
+        payload["control_request"] = control_payload
+    result_payload["runtime_state"] = _jsonable(runtime_state)
+    result_payload["trace_events"] = _jsonable(trace_events)
+
+    return RuntimeRunResult(
+        status=terminal_class,
+        reason_code=reason_code,
+        result_payload=result_payload,
+        done_payload=done_payload,
+    )
 
 
 def _build_default_model_caller(*, model_name: str) -> Callable[..., Mapping[str, Any] | str]:
@@ -700,20 +775,25 @@ def _poll_blocking_answer(
     prompt_id: str,
     timeout_seconds: float,
     poll_interval: float = 2.0,
-) -> dict[str, Any] | None:
+    run_control_reader: Callable[[], RunControlRequest | None] | None = None,
+) -> BlockingHitlPollOutcome:
     """Poll the feedback store until an answer for ``prompt_id`` arrives or the deadline passes.
 
-    Returns the feedback entry dict, or ``None`` if the timeout is reached with no answer.
-    This is purely mechanical: it does not interpret the answer content.
+    Returns a matching feedback entry, a pending operator control request, or an
+    empty outcome when the timeout is reached. This is purely mechanical: it
+    does not interpret the answer content.
     """
     if not loop_kind or not run_id or not prompt_id:
-        return None
+        return BlockingHitlPollOutcome()
     try:
         from services.agent_viewer import feedback_store
     except Exception:
-        return None
+        return BlockingHitlPollOutcome()
     deadline = time.monotonic() + max(1.0, float(timeout_seconds))
     while time.monotonic() < deadline:
+        control_request = _read_pending_run_control(run_control_reader)
+        if control_request is not None:
+            return BlockingHitlPollOutcome(control_request=control_request)
         try:
             entries = feedback_store.list_entries(loop_kind=loop_kind, run_id=run_id)
         except Exception:
@@ -723,9 +803,86 @@ def _poll_blocking_answer(
             if not isinstance(ent, dict):
                 continue
             if str(ent.get("prompt_id") or "").strip() == prompt_id:
-                return ent
+                return BlockingHitlPollOutcome(answer=ent)
         time.sleep(poll_interval)
-    return None
+    return BlockingHitlPollOutcome()
+
+
+def _read_pending_run_control(
+    reader: Callable[[], RunControlRequest | None] | None,
+) -> RunControlRequest | None:
+    if reader is None:
+        return None
+    try:
+        req = reader()
+    except Exception:
+        _LOG.warning("run_control_reader_failed_during_hitl_wait", exc_info=True)
+        return None
+    return req if isinstance(req, RunControlRequest) else None
+
+
+def _override_terminal_trace_events(
+    trace_events: list[dict[str, Any]],
+    *,
+    terminal_class: str,
+    reason_code: str,
+    terminal_summary: str | None,
+    iteration: int,
+) -> list[dict[str, Any]]:
+    events = [_jsonable(event) for event in trace_events]
+    payload: dict[str, Any] = {
+        "terminal_class": terminal_class,
+        "reason_code": reason_code,
+    }
+    if terminal_summary is not None:
+        payload["terminal_summary"] = terminal_summary
+    for event in reversed(events):
+        if isinstance(event, Mapping) and str(event.get("event_kind") or "") == "terminal_outcome":
+            updated = dict(event)
+            updated["reason_code"] = reason_code
+            updated["iteration_index"] = int(iteration)
+            updated["payload"] = payload
+            return [updated if item is event else item for item in events]
+    events.append(
+        {
+            "event_kind": "terminal_outcome",
+            "phase": "terminal",
+            "iteration_index": int(iteration),
+            "actor": "kernel",
+            "status": "completed",
+            "reason_code": reason_code,
+            "refs_delta": {},
+            "payload": payload,
+        }
+    )
+    return events
+
+
+def _rewrite_cli_audit_for_operator_interruption(
+    *,
+    loop_result: Any,
+    result: RuntimeRunResult,
+    terminal_decision: str,
+    run_id: str,
+) -> None:
+    cli_run_id = os.environ.get("HARNESS_CLI_RUN_ID", "").strip()
+    if not cli_run_id:
+        return
+    try:
+        from harness.cli.run_state import run_dir as cli_run_dir
+
+        rewrite_terminal_artifacts(
+            cli_run_dir(cli_run_id),
+            terminal_class=result.status,
+            reason_code=str(result.reason_code or ""),
+            iterations=int(getattr(loop_result, "iterations", 0)),
+            latest_refs=dict(getattr(loop_result, "latest_refs", {}) or {}),
+            trace_events=list(result.result_payload.get("trace_events") or []),
+            terminal_decision=terminal_decision,
+            run_id=run_id,
+        )
+    except Exception:
+        _LOG.warning("rewrite_cli_audit_for_operator_interruption failed", exc_info=True)
 
 
 def _jsonable(value: Any) -> Any:
