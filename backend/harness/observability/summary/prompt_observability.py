@@ -50,6 +50,8 @@ _ZERO_INT_FIELDS = (
     "closure_dimensions_with_earned_determination_count",
     "closed_dimensions_without_earned_determination_count",
     "closed_dimensions_without_basis_count",
+    "closed_items_with_open_dependencies_count",
+    "explicit_non_blocking_without_notes_count",
 )
 _OPTIONAL_INT_FIELDS = ("turns_since_last_tool_execution", "turns_since_latest_refs_change", "turns_since_last_state_patch_applied", "turns_since_resolution_item_count_change")
 _STR_FIELDS = ("last_prompt_event_id", "last_state_patch_outcome", "last_state_patch_reason_code", "work_universe_posture")

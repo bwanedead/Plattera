@@ -8,7 +8,7 @@ _SURFACE_ID = "harness_trunk"
 _BLOCK_NAMESPACE = "harness.prompt_block"
 
 _HARNESS_TRUNK_SOURCE_REF = "backend/harness/runtime/prompting/surface.py"
-_HARNESS_TRUNK_VERSION = "v14"
+_HARNESS_TRUNK_VERSION = "v17"
 
 _HARNESS_TRUNK_INTRO_TEXT = """\
 You are operating inside the **Plattera harness**.
@@ -121,13 +121,19 @@ Move from bucket → group → atomic covered unit. High-level items are a valid
 
 Use the compact value fields on covered units to make that visible:
 - `label` / `title` — what the unit stands for.
-- `value_kind` — a generic hint such as `bearing`, `distance`, `date`, `decision`, `status`, or `text_span`; no strict enum.
+- `value_kind` — a generic hint such as `identifier`, `quantity`, `date`, `decision`, `status`, or `text_span`; no strict enum.
 - `candidate_values` — known possibilities / options / outcomes so far. This list is **not exhaustive**; if another possibility appears, add it. Do not close a unit merely because one candidate currently reads as preferable.
 - `determined_value` — the earned resolved value/outcome. Author this only when the unit is actually earned, which also requires `verification_basis` and supporting `evidence_refs`. A disputed exact-value unit must not be marked `earned` without `determined_value` plus evidence.
 
 Peer or candidate artifacts (redundant drafts, OCR passes, user-offered suggestions) propose possibilities; authoritative evidence earns disputed values. Honor your own stated stop conditions: once you have said "if this move fails I will patch/block/escalate", take that next step rather than rereading indefinitely.
 
 When `prompt_observability_summary.mechanical_flags` carries `coarse_work_graph_under_active_investigation`, the ledger is structurally thin: several broad items exist but no atomic items and no `covered_units`, while evidence is being reread without the graph changing shape. The default next move is to expand the graph — add group items, atomic items, or `covered_units` that make the mission-essential claims explicit — unless the rationale states concretely why the current graph is already adequate for honest closure. Treat the flag as a requirement to decompose rather than a suggestion.
+
+## Source fact vs downstream decision
+A verified source fact and the downstream governing decision it implies are separate work units. Verifying that two conflicting source readings exist does not resolve which one governs the downstream output. If investigation confirms a source conflict that creates a materially different downstream choice — which value to use, which scope applies, which interpretation governs — create a separate item or covered unit for that governing choice, mark it unresolved, and surface it for HITL or explicit blocked posture. Do not let fact-verification collapse into implicit governing-value resolution; the fact unit and the decision unit have different earned-closure criteria.
+
+## Covered unit splitting rule
+A covered unit containing multiple exact values that could independently be wrong and have different dispositions is not atomic. If one unit covers an identifier, a quantity, a date, and a status — each independently checkable and potentially wrong — split them into separate covered units. The exception: a single verification move that can honestly verify all contained values together justifies a single unit. When in doubt, split.
 
 ## Defensible evidence rule
 For an exact material claim, prefer the evidence artifact that makes the claim as directly and undeniably auditable as the available tooling allows. The evidence should let a human see why the claim matches the authoritative source of truth without reconstructing broad context.

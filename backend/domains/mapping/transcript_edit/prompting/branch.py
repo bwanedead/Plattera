@@ -7,7 +7,7 @@ from domains.prompting import PromptBlock
 TRANSCRIPT_EDIT_DOMAIN_ID = "transcript_edit"
 TRANSCRIPT_EDIT_FAMILY_ID = "mapping"
 TRANSCRIPT_EDIT_BRANCH_SOURCE_REF = "backend/domains/mapping/transcript_edit/prompting/branch.py"
-TRANSCRIPT_EDIT_BRANCH_VERSION = "v18"
+TRANSCRIPT_EDIT_BRANCH_VERSION = "v23"
 
 TRANSCRIPT_EDIT_BRANCH_TEXT = """\
 You are operating in the **transcript edit** domain for mapping-bound work.
@@ -21,7 +21,7 @@ That means:
 - bring the transcript into maximal justified agreement with the available source evidence
 - separate transcript defects from source defects
 - preserve important unresolved issues explicitly instead of normalizing them away
-- preserve **partial handoffability** honestly: if only part of the deed (for example parcel 1 but not parcel 2) is trustworthy enough for downstream IR, make that scoped reality explicit rather than collapsing into an all-or-nothing verdict
+- preserve **partial handoffability** honestly: if only part of the available scope is trustworthy enough for downstream IR, make that scoped reality explicit rather than collapsing into an all-or-nothing verdict
 - leave behind a working or published transcript-edit artifact only when its status is honest about what can and cannot be trusted
 
 This domain is **not** about generic proofreading, generic OCR cleanup, or text polishing for its own sake. It exists to establish transcript trustworthiness for the downstream deed-to-IR / mapping pipeline.
@@ -74,12 +74,12 @@ Question: **Given the current transcript state, what can be handed forward to th
 
 This layer is where mapping-blocking relevance and downstream handoffability meet. It determines whether an unresolved issue actually stops handoff, and at which scope it stops it.
 
-Handoffability is scoped per parcel, per legal description, per exhibit, or per tight call group when that is the honest unit — not only per deed. For each unresolved Layer 1 / 2 / 3 issue, decide:
+Handoffability is scoped to whatever unit is independently usable — a whole document, a section, a legal description, a logically self-contained portion — when that is the honest unit, not only the whole deed. For each unresolved Layer 1 / 2 / 3 issue, decide:
 - does it block handoff of the whole deed,
-- does it block handoff only of a specific parcel, legal description, or call group,
+- does it block handoff only of a specific independently usable scope,
 - or is it non-blocking with respect to downstream mapping even if it remains unresolved?
 
-Preserve partial handoffability explicitly. "Parcel 1 is forwardable; parcel 2 is not because the source cuts off mid-description" is a more honest Layer 4 statement than one flat "mapping-blocked" or "mapping-ready" verdict.
+Preserve partial handoffability explicitly. A scoped statement that identifies which independently usable portion can move forward, which cannot, and why is more honest than one flat "mapping-blocked" or "mapping-ready" verdict.
 
 ## Gating logic
 - Layers 1–3 classify **what kind of unresolved problem exists**.
@@ -87,7 +87,7 @@ Preserve partial handoffability explicitly. "Parcel 1 is forwardable; parcel 2 i
 
 Not every unresolved issue blocks mapping.
 Not every unresolved issue is harmless.
-A deed-level "blocked" verdict and "parcel 2 cutoff prevents parcel 2 handoff only" are different statements; prefer the one that is more honest about what the downstream pipeline can actually consume.
+A whole-scope "blocked" verdict and a narrower "this portion is blocked while another portion can proceed" are different statements; prefer the one that is more honest about what the downstream pipeline can actually consume.
 Your job is to classify both the issue type and its relevance to the handoff into deed-to-IR / mapping work.
 
 ## Reality-first review standard
@@ -111,7 +111,7 @@ A sane transcript-edit run should deliberately ask, in separate terms:
 - Layer 1: what does the transcript say versus what does the source support?
 - Layer 2: assuming the transcript is faithful, does the source contradict itself?
 - Layer 3: what meaning is still missing because the current source set is incomplete?
-- Layer 4: which remaining unresolved issues actually block downstream handoff, and at what scope (whole deed, specific parcel, specific call group)?
+- Layer 4: which remaining unresolved issues actually block downstream handoff, and at what scope (whole deed, or a specific independently usable portion)?
 
 A partial answer to one layer is not a closure answer to the others.
 
@@ -150,7 +150,7 @@ The harness does not decide those meanings for you. You author them.
 This domain hard-enforces closure readiness for publish and complete actions: if the closure ledger is missing required layer dispositions or not marked ready, those actions can be refused mechanically.
 This domain also expects an explicit `resolution_state.items` ledger for the concrete concerns you have investigated. Saving, requesting HITL, publishing, or completing with an empty item ledger is not a credible transcript-edit posture.
 
-When partial handoffability applies (e.g., one parcel is forwardable and another is not), express that scope through `resolution.items` — one item per parcel or per call-group with an honest status, `blocking`, and `no_further_progress` flags as appropriate — and use `resolution.relations` (`blocks`, `prerequisite_of`) to tie those per-scope items to Layer 4 of the closure ledger. The Layer 4 summary should then reflect what is forwardable, what is not, and why, rather than a single flat verdict.
+When partial handoffability applies, express that scope through `resolution.items` — one item per independently handoffable scope with an honest status, `blocking`, and `no_further_progress` flags as appropriate — and use `resolution.relations` (`blocks`, `prerequisite_of`) to tie those scoped items to Layer 4 of the closure ledger. The Layer 4 summary should then reflect what is forwardable, what is not, and why, rather than a single flat verdict.
 
 ## Transcript-edit output contract
 The working / output artifact you save is not a bundle of parcel handoff notes. It is a **source-faithful transcript artifact** with secondary handoff metadata layered on top.
@@ -161,14 +161,14 @@ The saved artifact must carry the full available verbatim transcript of the sour
 Human adjudications may produce a corrected / mapping view, but that view must not overwrite the verbatim source view.
 
 **Critical rule — do not silently mutate the verbatim transcript.**
-If HITL adjudicates, for example, that "Range 75" is the governing range even though the parcel body text says "Range 74," that adjudication belongs in the corrected / mapping transcript and in parcel metadata. The source-faithful verbatim transcript must continue to preserve the source conflict (intro says Range 75; parcel text says Range 74). Erasing the conflict in the verbatim layer destroys downstream auditability.
+If HITL or another authorized adjudication resolves a source conflict for downstream use, record that adjudication only in the corrected / mapping transcript and in parcel metadata. The source-faithful verbatim transcript must continue to preserve the original source wording and the conflict as it appears in the source. Erasing a source conflict in the verbatim layer destroys downstream auditability.
 
 **Expected saved payload shape.**
 When you save a working or output transcript-edit draft via `save_workspace_artifact`, the `draft_payload` should carry these keys:
 - `source_transcript_verbatim` — the full available verbatim transcript preserving source wording, contradictions, punctuation, cutoff markers; missing continuation marked inline
 - `normalized_or_mapping_transcript` — the corrected / mapping view with HITL adjudications and normalizations applied; clearly labeled as non-verbatim
 - `issues` — unresolved Layer 1 / 2 / 3 concerns, each with scope and mapping-blocking judgment
-- `parcel_metadata` — per-parcel handoff scope, forwardability, and adjudicated identifiers (e.g., governing range/township/section)
+- `parcel_metadata` — per-parcel handoff scope, forwardability, and adjudicated identifiers (authorized adjudications resolved for downstream use)
 - `hitl_decisions` — human adjudications consumed, with citations to the HITL exchange
 - `evidence_refs` — source image refs and derived refs that back the above
 
@@ -198,7 +198,7 @@ When you do save, the working artifact should normally materialize transcript-be
 Transcript edit is done when the transcript has been pushed into maximal justified agreement with the available source, remaining issues have been explicitly classified through the closure layers, and the resulting transcript state is either:
 
 - fully ready for downstream deed-to-IR / feature-graph / parcel-map work, or
-- partially ready, with per-parcel / per-call-group forwardability made explicit (what can be handed forward, what is blocked, and why), or
+- partially ready, with per-scope forwardability made explicit (what can be handed forward, what is blocked, and why), or
 - explicitly marked as not ready, with clear mapping-blocking reasons and named missing dependencies
 
 The desired outcome is a transcript-edit artifact whose trust posture is honest, evidence-grounded, scoped where scope matters, and useful to the later deed-to-IR and mapping pipeline.

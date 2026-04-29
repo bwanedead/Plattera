@@ -136,6 +136,48 @@ def build_prompt_observability_summary(
     same_item_same_ref_bundle_stall_streak = _same_item_same_ref_bundle_stall_streak(step_records)
     same_item_hydrate_churn_no_gain_streak = _same_item_hydrate_churn_no_gain_streak(step_records)
 
+    # Build status maps for the dependency open-check (structural only).
+    items_status_by_id: dict[str, str] = {
+        str(getattr(row, "item_id", "") or ""): str(getattr(row, "status", "") or "")
+        for row in resolution_items
+    }
+    _closed_ids = {iid for iid, st in items_status_by_id.items() if _is_closed_status(st)}
+    _open_ids = {iid for iid in items_status_by_id if iid not in _closed_ids}
+    # Closed items reachable as a target from an open item via blocking relation types.
+    _blocking_relation_types = {"blocks", "prerequisite_of"}
+    _closed_targets_of_open_blockers: set[str] = {
+        str(getattr(rel, "target_item_id", "") or "")
+        for rel in resolution_relations
+        if (
+            _as_optional_text(getattr(rel, "relation_type", None)) or ""
+        ).lower() in _blocking_relation_types
+        and str(getattr(rel, "source_item_id", "") or "") in _open_ids
+        and str(getattr(rel, "target_item_id", "") or "") in _closed_ids
+    }
+    closed_items_with_open_dependencies_count = sum(
+        1
+        for row in resolution_items
+        if _is_closed_status(getattr(row, "status", None))
+        and (
+            # Via explicit dependencies list
+            any(
+                not _is_closed_status(items_status_by_id.get(str(dep or ""), ""))
+                for dep in (getattr(row, "dependencies", None) or ())
+                if str(dep or "").strip()
+            )
+            # Via resolution.relations: an open item blocks/prerequisite_of this closed item
+            or str(getattr(row, "item_id", "") or "") in _closed_targets_of_open_blockers
+        )
+    )
+    # Explicitly non-blocking items with no notes or verification basis — structural shape flag.
+    explicit_non_blocking_without_notes_count = sum(
+        1
+        for row in resolution_items
+        if getattr(row, "blocking", None) is False
+        and not _has_text(getattr(row, "notes", None))
+        and not _has_text(getattr(row, "verification_basis", None))
+    )
+
     covered_units_metrics = _covered_units_metrics(resolution_items)
 
     closure_readiness_projection = _closure_readiness_projection(
@@ -221,6 +263,8 @@ def build_prompt_observability_summary(
         ),
         "closed_dimensions_without_earned_determination_count": closed_dimensions_without_earned_determination_count,
         "closed_dimensions_without_basis_count": closed_dimensions_without_basis_count,
+        "closed_items_with_open_dependencies_count": closed_items_with_open_dependencies_count,
+        "explicit_non_blocking_without_notes_count": explicit_non_blocking_without_notes_count,
         "closure_readiness_projection": closure_readiness_projection,
     }
     summary["mechanical_flags"] = _mechanical_flags(
@@ -258,6 +302,8 @@ def build_prompt_observability_summary(
             critical_closed_items_without_verification_basis_count
         ),
         blocking_items_without_relations_count=blocking_items_without_relations_count,
+        closed_items_with_open_dependencies_count=closed_items_with_open_dependencies_count,
+        explicit_non_blocking_without_notes_count=explicit_non_blocking_without_notes_count,
         complete_run_blockers=list(closure_readiness_projection.get("complete_run_blockers", ())),
     )
     return summary
@@ -672,6 +718,8 @@ def _mechanical_flags(
     critical_closed_items_without_evidence_count: int,
     critical_closed_items_without_verification_basis_count: int,
     blocking_items_without_relations_count: int,
+    closed_items_with_open_dependencies_count: int,
+    explicit_non_blocking_without_notes_count: int,
     complete_run_blockers: list[str],
 ) -> list[str]:
     flags: list[str] = []
@@ -766,9 +814,17 @@ def _mechanical_flags(
         flags.append(
             f"coarse_work_graph_under_active_investigation:{resolution_item_count}"
         )
+    if closed_items_with_open_dependencies_count > 0:
+        flags.append(
+            f"closed_item_with_open_dependency:{closed_items_with_open_dependencies_count}"
+        )
+    if explicit_non_blocking_without_notes_count > 0:
+        flags.append(
+            f"explicit_non_blocking_without_notes:{explicit_non_blocking_without_notes_count}"
+        )
     if not closure_ready_to_close and complete_run_blockers:
         flags.append("complete_run_blockers_present")
-    return flags[:16]
+    return flags[:24]
 
 
 def _stable_signature(value: Any) -> str:

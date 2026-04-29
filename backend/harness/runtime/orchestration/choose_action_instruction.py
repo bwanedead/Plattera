@@ -91,7 +91,7 @@ Do not copy host-maintained fields such as schema_version or updated_at_epoch_se
 
 Compact value fields on a covered unit:
 - `label`: short UI-grade label; renderers fall back to `title` when absent.
-- `value_kind`: optional hint for the kind of value this unit carries (e.g. `bearing`, `distance`, `date`, `decision`, `status`, `text_span`). No strict enum.
+- `value_kind`: optional hint for the kind of value this unit carries (e.g. `identifier`, `quantity`, `date`, `decision`, `status`, `text_span`). No strict enum.
 - `candidate_values`: known possibilities / options / outcomes so far. This list is **not exhaustive**; if another possibility appears, add it. Do not close a unit just because one candidate currently looks preferable.
 - `determined_value`: the earned resolved value/outcome. Author this only when the unit is actually earned — which also means `verification_basis` and `evidence_refs` support it. A disputed exact-value unit should not be marked `earned` without `determined_value` plus supporting evidence.
 
@@ -132,6 +132,10 @@ Before re-issuing an action on a ref bundle already read recently, name the new 
 `prompt_observability_summary.mechanical_flags` may include `same_ref_bundle_reread_no_gain:N` and `same_item_same_ref_bundle_stall:N`. When either fires, pivoting is mandatory on the next turn — another reread on the same bundle without a concrete new distinction is spin, not investigation.
 
 `prompt_observability_summary.mechanical_flags` may also include `same_item_hydrate_churn_no_gain:N` when the active item is accumulating hydrate/read turns without durable progress. Treat that as a carry-forward failure: either persist what the reads taught, produce a stronger focused evidence artifact, patch/block/escalate, or pivot to a different item.
+
+`prompt_observability_summary.mechanical_flags` may also include `closed_item_with_open_dependency:N` when closed resolution items have dependencies or relation-backed blockers (`blocks`, `prerequisite_of`) that are still open. This is structurally suspicious: the closed item was resolved while something it depends on remained unresolved. Default response: reopen the closed item and leave it open until its dependency is resolved, or verify that the dependency was already resolved and update its status to reflect that.
+
+`prompt_observability_summary.mechanical_flags` may also include `explicit_non_blocking_without_notes:N` when items carry `blocking=False` without any `notes` or `verification_basis` explaining the non-blocking rationale. Default response: add notes stating what downstream outputs are affected if this value is wrong and why the issue is genuinely non-blocking despite those consequences, or reconsider whether the item should be blocking and surface the appropriate HITL.
 
 `prompt_observability_summary.mechanical_flags` may also include `coarse_work_graph_under_active_investigation:N` when the ledger is structurally thin — several broad items exist but `atomic_item_count` and `covered_unit_count` are both 0 while reads continue. Default next move: expand the graph with group items, atomic items, or `covered_units` that make the mission-essential claims explicit, unless the rationale states concretely why the current shape is already adequate.
 

@@ -32,7 +32,7 @@ def transcript_edit_handoff_semantics() -> TranscriptEditHandoffSemantics:
             "Evidence refs (image crops, draft ids) for non-obvious repairs that affect geometry-bearing language.",
         ),
         should_not_hand_off_yet=(
-            "Material ambiguity on calls, bearings, curves, ties, or acreage language without disposition.",
+            "Material ambiguity on geometry-bearing or operative language without disposition.",
             "Known mismatch between transcript span and imagery that changes legal reading.",
             "Claiming handoff while the authored transcript-edit draft is missing or inconsistent with cited evidence.",
         ),

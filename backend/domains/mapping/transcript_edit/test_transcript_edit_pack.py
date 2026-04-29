@@ -524,10 +524,10 @@ def test_branch_teaches_no_silent_verbatim_mutation_rule() -> None:
     text = blocks[0].text
     lowered = text.lower()
     assert "do not silently mutate the verbatim transcript" in lowered
-    assert "range 75" in lowered
-    assert "range 74" in lowered
+    assert "authorized adjudication" in lowered
     assert "corrected / mapping transcript" in lowered
     assert "parcel metadata" in lowered
+    assert "original source wording" in lowered
 
 
 def test_branch_teaches_expected_saved_payload_shape() -> None:

@@ -158,8 +158,8 @@ def build_transcript_edit_tool_specs() -> tuple[SemanticToolSpec, ...]:
                 "inline — the first output obligation), normalized_or_mapping_transcript (corrected "
                 "/ mapping view with HITL adjudications applied, clearly non-verbatim), issues "
                 "(unresolved Layer 1 / 2 / 3 concerns with scope and mapping-blocking judgment), "
-                "parcel_metadata (per-parcel scope, forwardability, adjudicated identifiers — e.g. "
-                "a HITL-adjudicated governing range goes here, NOT into the verbatim), "
+                "parcel_metadata (per-parcel scope, forwardability, and adjudicated identifiers — "
+                "authorized adjudications belong in metadata or corrected/downstream views, not in the verbatim source transcript), "
                 "hitl_decisions (human adjudications consumed, with citations), and evidence_refs. "
                 "Do not silently mutate the verbatim transcript to apply adjudications."
             ),

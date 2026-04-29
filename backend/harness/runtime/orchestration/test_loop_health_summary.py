@@ -101,6 +101,8 @@ def _item(
     sequence_scope: str | None = None,
     sequence_index: int | None = None,
     covered_units: list[ResolutionCoveredUnit] | None = None,
+    notes: str | None = None,
+    dependencies: list[str] | None = None,
 ) -> ResolutionItem:
     return ResolutionItem(
         item_id=item_id,
@@ -119,6 +121,8 @@ def _item(
         sequence_scope=sequence_scope,
         sequence_index=sequence_index,
         covered_units=list(covered_units or []),
+        notes=notes,
+        dependencies=list(dependencies or []),
     )
 
 
@@ -400,6 +404,8 @@ def _flags(**kwargs) -> list[str]:
         critical_closed_items_without_evidence_count=0,
         critical_closed_items_without_verification_basis_count=0,
         blocking_items_without_relations_count=0,
+        closed_items_with_open_dependencies_count=0,
+        explicit_non_blocking_without_notes_count=0,
         complete_run_blockers=[],
     )
     base.update(kwargs)
@@ -1025,3 +1031,134 @@ def test_summary_success_condition_coverage_counted() -> None:
     assert result["success_condition_count"] == 2
     assert result["success_conditions_with_earned_determination_count"] == 1
     assert result["success_conditions_with_verification_basis_count"] == 1
+
+
+# ---------------------------------------------------------------------------
+# closed_items_with_open_dependencies_count — structural dependency flag
+# ---------------------------------------------------------------------------
+
+
+def test_summary_closed_item_with_open_dependency_detected() -> None:
+    """Closed item whose dependency list points to an open item triggers the count."""
+    dep = _item("dep-open", status="open")
+    closed = _item("closed-a", status="closed", dependencies=["dep-open"])
+    mem = _mem(resolution_items=[dep, closed])
+    result = build_prompt_observability_summary(mem)
+    assert result["closed_items_with_open_dependencies_count"] == 1
+
+
+def test_summary_closed_item_with_closed_dependency_not_flagged() -> None:
+    """Closed item whose dependency is also closed does not trigger."""
+    dep = _item("dep-closed", status="closed", determination="earned", verification_basis="ok")
+    closed = _item("closed-b", status="closed", dependencies=["dep-closed"])
+    mem = _mem(resolution_items=[dep, closed])
+    result = build_prompt_observability_summary(mem)
+    assert result["closed_items_with_open_dependencies_count"] == 0
+
+
+def test_summary_open_item_with_open_dependency_not_flagged() -> None:
+    """Only closed items are examined — open items with open deps don't count."""
+    dep = _item("dep-open", status="open")
+    parent = _item("open-parent", status="open", dependencies=["dep-open"])
+    mem = _mem(resolution_items=[dep, parent])
+    result = build_prompt_observability_summary(mem)
+    assert result["closed_items_with_open_dependencies_count"] == 0
+
+
+def test_flags_closed_item_with_open_dependency_fires() -> None:
+    """_mechanical_flags surfaces the count when > 0."""
+    result = _flags(closed_items_with_open_dependencies_count=2)
+    assert "closed_item_with_open_dependency:2" in result
+
+
+def test_flags_closed_item_with_open_dependency_zero_no_flag() -> None:
+    result = _flags(closed_items_with_open_dependencies_count=0)
+    assert not any(f.startswith("closed_item_with_open_dependency:") for f in result)
+
+
+def test_summary_closed_item_blocked_by_open_via_blocks_relation() -> None:
+    """An open item with a `blocks` relation targeting a closed item triggers the count."""
+    blocker = _item("blocker", status="open")
+    closed = _item("closed-c", status="closed", determination="earned", verification_basis="ok")
+    rel = _rel("blocker", "closed-c", "blocks")
+    mem = _mem(resolution_items=[blocker, closed], resolution_relations=[rel])
+    result = build_prompt_observability_summary(mem)
+    assert result["closed_items_with_open_dependencies_count"] == 1
+
+
+def test_summary_closed_item_blocked_by_open_via_prerequisite_of_relation() -> None:
+    """An open item with a `prerequisite_of` relation targeting a closed item triggers."""
+    prereq = _item("prereq", status="open")
+    closed = _item("closed-d", status="closed", determination="earned", verification_basis="ok")
+    rel = _rel("prereq", "closed-d", "prerequisite_of")
+    mem = _mem(resolution_items=[prereq, closed], resolution_relations=[rel])
+    result = build_prompt_observability_summary(mem)
+    assert result["closed_items_with_open_dependencies_count"] == 1
+
+
+def test_summary_open_item_blocked_by_closed_not_flagged() -> None:
+    """Reversed direction (closed blocks open) is normal forward-dependency ordering; no flag."""
+    closed_blocker = _item("closed-e", status="closed", determination="earned", verification_basis="ok")
+    waiting = _item("waiting", status="open")
+    rel = _rel("closed-e", "waiting", "blocks")
+    mem = _mem(resolution_items=[closed_blocker, waiting], resolution_relations=[rel])
+    result = build_prompt_observability_summary(mem)
+    assert result["closed_items_with_open_dependencies_count"] == 0
+
+
+def test_summary_subclaim_of_relation_not_counted_as_blocking() -> None:
+    """`subclaim_of` is not a blocking relation type; should not trigger the flag."""
+    parent = _item("parent", status="open")
+    child = _item("child", status="closed", determination="earned", verification_basis="ok")
+    rel = _rel("child", "parent", "subclaim_of")
+    mem = _mem(resolution_items=[parent, child], resolution_relations=[rel])
+    result = build_prompt_observability_summary(mem)
+    assert result["closed_items_with_open_dependencies_count"] == 0
+
+
+# ---------------------------------------------------------------------------
+# explicit_non_blocking_without_notes_count — structural non-blocking flag
+# ---------------------------------------------------------------------------
+
+
+def test_summary_explicit_non_blocking_without_notes_detected() -> None:
+    """Item with blocking=False and no notes triggers the count."""
+    it = _item("no-notes", status="open", blocking=False)
+    mem = _mem(resolution_items=[it])
+    result = build_prompt_observability_summary(mem)
+    assert result["explicit_non_blocking_without_notes_count"] == 1
+
+
+def test_summary_explicit_non_blocking_with_notes_not_flagged() -> None:
+    """Item with blocking=False but notes present does not trigger."""
+    it = _item("has-notes", status="open", blocking=False, notes="range conflict is cosmetic")
+    mem = _mem(resolution_items=[it])
+    result = build_prompt_observability_summary(mem)
+    assert result["explicit_non_blocking_without_notes_count"] == 0
+
+
+def test_summary_explicit_non_blocking_with_verification_basis_not_flagged() -> None:
+    """Item with blocking=False but verification_basis present does not trigger."""
+    it = _item("has-basis", status="open", blocking=False, verification_basis="confirmed non-binding")
+    mem = _mem(resolution_items=[it])
+    result = build_prompt_observability_summary(mem)
+    assert result["explicit_non_blocking_without_notes_count"] == 0
+
+
+def test_summary_none_blocking_not_flagged() -> None:
+    """Item with blocking=None (default) is not counted — only explicit False."""
+    it = _item("default-blocking", status="open")
+    assert it.blocking is None
+    mem = _mem(resolution_items=[it])
+    result = build_prompt_observability_summary(mem)
+    assert result["explicit_non_blocking_without_notes_count"] == 0
+
+
+def test_flags_explicit_non_blocking_without_notes_fires() -> None:
+    result = _flags(explicit_non_blocking_without_notes_count=1)
+    assert "explicit_non_blocking_without_notes:1" in result
+
+
+def test_flags_explicit_non_blocking_without_notes_zero_no_flag() -> None:
+    result = _flags(explicit_non_blocking_without_notes_count=0)
+    assert not any(f.startswith("explicit_non_blocking_without_notes:") for f in result)

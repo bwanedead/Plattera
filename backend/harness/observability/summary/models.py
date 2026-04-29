@@ -142,10 +142,12 @@ class PromptObservabilitySummary(BaseModel):
     closure_dimensions_with_earned_determination_count: int = Field(default=0, ge=0)
     closed_dimensions_without_earned_determination_count: int = Field(default=0, ge=0)
     closed_dimensions_without_basis_count: int = Field(default=0, ge=0)
+    closed_items_with_open_dependencies_count: int = Field(default=0, ge=0)
+    explicit_non_blocking_without_notes_count: int = Field(default=0, ge=0)
     closure_readiness_projection: ClosureReadinessProjection = Field(
         default_factory=ClosureReadinessProjection
     )
-    mechanical_flags: list[str] = Field(default_factory=list, max_length=16)
+    mechanical_flags: list[str] = Field(default_factory=list, max_length=24)
 
 
 class SharedRunSummaryEnvelope(BaseModel):
