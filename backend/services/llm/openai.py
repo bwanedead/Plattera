@@ -89,8 +89,12 @@ import time
 import logging
 import random
 from pathlib import Path
-import keyring
 from config.paths import backend_root
+
+try:
+    import keyring
+except ImportError:
+    keyring = None
 
 logger = logging.getLogger(__name__)
 
@@ -124,13 +128,14 @@ def _get_openai_api_key():
     This is intentionally verbose so that frozen EXE runs make it obvious whether
     OpenAI failed due to missing keyring/env vs missing package.
     """
-    try:
-        key = keyring.get_password("plattera", "openai_api_key")
-        if key:
-            logger.debug("OPENAI_KEY ► resolved from keyring")
-            return key
-    except Exception as e:
-        logger.warning(f"OPENAI_KEY ► keyring error: {e}")
+    if keyring is not None:
+        try:
+            key = keyring.get_password("plattera", "openai_api_key")
+            if key:
+                logger.debug("OPENAI_KEY ► resolved from keyring")
+                return key
+        except Exception as e:
+            logger.warning(f"OPENAI_KEY ► keyring error: {e}")
 
     env_key = os.getenv("OPENAI_API_KEY")
     if env_key:

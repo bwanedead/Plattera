@@ -22,6 +22,7 @@ _ZERO_INT_FIELDS = (
     "closed_candidate_units_missing_determined_value_count",
     "closed_value_units_missing_evidence_count",
     "earned_units_missing_verification_basis_count",
+    "earned_units_missing_locator_count", "long_determined_value_units_count",
     "success_condition_count",
     "success_conditions_with_earned_determination_count",
     "success_conditions_with_verification_basis_count",

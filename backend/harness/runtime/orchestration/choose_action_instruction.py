@@ -73,6 +73,7 @@ New rows:
 
 Use only canonical `state_patch.mission` and `state_patch.resolution`. Do not author alias top-level keys such as `mission_state` or `resolution_state`; those are repair-only backstops, not the contract.
 Do not put latest_refs_summary, terminal_summary, or prompt_observability_summary in mission; those are host-owned.
+`hitl_consumed_prompt_ids` is a top-level action plan field, not a `state_patch` or `state_patch.mission` field; place it at the root of the action plan object when used.
 Do not copy host-maintained fields such as schema_version or updated_at_epoch_seconds into state_patch.
 
 `resolution.items` may include fields such as:
@@ -87,13 +88,23 @@ Do not copy host-maintained fields such as schema_version or updated_at_epoch_se
 - shape (a) is preferable when sub-units are large enough to deserve their own full item with independent `status`/`determination`/`summary`/`verification_basis` and cross-linking relations
 - shape (b) is preferable when sub-units are small enough that a one-level sub-ledger on the group captures their earned state cleanly without inflating the top-level item list
 
-`covered_units` is the one-level sub-ledger on a resolution item. It is a generic, non-recursive list of the smallest mission-relevant units the item stands over. Shape: `[{unit_id, title, kind?, status?, summary?, determination?, verification_basis?, next_needed_step?, evidence_refs?, materiality?, label?, value_kind?, candidate_values?, determined_value?, opaque_payload?}]`. The runtime merges covered_units by `unit_id`; per-field overlay is applied for existing units, and new units must carry `unit_id` and `title`. Emitting an empty `covered_units` list does not wipe prior units — send only deltas. When a group item actually stands over independently-reviewable sub-units and shape (b) above is the chosen representation, author those sub-units as `covered_units` so each one's earned state is visible, and close or explicitly block each material unit before closing the group. Do not hide critical sub-units only inside summary prose.
+`covered_units` is the one-level sub-ledger on a resolution item. It is a generic, non-recursive list of the smallest mission-relevant units the item stands over. Shape: `[{unit_id, title, kind?, status?, summary?, determination?, verification_basis?, next_needed_step?, evidence_refs?, evidence_locators?, materiality?, label?, value_kind?, candidate_values?, determined_value?, opaque_payload?}]`. The runtime merges covered_units by `unit_id`; per-field overlay is applied for existing units, and new units must carry `unit_id` and `title`. Emitting an empty `covered_units` list does not wipe prior units — send only deltas. When a group item actually stands over independently-reviewable sub-units and shape (b) above is the chosen representation, author those sub-units as `covered_units` so each one's earned state is visible, and close or explicitly block each material unit before closing the group. Do not hide critical sub-units only inside summary prose.
+
+### Compact atom contract
+Covered units are compact claim atoms. They carry labels, candidate values, determined values, status, evidence, and short verification basis. They are **not** transcript/document/log/code storage. Long source spans, full output text, paragraph-level evidence prose, or raw tool dumps belong in saved artifacts (or in `opaque_payload` when truly necessary), not in compact value fields. The host advisory flag `long_determined_value_units:N` indicates one or more closed/earned units carry an oversized `determined_value` — when you see it, move the long content to an artifact and keep the unit compact, or explain in `verification_basis` why the long value is genuinely the smallest exact claim.
 
 Compact value fields on a covered unit:
-- `label`: short UI-grade label; renderers fall back to `title` when absent.
+- `label`: short user-facing atom name. UI prefers `label`, then `title`, then `unit_id`. Keep `label` short and human-readable; keep `title` slightly more descriptive; keep `unit_id` a stable machine slug.
 - `value_kind`: optional hint for the kind of value this unit carries (e.g. `identifier`, `quantity`, `date`, `decision`, `status`, `text_span`). No strict enum.
-- `candidate_values`: known possibilities / options / outcomes so far. This list is **not exhaustive**; if another possibility appears, add it. Do not close a unit just because one candidate currently looks preferable.
-- `determined_value`: the earned resolved value/outcome. Author this only when the unit is actually earned — which also means `verification_basis` and `evidence_refs` support it. A disputed exact-value unit should not be marked `earned` without `determined_value` plus supporting evidence.
+- `candidate_values`: known possibilities / options / outcomes currently in play. UI may render this as “Considering.” The list is **not exhaustive**; if another possibility appears, add it. The final `determined_value` may differ from earlier candidates. Do not close a unit just because one candidate currently looks preferable.
+- `determined_value`: the earned resolved value/outcome. Compact only — exact values, short labels, identifiers, statuses, decisions, amounts, dates, or short text spans. Not a place for full output text. Author this only when the unit is actually earned — which also means `verification_basis` and `evidence_refs` support it. A disputed exact-value unit should not be marked `earned` without `determined_value` plus supporting evidence.
+
+### Evidence refs vs evidence locators
+`evidence_refs` identify the **artifact** that proves the claim. `evidence_locators` identify **where inside** that artifact the claim is proven. The agent authors locators; the runtime does not infer them and the user does not create bounding boxes. One artifact can support multiple covered units — give each unit its own locator when feasible so the audit is claim-local.
+
+`evidence_locators` shape: `[{ref_id, locator_kind, target?, label?, box_norm?, line_start?, line_end?, char_start?, char_end?, row?, column?, json_path?, opaque_payload?}]`. `ref_id` should appear in this unit's `evidence_refs`. `locator_kind` is a free string for extensibility; common kinds are `image_region` (use `box_norm` as four floats in [0.0, 1.0] ordered `[x_min, y_min, x_max, y_max]`), `text_span` / `log_span` / `code_span` (use line/char spans), `table_cell` (use `row`/`column`), and `json_path` (use the `json_path` field). For shapes that don't fit, use `opaque_payload`.
+
+If a focused locator is feasible but you choose not to author one, explain why in `verification_basis` rather than implying artifact-level evidence is automatically claim-local. The host may surface `earned_unit_missing_locator:N` as an advisory flag when a closed/earned unit has `evidence_refs` but no `evidence_locators`; treat that as pressure to add a locator when the medium supports it, or to record the limitation in `verification_basis`.
 
 Broad-to-specific decomposition rule: decompose work from bucket → group → atomic covered unit (or atomic resolution item). High-level items are valid early, but once the problem shape is known, any exact value, choice, or outcome that can independently be wrong and change mission success must become its own covered unit or atomic item — do not bury a disputed exact value only inside `summary`. Peer/candidate artifacts propose possibilities; authoritative evidence earns disputed values. Once you have stated "if this fails I will patch/block/escalate", honor that stop condition rather than rereading indefinitely.
 - if order matters, use `sequence_scope` and `sequence_index`, and also author dependency meaning with relations such as `prerequisite_of` or `blocks`
@@ -122,7 +133,13 @@ Envelope fields such as `compacted_continuity_summary`, `recent_continuity_journ
 
 `prompt_observability_summary` is host-authored loop-health context. It may reveal drift, stall risk, thin proof posture, missing graph edges, malformed sequence lanes, closure blockers, or repair-loop risk. It does not decide the mission for you.
 
-`state_patch_feedback` reports the kernel outcome of the prior patch (`applied` / `rejected` / `not_applied` / `no_patch`). If the prior patch was semantically right but mechanically malformed, prefer the smallest local repair rather than rewriting broad state.
+`state_patch_feedback` reports the kernel outcome of the prior patch (`applied` / `rejected` / `not_applied` / `no_patch`). If the prior patch was semantically right but mechanically malformed, prefer the smallest local repair rather than rewriting broad state. When `row_skip_details` or `validation_errors` are present, repair using the **specific path and reason** they name (for example `resolution.items[i1].covered_units[u2].determined_value: string too long, 912 > 400`); do not blindly resend the same shape or reread the source — fix the offending field.
+
+`state_patch_feedback.semantic_repair_debt` lists the kinds of meaningful state your prior patch tried to persist but did not land cleanly (for example `determined_value`, `evidence_refs`, `unit_status_change`, `hitl_consumed_prompt_ids`, `closure_state_change`). Treat that as a mechanical obligation: the next move should repair that failed persistence — or explicitly abandon it in `rationale` with a concrete reason — before rereading evidence, re-asking HITL, or closing.
+
+`state_patch_feedback.pending_hitl_integration_prompt_ids` lists HITL prompt ids whose answers your prior patch attempted to consume but failed to integrate. The answers are still in `answered_hitl_responses`. Repair the integration patch — do not re-ask substantially the same question. While this debt is open, the host surfaces a `pending_hitl_integration:N` mechanical flag; treat that flag itself as the duplicate-HITL warning, since authoring a fresh HITL while a pending integration is open is the wrong move.
+
+`prompt_observability_summary.mechanical_flags` may include `semantic_repair_debt:<kinds>` and `reread_after_failed_persist_risk:<outcome>`. When the second flag fires, the prior turn's persistence failed and the most recent move was a read/hydrate; the default next move is to repair the write, not to hydrate the same source again, unless the rationale names a concrete new distinction the reread is supposed to produce.
 
 `contract_feedback` reports the mechanical outcome of the prior choose-action parse attempt. If `repair_attempted` is true, your last response failed parsing and needed repair; adjust the output shape accordingly.
 
@@ -150,6 +167,11 @@ A read, hydrate, or transform is not complete merely because you looked at somet
 Before leaving orientation and after any fresh read, make the work explicit: each mission-essential claim, defect, ambiguity, dependency, or deliverable becomes a row in `resolution.items` (atomic), or an honest group node whose material sub-units are explicit as `covered_units` or separate related items. Every `mission.success_conditions` row should have at least one item that can earn it.
 
 Each `resolution.items` row is a mini-mission: orient to it, run the strongest bounded check available *for that item*, then promote the new distinction into its authored fields or into the relevant `covered_units` row (`status`, `determination`, `summary`, `verification_basis`, `completion_criteria`, or a more granular unit if the check split the claim). A closed item should be able to answer, in its own fields or covered-unit fields, what verified each material unit it stands over.
+
+`prompt_observability_summary.mechanical_flags` may include `artifact_excerpt_boundary_risk:N` when recent tool result slices had truncated excerpts near a closure zone. Default response: do not infer that values absent from the excerpt are absent from the source. Check `outputs_structural_metadata` when present, prefer a narrower extraction or read when the shape suggests the fact is machine-checkable, and mark inspectability blocked rather than asking HITL if the metadata still cannot confirm it.
+
+### Save/complete shape preflight
+Before authoring `complete_run`, treat artifact shape as machine-checkable, not human-checkable. `recent_tool_result_slices` always carries `latest_artifact_ref`, the bounded `outputs_excerpt`, and truncation markers; when needed or available it also carries `outputs_structural_metadata` (top-level keys, nested key paths, field presence/length signals). Use the excerpt first when it is complete, and use structural metadata when truncation or payload size would otherwise hide the needed shape. If keys are missing or fields are empty when they should not be, the next move is to repair and save again — not to ask HITL whether the artifact is complete. If the artifact keeps both a source-observed lane and a downstream-usable lane, preserve both when they differ, do not silently overwrite the source lane, mark the unavailable portion explicitly when the source is partial, and carry metadata explaining the divergence. HITL is for semantic adjudication, not for structural completeness checks the host already exposes.
 """
 
 _HITL_TEXT = """\
@@ -157,7 +179,7 @@ _HITL_TEXT = """\
 `hitl_request`: optional generic human prompt transport `{message, choices, context, opaque_payload?, prompt_id?}`.
 `wait_for_human=true` is the blocking form: the loop pauses until feedback arrives.
 `wait_for_human=false` with `hitl_request` is the async form: the request is emitted while the loop continues.
-`hitl_consumed_prompt_ids`: optional array of prompt_id strings you actually integrated; host removes matching answered rows only.
+`hitl_consumed_prompt_ids`: optional top-level action plan array of prompt_id strings you actually integrated; host removes matching answered rows only. Author this at the root of the action plan object, not inside `state_patch`.
 Envelope `hitl_state`, `pending_hitl_requests`, and `answered_hitl_responses` are host-owned.
 
 Use `hitl_request.context` to carry the focused evidence packet the human needs. Preferred keys when relevant: `evidence_refs`, `primary_evidence_ref`, `annotated_evidence_ref`, `question_regions`, and `notes`.
@@ -165,6 +187,8 @@ Before emitting HITL, prefer the most focused evidence packet the current toolin
 Add `state_patch` only when the HITL turn also needs a durable state delta.
 Ask the smallest question whose answer can be integrated into a specific item or covered unit. If the issue is a choice among alternatives, make the choices direct outcomes (for example: `Use option A`, `Use option B`, `Preserve as unresolved`, `Other / needs nuance`) rather than abstract descriptions that leave the operator guessing what decision is needed.
 When bounded choices could force a false answer, include a safe fallback such as `Unable to determine` or `Other / needs nuance`.
+
+If a HITL answer was received but the state patch integrating it failed validation, repair the integration patch rather than re-asking the same question. Re-asking when a valid answer already exists wastes human attention and signals a mechanical integration problem, not a missing answer.
 """
 
 _EXAMPLES_TEXT = """\

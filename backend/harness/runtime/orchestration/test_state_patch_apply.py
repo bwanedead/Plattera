@@ -954,3 +954,529 @@ def test_covered_units_candidate_values_replaced_when_supplied() -> None:
         },
     )
     assert rs3.items[0].covered_units[0].candidate_values == ["a", "b", "c"]
+
+
+# ---------------------------------------------------------------------------
+# Deep nested validation feedback (Brief 1, item 1)
+# ---------------------------------------------------------------------------
+
+
+def _seed_item(rs, *, item_id: str = "i1") -> None:
+    """Seed a base resolution item the covered_units rows can attach to."""
+    pass  # state setup happens in _apply_with_feedback below
+
+
+def _apply_with_feedback(state_patch, *, hitl_consumed_prompt_ids=(), mem=None, iteration=1):
+    """Apply a state_patch via the loop-memory pipeline so feedback is observable.
+
+    When ``mem`` is provided, the patch is applied against that existing memory
+    so multiple calls compose. Otherwise a fresh memory is created.
+    """
+    from harness.runtime.memory import LoopMemoryState
+    from harness.runtime.orchestration.contracts import ActionPlan
+    from harness.runtime.orchestration.state_patch_apply import (
+        apply_action_plan_state_patch_to_loop_memory,
+    )
+
+    if mem is None:
+        mem = LoopMemoryState()
+    plan = ActionPlan(
+        state_patch=dict(state_patch) if state_patch else None,
+        rationale="t",
+        hitl_consumed_prompt_ids=tuple(hitl_consumed_prompt_ids),
+    )
+    apply_action_plan_state_patch_to_loop_memory(
+        loop_memory=mem,
+        action_plan=plan,
+        tracer=None,
+        iteration=iteration,
+        gate="test",
+    )
+    return mem, mem.continuity.state_patch_feedback
+
+
+def _seed_item_i1(mem):
+    return _apply_with_feedback(
+        {
+            "resolution": {
+                "items": [
+                    {"item_id": "i1", "title": "First", "kind": "work_unit", "status": "open"}
+                ]
+            }
+        },
+        mem=mem,
+        iteration=1,
+    )
+
+
+def test_covered_unit_overlong_determined_value_reports_path_and_bound() -> None:
+    from harness.runtime.memory import LoopMemoryState
+    mem = LoopMemoryState()
+    _seed_item_i1(mem)
+    overlong = "x" * 912
+    _, fb = _apply_with_feedback(
+        {
+            "resolution": {
+                "items": [
+                    {
+                        "item_id": "i1",
+                        "covered_units": [
+                            {
+                                "unit_id": "u1",
+                                "title": "T",
+                                "determined_value": overlong,
+                            }
+                        ],
+                    }
+                ]
+            }
+        },
+        mem=mem,
+        iteration=2,
+    )
+    # The item itself was skipped because the covered_unit failed validation.
+    details = (fb.get("row_skip_details") or {}).get("resolution") or {}
+    items = details.get("items") or []
+    assert items, "expected per-row skip detail"
+    detail0 = items[0]
+    assert detail0["row_id"] == "i1"
+    errors = detail0.get("validation_errors") or []
+    assert any(
+        "covered_units[u1].determined_value" in e and "string too long" in e and "912" in e and "400" in e
+        for e in errors
+    ), errors
+
+
+def test_covered_unit_missing_title_reports_required() -> None:
+    from harness.runtime.memory import LoopMemoryState
+    mem = LoopMemoryState()
+    _seed_item_i1(mem)
+    _, fb = _apply_with_feedback(
+        {
+            "resolution": {
+                "items": [
+                    {
+                        "item_id": "i1",
+                        "covered_units": [{"unit_id": "u1"}],  # missing title
+                    }
+                ]
+            }
+        },
+        mem=mem,
+        iteration=2,
+    )
+    errors = (
+        (((fb.get("row_skip_details") or {}).get("resolution") or {}).get("items") or [{}])[0]
+        .get("validation_errors")
+        or []
+    )
+    assert any("covered_units[u1].title" in e and "required" in e for e in errors), errors
+
+
+def test_covered_unit_forbidden_field_reports_extra_forbidden() -> None:
+    from harness.runtime.memory import LoopMemoryState
+    mem = LoopMemoryState()
+    _seed_item_i1(mem)
+    _, fb = _apply_with_feedback(
+        {
+            "resolution": {
+                "items": [
+                    {
+                        "item_id": "i1",
+                        "covered_units": [
+                            {
+                                "unit_id": "u1",
+                                "title": "T",
+                                "primary_evidence_ref": "artifact://x",
+                            }
+                        ],
+                    }
+                ]
+            }
+        },
+        mem=mem,
+        iteration=2,
+    )
+    errors = (
+        (((fb.get("row_skip_details") or {}).get("resolution") or {}).get("items") or [{}])[0]
+        .get("validation_errors")
+        or []
+    )
+    assert any(
+        "covered_units[u1].primary_evidence_ref" in e and "extra field forbidden" in e
+        for e in errors
+    ), errors
+
+
+def test_valid_covered_unit_still_applies_cleanly() -> None:
+    from harness.runtime.memory import LoopMemoryState
+    mem = LoopMemoryState()
+    _seed_item_i1(mem)
+    _, fb = _apply_with_feedback(
+        {
+            "resolution": {
+                "items": [
+                    {
+                        "item_id": "i1",
+                        "covered_units": [
+                            {"unit_id": "u1", "title": "ok", "determined_value": "v"}
+                        ],
+                    }
+                ]
+            }
+        },
+        mem=mem,
+        iteration=2,
+    )
+    assert fb.get("outcome") == "applied"
+    assert not fb.get("skipped_resolution_rows")
+
+
+# ---------------------------------------------------------------------------
+# Semantic repair debt + HITL stickiness (Brief 1, items 2 + 3)
+# ---------------------------------------------------------------------------
+
+
+def test_failed_hitl_integration_creates_repair_debt() -> None:
+    # Patch is structurally invalid (unknown top-level key) so the whole patch
+    # is rejected. The plan also tried to consume a HITL prompt id.
+    _, fb = _apply_with_feedback(
+        {"transcript_edit": {}},
+        hitl_consumed_prompt_ids=["hitl-abc"],
+    )
+    assert fb["outcome"] == "rejected"
+    debt = fb.get("semantic_repair_debt") or []
+    assert "hitl_consumed_prompt_ids" in debt
+    pending = fb.get("pending_hitl_integration_prompt_ids") or []
+    assert "hitl-abc" in pending
+
+
+def test_failed_determined_value_creates_repair_debt_via_skipped_rows() -> None:
+    from harness.runtime.memory import LoopMemoryState
+    mem = LoopMemoryState()
+    _seed_item_i1(mem)
+    _, fb = _apply_with_feedback(
+        {
+            "resolution": {
+                "items": [
+                    {
+                        "item_id": "i1",
+                        "covered_units": [
+                            {
+                                "unit_id": "u1",
+                                "title": "t",
+                                "determined_value": "x" * 800,
+                            }
+                        ],
+                    }
+                ]
+            }
+        },
+        mem=mem,
+        iteration=2,
+    )
+    assert fb.get("skipped_resolution_rows")
+    debt = fb.get("semantic_repair_debt") or []
+    assert "determined_value" in debt
+
+
+def test_trivial_invalid_patch_does_not_create_semantic_repair_debt() -> None:
+    # Unknown resolution key triggers rejection but the patch carries no
+    # meaningful intent fields, so debt should remain empty.
+    _, fb = _apply_with_feedback(
+        {"resolution": {"items": [], "extra": 1}},
+    )
+    assert fb["outcome"] == "rejected"
+    assert not fb.get("semantic_repair_debt")
+    assert not fb.get("pending_hitl_integration_prompt_ids")
+
+
+# ---------------------------------------------------------------------------
+# Brief 2: evidence_locators schema (image_region, text_span, json_path, invalid box)
+# ---------------------------------------------------------------------------
+
+
+def test_covered_unit_accepts_image_region_locator() -> None:
+    from harness.runtime.memory import LoopMemoryState
+    mem = LoopMemoryState()
+    _seed_item_i1(mem)
+    _, fb = _apply_with_feedback(
+        {
+            "resolution": {
+                "items": [
+                    {
+                        "item_id": "i1",
+                        "covered_units": [
+                            {
+                                "unit_id": "u1",
+                                "title": "atom",
+                                "evidence_refs": ["artifact://crop"],
+                                "evidence_locators": [
+                                    {
+                                        "ref_id": "artifact://crop",
+                                        "locator_kind": "image_region",
+                                        "target": "determined_value",
+                                        "label": "atom-region",
+                                        "box_norm": [0.42, 0.31, 0.56, 0.39],
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                ]
+            }
+        },
+        mem=mem,
+        iteration=2,
+    )
+    assert fb["outcome"] == "applied"
+    assert not fb.get("skipped_resolution_rows")
+    unit = mem.continuity.resolution_state.items[0].covered_units[0]
+    assert unit.evidence_locators[0].locator_kind == "image_region"
+    assert unit.evidence_locators[0].box_norm == [0.42, 0.31, 0.56, 0.39]
+
+
+def test_covered_unit_accepts_text_span_and_json_path_locator() -> None:
+    from harness.runtime.memory import LoopMemoryState
+    mem = LoopMemoryState()
+    _seed_item_i1(mem)
+    _, fb = _apply_with_feedback(
+        {
+            "resolution": {
+                "items": [
+                    {
+                        "item_id": "i1",
+                        "covered_units": [
+                            {
+                                "unit_id": "u1",
+                                "title": "atom",
+                                "evidence_refs": ["artifact://log", "artifact://api-out"],
+                                "evidence_locators": [
+                                    {
+                                        "ref_id": "artifact://log",
+                                        "locator_kind": "text_span",
+                                        "line_start": 12,
+                                        "line_end": 14,
+                                    },
+                                    {
+                                        "ref_id": "artifact://api-out",
+                                        "locator_kind": "json_path",
+                                        "json_path": "$.results[0].value",
+                                    },
+                                ],
+                            }
+                        ],
+                    }
+                ]
+            }
+        },
+        mem=mem,
+        iteration=2,
+    )
+    assert fb["outcome"] == "applied"
+    locs = mem.continuity.resolution_state.items[0].covered_units[0].evidence_locators
+    assert {l.locator_kind for l in locs} == {"text_span", "json_path"}
+
+
+def test_inverted_box_norm_rejected_with_path() -> None:
+    from harness.runtime.memory import LoopMemoryState
+    mem = LoopMemoryState()
+    _seed_item_i1(mem)
+    _, fb = _apply_with_feedback(
+        {
+            "resolution": {
+                "items": [
+                    {
+                        "item_id": "i1",
+                        "covered_units": [
+                            {
+                                "unit_id": "u1",
+                                "title": "atom",
+                                "evidence_locators": [
+                                    {
+                                        "ref_id": "artifact://crop",
+                                        "locator_kind": "image_region",
+                                        "box_norm": [0.8, 0.1, 0.2, 0.3],
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                ]
+            }
+        },
+        mem=mem,
+        iteration=2,
+    )
+    errors = (
+        (((fb.get("row_skip_details") or {}).get("resolution") or {}).get("items") or [{}])[0]
+        .get("validation_errors")
+        or []
+    )
+    assert any("box_norm" in e and "x_min" in e for e in errors), errors
+
+
+def test_inverted_line_span_rejected() -> None:
+    from harness.mission_state import EvidenceLocator
+    import pytest
+    with pytest.raises(Exception) as exc:
+        EvidenceLocator(
+            ref_id="artifact://log",
+            locator_kind="text_span",
+            line_start=20,
+            line_end=10,
+        )
+    assert "line_start" in str(exc.value) and "line_end" in str(exc.value)
+
+
+def test_inverted_char_span_rejected() -> None:
+    from harness.mission_state import EvidenceLocator
+    import pytest
+    with pytest.raises(Exception) as exc:
+        EvidenceLocator(
+            ref_id="artifact://log",
+            locator_kind="text_span",
+            char_start=200,
+            char_end=10,
+        )
+    assert "char_start" in str(exc.value) and "char_end" in str(exc.value)
+
+
+def test_invalid_box_norm_surfaces_validation_error_with_path() -> None:
+    from harness.runtime.memory import LoopMemoryState
+    mem = LoopMemoryState()
+    _seed_item_i1(mem)
+    # Three floats instead of four → fails min_length / max_length validation.
+    _, fb = _apply_with_feedback(
+        {
+            "resolution": {
+                "items": [
+                    {
+                        "item_id": "i1",
+                        "covered_units": [
+                            {
+                                "unit_id": "u1",
+                                "title": "atom",
+                                "evidence_locators": [
+                                    {
+                                        "ref_id": "artifact://crop",
+                                        "locator_kind": "image_region",
+                                        "box_norm": [0.1, 0.2, 0.3],
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                ]
+            }
+        },
+        mem=mem,
+        iteration=2,
+    )
+    errors = (
+        (((fb.get("row_skip_details") or {}).get("resolution") or {}).get("items") or [{}])[0]
+        .get("validation_errors")
+        or []
+    )
+    assert any(
+        "covered_units[u1].evidence_locators" in e and "box_norm" in e for e in errors
+    ), errors
+
+
+def test_unrelated_clean_apply_does_not_clear_unrepaired_debt() -> None:
+    """A clean apply that does not address the failed semantic intent must not
+    silently clear the debt; only kinds the patch plausibly repairs are cleared."""
+    from harness.runtime.memory import LoopMemoryState
+    mem = LoopMemoryState()
+    _seed_item_i1(mem)
+    # Fail a determined_value persistence → debt records `determined_value`.
+    _apply_with_feedback(
+        {
+            "resolution": {
+                "items": [
+                    {
+                        "item_id": "i1",
+                        "covered_units": [
+                            {"unit_id": "u1", "title": "t", "determined_value": "x" * 800}
+                        ],
+                    }
+                ]
+            }
+        },
+        mem=mem,
+        iteration=2,
+    )
+    debt_after_fail = mem.continuity.state_patch_feedback.get("semantic_repair_debt") or []
+    assert "determined_value" in debt_after_fail
+
+    # Apply an unrelated clean patch (just a status touch on a different concern).
+    _apply_with_feedback(
+        {"resolution": {"items": [{"item_id": "i1", "notes": "ok"}]}},
+        mem=mem,
+        iteration=3,
+    )
+    fb = mem.continuity.state_patch_feedback
+    assert fb["outcome"] == "applied"
+    assert "determined_value" in (fb.get("semantic_repair_debt") or []), fb
+
+    # Now apply a patch that actually addresses determined_value → debt clears.
+    _apply_with_feedback(
+        {
+            "resolution": {
+                "items": [
+                    {
+                        "item_id": "i1",
+                        "covered_units": [
+                            {"unit_id": "u1", "title": "t", "determined_value": "v"}
+                        ],
+                    }
+                ]
+            }
+        },
+        mem=mem,
+        iteration=4,
+    )
+    fb2 = mem.continuity.state_patch_feedback
+    assert fb2["outcome"] == "applied"
+    assert "determined_value" not in (fb2.get("semantic_repair_debt") or [])
+
+
+def test_successful_clean_apply_clears_pending_hitl_integration() -> None:
+    # First, fail with consumed-id attempt → debt is recorded.
+    from harness.runtime.memory import LoopMemoryState
+    from harness.runtime.orchestration.contracts import ActionPlan
+    from harness.runtime.orchestration.state_patch_apply import (
+        apply_action_plan_state_patch_to_loop_memory,
+    )
+
+    mem = LoopMemoryState()
+    bad_plan = ActionPlan(
+        state_patch={"transcript_edit": {}},
+        rationale="t",
+        hitl_consumed_prompt_ids=("hitl-abc",),
+    )
+    apply_action_plan_state_patch_to_loop_memory(
+        loop_memory=mem, action_plan=bad_plan, tracer=None, iteration=1
+    )
+    assert "hitl-abc" in mem.continuity.state_patch_feedback.get(
+        "pending_hitl_integration_prompt_ids", []
+    )
+
+    # Then apply a clean patch that consumes the same id.
+    good_plan = ActionPlan(
+        state_patch={
+            "resolution": {
+                "items": [
+                    {"item_id": "i1", "title": "ok", "kind": "work_unit", "status": "open"}
+                ]
+            }
+        },
+        rationale="t",
+        hitl_consumed_prompt_ids=("hitl-abc",),
+    )
+    apply_action_plan_state_patch_to_loop_memory(
+        loop_memory=mem, action_plan=good_plan, tracer=None, iteration=2
+    )
+    fb = mem.continuity.state_patch_feedback
+    assert fb["outcome"] == "applied"
+    assert "hitl-abc" not in fb.get("pending_hitl_integration_prompt_ids", [])

@@ -490,6 +490,7 @@ def run_orchestration_kernel_loop(
                     iteration=iterations,
                     patch_present=patch_present,
                     execution_reason_code=reason,
+                    action_plan=action_plan,
                 )
                 is_retryable = (
                     refusal is not None

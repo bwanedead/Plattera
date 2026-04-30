@@ -142,3 +142,15 @@ def test_prompt_observability_merges_trace_metadata_with_payload_coverage() -> N
 def test_malformed_not_dict_raises() -> None:
     with pytest.raises((TypeError, ValueError, AttributeError)):
         build_orchestration_kernel_run_summary(orchestration_kernel_payload="bad")  # type: ignore[arg-type]
+
+
+def test_brief_2_locator_and_long_value_counters_project_into_typed_summary() -> None:
+    """Brief 2 follow-up: new covered-units counters must survive the typed projection."""
+    payload = _payload_with_prompt_event()
+    payload["prompt_observability_summary"] = {
+        "earned_units_missing_locator_count": 3,
+        "long_determined_value_units_count": 2,
+    }
+    env = build_orchestration_kernel_run_summary(orchestration_kernel_payload=payload)
+    assert env.prompt_observability_summary.earned_units_missing_locator_count == 3
+    assert env.prompt_observability_summary.long_determined_value_units_count == 2

@@ -152,16 +152,10 @@ def build_transcript_edit_tool_specs() -> tuple[SemanticToolSpec, ...]:
                 "Append one agent-authored working draft revision to the transcript-edit workspace. "
                 "Does not mutate T0 raw drafts. Use transcript_text XOR draft_payload. "
                 "Transcript-edit payload note: the saved artifact is a source-faithful transcript "
-                "artifact first and a handoff-metadata carrier second. When using draft_payload, "
-                "structure it with keys: source_transcript_verbatim (full available verbatim "
-                "transcript preserving source wording, contradictions, punctuation, cutoff markers "
-                "inline — the first output obligation), normalized_or_mapping_transcript (corrected "
-                "/ mapping view with HITL adjudications applied, clearly non-verbatim), issues "
-                "(unresolved Layer 1 / 2 / 3 concerns with scope and mapping-blocking judgment), "
-                "parcel_metadata (per-parcel scope, forwardability, and adjudicated identifiers — "
-                "authorized adjudications belong in metadata or corrected/downstream views, not in the verbatim source transcript), "
-                "hitl_decisions (human adjudications consumed, with citations), and evidence_refs. "
-                "Do not silently mutate the verbatim transcript to apply adjudications."
+                "artifact first and a handoff-metadata carrier second. Follow the domain branch's "
+                "saved-artifact contract: `source_transcript_verbatim` is the first output obligation, "
+                "it should cover the full visible/available source scope, and any separate downstream lane "
+                "must not silently overwrite the source lane. Do not silently mutate the verbatim transcript."
             ),
             expected_request_shape=(
                 "transcript_text XOR draft_payload: the authored content. "
@@ -169,8 +163,10 @@ def build_transcript_edit_tool_specs() -> tuple[SemanticToolSpec, ...]:
                 "evidence_refs: optional list of refs grounding this revision. "
                 "rationale: optional explanation. "
                 "For transcript-edit working/output drafts, prefer draft_payload structured with "
-                "source_transcript_verbatim, normalized_or_mapping_transcript, issues, "
-                "parcel_metadata, hitl_decisions, evidence_refs (see purpose above)."
+                "source_transcript_verbatim plus any needed downstream lane such as "
+                "`normalized_or_mapping_transcript`, and supporting metadata "
+                "(`issues`, `parcel_metadata`, `hitl_decisions`, `evidence_refs`). "
+                "Use the prompt-branch contract for the detailed lane rules."
             ),
             expected_request_json_shape={
                 "type": "object",

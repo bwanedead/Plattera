@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import importlib
 import json
+import sys
 from dataclasses import asdict
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any
@@ -72,7 +73,12 @@ def main(argv: Sequence[str] | None = None):
             opaque_launch_context=launch_context,
         )
 
-    print(json.dumps(asdict(result), ensure_ascii=False, sort_keys=True))
+    # Use buffer write to handle non-ASCII characters safely on Windows,
+    # where the default stdout codec may reject characters outside its code page.
+    output = json.dumps(asdict(result), ensure_ascii=False, sort_keys=True)
+    sys.stdout.buffer.write(output.encode("utf-8"))
+    sys.stdout.buffer.write(b"\n")
+    sys.stdout.buffer.flush()
     return result
 
 

@@ -22,6 +22,9 @@ REPAIR_INSTRUCTION: str = (
 - Use `action_type` only from `surface_packet.tool_ids`, or omit/null `action_type` only for a no-dispatch state/HITL turn.
 - state_patch must be an object or null; mission and resolution belong only inside state_patch.
 - Do not invent host-only keys such as schema_version or updated_at_epoch_seconds.
+- `hitl_consumed_prompt_ids` is a top-level action plan field, not a `state_patch.mission` field. If the broken response placed it inside mission or elsewhere in state_patch, move it to the top level of the action plan object during repair.
+- `terminal_summary` is host-owned. It must not appear inside `state_patch.mission` or anywhere in the action plan. If the broken response included it, remove it.
+- HITL answer integration belongs in item fields such as `notes`, `verification_basis`, `determined_value`, or `evidence_refs` — not in fabricated host-shaped wrapper keys.
 Return one JSON object only. No markdown. No commentary."""
 )
 
@@ -39,5 +42,8 @@ STATE_REPAIR_INSTRUCTION: str = (
 - continuity_journal_entry must remain the raw author payload only; do not emit nested `author_payload` or `kernel_turn_index` wrappers.
 - If the feedback reveals that proof is actually missing rather than malformed, you may choose a stronger bounded check instead of another state-only repair.
 - Do not invent host-only keys such as schema_version or updated_at_epoch_seconds.
+- `hitl_consumed_prompt_ids` is a top-level action plan field, not a `state_patch.mission` field. If the broken response placed it inside mission or elsewhere in state_patch, move it to the top level of the action plan object during repair.
+- `terminal_summary` is host-owned. It must not appear inside `state_patch.mission` or anywhere in the action plan. If the broken response included it, remove it.
+- HITL answer integration belongs in item fields such as `notes`, `verification_basis`, `determined_value`, or `evidence_refs` — not in fabricated host-shaped wrapper keys.
 Return one JSON object only. No markdown. No commentary."""
 )

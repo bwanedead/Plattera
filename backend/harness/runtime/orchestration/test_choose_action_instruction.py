@@ -158,3 +158,118 @@ def test_resume_instruction_mentions_remaining_hitls_and_audit_requirement() -> 
     assert "additional async hitls" in text
     assert "work_universe_posture `audited`" in text
     assert "integrate the answer into durable state explicitly" in text
+
+
+def test_choose_action_instruction_teaches_hitl_repair_not_reask() -> None:
+    text = CHOOSE_ACTION_INSTRUCTION.lower()
+    assert "repair the integration patch" in text
+    assert "re-asking when a valid answer already exists" in text
+
+
+def test_choose_action_instruction_teaches_artifact_excerpt_boundary_risk_flag() -> None:
+    text = CHOOSE_ACTION_INSTRUCTION
+    lowered = text.lower()
+    assert "artifact_excerpt_boundary_risk" in text
+    assert "outputs_structural_metadata" in text
+    assert "do not infer" in lowered or "not infer" in lowered
+    assert "absent from the excerpt" in lowered or "absent from the source" in lowered
+
+
+def test_choose_action_instruction_teaches_source_and_downstream_lanes() -> None:
+    text = CHOOSE_ACTION_INSTRUCTION
+    lowered = text.lower()
+    assert "source-observed lane" in lowered
+    assert "downstream-usable lane" in lowered
+    assert "do not silently overwrite the source lane" in lowered
+    assert "mark the unavailable portion explicitly" in lowered
+
+
+def test_choose_action_instruction_preflight_section_has_no_current_deed_examples() -> None:
+    lowered = CHOOSE_ACTION_INSTRUCTION.lower()
+    preflight_idx = lowered.find("### save/complete shape preflight")
+    assert preflight_idx >= 0, "save/complete shape preflight section must exist"
+    section = lowered[preflight_idx:]
+    for banned in ("range 75", "range 74", "parcel 1", "parcel 2", "bearing", "1638"):
+        assert banned not in section, f"Found banned term {banned!r} in choose-action lane/preflight sections"
+
+
+def test_choose_action_instruction_teaches_artifact_shape_preflight_without_hitl() -> None:
+    text = CHOOSE_ACTION_INSTRUCTION.lower()
+    assert "save/complete shape preflight" in text
+    assert "latest_artifact_ref" in text
+    assert "field presence/length signals" in text
+    assert "outputs_excerpt" in text
+    assert "use the excerpt first when it is complete" in text
+    assert "repair and save again" in text
+    assert "not to ask hitl" in text or "not to ask hitl whether the artifact is complete" in text
+
+
+def test_choose_action_instruction_teaches_hitl_consumed_prompt_ids_placement() -> None:
+    text = CHOOSE_ACTION_INSTRUCTION
+    lowered = text.lower()
+    assert "hitl_consumed_prompt_ids" in text
+    assert "top-level action plan" in lowered or "top level of the action plan" in lowered
+    assert "not inside `state_patch`" in text or "not a `state_patch` or `state_patch.mission` field" in text
+
+
+def test_choose_action_instruction_teaches_terminal_summary_is_host_owned() -> None:
+    text = CHOOSE_ACTION_INSTRUCTION
+    # terminal_summary must be called out as host-owned, not a model field
+    assert "terminal_summary" in text
+    assert "host-owned" in text.lower()
+
+
+def test_repair_instruction_teaches_hitl_consumed_placement() -> None:
+    from harness.runtime.orchestration.repair_instruction import REPAIR_INSTRUCTION, STATE_REPAIR_INSTRUCTION
+    for name, text in (("REPAIR_INSTRUCTION", REPAIR_INSTRUCTION), ("STATE_REPAIR_INSTRUCTION", STATE_REPAIR_INSTRUCTION)):
+        assert "hitl_consumed_prompt_ids" in text, f"{name} missing hitl_consumed_prompt_ids guidance"
+        assert "top-level action plan field" in text, f"{name} missing top-level placement guidance"
+
+
+def test_repair_instruction_teaches_terminal_summary_removal() -> None:
+    from harness.runtime.orchestration.repair_instruction import REPAIR_INSTRUCTION, STATE_REPAIR_INSTRUCTION
+    for name, text in (("REPAIR_INSTRUCTION", REPAIR_INSTRUCTION), ("STATE_REPAIR_INSTRUCTION", STATE_REPAIR_INSTRUCTION)):
+        assert "terminal_summary" in text, f"{name} missing terminal_summary guidance"
+        assert "host-owned" in text.lower(), f"{name} missing host-owned reference"
+
+
+def test_choose_action_instruction_teaches_compact_atom_and_locator_doctrine() -> None:
+    text = CHOOSE_ACTION_INSTRUCTION
+    lowered = text.lower()
+    # Compact atom contract
+    assert "compact atom contract" in lowered
+    assert "compact claim atoms" in lowered
+    assert "long_determined_value_units" in text
+    # Considering rendering for candidate_values (allow smart quotes)
+    assert "considering" in lowered
+    assert "render" in lowered and "candidate_values" in text
+    # Evidence refs vs evidence locators
+    assert "evidence refs vs evidence locators" in lowered
+    assert "agent authors" in lowered
+    assert "earned_unit_missing_locator" in text
+    # locator_kind mentions
+    for kind in ("image_region", "text_span", "json_path"):
+        assert kind in text
+    # Label/title/unit_id ordering and human-facing label guidance
+    assert "label" in lowered and "title" in lowered and "unit_id" in lowered
+    assert "ui prefers" in lowered or "user-facing" in lowered
+
+
+def test_surface_teaches_compact_claim_atoms_and_locator_doctrine() -> None:
+    from harness.runtime.prompting.surface import _HARNESS_TRUNK_METHOD_TEXT
+    text = _HARNESS_TRUNK_METHOD_TEXT
+    lowered = text.lower()
+    assert "compact claim atoms" in lowered
+    assert "considering" in lowered
+    assert "evidence refs vs evidence locators" in lowered
+    assert "deterministic code does not invent" in lowered or "agent authors locators" in lowered
+
+
+def test_state_repair_mode_excludes_bulky_step_records_fields() -> None:
+    from harness.runtime.orchestration.prompt_modes import require_prompt_mode_spec
+    spec = require_prompt_mode_spec("state_repair")
+    assert "recent_kernel_step_records" not in spec.structured_state_fields
+    assert "recent_kernel_step_result_records" not in spec.structured_state_fields
+    # lean fields must still be present
+    assert "recent_tool_result_slices" in spec.structured_state_fields
+    assert "prompt_observability_summary" in spec.structured_state_fields

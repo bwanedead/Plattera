@@ -482,6 +482,92 @@ def test_review_md_flags_repairs(tmp_path: Path) -> None:
     assert "[complete_run]" in review
 
 
+def test_review_md_includes_duration_and_final_artifact_posture(tmp_path: Path) -> None:
+    writer = RunAuditWriter(tmp_path / "run1")
+    writer.observe_llm_io(
+        {
+            "turn_index": 1,
+            "parse_ok": True,
+            "started_at_epoch_seconds": 10.0,
+            "finished_at_epoch_seconds": 16.0,
+            "latest_refs_before": {},
+        }
+    )
+    writer.observe_turn_completed(
+        {
+            "turn_index": 1,
+            "tool_request": {
+                "action_type": "save_workspace_artifact",
+                "action_inputs": {},
+                "skip_execution": False,
+                "wait_for_human": False,
+                "complete_run": False,
+                "rationale": None,
+                "idempotency_key": "",
+            },
+            "tool_result_raw": {
+                "execution_state": "executed",
+                "outputs": {},
+                "artifact_refs": ["transcript_edit:working:rev:0001"],
+                "refusal": None,
+            },
+            "mission_state_after": None,
+            "resolution_state_after": None,
+            "latest_refs_after": {"transcript_edit:working": "transcript_edit:working:rev:0001"},
+            "state_patch_feedback": {},
+            "terminal_decision": None,
+        }
+    )
+    writer.finalize(terminal_class="completed", reason_code="done", iterations=1, latest_refs={}, trace_events=[])
+
+    review = (tmp_path / "run1" / "audit" / "review.md").read_text()
+    assert "**Total observed duration:** 6.0s" in review
+    assert "**Final artifact posture:** `working`" in review
+
+
+def test_review_md_omits_final_artifact_posture_for_failed_save_attempt(tmp_path: Path) -> None:
+    writer = RunAuditWriter(tmp_path / "run1")
+    writer.observe_llm_io(
+        {
+            "turn_index": 1,
+            "parse_ok": True,
+            "started_at_epoch_seconds": 10.0,
+            "finished_at_epoch_seconds": 12.0,
+            "latest_refs_before": {},
+        }
+    )
+    writer.observe_turn_completed(
+        {
+            "turn_index": 1,
+            "tool_request": {
+                "action_type": "save_workspace_artifact",
+                "action_inputs": {},
+                "skip_execution": False,
+                "wait_for_human": False,
+                "complete_run": False,
+                "rationale": None,
+                "idempotency_key": "",
+            },
+            "tool_result_raw": {
+                "execution_state": "refused",
+                "outputs": {},
+                "artifact_refs": [],
+                "refusal": {"reason_code": "write_blocked"},
+            },
+            "mission_state_after": None,
+            "resolution_state_after": None,
+            "latest_refs_after": {"older": "artifact://older"},
+            "state_patch_feedback": {},
+            "terminal_decision": None,
+        }
+    )
+    writer.finalize(terminal_class="failed", reason_code="write_blocked", iterations=1, latest_refs={}, trace_events=[])
+
+    review = (tmp_path / "run1" / "audit" / "review.md").read_text()
+    assert "**Total observed duration:** 2.0s" in review
+    assert "**Final artifact posture:**" not in review
+
+
 # ---------------------------------------------------------------------------
 # image_evidence in tool_result_raw
 # ---------------------------------------------------------------------------

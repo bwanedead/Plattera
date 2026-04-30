@@ -7,7 +7,7 @@ from domains.prompting import PromptBlock
 TRANSCRIPT_EDIT_DOMAIN_ID = "transcript_edit"
 TRANSCRIPT_EDIT_FAMILY_ID = "mapping"
 TRANSCRIPT_EDIT_BRANCH_SOURCE_REF = "backend/domains/mapping/transcript_edit/prompting/branch.py"
-TRANSCRIPT_EDIT_BRANCH_VERSION = "v23"
+TRANSCRIPT_EDIT_BRANCH_VERSION = "v24"
 
 TRANSCRIPT_EDIT_BRANCH_TEXT = """\
 You are operating in the **transcript edit** domain for mapping-bound work.
@@ -155,18 +155,18 @@ When partial handoffability applies, express that scope through `resolution.item
 ## Transcript-edit output contract
 The working / output artifact you save is not a bundle of parcel handoff notes. It is a **source-faithful transcript artifact** with secondary handoff metadata layered on top.
 
-**First output obligation: verbatim transcript of the source.**
-The saved artifact must carry the full available verbatim transcript of the source document — source wording, source contradictions, source punctuation, and any cutoff markers preserved. Parcel segmentation and mapping handoff metadata are secondary views, not replacements for this transcript. A missing continuation should be marked inline in the verbatim transcript at the cutoff point and also reflected in metadata.
+**First output obligation: source-observed transcript of the full visible / available source scope.**
+The saved artifact must carry the full visible / available verbatim transcript of the source document — source wording, source contradictions, source punctuation, and any cutoff markers preserved. Downstream handoff metadata and normalized views are secondary lanes, not replacements for this transcript. If any portion of the source is unavailable, missing, externally incomplete, or not visible in the current evidence, preserve the available portion and mark the unavailable portion explicitly inline and in metadata.
 
-Human adjudications may produce a corrected / mapping view, but that view must not overwrite the verbatim source view.
+Human adjudications may produce a corrected / mapping view, but that view must not overwrite the verbatim source view. The source-observed lane and downstream-usable lane may be identical; do not invent divergence. When they differ, the artifact should explain what changed and why.
 
 **Critical rule — do not silently mutate the verbatim transcript.**
-If HITL or another authorized adjudication resolves a source conflict for downstream use, record that adjudication only in the corrected / mapping transcript and in parcel metadata. The source-faithful verbatim transcript must continue to preserve the original source wording and the conflict as it appears in the source. Erasing a source conflict in the verbatim layer destroys downstream auditability.
+If HITL or another authorized adjudication resolves a source conflict for downstream use, record that adjudication only in the corrected / mapping transcript and associated metadata. The source-faithful verbatim transcript must continue to preserve the original source wording and the conflict as it appears in the source. Erasing a source conflict in the verbatim layer destroys downstream auditability.
 
 **Expected saved payload shape.**
 When you save a working or output transcript-edit draft via `save_workspace_artifact`, the `draft_payload` should carry these keys:
-- `source_transcript_verbatim` — the full available verbatim transcript preserving source wording, contradictions, punctuation, cutoff markers; missing continuation marked inline
-- `normalized_or_mapping_transcript` — the corrected / mapping view with HITL adjudications and normalizations applied; clearly labeled as non-verbatim
+- `source_transcript_verbatim` — the full visible / available verbatim transcript preserving source wording, contradictions, punctuation, cutoff markers; missing continuation marked inline
+- `normalized_or_mapping_transcript` — the corrected / mapping view with HITL adjudications and normalizations applied; clearly labeled as non-verbatim. If it differs from `source_transcript_verbatim`, carry metadata explaining what changed and why.
 - `issues` — unresolved Layer 1 / 2 / 3 concerns, each with scope and mapping-blocking judgment
 - `parcel_metadata` — per-parcel handoff scope, forwardability, and adjudicated identifiers (authorized adjudications resolved for downstream use)
 - `hitl_decisions` — human adjudications consumed, with citations to the HITL exchange

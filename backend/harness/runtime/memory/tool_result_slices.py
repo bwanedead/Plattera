@@ -56,6 +56,169 @@ def _strip_binary(value: Any) -> Any:
     return value
 
 
+# Root-level candidate keys to traverse when building structural metadata.
+_ROOT_TRAVERSAL_CANDIDATES: tuple[str, ...] = (
+    "result", "results", "data", "content", "payload",
+    "outputs", "items", "records",
+)
+# Nested candidate keys used at depth > 0 (narrower set to avoid traversal explosion).
+_NESTED_TRAVERSAL_CANDIDATES: tuple[str, ...] = (
+    "payload", "data", "content", "result", "record", "items",
+)
+_MAX_TRAVERSAL_DEPTH: int = 4
+_MAX_TRAVERSAL_PATHS: int = 10
+_MAX_FIELD_SIGNALS: int = 16
+
+
+def _collect_nested_keys(
+    node: Mapping,
+    out: dict[str, list[str]],
+    *,
+    path: str,
+    depth: int,
+) -> None:
+    """Recursively collect key lists at each nesting level up to _MAX_TRAVERSAL_DEPTH.
+
+    Path notation: top-level keys are stored under ``"top_level_keys"``;
+    nested levels use ``"{path}_keys"`` — e.g. ``"results[0]_keys"``,
+    ``"results[0].payload_keys"``, ``"results[0].payload.payload_keys"``.
+    """
+    if depth > _MAX_TRAVERSAL_DEPTH or len(out) >= _MAX_TRAVERSAL_PATHS:
+        return
+    label = "top_level_keys" if depth == 0 else f"{path}_keys"
+    out[label] = [str(k) for k in node.keys()]
+    if depth >= _MAX_TRAVERSAL_DEPTH:
+        return
+    candidates = _ROOT_TRAVERSAL_CANDIDATES if depth == 0 else _NESTED_TRAVERSAL_CANDIDATES
+    for candidate in candidates:
+        if len(out) >= _MAX_TRAVERSAL_PATHS:
+            break
+        child = node.get(candidate)
+        if child is None:
+            continue
+        child_path = candidate if depth == 0 else f"{path}.{candidate}"
+        # List shape: peek at the first Mapping element only
+        if isinstance(child, (list, tuple)) and child and isinstance(child[0], Mapping):
+            _collect_nested_keys(
+                _strip_binary(child[0]),
+                out,
+                path=f"{child_path}[0]",
+                depth=depth + 1,
+            )
+        elif isinstance(child, Mapping):
+            _collect_nested_keys(
+                _strip_binary(child),
+                out,
+                path=child_path,
+                depth=depth + 1,
+            )
+
+
+def _field_signal(value: Any) -> dict[str, Any] | None:
+    if isinstance(value, str):
+        return {
+            "present": True,
+            "value_type": "string",
+            "non_empty": bool(value.strip()),
+            "char_length": len(value),
+        }
+    if value is None:
+        return {
+            "present": True,
+            "value_type": "null",
+            "non_empty": False,
+        }
+    if isinstance(value, list):
+        return {
+            "present": True,
+            "value_type": "list",
+            "non_empty": bool(value),
+            "item_count": len(value),
+        }
+    return None
+
+
+def _collect_field_signals(
+    node: Mapping,
+    out: dict[str, dict[str, Any]],
+    *,
+    path: str,
+    depth: int,
+) -> None:
+    """Collect bounded presence/non-empty signals for scalar and list fields."""
+    if depth > _MAX_TRAVERSAL_DEPTH or len(out) >= _MAX_FIELD_SIGNALS:
+        return
+    for key, value in node.items():
+        if len(out) >= _MAX_FIELD_SIGNALS:
+            return
+        key_text = str(key)
+        child_path = key_text if depth == 0 else f"{path}.{key_text}"
+        signal = _field_signal(value)
+        if signal is not None:
+            out[child_path] = signal
+            if not (isinstance(value, (list, tuple)) and value and isinstance(value[0], Mapping)):
+                continue
+        if isinstance(value, Mapping):
+            _collect_field_signals(
+                _strip_binary(value),
+                out,
+                path=child_path,
+                depth=depth + 1,
+            )
+            continue
+        if isinstance(value, (list, tuple)) and value and isinstance(value[0], Mapping):
+            _collect_field_signals(
+                _strip_binary(value[0]),
+                out,
+                path=f"{child_path}[0]",
+                depth=depth + 1,
+            )
+
+
+def _extract_structural_metadata(outputs: Any) -> dict[str, Any] | None:
+    """Extract key sets at multiple nesting levels before truncation.
+
+    Traverses list-of-results shapes generically to expose contract keys that
+    would otherwise be hidden inside a truncated excerpt.  For example,
+    ``outputs.results[0].payload.payload`` keys are visible even when the
+    excerpt is cut before that depth.
+
+    Bounded by _MAX_TRAVERSAL_DEPTH (4 levels) and _MAX_TRAVERSAL_PATHS (10
+    entries) so the metadata stays compact regardless of artifact shape.
+
+    Returns None when outputs is not a Mapping (e.g. a plain string result).
+    """
+    if not isinstance(outputs, Mapping):
+        return None
+    stripped = _strip_binary(outputs)
+    if not isinstance(stripped, Mapping):
+        return None
+    meta: dict[str, Any] = {}
+    _collect_nested_keys(stripped, meta, path="", depth=0)
+    field_signals: dict[str, dict[str, Any]] = {}
+    _collect_field_signals(stripped, field_signals, path="", depth=0)
+    if field_signals:
+        meta["field_signals"] = field_signals
+    return meta or None
+
+
+def check_outputs_excerpt_truncated(
+    record: Mapping[str, Any],
+    *,
+    max_chars: int = DEFAULT_MAX_CHARS_PER_RESULT,
+) -> bool:
+    """Whether building a prompt slice for ``record`` would truncate the outputs excerpt.
+
+    Applies the same bounded-excerpt projection used by the slice builder so
+    that loop-health code can detect prompt-visible truncation independently of
+    ``result_truncated`` (which reflects raw tool-output truncation, not
+    prompt-excerpt truncation).
+    """
+    outputs = record.get("outputs_for_continuity", {})
+    _, truncated = _bounded_outputs_excerpt(outputs, max_chars=max_chars)
+    return truncated
+
+
 def _bounded_outputs_excerpt(outputs: Any, *, max_chars: int) -> tuple[Any, bool]:
     """Return a bounded copy of outputs and whether it was truncated."""
     if isinstance(outputs, str):
@@ -103,6 +266,9 @@ def build_recent_tool_result_slices(
         excerpt, excerpt_truncated = _bounded_outputs_excerpt(
             outputs, max_chars=max_chars_per_result
         )
+        include_structural_metadata = excerpt_truncated or bool(
+            row.get("result_truncated", False)
+        )
         raw_refs = row.get("artifact_refs") or []
         if isinstance(raw_refs, list):
             artifact_refs = [str(x) for x in raw_refs[:_MAX_ARTIFACT_REFS]]
@@ -114,9 +280,15 @@ def build_recent_tool_result_slices(
             "execution_state": row.get("execution_state"),
             "execution_reason_code": row.get("execution_reason_code"),
             "result_truncated": bool(row.get("result_truncated", False)),
+            "latest_artifact_ref": artifact_refs[0] if artifact_refs else None,
             "artifact_refs": artifact_refs,
             "outputs_excerpt": excerpt,
             "outputs_excerpt_truncated": bool(excerpt_truncated),
+            "outputs_structural_metadata": (
+                _extract_structural_metadata(outputs)
+                if include_structural_metadata
+                else None
+            ),
         }
         try:
             row_chars = len(

@@ -193,7 +193,9 @@ def test_full_choose_action_projection_has_single_resolution_state_copy() -> Non
     assert "resolution_state" not in projection_blob["mission_state"]
 
 
-def test_state_repair_prompt_retains_raw_recent_arrays_as_exception_overlay() -> None:
+def test_state_repair_prompt_carries_lean_structured_state_and_richer_run_context() -> None:
+    """state_repair uses lean structured_state (no bulky step-record arrays) but keeps
+    the richer run_context anchors (session_id, latest_refs, active_item_id, etc.)."""
     doc = build_state_repair_prompt_document(
         composed_input=_composed_input(),
         opaque_launch_context={"run_id": "r-1"},
@@ -203,11 +205,15 @@ def test_state_repair_prompt_retains_raw_recent_arrays_as_exception_overlay() ->
     )
     structured_state = doc.prompt_body["structured_state"]
     assert doc.mode == "state_repair"
-    assert "recent_kernel_step_records" in structured_state
-    assert "recent_kernel_step_result_records" in structured_state
+    # Bulky raw step-record arrays are excluded from state_repair to keep closure-repair
+    # prompts lean; tool result slices and timeline provide equivalent signal.
+    assert "recent_kernel_step_records" not in structured_state
+    assert "recent_kernel_step_result_records" not in structured_state
+    # Lean fields are still present.
     assert "recent_turn_timeline" in structured_state
+    assert "recent_tool_result_slices" in structured_state
     assert "recent_continuity_journal_entries" in structured_state
-    # state_repair is the exception lane and still carries the richer run_context anchors.
+    # state_repair still carries the richer run_context anchors.
     run_context = doc.prompt_body["run_context"]
     for expected_key in (
         "session_id",
@@ -692,7 +698,8 @@ def test_tool_result_slices_does_not_infer_semantic_conclusions() -> None:
         assert banned_key not in entry
 
 
-def test_state_repair_still_carries_raw_result_records_and_slices() -> None:
+def test_state_repair_carries_slices_but_not_raw_step_record_arrays() -> None:
+    """state_repair uses lean structured_state: slices are kept, raw step-record arrays are excluded."""
     doc = build_state_repair_prompt_document(
         composed_input=_composed_input(),
         opaque_launch_context={"run_id": "r-1"},
@@ -701,9 +708,11 @@ def test_state_repair_still_carries_raw_result_records_and_slices() -> None:
         journal_verbatim_keep_n=2,
     )
     structured = doc.prompt_body["structured_state"]
-    # state_repair is the exception lane: keep the richer mechanical surface.
-    assert "recent_kernel_step_result_records" in structured
+    # Slices are kept — they provide bounded mechanical context without the bulk.
     assert "recent_tool_result_slices" in structured
+    # Raw step-record arrays are excluded from state_repair to keep closure-repair prompts lean.
+    assert "recent_kernel_step_result_records" not in structured
+    assert "recent_kernel_step_records" not in structured
 
 
 def test_compaction_prompt_document_uses_explicit_mode_packet() -> None:

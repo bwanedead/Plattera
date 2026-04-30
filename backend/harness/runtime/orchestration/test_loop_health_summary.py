@@ -1162,3 +1162,408 @@ def test_flags_explicit_non_blocking_without_notes_fires() -> None:
 def test_flags_explicit_non_blocking_without_notes_zero_no_flag() -> None:
     result = _flags(explicit_non_blocking_without_notes_count=0)
     assert not any(f.startswith("explicit_non_blocking_without_notes:") for f in result)
+
+
+# ---------------------------------------------------------------------------
+# output_claim_coverage_debt flag
+# ---------------------------------------------------------------------------
+
+
+def test_flags_output_claim_coverage_debt_fires_when_closure_ready_no_inventory() -> None:
+    """closure_ready_to_close + ≥2 items + no atomic/covered inventory → flag fires."""
+    result = _flags(resolution_item_count=3, closure_ready_to_close=True)
+    assert any(f.startswith("output_claim_coverage_debt:") for f in result)
+
+
+def test_flags_output_claim_coverage_debt_fires_when_posture_believed_adequate() -> None:
+    """believed_adequate posture triggers the flag even without ready_to_close."""
+    result = _flags(resolution_item_count=4, work_universe_posture="believed_adequate")
+    assert any(f.startswith("output_claim_coverage_debt:") for f in result)
+
+
+def test_flags_output_claim_coverage_debt_fires_when_posture_audited() -> None:
+    """audited posture triggers the flag even without ready_to_close."""
+    result = _flags(resolution_item_count=2, work_universe_posture="audited")
+    assert any(f.startswith("output_claim_coverage_debt:") for f in result)
+
+
+def test_flags_output_claim_coverage_debt_not_fired_with_atomic_items() -> None:
+    """A small graph with at least one atomic item has some claim inventory."""
+    result = _flags(resolution_item_count=3, closure_ready_to_close=True, atomic_item_count=1)
+    assert not any(f.startswith("output_claim_coverage_debt:") for f in result)
+
+
+def test_flags_output_claim_coverage_debt_fires_with_sparse_atomic_inventory() -> None:
+    """One or two atomic rows should not hide a broad closure graph."""
+    result = _flags(resolution_item_count=6, closure_ready_to_close=True, atomic_item_count=2)
+    assert "output_claim_coverage_debt:6" in result
+
+
+def test_flags_output_claim_coverage_debt_not_fired_with_balanced_atomic_inventory() -> None:
+    """Enough atomic rows for the graph shape suppresses the structural warning."""
+    result = _flags(resolution_item_count=4, closure_ready_to_close=True, atomic_item_count=2)
+    assert not any(f.startswith("output_claim_coverage_debt:") for f in result)
+
+
+def test_flags_output_claim_coverage_debt_not_fired_with_covered_units() -> None:
+    """covered_unit_count > 0 suppresses the flag — claim inventory is present."""
+    result = _flags(resolution_item_count=3, closure_ready_to_close=True, covered_unit_count=2)
+    assert not any(f.startswith("output_claim_coverage_debt:") for f in result)
+
+
+def test_flags_output_claim_coverage_debt_not_fired_with_too_few_items() -> None:
+    """Fewer than 2 resolution items → flag suppressed (no meaningful work graph to audit)."""
+    result = _flags(resolution_item_count=1, closure_ready_to_close=True)
+    assert not any(f.startswith("output_claim_coverage_debt:") for f in result)
+
+
+def test_flags_output_claim_coverage_debt_not_fired_when_not_approaching_closure() -> None:
+    """Initial posture and not ready_to_close → flag suppressed (not in closure zone)."""
+    result = _flags(
+        resolution_item_count=5,
+        work_universe_posture="initial",
+        closure_ready_to_close=False,
+    )
+    assert not any(f.startswith("output_claim_coverage_debt:") for f in result)
+
+
+def test_flags_output_claim_coverage_debt_carries_item_count() -> None:
+    """Flag string encodes the resolution_item_count for observability."""
+    result = _flags(resolution_item_count=7, closure_ready_to_close=True)
+    assert "output_claim_coverage_debt:7" in result
+
+
+# ---------------------------------------------------------------------------
+# artifact_excerpt_boundary_risk flag
+# ---------------------------------------------------------------------------
+
+
+def test_flags_artifact_excerpt_boundary_risk_fires_near_closure_ready() -> None:
+    """Truncated recent results + closure_ready_to_close → flag fires."""
+    result = _flags(recent_result_truncated_count=1, closure_ready_to_close=True)
+    assert "artifact_excerpt_boundary_risk:1" in result
+
+
+def test_flags_artifact_excerpt_boundary_risk_fires_with_posture_believed_adequate() -> None:
+    """believed_adequate posture near closure zone triggers the flag."""
+    result = _flags(recent_result_truncated_count=2, work_universe_posture="believed_adequate")
+    assert "artifact_excerpt_boundary_risk:2" in result
+
+
+def test_flags_artifact_excerpt_boundary_risk_fires_with_posture_audited() -> None:
+    """audited posture triggers the flag when results were truncated."""
+    result = _flags(recent_result_truncated_count=1, work_universe_posture="audited")
+    assert "artifact_excerpt_boundary_risk:1" in result
+
+
+def test_flags_artifact_excerpt_boundary_risk_not_fired_when_no_truncation() -> None:
+    """No truncated results → flag suppressed even at closure."""
+    result = _flags(recent_result_truncated_count=0, closure_ready_to_close=True)
+    assert not any(f.startswith("artifact_excerpt_boundary_risk:") for f in result)
+
+
+def test_flags_artifact_excerpt_boundary_risk_not_fired_when_not_near_closure() -> None:
+    """Truncated results without closure proximity → flag suppressed."""
+    result = _flags(
+        recent_result_truncated_count=2,
+        closure_ready_to_close=False,
+        work_universe_posture="initial",
+    )
+    assert not any(f.startswith("artifact_excerpt_boundary_risk:") for f in result)
+
+
+def test_flags_artifact_excerpt_boundary_risk_carries_truncated_count() -> None:
+    """Flag string encodes the truncated count for observability."""
+    result = _flags(recent_result_truncated_count=3, closure_ready_to_close=True)
+    assert "artifact_excerpt_boundary_risk:3" in result
+
+
+def _mem_with_result_records(
+    result_records: list[dict],
+    *,
+    work_universe_posture: str = "audited",
+    ready_to_close: bool = True,
+) -> LoopMemoryState:
+    mem = _mem(work_universe_posture=work_universe_posture, ready_to_close=ready_to_close)
+    mem.continuity.kernel_step_result_records = list(result_records)
+    return mem
+
+
+def test_summary_recent_result_truncated_count_in_summary() -> None:
+    """recent_result_truncated_count is exposed in the summary dict."""
+    records = [
+        {"kernel_turn_index": 1, "result_truncated": True, "action_type": "hydrate_artifact_refs"},
+        {"kernel_turn_index": 2, "result_truncated": False, "action_type": "hydrate_artifact_refs"},
+    ]
+    mem = _mem_with_result_records(records)
+    result = build_prompt_observability_summary(mem)
+    assert "recent_result_truncated_count" in result
+    assert result["recent_result_truncated_count"] == 1
+
+
+def test_summary_artifact_excerpt_boundary_risk_flag_fires_via_result_records() -> None:
+    """Integration: truncated result record near audited posture fires the flag in summary."""
+    records = [
+        {"kernel_turn_index": 1, "result_truncated": True, "action_type": "hydrate_artifact_refs"},
+    ]
+    mem = _mem_with_result_records(records, work_universe_posture="audited", ready_to_close=True)
+    result = build_prompt_observability_summary(mem)
+    assert any(f.startswith("artifact_excerpt_boundary_risk:") for f in result["mechanical_flags"])
+
+
+# ---------------------------------------------------------------------------
+# Brief 1, items 2-4: semantic_repair_debt / pending_hitl_integration /
+# reread_after_failed_persist_risk surface through loop_health_summary.
+# ---------------------------------------------------------------------------
+
+
+def test_semantic_repair_debt_surfaces_in_mechanical_flags() -> None:
+    mem = _mem(
+        state_patch_feedback={
+            "outcome": "rejected",
+            "iteration": 5,
+            "reason_code": "state_patch_unknown_keys",
+            "semantic_repair_debt": ["determined_value", "evidence_refs"],
+        },
+    )
+    result = build_prompt_observability_summary(mem)
+    assert result["semantic_repair_debt"] == ["determined_value", "evidence_refs"]
+    assert any(
+        f.startswith("semantic_repair_debt:") and "determined_value" in f
+        for f in result["mechanical_flags"]
+    ), result["mechanical_flags"]
+
+
+def test_pending_hitl_integration_surfaces_in_mechanical_flags() -> None:
+    mem = _mem(
+        state_patch_feedback={
+            "outcome": "rejected",
+            "iteration": 7,
+            "pending_hitl_integration_prompt_ids": ["hitl-abc", "hitl-def"],
+        },
+    )
+    result = build_prompt_observability_summary(mem)
+    assert result["pending_hitl_integration_prompt_ids"] == ["hitl-abc", "hitl-def"]
+    assert any(
+        f.startswith("pending_hitl_integration:2") for f in result["mechanical_flags"]
+    ), result["mechanical_flags"]
+
+
+def test_reread_after_failed_persist_risk_fires_when_recent_step_is_hydrate() -> None:
+    mem = _mem(
+        state_patch_feedback={
+            "outcome": "rejected",
+            "iteration": 10,
+            "reason_code": "state_patch_unknown_keys",
+        },
+        step_records=[
+            {
+                "kernel_turn_index": 11,
+                "action_type": "hydrate_artifact_refs",
+                "action_inputs": {"ref_ids": ["artifact://1"]},
+                "execution_state": "executed",
+            }
+        ],
+    )
+    result = build_prompt_observability_summary(mem)
+    assert any(
+        f.startswith("reread_after_failed_persist_risk:") for f in result["mechanical_flags"]
+    ), result["mechanical_flags"]
+
+
+def test_reread_after_failed_persist_risk_does_not_fire_after_repair_apply() -> None:
+    mem = _mem(
+        state_patch_feedback={"outcome": "applied", "iteration": 11},
+        step_records=[
+            {
+                "kernel_turn_index": 11,
+                "action_type": "hydrate_artifact_refs",
+                "action_inputs": {"ref_ids": ["artifact://1"]},
+                "execution_state": "executed",
+            }
+        ],
+    )
+    result = build_prompt_observability_summary(mem)
+    assert not any(
+        f.startswith("reread_after_failed_persist_risk:") for f in result["mechanical_flags"]
+    )
+
+
+def test_reread_after_failed_persist_risk_fires_when_no_patch_but_debt_sticky() -> None:
+    """Live shape: outcome resets to no_patch on a hydrate turn while
+    semantic_repair_debt remains sticky from an earlier failed persist."""
+    mem = _mem(
+        state_patch_feedback={
+            "outcome": "no_patch",
+            "iteration": 12,
+            "semantic_repair_debt": ["determined_value"],
+        },
+        step_records=[
+            {
+                "kernel_turn_index": 12,
+                "action_type": "hydrate_artifact_refs",
+                "action_inputs": {"ref_ids": ["artifact://1"]},
+                "execution_state": "executed",
+            }
+        ],
+    )
+    result = build_prompt_observability_summary(mem)
+    assert any(
+        f.startswith("reread_after_failed_persist_risk:") for f in result["mechanical_flags"]
+    ), result["mechanical_flags"]
+
+
+def test_reread_after_failed_persist_risk_fires_when_pending_hitl_integration() -> None:
+    mem = _mem(
+        state_patch_feedback={
+            "outcome": "no_patch",
+            "iteration": 13,
+            "pending_hitl_integration_prompt_ids": ["hitl-abc"],
+        },
+        step_records=[
+            {
+                "kernel_turn_index": 13,
+                "action_type": "hydrate_artifact_refs",
+                "action_inputs": {"ref_ids": ["artifact://1"]},
+                "execution_state": "executed",
+            }
+        ],
+    )
+    result = build_prompt_observability_summary(mem)
+    assert any(
+        f.startswith("reread_after_failed_persist_risk:") for f in result["mechanical_flags"]
+    ), result["mechanical_flags"]
+
+
+def test_reread_after_failed_persist_risk_does_not_fire_without_failed_persist() -> None:
+    mem = _mem(
+        state_patch_feedback={"outcome": "no_patch", "iteration": 11},
+        step_records=[
+            {
+                "kernel_turn_index": 11,
+                "action_type": "hydrate_artifact_refs",
+                "action_inputs": {"ref_ids": ["artifact://1"]},
+                "execution_state": "executed",
+            }
+        ],
+    )
+    result = build_prompt_observability_summary(mem)
+    assert not any(
+        f.startswith("reread_after_failed_persist_risk:") for f in result["mechanical_flags"]
+    )
+
+
+# ---------------------------------------------------------------------------
+# Brief 2: earned_unit_missing_locator + long_determined_value_units flags
+# ---------------------------------------------------------------------------
+
+
+def _unit(unit_id: str, **kwargs) -> ResolutionCoveredUnit:
+    base = {
+        "unit_id": unit_id,
+        "title": kwargs.pop("title", unit_id),
+        "kind": kwargs.pop("kind", None),
+        "status": kwargs.pop("status", None),
+        "determination": kwargs.pop("determination", None),
+        "verification_basis": kwargs.pop("verification_basis", None),
+        "evidence_refs": list(kwargs.pop("evidence_refs", []) or []),
+        "evidence_locators": list(kwargs.pop("evidence_locators", []) or []),
+        "candidate_values": list(kwargs.pop("candidate_values", []) or []),
+        "determined_value": kwargs.pop("determined_value", None),
+    }
+    return ResolutionCoveredUnit.model_validate({k: v for k, v in base.items() if v is not None or k in {"unit_id", "title"}})
+
+
+def test_earned_unit_missing_locator_flag_fires_when_locator_absent() -> None:
+    unit = _unit(
+        "u1",
+        status="closed",
+        determination="earned",
+        verification_basis="ok",
+        evidence_refs=["artifact://x"],
+        determined_value="v",
+    )
+    item = _item("i1", status="closed", determination="earned", verification_basis="ok", covered_units=[unit])
+    mem = _mem(resolution_items=[item])
+    result = build_prompt_observability_summary(mem)
+    assert result["earned_units_missing_locator_count"] == 1
+    assert any(f.startswith("earned_unit_missing_locator:1") for f in result["mechanical_flags"])
+
+
+def test_earned_unit_with_locator_does_not_flag() -> None:
+    from harness.mission_state import EvidenceLocator
+    locator = EvidenceLocator(ref_id="artifact://x", locator_kind="image_region", box_norm=[0.1, 0.1, 0.2, 0.2])
+    unit = _unit(
+        "u1",
+        status="closed",
+        determination="earned",
+        verification_basis="ok",
+        evidence_refs=["artifact://x"],
+        evidence_locators=[locator],
+        determined_value="v",
+    )
+    item = _item("i1", status="closed", determination="earned", verification_basis="ok", covered_units=[unit])
+    mem = _mem(resolution_items=[item])
+    result = build_prompt_observability_summary(mem)
+    assert result["earned_units_missing_locator_count"] == 0
+    assert not any(f.startswith("earned_unit_missing_locator:") for f in result["mechanical_flags"])
+
+
+def test_open_unit_does_not_trigger_locator_flag() -> None:
+    unit = _unit("u1", status="open", evidence_refs=["artifact://x"], determined_value="v")
+    item = _item("i1", status="open", covered_units=[unit])
+    mem = _mem(resolution_items=[item])
+    result = build_prompt_observability_summary(mem)
+    assert result["earned_units_missing_locator_count"] == 0
+
+
+def test_long_determined_value_flag_fires_when_value_is_long() -> None:
+    unit = _unit(
+        "u1",
+        status="closed",
+        determination="earned",
+        verification_basis="ok",
+        evidence_refs=["artifact://x"],
+        determined_value="x" * 250,
+    )
+    item = _item("i1", status="closed", determination="earned", verification_basis="ok", covered_units=[unit])
+    mem = _mem(resolution_items=[item])
+    result = build_prompt_observability_summary(mem)
+    assert result["long_determined_value_units_count"] == 1
+    assert any(f.startswith("long_determined_value_units:1") for f in result["mechanical_flags"])
+
+
+def test_short_determined_value_does_not_flag() -> None:
+    unit = _unit(
+        "u1",
+        status="closed",
+        determination="earned",
+        verification_basis="ok",
+        evidence_refs=["artifact://x"],
+        determined_value="N. 4°00' W.",
+    )
+    item = _item("i1", status="closed", determination="earned", verification_basis="ok", covered_units=[unit])
+    mem = _mem(resolution_items=[item])
+    result = build_prompt_observability_summary(mem)
+    assert result["long_determined_value_units_count"] == 0
+    assert not any(f.startswith("long_determined_value_units:") for f in result["mechanical_flags"])
+
+
+def test_summary_excerpt_truncated_fires_boundary_risk_even_when_result_not_truncated() -> None:
+    """Run-6 failure shape: result_truncated=False but outputs large enough to cut the excerpt."""
+    records = [
+        {
+            "kernel_turn_index": 1,
+            "result_truncated": False,  # raw tool result was NOT flagged as truncated
+            "action_type": "hydrate_artifact_refs",
+            "outputs_for_continuity": {"key": "x" * 3000},  # but excerpt would be cut at 2500
+        }
+    ]
+    mem = _mem_with_result_records(records, work_universe_posture="audited", ready_to_close=True)
+    result = build_prompt_observability_summary(mem)
+    # The count must reflect excerpt truncation even when result_truncated is False
+    assert result["recent_result_truncated_count"] == 1
+    assert any(
+        f.startswith("artifact_excerpt_boundary_risk:")
+        for f in result["mechanical_flags"]
+    )

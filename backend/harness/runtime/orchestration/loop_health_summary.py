@@ -13,6 +13,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from ..memory import LoopMemoryState
+from ..memory.tool_result_slices import check_outputs_excerpt_truncated
 
 
 def build_prompt_observability_summary(
@@ -24,6 +25,7 @@ def build_prompt_observability_summary(
     telemetry = loop_memory.telemetry
     cont = loop_memory.continuity
     step_records = list(cont.kernel_step_records)
+    step_result_records = list(getattr(cont, "kernel_step_result_records", ()) or ())
     resolution_items = list(getattr(cont.resolution_state, "items", ()) or ())
     resolution_relations = list(getattr(cont.resolution_state, "relations", ()) or ())
     success_conditions = list(getattr(cont.mission_state, "success_conditions", ()) or ())
@@ -135,6 +137,7 @@ def build_prompt_observability_summary(
     same_ref_bundle_reread_no_gain_streak = _same_ref_bundle_reread_no_gain_streak(step_records)
     same_item_same_ref_bundle_stall_streak = _same_item_same_ref_bundle_stall_streak(step_records)
     same_item_hydrate_churn_no_gain_streak = _same_item_hydrate_churn_no_gain_streak(step_records)
+    recent_result_truncated_count = _recent_result_truncated_count(step_result_records, last_n=3)
 
     # Build status maps for the dependency open-check (structural only).
     items_status_by_id: dict[str, str] = {
@@ -212,6 +215,7 @@ def build_prompt_observability_summary(
         "same_ref_bundle_reread_no_gain_streak": same_ref_bundle_reread_no_gain_streak,
         "same_item_same_ref_bundle_stall_streak": same_item_same_ref_bundle_stall_streak,
         "same_item_hydrate_churn_no_gain_streak": same_item_hydrate_churn_no_gain_streak,
+        "recent_result_truncated_count": recent_result_truncated_count,
         "covered_unit_count": covered_units_metrics["covered_unit_count"],
         "covered_units_with_candidates_count": covered_units_metrics["covered_units_with_candidates_count"],
         "closed_candidate_units_missing_determined_value_count": covered_units_metrics[
@@ -222,6 +226,12 @@ def build_prompt_observability_summary(
         ],
         "earned_units_missing_verification_basis_count": covered_units_metrics[
             "earned_units_missing_verification_basis_count"
+        ],
+        "earned_units_missing_locator_count": covered_units_metrics[
+            "earned_units_missing_locator_count"
+        ],
+        "long_determined_value_units_count": covered_units_metrics[
+            "long_determined_value_units_count"
         ],
         "success_condition_count": len(success_conditions),
         "success_conditions_with_earned_determination_count": sum(
@@ -267,6 +277,14 @@ def build_prompt_observability_summary(
         "explicit_non_blocking_without_notes_count": explicit_non_blocking_without_notes_count,
         "closure_readiness_projection": closure_readiness_projection,
     }
+    semantic_repair_debt_kinds = _semantic_repair_debt_kinds(feedback)
+    pending_hitl_integration_ids = _pending_hitl_integration_ids(feedback)
+    reread_after_failed_persist = _reread_after_failed_persist(
+        feedback=feedback, step_records=step_records
+    )
+    summary["semantic_repair_debt"] = list(semantic_repair_debt_kinds)
+    summary["pending_hitl_integration_prompt_ids"] = list(pending_hitl_integration_ids)
+
     summary["mechanical_flags"] = _mechanical_flags(
         feedback=feedback,
         success_condition_count=len(success_conditions),
@@ -283,6 +301,7 @@ def build_prompt_observability_summary(
         same_ref_bundle_reread_no_gain_streak=same_ref_bundle_reread_no_gain_streak,
         same_item_same_ref_bundle_stall_streak=same_item_same_ref_bundle_stall_streak,
         same_item_hydrate_churn_no_gain_streak=same_item_hydrate_churn_no_gain_streak,
+        recent_result_truncated_count=recent_result_truncated_count,
         closed_candidate_units_missing_determined_value_count=covered_units_metrics[
             "closed_candidate_units_missing_determined_value_count"
         ],
@@ -291,6 +310,12 @@ def build_prompt_observability_summary(
         ],
         earned_units_missing_verification_basis_count=covered_units_metrics[
             "earned_units_missing_verification_basis_count"
+        ],
+        earned_units_missing_locator_count=covered_units_metrics[
+            "earned_units_missing_locator_count"
+        ],
+        long_determined_value_units_count=covered_units_metrics[
+            "long_determined_value_units_count"
         ],
         sequenced_items_missing_scope_count=sequence_metrics["sequenced_items_missing_scope_count"],
         sequenced_items_missing_index_count=sequence_metrics["sequenced_items_missing_index_count"],
@@ -305,8 +330,81 @@ def build_prompt_observability_summary(
         closed_items_with_open_dependencies_count=closed_items_with_open_dependencies_count,
         explicit_non_blocking_without_notes_count=explicit_non_blocking_without_notes_count,
         complete_run_blockers=list(closure_readiness_projection.get("complete_run_blockers", ())),
+        semantic_repair_debt_kinds=semantic_repair_debt_kinds,
+        pending_hitl_integration_ids=pending_hitl_integration_ids,
+        reread_after_failed_persist=reread_after_failed_persist,
     )
     return summary
+
+
+def _semantic_repair_debt_kinds(feedback: Mapping[str, Any]) -> list[str]:
+    raw = feedback.get("semantic_repair_debt")
+    if not isinstance(raw, list):
+        return []
+    out: list[str] = []
+    for value in raw:
+        text = str(value).strip()
+        if text and text not in out:
+            out.append(text)
+    return out
+
+
+def _pending_hitl_integration_ids(feedback: Mapping[str, Any]) -> list[str]:
+    raw = feedback.get("pending_hitl_integration_prompt_ids")
+    if not isinstance(raw, list):
+        return []
+    out: list[str] = []
+    for value in raw:
+        text = str(value).strip()
+        if text and text not in out:
+            out.append(text)
+    return out
+
+
+_READ_LIKE_ACTION_TYPES = frozenset(
+    {"hydrate_artifact_refs", "hydrate_artifact_ref", "read_artifact", "fetch_artifact_refs"}
+)
+
+
+def _reread_after_failed_persist(
+    *,
+    feedback: Mapping[str, Any],
+    step_records: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    """Conservative mechanical signal.
+
+    Fires when:
+      - the last state_patch attempt either was rejected, was not_applied, or had
+        skipped resolution rows, AND
+      - the most recent step is a read/hydrate action.
+
+    Does not inspect ref-bundle equality across multiple turns; that strictness is
+    already covered by ``same_ref_bundle_reread_no_gain_streak``. The point of
+    this flag is to make the *one-step* repair-before-reread expectation visible
+    to the agent.
+    """
+    if not step_records:
+        return None
+    tail = step_records[-1]
+    action_type = _as_optional_text(tail.get("action_type"))
+    if action_type not in _READ_LIKE_ACTION_TYPES:
+        return None
+    outcome = _as_optional_text(feedback.get("outcome"))
+    has_failed_persist = (
+        outcome in ("rejected", "not_applied")
+        or bool(feedback.get("skipped_resolution_rows"))
+    )
+    has_sticky_debt = bool(_semantic_repair_debt_kinds(feedback)) or bool(
+        _pending_hitl_integration_ids(feedback)
+    )
+    if not (has_failed_persist or has_sticky_debt):
+        return None
+    return {
+        "action_type": action_type,
+        "feedback_outcome": outcome,
+        "feedback_iteration": _as_int(feedback.get("iteration")),
+        "context": "failed_persist" if has_failed_persist else "sticky_debt",
+    }
 
 
 def _consecutive_no_dispatch_turns(step_records: list[dict[str, Any]]) -> int:
@@ -516,20 +614,15 @@ def _same_item_hydrate_churn_no_gain_streak(step_records: list[dict[str, Any]]) 
 def _covered_units_metrics(items: list[Any]) -> dict[str, int]:
     """Advisory-only structural metrics over covered_units across all resolution items.
 
-    Does not decide whether a value is correct; only flags shape-level gaps:
-    - ``covered_units_with_candidates_count``: units whose ``candidate_values`` is non-empty.
-    - ``closed_candidate_units_missing_determined_value_count``: closed/earned units with
-      candidates but no ``determined_value``.
-    - ``closed_value_units_missing_evidence_count``: closed/earned units with
-      ``candidate_values`` or ``determined_value`` but no ``evidence_refs``.
-    - ``earned_units_missing_verification_basis_count``: earned units missing
-      ``verification_basis`` text.
+    Does not decide whether a value is correct; only flags shape-level gaps.
     """
     covered_unit_count = 0
     covered_units_with_candidates = 0
     closed_candidate_missing_determined = 0
     closed_value_missing_evidence = 0
     earned_missing_basis = 0
+    earned_units_missing_locator = 0
+    long_determined_value_units = 0
     for item in items:
         units = getattr(item, "covered_units", None) or ()
         for unit in units:
@@ -541,7 +634,9 @@ def _covered_units_metrics(items: list[Any]) -> dict[str, int]:
             candidate_values = getattr(unit, "candidate_values", None) or ()
             has_candidates = bool(candidate_values)
             determined_value = _as_optional_text(getattr(unit, "determined_value", None))
+            determined_value_raw = getattr(unit, "determined_value", None)
             evidence_refs = getattr(unit, "evidence_refs", None) or ()
+            evidence_locators = getattr(unit, "evidence_locators", None) or ()
             verification_basis = _as_optional_text(getattr(unit, "verification_basis", None))
             if has_candidates:
                 covered_units_with_candidates += 1
@@ -555,12 +650,33 @@ def _covered_units_metrics(items: list[Any]) -> dict[str, int]:
                 closed_value_missing_evidence += 1
             if determination_lower == "earned" and verification_basis is None:
                 earned_missing_basis += 1
+            # Earned/closed unit with evidence artifact but no locator pointing
+            # inside it. Advisory only — some media kinds may not yet support
+            # locators.
+            if (
+                closed_or_earned
+                and determined_value is not None
+                and bool(evidence_refs)
+                and not bool(evidence_locators)
+            ):
+                earned_units_missing_locator += 1
+            # Compact-atom pressure: closed/earned unit whose determined_value is
+            # long enough to look like prose/transcript storage. Threshold is a
+            # conservative structural cue, not a hard schema cap.
+            if (
+                closed_or_earned
+                and isinstance(determined_value_raw, str)
+                and len(determined_value_raw) > 200
+            ):
+                long_determined_value_units += 1
     return {
         "covered_unit_count": covered_unit_count,
         "covered_units_with_candidates_count": covered_units_with_candidates,
         "closed_candidate_units_missing_determined_value_count": closed_candidate_missing_determined,
         "closed_value_units_missing_evidence_count": closed_value_missing_evidence,
         "earned_units_missing_verification_basis_count": earned_missing_basis,
+        "earned_units_missing_locator_count": earned_units_missing_locator,
+        "long_determined_value_units_count": long_determined_value_units,
     }
 
 
@@ -707,9 +823,12 @@ def _mechanical_flags(
     same_ref_bundle_reread_no_gain_streak: int,
     same_item_same_ref_bundle_stall_streak: int,
     same_item_hydrate_churn_no_gain_streak: int,
-    closed_candidate_units_missing_determined_value_count: int,
+    recent_result_truncated_count: int = 0,
+    closed_candidate_units_missing_determined_value_count: int = 0,
     closed_value_units_missing_evidence_count: int,
     earned_units_missing_verification_basis_count: int,
+    earned_units_missing_locator_count: int = 0,
+    long_determined_value_units_count: int = 0,
     sequenced_items_missing_scope_count: int,
     sequenced_items_missing_index_count: int,
     duplicate_sequence_positions_count: int,
@@ -721,8 +840,20 @@ def _mechanical_flags(
     closed_items_with_open_dependencies_count: int,
     explicit_non_blocking_without_notes_count: int,
     complete_run_blockers: list[str],
+    semantic_repair_debt_kinds: list[str] | None = None,
+    pending_hitl_integration_ids: list[str] | None = None,
+    reread_after_failed_persist: Mapping[str, Any] | None = None,
 ) -> list[str]:
     flags: list[str] = []
+    if semantic_repair_debt_kinds:
+        flags.append("semantic_repair_debt:" + ",".join(semantic_repair_debt_kinds))
+    if pending_hitl_integration_ids:
+        flags.append(
+            f"pending_hitl_integration:{len(pending_hitl_integration_ids)}"
+        )
+    if isinstance(reread_after_failed_persist, Mapping):
+        outcome = reread_after_failed_persist.get("feedback_outcome") or "failed"
+        flags.append(f"reread_after_failed_persist_risk:{outcome}")
     last_reason_code = _as_optional_text(feedback.get("reason_code"))
     if repeated_state_patch_reason_code_streak >= 2 and last_reason_code is not None:
         flags.append(
@@ -760,6 +891,10 @@ def _mechanical_flags(
         flags.append(
             f"earned_unit_missing_verification_basis:{earned_units_missing_verification_basis_count}"
         )
+    if earned_units_missing_locator_count > 0:
+        flags.append(f"earned_unit_missing_locator:{earned_units_missing_locator_count}")
+    if long_determined_value_units_count > 0:
+        flags.append(f"long_determined_value_units:{long_determined_value_units_count}")
     if resolution_item_count >= 3 and success_condition_count == 0:
         flags.append(
             f"success_conditions_empty_with_resolution_items:{resolution_item_count}"
@@ -822,9 +957,69 @@ def _mechanical_flags(
         flags.append(
             f"explicit_non_blocking_without_notes:{explicit_non_blocking_without_notes_count}"
         )
+    # Output claim coverage debt: work graph has resolution items but no or very sparse
+    # fine-grained claim inventory while the run is in or approaching the closure zone.
+    # Structural pressure only — does not inspect content.
+    fine_grained_claim_inventory_count = atomic_item_count + covered_unit_count
+    sparse_claim_inventory = (
+        fine_grained_claim_inventory_count == 0
+        or (
+            resolution_item_count >= 4
+            and fine_grained_claim_inventory_count * 2 < resolution_item_count
+        )
+    )
+    if (
+        sparse_claim_inventory
+        and resolution_item_count >= 2
+        and (
+            closure_ready_to_close
+            or _as_optional_text(work_universe_posture) in ("believed_adequate", "audited")
+        )
+    ):
+        flags.append(f"output_claim_coverage_debt:{resolution_item_count}")
+    # Artifact excerpt boundary risk: recent tool results carried truncated outputs
+    # while the run is in or approaching a closure zone. Structural pressure only —
+    # does not inspect whether the truncation is actually material to the current claim.
+    if (
+        recent_result_truncated_count >= 1
+        and (
+            closure_ready_to_close
+            or _as_optional_text(work_universe_posture) in ("believed_adequate", "audited")
+        )
+    ):
+        flags.append(f"artifact_excerpt_boundary_risk:{recent_result_truncated_count}")
     if not closure_ready_to_close and complete_run_blockers:
         flags.append("complete_run_blockers_present")
     return flags[:24]
+
+
+def _recent_result_truncated_count(
+    step_result_records: list[Any],
+    *,
+    last_n: int = 3,
+) -> int:
+    """Count rows in the last N result records where the prompt excerpt would be truncated.
+
+    Checks both ``result_truncated`` (raw tool-output truncation stored on the
+    record) and prompt-visible excerpt truncation (computed via the same
+    bounded-excerpt projection the slice builder uses).  This ensures the flag
+    fires for the run-6 failure shape where ``result_truncated`` was False but
+    the prompt-visible excerpt was cut before the contract keys.
+
+    Structural only — does not inspect outputs content.
+    """
+    if not step_result_records:
+        return 0
+    tail = step_result_records[-last_n:]
+    count = 0
+    for row in tail:
+        if not isinstance(row, Mapping):
+            continue
+        if bool(row.get("result_truncated", False)):
+            count += 1
+        elif check_outputs_excerpt_truncated(row):
+            count += 1
+    return count
 
 
 def _stable_signature(value: Any) -> str:

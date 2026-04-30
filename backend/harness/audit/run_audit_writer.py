@@ -331,6 +331,8 @@ def _build_review_lines(
     tool_seq = _extract_tool_sequence(trace_events)
     repairs = sum(1 for t in turns if t.get("repair_attempted"))
     parse_failures = sum(1 for t in turns if not t.get("parse_ok") and not t.get("repair_records"))
+    total_duration = _total_observed_duration_seconds(turns)
+    final_artifact_posture = _final_artifact_posture(turns)
     lines: list[str] = [
         "# Run Review",
         "",
@@ -340,9 +342,12 @@ def _build_review_lines(
         f"**LLM turns recorded:** {len(turns)}",
         f"**Repairs attempted:** {repairs}",
         f"**Parse failures (unrecovered):** {parse_failures}",
-        "",
-        "## Tool Sequence",
     ]
+    if total_duration is not None:
+        lines.append(f"**Total observed duration:** {_format_duration(total_duration)}")
+    if final_artifact_posture is not None:
+        lines.append(f"**Final artifact posture:** `{final_artifact_posture}`")
+    lines += ["", "## Tool Sequence"]
     if tool_seq:
         lines.extend(f"- {entry}" for entry in tool_seq)
     else:
@@ -377,6 +382,50 @@ def _build_review_lines(
     else:
         lines.append("*(empty)*")
     return lines
+
+
+def _total_observed_duration_seconds(turns: list[dict[str, Any]]) -> float | None:
+    starts: list[float] = []
+    finishes: list[float] = []
+    for turn in turns:
+        try:
+            started = turn.get("started_at_epoch_seconds")
+            finished = turn.get("finished_at_epoch_seconds")
+            if started is not None:
+                starts.append(float(started))
+            if finished is not None:
+                finishes.append(float(finished))
+        except (TypeError, ValueError):
+            continue
+    if not starts or not finishes:
+        return None
+    duration = max(finishes) - min(starts)
+    return duration if duration >= 0 else None
+
+
+def _format_duration(seconds: float) -> str:
+    if seconds < 1:
+        return f"{seconds:.3f}s"
+    if seconds < 60:
+        return f"{seconds:.1f}s"
+    minutes, remainder = divmod(seconds, 60.0)
+    return f"{int(minutes)}m {remainder:.1f}s"
+
+
+def _final_artifact_posture(turns: list[dict[str, Any]]) -> str | None:
+    for turn in reversed(turns):
+        tool_request = turn.get("tool_request") or {}
+        tool_result = turn.get("tool_result_raw") or {}
+        action_type = tool_request.get("action_type")
+        execution_state = tool_result.get("execution_state")
+        artifact_refs = tool_result.get("artifact_refs") or []
+        if execution_state != "executed" or not artifact_refs:
+            continue
+        if action_type == "publish_workspace_artifact":
+            return "published"
+        if action_type == "save_workspace_artifact":
+            return "working"
+    return None
 
 
 def _load_turn_records(audit_dir: Path) -> list[dict[str, Any]]:

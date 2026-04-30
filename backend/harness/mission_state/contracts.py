@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from typing import Any, Literal, Mapping
+from typing import Annotated, Any, Literal, Mapping
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 MISSION_STATE_VERSION = "mission_state.v1"
 RESOLUTION_STATE_VERSION = "resolution_state.v1"
@@ -31,6 +31,73 @@ class ResolutionRelation(BaseModel):
     opaque_payload: dict[str, Any] = Field(default_factory=dict)
 
 
+class EvidenceLocator(BaseModel):
+    """Generic, agent-authored pointer to where inside an artifact a claim is proven.
+
+    The runtime does not infer locators or compute regions. The agent picks
+    ``ref_id`` from the unit's ``evidence_refs``, names a ``locator_kind`` (free
+    string for extensibility), and supplies whichever sub-fields fit that kind:
+
+    - ``image_region``: ``box_norm`` is exactly four floats in [0.0, 1.0] as
+      ``[x_min, y_min, x_max, y_max]``.
+    - ``text_span`` / ``log_span`` / ``code_span``: ``line_start``/``line_end``
+      and/or ``char_start``/``char_end``.
+    - ``table_cell``: ``row`` and/or ``column``.
+    - ``json_path``: ``json_path`` as a JSONPath-style string.
+    - other: ``opaque_payload``.
+
+    Bounded fields are optional so a single shape supports multiple media kinds
+    without forcing per-kind subclasses.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    ref_id: str = Field(min_length=1, max_length=240)
+    target: str | None = Field(default=None, max_length=64)
+    locator_kind: str = Field(min_length=1, max_length=64)
+    label: str | None = Field(default=None, max_length=128)
+    box_norm: list[Annotated[float, Field(ge=0.0, le=1.0)]] | None = Field(
+        default=None, min_length=4, max_length=4
+    )
+    line_start: int | None = Field(default=None, ge=1)
+    line_end: int | None = Field(default=None, ge=1)
+    char_start: int | None = Field(default=None, ge=0)
+    char_end: int | None = Field(default=None, ge=0)
+    row: str | int | None = None
+    column: str | int | None = None
+    json_path: str | None = Field(default=None, max_length=400)
+    opaque_payload: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _check_locator_geometry(self) -> "EvidenceLocator":
+        # Image regions: enforce strictly positive area in normalized coords.
+        if self.box_norm is not None:
+            x_min, y_min, x_max, y_max = self.box_norm
+            if not (x_min < x_max):
+                raise ValueError(
+                    "box_norm requires x_min < x_max (got "
+                    f"x_min={x_min}, x_max={x_max})"
+                )
+            if not (y_min < y_max):
+                raise ValueError(
+                    "box_norm requires y_min < y_max (got "
+                    f"y_min={y_min}, y_max={y_max})"
+                )
+        # Line spans: when both endpoints are present, start must be <= end.
+        if self.line_start is not None and self.line_end is not None:
+            if self.line_start > self.line_end:
+                raise ValueError(
+                    f"line_start ({self.line_start}) must be <= line_end ({self.line_end})"
+                )
+        # Char spans: when both endpoints are present, start must be <= end.
+        if self.char_start is not None and self.char_end is not None:
+            if self.char_start > self.char_end:
+                raise ValueError(
+                    f"char_start ({self.char_start}) must be <= char_end ({self.char_end})"
+                )
+        return self
+
+
 class ResolutionCoveredUnit(BaseModel):
     """A generic, one-level sub-unit tracked inside a ``ResolutionItem``.
 
@@ -50,6 +117,7 @@ class ResolutionCoveredUnit(BaseModel):
     verification_basis: str | None = Field(default=None, max_length=500)
     next_needed_step: str | None = Field(default=None, max_length=400)
     evidence_refs: list[str] = Field(default_factory=list, max_length=24)
+    evidence_locators: list[EvidenceLocator] = Field(default_factory=list, max_length=16)
     materiality: str | None = Field(default=None, max_length=32)
     label: str | None = Field(default=None, max_length=128)
     value_kind: str | None = Field(default=None, max_length=64)
@@ -78,6 +146,7 @@ class ResolutionItem(BaseModel):
     no_further_progress: bool = False
     dependencies: list[str] = Field(default_factory=list, max_length=16)
     evidence_refs: list[str] = Field(default_factory=list, max_length=24)
+    evidence_locators: list[EvidenceLocator] = Field(default_factory=list, max_length=16)
     notes: str | None = Field(default=None, max_length=500)
     context_notes: list[dict[str, Any]] = Field(default_factory=list, max_length=3)
     history: list[ResolutionItemHistoryEntry] = Field(default_factory=list, max_length=8)

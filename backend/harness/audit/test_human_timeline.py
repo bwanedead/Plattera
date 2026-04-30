@@ -457,30 +457,24 @@ def test_timeline_renders_covered_unit_work_graph_value_fields(tmp_path: Path) -
 def test_timeline_renders_saved_artifact_payload_section(tmp_path: Path) -> None:
     writer = RunAuditWriter(tmp_path / "run1")
     draft_payload = {
-        "source_transcript_verbatim": {
-            "text": (
-                "Parcel 1: Township 5 North, Range 75 West; "
-                "thence from the NW corner running E 100 feet (parcel body says Range 74)..."
-            ),
+        "source_lane": {
+            "text": "Observed source text with a visible gap marker near the end.",
         },
-        "normalized_or_mapping_transcript": {
-            "text": "Parcel 1: Township 5 North, Range 75 West; thence from the NW corner running E 100 feet...",
+        "downstream_lane": {
+            "text": "Consumer-ready text after a downstream normalization step.",
         },
-        "issues": [
+        "open_issues": [
             {
-                "issue_id": "range-conflict",
-                "summary": "intro says Range 75; parcel body says Range 74",
-                "scope": "parcel-1",
-                "mapping_blocking": True,
+                "issue_id": "scope-gap",
+                "summary": "A visible source segment remains unavailable.",
+                "scope": "segment-a",
+                "blocking": True,
             }
         ],
-        "parcel_metadata": [
-            {"parcel_id": "p1", "governing_range": "75", "forwardable": True},
+        "decision_notes": [
+            {"prompt_id": "hitl-1", "decision": "Use the normalized downstream lane for export."},
         ],
-        "hitl_decisions": [
-            {"prompt_id": "hitl-range", "decision": "Range 75 governs"},
-        ],
-        "evidence_refs": ["image:assoc:tx-1:original"],
+        "evidence_refs": ["artifact://source"],
     }
     writer.observe_turn_completed(
         {
@@ -505,26 +499,24 @@ def test_timeline_renders_saved_artifact_payload_section(tmp_path: Path) -> None
     assert "Saved Artifact" in body
     assert "transcript_edit:working:rev:0003" in body
     assert "artifact_kind: transcript_edit_working" in body
-    assert "source_transcript_verbatim.text:" in body
-    assert "Range 75 West" in body
-    assert "Range 74" in body
-    assert "normalized_or_mapping_transcript.text:" in body
-    assert "issues:" in body
-    assert "range-conflict" in body
-    assert "parcel_metadata:" in body
-    assert "governing_range" in body
-    assert "hitl_decisions:" in body
-    assert "hitl-range" in body
-    assert "Range 75 governs" in body
+    assert "draft_payload_keys: source_lane, downstream_lane, open_issues, decision_notes, evidence_refs" in body
+    assert "source_lane.text:" in body
+    assert "Observed source text" in body
+    assert "downstream_lane.text:" in body
+    assert "Consumer-ready text" in body
+    assert "open_issues:" in body
+    assert "scope-gap" in body
+    assert "decision_notes:" in body
+    assert "hitl-1" in body
     assert "evidence_refs:" in body
-    assert "image:assoc:tx-1:original" in body
+    assert "artifact://source" in body
 
 
-def test_timeline_renders_saved_artifact_payload_with_plain_string_transcripts(tmp_path: Path) -> None:
+def test_timeline_renders_saved_artifact_payload_with_plain_string_lanes(tmp_path: Path) -> None:
     writer = RunAuditWriter(tmp_path / "run1")
     draft_payload = {
-        "source_transcript_verbatim": "Parcel 1: Township 5 North, Range 75 West; thence from NW corner...",
-        "normalized_or_mapping_transcript": "Parcel 1: T5N R75W; from NW corner E 100 ft...",
+        "source_lane": "Observed source text in a single plain string lane.",
+        "downstream_lane": "Consumer-ready text in a single plain string lane.",
     }
     writer.observe_turn_completed(
         {
@@ -543,12 +535,166 @@ def test_timeline_renders_saved_artifact_payload_with_plain_string_transcripts(t
         }
     )
     body = _timeline_path(tmp_path / "run1").read_text(encoding="utf-8")
-    assert "source_transcript_verbatim.text:" in body
-    assert "Range 75 West" in body
-    assert "normalized_or_mapping_transcript.text:" in body
-    assert "T5N R75W" in body
-    assert "source_transcript_verbatim.text: none" not in body
-    assert "normalized_or_mapping_transcript.text: none" not in body
+    assert "source_lane:" in body
+    assert "Observed source text in a single plain string lane." in body
+    assert "downstream_lane:" in body
+    assert "Consumer-ready text in a single plain string lane." in body
+    assert "source_lane: none" not in body
+    assert "downstream_lane: none" not in body
+
+
+def test_timeline_run_summary_shows_duration_and_final_artifact_projection(tmp_path: Path) -> None:
+    writer = RunAuditWriter(tmp_path / "run1")
+    writer.observe_llm_io(
+        {
+            "turn_index": 2,
+            "parse_ok": True,
+            "started_at_epoch_seconds": 100.0,
+            "finished_at_epoch_seconds": 104.0,
+            "tool_request": {
+                "action_type": "save_workspace_artifact",
+                "action_inputs": {
+                    "draft_payload": {
+                        "source_lane": {"text": "Source lane text."},
+                        "downstream_lane": {"text": "Normalized lane text."},
+                        "notes": [{"note_id": "missing-continuation"}],
+                        "evidence_refs": ["artifact://source"],
+                    }
+                },
+            },
+        }
+    )
+    writer.observe_turn_completed(
+        {
+            "turn_index": 2,
+            "tool_request": {
+                "action_type": "save_workspace_artifact",
+                "action_inputs": {
+                    "draft_payload": {
+                        "source_lane": {"text": "Source lane text."},
+                        "downstream_lane": {"text": "Normalized lane text."},
+                        "notes": [{"note_id": "missing-continuation"}],
+                        "evidence_refs": ["artifact://source"],
+                    }
+                },
+            },
+            "tool_result_raw": {
+                "execution_state": "executed",
+                "outputs": {"artifact_kind": "transcript_edit_working"},
+                "artifact_refs": ["transcript_edit:working:rev:0005", "transcript_edit:working"],
+                "refusal": None,
+            },
+            "latest_refs_after": {"transcript_edit:working": "transcript_edit:working:rev:0005"},
+            "state_patch_feedback": {"outcome": "applied"},
+        }
+    )
+    body = _timeline_path(tmp_path / "run1").read_text(encoding="utf-8")
+    assert "## Run Summary" in body
+    assert "terminal_class: in_progress" in body
+    assert "total_run_duration: 4.0s" in body
+    assert "latest_artifact_refs:" in body
+    assert "transcript_edit:working: transcript_edit:working:rev:0005" in body
+    assert "## Final Artifact Projection" in body
+    assert "- posture: working" in body
+    assert "- latest_artifact_ref: transcript_edit:working:rev:0005" in body
+    assert "payload_keys:" in body
+    assert "source_lane: present" in body
+    assert "downstream_lane: present" in body
+    assert "- source_lane.text:" in body
+    assert "Source lane text." in body
+    assert "- downstream_lane.text:" in body
+    assert "Normalized lane text." in body
+    assert "TURN 0002 | choose_action | save_workspace_artifact | patch:applied | duration:4.0s" in body
+
+
+def test_timeline_does_not_project_final_artifact_from_failed_save_attempt(tmp_path: Path) -> None:
+    writer = RunAuditWriter(tmp_path / "run1")
+    writer.observe_llm_io(
+        {
+            "turn_index": 3,
+            "parse_ok": True,
+            "started_at_epoch_seconds": 20.0,
+            "finished_at_epoch_seconds": 22.0,
+            "tool_request": {
+                "action_type": "save_workspace_artifact",
+                "action_inputs": {
+                    "draft_payload": {
+                        "source_lane": {"text": "Attempted source lane."},
+                    }
+                },
+            },
+        }
+    )
+    writer.observe_turn_completed(
+        {
+            "turn_index": 3,
+            "tool_request": {
+                "action_type": "save_workspace_artifact",
+                "action_inputs": {
+                    "draft_payload": {
+                        "source_lane": {"text": "Attempted source lane."},
+                    }
+                },
+            },
+            "tool_result_raw": {
+                "execution_state": "refused",
+                "outputs": {},
+                "artifact_refs": [],
+                "refusal": {"reason_code": "write_blocked"},
+            },
+            "latest_refs_after": {"older": "artifact://older"},
+            "state_patch_feedback": {"outcome": "no_patch"},
+        }
+    )
+    body = _timeline_path(tmp_path / "run1").read_text(encoding="utf-8")
+    assert "## Final Artifact Projection" not in body
+
+
+def test_timeline_final_projection_scans_all_payload_entries_for_text_lanes(tmp_path: Path) -> None:
+    writer = RunAuditWriter(tmp_path / "run1")
+    draft_payload = {
+        "metadata": {"status": "working"},
+        "provenance": {"source": "scanner-a"},
+        "notes": [{"note_id": "n1"}],
+        "evidence_refs": ["artifact://source"],
+        "source_lane": {"text": "Observed source text after metadata keys."},
+        "downstream_lane": {"text": "Consumer-ready text after metadata keys."},
+    }
+    writer.observe_llm_io(
+        {
+            "turn_index": 5,
+            "parse_ok": True,
+            "started_at_epoch_seconds": 30.0,
+            "finished_at_epoch_seconds": 31.0,
+            "tool_request": {
+                "action_type": "save_workspace_artifact",
+                "action_inputs": {"draft_payload": draft_payload},
+            },
+        }
+    )
+    writer.observe_turn_completed(
+        {
+            "turn_index": 5,
+            "tool_request": {
+                "action_type": "save_workspace_artifact",
+                "action_inputs": {"draft_payload": draft_payload},
+            },
+            "tool_result_raw": {
+                "execution_state": "executed",
+                "outputs": {"artifact_kind": "generic_working"},
+                "artifact_refs": ["artifact://final"],
+                "refusal": None,
+            },
+            "latest_refs_after": {"final": "artifact://final"},
+            "state_patch_feedback": {"outcome": "applied"},
+        }
+    )
+    body = _timeline_path(tmp_path / "run1").read_text(encoding="utf-8")
+    assert "## Final Artifact Projection" in body
+    assert "- source_lane.text:" in body
+    assert "Observed source text after metadata keys." in body
+    assert "- downstream_lane.text:" in body
+    assert "Consumer-ready text after metadata keys." in body
 
 
 def test_timeline_rewrites_earlier_turn_sections_when_updated(tmp_path: Path) -> None:

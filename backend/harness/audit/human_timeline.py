@@ -34,6 +34,7 @@ OUTPUTS_EXCERPT_MAX_CHARS = 2000
 RAW_RESPONSE_EXCERPT_MAX_CHARS = 2000
 CONTINUITY_JOURNAL_MAX_CHARS = 3000
 HITL_CONTEXT_MAX_CHARS = 1500
+MAX_PAYLOAD_TEXT_FIELDS = 4
 
 _BINARY_KEYS = frozenset(
     {
@@ -77,6 +78,10 @@ def render_timeline(
     run_terminal_override: Mapping[str, Any] | None = None,
 ) -> str:
     """Render the full markdown-ish timeline body from accumulated turn records."""
+    sorted_turns = sorted(
+        (t for t in turns if isinstance(t, Mapping)),
+        key=lambda t: _safe_turn_index(t),
+    )
     lines: list[str] = [
         "# Run Timeline (Human View)",
         "",
@@ -85,6 +90,7 @@ def render_timeline(
         "",
     ]
     override = _coerce_mapping(run_terminal_override)
+    lines.extend(_render_run_summary(sorted_turns, override))
     if override:
         lines.extend(
             [
@@ -96,14 +102,43 @@ def render_timeline(
                 "",
             ]
         )
-    sorted_turns = sorted(
-        (t for t in turns if isinstance(t, Mapping)),
-        key=lambda t: _safe_turn_index(t),
-    )
     for turn in sorted_turns:
         lines.extend(_render_turn(turn))
         lines.append("")
     return "\n".join(lines) + "\n"
+
+
+def _render_run_summary(
+    turns: list[Mapping[str, Any]],
+    override: Mapping[str, Any],
+) -> list[str]:
+    if not turns and not override:
+        return []
+    lines: list[str] = ["## Run Summary", ""]
+    total_duration = _run_duration_seconds(turns)
+    terminal_class = override.get("terminal_class")
+    last_terminal_decision = _last_terminal_decision(turns)
+    latest_refs = _latest_refs_snapshot(turns, override)
+    lines.append(f"- terminal_class: {terminal_class or 'in_progress'}")
+    if last_terminal_decision:
+        lines.append(f"- last_terminal_decision: {last_terminal_decision}")
+    if total_duration is not None:
+        lines.append(f"- total_run_duration: {_format_duration(total_duration)}")
+    else:
+        lines.append("- total_run_duration: unknown")
+    lines.append(f"- llm_turn_count: {len(turns)}")
+    if latest_refs:
+        lines.append("- latest_artifact_refs:")
+        for key, value in list(latest_refs.items())[:16]:
+            lines.append(f"  - {key}: {value}")
+    else:
+        lines.append("- latest_artifact_refs: none")
+    final_artifact = _final_artifact_projection(turns, latest_refs)
+    if final_artifact:
+        lines.extend(["", "## Final Artifact Projection", ""])
+        lines.extend(final_artifact)
+    lines.extend([""])
+    return lines
 
 
 def _render_turn(turn: Mapping[str, Any]) -> list[str]:
@@ -113,6 +148,9 @@ def _render_turn(turn: Mapping[str, Any]) -> list[str]:
     header = (
         f"TURN {turn_index:04d} | choose_action | {action_type} | patch:{patch_outcome}"
     )
+    duration = _turn_duration_seconds(turn)
+    if duration is not None:
+        header = f"{header} | duration:{_format_duration(duration)}"
     out: list[str] = [_SECTION_BAR, header, _SECTION_BAR, ""]
 
     out.extend(_render_llm_authored_text(turn))
@@ -171,6 +209,45 @@ def _render_llm_authored_text(turn: Mapping[str, Any]) -> list[str]:
             lines.extend(_indented_prose(_bound_text(raw, RAW_RESPONSE_EXCERPT_MAX_CHARS), indent="    "))
 
     lines.append("")
+    return lines
+
+
+def _final_artifact_projection(
+    turns: list[Mapping[str, Any]],
+    latest_refs: Mapping[str, Any],
+) -> list[str]:
+    materialized_turn: Mapping[str, Any] | None = None
+    for turn in turns:
+        action_type = _pick_action_type(turn)
+        if action_type in ("save_workspace_artifact", "publish_workspace_artifact") and _artifact_write_succeeded(turn):
+            materialized_turn = turn
+    if materialized_turn is None:
+        return []
+    posture = (
+        "published"
+        if _pick_action_type(materialized_turn) == "publish_workspace_artifact"
+        else "working"
+    )
+    result = _coerce_mapping(materialized_turn.get("tool_result_raw"))
+    artifact_refs = result.get("artifact_refs") or []
+    outputs = _coerce_mapping(result.get("outputs"))
+    payload_inputs = _artifact_action_inputs(materialized_turn)
+    draft_payload = payload_inputs.get("draft_payload")
+    transcript_text = payload_inputs.get("transcript_text")
+    lines: list[str] = [f"- posture: {posture}"]
+    artifact_kind = outputs.get("artifact_kind") or outputs.get("kind")
+    if artifact_kind:
+        lines.append(f"- artifact_kind: {artifact_kind}")
+    if isinstance(artifact_refs, list) and artifact_refs:
+        lines.append(f"- latest_artifact_ref: {artifact_refs[0]}")
+        lines.append("- artifact_refs:")
+        for ref in artifact_refs[:8]:
+            lines.append(f"  - {ref}")
+    payload_summary = _summarize_artifact_payload(draft_payload, transcript_text)
+    if payload_summary:
+        lines.append("- payload_summary:")
+        lines.extend(f"  - {line}" for line in payload_summary)
+    lines.extend(_render_final_text_lanes(draft_payload, transcript_text))
     return lines
 
 
@@ -291,47 +368,10 @@ def _render_saved_artifact(turn: Mapping[str, Any]) -> list[str]:
         lines.append(f"  artifact_kind: {artifact_kind}")
 
     if isinstance(draft_payload, Mapping):
-        verbatim_raw = draft_payload.get("source_transcript_verbatim")
-        if isinstance(verbatim_raw, str):
-            verbatim_text: str | None = verbatim_raw
-        else:
-            verbatim = _coerce_mapping(verbatim_raw)
-            verbatim_text = verbatim.get("text") if verbatim else None
-        if isinstance(verbatim_text, str) and verbatim_text.strip():
-            lines.append("  source_transcript_verbatim.text:")
-            lines.extend(
-                _indented_prose(_bound_text(verbatim_text, PROSE_MAX_CHARS), indent="    ")
-            )
-        else:
-            lines.append("  source_transcript_verbatim.text: none")
-
-        mapping_raw = draft_payload.get("normalized_or_mapping_transcript")
-        if isinstance(mapping_raw, str):
-            mapping_text: str | None = mapping_raw
-        else:
-            mapping_view = _coerce_mapping(mapping_raw)
-            mapping_text = mapping_view.get("text") if mapping_view else None
-        if isinstance(mapping_text, str) and mapping_text.strip():
-            lines.append("  normalized_or_mapping_transcript.text:")
-            lines.extend(
-                _indented_prose(_bound_text(mapping_text, PROSE_MAX_CHARS), indent="    ")
-            )
-        else:
-            lines.append("  normalized_or_mapping_transcript.text: none")
-
-        issues = draft_payload.get("issues")
-        lines.extend(_labeled_json_block("  issues:", issues, PROSE_MAX_CHARS))
-        parcel_metadata = draft_payload.get("parcel_metadata")
-        lines.extend(_labeled_json_block("  parcel_metadata:", parcel_metadata, PROSE_MAX_CHARS))
-        hitl_decisions = draft_payload.get("hitl_decisions")
-        lines.extend(_labeled_json_block("  hitl_decisions:", hitl_decisions, PROSE_MAX_CHARS))
-        payload_evidence_refs = draft_payload.get("evidence_refs")
-        if isinstance(payload_evidence_refs, list) and payload_evidence_refs:
-            lines.append("  evidence_refs:")
-            for ref in payload_evidence_refs[:32]:
-                lines.append(f"    - {ref}")
-        else:
-            lines.append("  evidence_refs: none")
+        payload = _coerce_mapping(draft_payload)
+        payload_keys = ", ".join(str(k) for k in payload.keys()) or "none"
+        lines.append(f"  draft_payload_keys: {payload_keys}")
+        lines.extend(_render_payload_fields(payload, indent="  "))
     elif isinstance(transcript_text, str) and transcript_text.strip():
         lines.append("  transcript_text:")
         lines.extend(
@@ -683,6 +723,166 @@ def _pick_action_type(turn: Mapping[str, Any]) -> str:
     return "no_dispatch"
 
 
+def _artifact_action_inputs(turn: Mapping[str, Any]) -> dict[str, Any]:
+    tool_request = _coerce_mapping(turn.get("tool_request"))
+    parsed = _coerce_mapping(turn.get("parsed_action_plan"))
+    return _coerce_mapping(tool_request.get("action_inputs")) or _coerce_mapping(
+        parsed.get("action_inputs")
+    )
+
+
+def _extract_text_lane_text(value: Any) -> str | None:
+    if isinstance(value, str):
+        return value
+    mapping = _coerce_mapping(value)
+    text = mapping.get("text")
+    return str(text) if isinstance(text, str) else None
+
+
+def _summarize_lane(label: str, value: Any) -> str:
+    text = _extract_text_lane_text(value)
+    if text is not None:
+        return f"{label}: present ({len(text)} chars)"
+    mapping = _coerce_mapping(value)
+    if mapping:
+        return f"{label}: object ({len(mapping)} keys)"
+    return f"{label}: none"
+
+
+def _summarize_artifact_payload(draft_payload: Any, transcript_text: Any) -> list[str]:
+    if isinstance(draft_payload, Mapping):
+        payload = _coerce_mapping(draft_payload)
+        summary = [f"payload_keys: {', '.join(str(k) for k in payload.keys()) or 'none'}"]
+        for key, value in list(payload.items())[:8]:
+            summary.append(_summarize_lane(str(key), value))
+        return summary
+    if isinstance(transcript_text, str) and transcript_text.strip():
+        return [f"transcript_text: present ({len(transcript_text)} chars)"]
+    return []
+
+
+def _render_final_text_lanes(draft_payload: Any, transcript_text: Any) -> list[str]:
+    lines: list[str] = []
+    if isinstance(draft_payload, Mapping):
+        payload = _coerce_mapping(draft_payload)
+        rendered = 0
+        for key, value in payload.items():
+            text = _extract_text_lane_text(value)
+            if not (isinstance(text, str) and text.strip()):
+                continue
+            label = f"- {key}.text:" if isinstance(value, Mapping) else f"- {key}:"
+            lines.append(label)
+            lines.extend(_indented_prose(_bound_text(text, PROSE_MAX_CHARS), indent="    "))
+            if len(text) > PROSE_MAX_CHARS:
+                lines.append(f"    [truncated to {PROSE_MAX_CHARS} chars]")
+            rendered += 1
+            if rendered >= MAX_PAYLOAD_TEXT_FIELDS:
+                break
+        return lines
+    if isinstance(transcript_text, str) and transcript_text.strip():
+        lines.append("- transcript_text:")
+        lines.extend(_indented_prose(_bound_text(transcript_text, PROSE_MAX_CHARS), indent="    "))
+        if len(transcript_text) > PROSE_MAX_CHARS:
+            lines.append(f"    [truncated to {PROSE_MAX_CHARS} chars]")
+    return lines
+
+
+def _turn_duration_seconds(turn: Mapping[str, Any]) -> float | None:
+    started = turn.get("started_at_epoch_seconds")
+    finished = turn.get("finished_at_epoch_seconds")
+    try:
+        if started is None or finished is None:
+            return None
+        duration = float(finished) - float(started)
+        return duration if duration >= 0 else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _run_duration_seconds(turns: list[Mapping[str, Any]]) -> float | None:
+    starts: list[float] = []
+    finishes: list[float] = []
+    for turn in turns:
+        try:
+            started = turn.get("started_at_epoch_seconds")
+            finished = turn.get("finished_at_epoch_seconds")
+            if started is not None:
+                starts.append(float(started))
+            if finished is not None:
+                finishes.append(float(finished))
+        except (TypeError, ValueError):
+            continue
+    if not starts or not finishes:
+        return None
+    duration = max(finishes) - min(starts)
+    return duration if duration >= 0 else None
+
+
+def _format_duration(seconds: float) -> str:
+    if seconds < 1:
+        return f"{seconds:.3f}s"
+    if seconds < 60:
+        return f"{seconds:.1f}s"
+    minutes, remainder = divmod(seconds, 60.0)
+    return f"{int(minutes)}m {remainder:.1f}s"
+
+
+def _terminal_status(turns: list[Mapping[str, Any]]) -> str | None:
+    for turn in reversed(turns):
+        result = _coerce_mapping(turn.get("tool_result_raw"))
+        execution_state = result.get("execution_state")
+        if execution_state:
+            return str(execution_state)
+    return None
+
+
+def _last_terminal_decision(turns: list[Mapping[str, Any]]) -> str | None:
+    for turn in reversed(turns):
+        decision = turn.get("terminal_decision")
+        if decision:
+            return str(decision)
+    return None
+
+
+def _latest_refs_snapshot(
+    turns: list[Mapping[str, Any]],
+    override: Mapping[str, Any],
+) -> dict[str, Any]:
+    latest_refs = _coerce_mapping(override.get("latest_refs"))
+    if latest_refs:
+        return latest_refs
+    for turn in reversed(turns):
+        refs = _coerce_mapping(turn.get("latest_refs_after")) or _coerce_mapping(
+            turn.get("latest_refs_before")
+        )
+        if refs:
+            return refs
+    return {}
+
+
+def _artifact_write_succeeded(turn: Mapping[str, Any]) -> bool:
+    result = _coerce_mapping(turn.get("tool_result_raw"))
+    execution_state = str(result.get("execution_state") or "")
+    artifact_refs = result.get("artifact_refs") or []
+    return execution_state == "executed" and isinstance(artifact_refs, list) and bool(artifact_refs)
+
+
+def _render_payload_fields(payload: Mapping[str, Any], *, indent: str) -> list[str]:
+    lines: list[str] = []
+    for key, value in list(payload.items())[:8]:
+        key_text = str(key)
+        text = _extract_text_lane_text(value)
+        if isinstance(text, str) and text.strip():
+            label = f"{indent}{key_text}.text:" if isinstance(value, Mapping) else f"{indent}{key_text}:"
+            lines.append(label)
+            lines.extend(_indented_prose(_bound_text(text, PROSE_MAX_CHARS), indent=f"{indent}  "))
+            if len(text) > PROSE_MAX_CHARS:
+                lines.append(f"{indent}  [truncated to {PROSE_MAX_CHARS} chars]")
+            continue
+        lines.extend(_labeled_json_block(f"{indent}{key_text}:", value, PROSE_MAX_CHARS, indent=f"{indent}  "))
+    return lines
+
+
 def _pick_prose(*sources: Mapping[str, Any], key: str) -> str | None:
     for src in sources:
         value = src.get(key) if isinstance(src, Mapping) else None
@@ -819,7 +1019,23 @@ def _atomic_write_text(path: Path, text: str) -> None:
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write(text)
+    except Exception:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+    try:
         os.replace(tmp, path)
+    except PermissionError:
+        # On Windows, os.replace() may fail with WinError 5 when the destination
+        # file is briefly held open by a file watcher or antivirus scan.
+        # Fall back to a non-atomic direct write; the timeline is best-effort.
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        path.write_text(text, encoding="utf-8")
     except Exception:
         try:
             os.unlink(tmp)

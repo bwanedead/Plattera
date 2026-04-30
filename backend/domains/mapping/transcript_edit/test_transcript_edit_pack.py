@@ -512,9 +512,9 @@ def test_branch_teaches_verbatim_first_output_contract() -> None:
     assert "transcript-edit output contract" in lowered
     assert "first output obligation" in lowered
     assert "verbatim transcript of the source" in lowered
-    assert "parcel segmentation and mapping handoff metadata are secondary" in lowered
+    assert "downstream handoff metadata and normalized views are secondary lanes" in lowered
     assert "not replacements for this transcript" in lowered
-    assert "missing continuation" in lowered and "inline" in lowered
+    assert "unavailable portion" in lowered and "inline" in lowered
     assert "corrected / mapping view" in lowered
     assert "must not overwrite the verbatim" in lowered
 
@@ -526,7 +526,7 @@ def test_branch_teaches_no_silent_verbatim_mutation_rule() -> None:
     assert "do not silently mutate the verbatim transcript" in lowered
     assert "authorized adjudication" in lowered
     assert "corrected / mapping transcript" in lowered
-    assert "parcel metadata" in lowered
+    assert "associated metadata" in lowered
     assert "original source wording" in lowered
 
 
@@ -539,6 +539,15 @@ def test_branch_teaches_expected_saved_payload_shape() -> None:
     assert "parcel_metadata" in text
     assert "hitl_decisions" in text
     assert "evidence_refs" in text
+
+
+def test_branch_teaches_full_visible_available_source_scope_and_lane_divergence_metadata() -> None:
+    blocks = build_transcript_edit_branch_blocks()
+    text = blocks[0].text.lower()
+    assert "full visible / available" in text or "full visible/available" in text
+    assert "may be identical" in text
+    assert "what changed and why" in text
+    assert "unavailable portion" in text
 
 
 def test_procedural_guidance_teaches_saved_payload_shape() -> None:
@@ -559,6 +568,18 @@ def test_procedural_guidance_teaches_saved_payload_shape() -> None:
     assert "not silently mutated" in lowered or "do not omit" in lowered
 
 
+def test_procedural_guidance_teaches_full_visible_available_source_scope() -> None:
+    from domains.mapping.transcript_edit.prompting.surfaces.procedural_guidance import (
+        build_transcript_edit_procedural_guidance_blocks,
+    )
+
+    blocks = build_transcript_edit_procedural_guidance_blocks()
+    text = blocks[0].text.lower()
+    assert "full visible / available source scope" in text or "full visible/available source scope" in text
+    assert "preserve source wording" in text
+    assert "unavailable portion explicitly" in text
+
+
 def test_save_tool_spec_mentions_source_faithful_payload_shape() -> None:
     specs = build_transcript_edit_tool_specs()
     save_spec = next(s for s in specs if s.tool_id == "save_workspace_artifact")
@@ -572,6 +593,37 @@ def test_save_tool_spec_mentions_source_faithful_payload_shape() -> None:
     assert "hitl_decisions" in text
     assert "evidence_refs" in text
     assert "do not silently mutate the verbatim" in lowered
+
+
+def test_transcript_edit_output_contract_sections_have_no_current_deed_examples() -> None:
+    branch = build_transcript_edit_branch_blocks()[0].text.lower()
+    branch_start = branch.find("## transcript-edit output contract")
+    branch_end = branch.find("## working draft posture")
+    assert branch_start >= 0 and branch_end > branch_start
+    branch_contract = branch[branch_start:branch_end]
+
+    guidance = next(
+        b.text.lower()
+        for b in build_transcript_edit_domain_pack().build_semantic_prompt_blocks()
+        if b.block_id == "transcript_edit_procedural_guidance"
+    )
+    guidance_start = guidance.find("## expected saved payload shape")
+    guidance_end = guidance.find("## what not to do")
+    assert guidance_start >= 0 and guidance_end > guidance_start
+    guidance_contract = guidance[guidance_start:guidance_end]
+
+    specs = build_transcript_edit_tool_specs()
+    save_spec = next(s for s in specs if s.tool_id == "save_workspace_artifact")
+    combined = "\n".join(
+        (
+            branch_contract,
+            guidance_contract,
+            save_spec.purpose.lower(),
+            save_spec.expected_request_shape.lower(),
+        )
+    )
+    for banned in ("range 75", "range 74", "parcel 1", "parcel 2", "nw corner", "1638"):
+        assert banned not in combined, f"Found banned current-deed example {banned!r} in transcript-edit contract text"
 
 
 def test_procedural_guidance_discourages_fresh_transform_rehydrate_waste() -> None:

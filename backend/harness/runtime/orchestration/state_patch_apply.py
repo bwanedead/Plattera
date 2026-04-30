@@ -103,13 +103,67 @@ class StatePatchError(ValueError):
         self.detail = dict(detail or {})
 
 
-def _validation_error_summaries(exc: ValidationError) -> list[str]:
+def _format_validation_error_row(row: Mapping[str, Any], *, path_prefix: str = "") -> str:
+    """Render one Pydantic v2 error into a compact single-line repair hint.
+
+    Includes bound details (max_length, actual size) and reason kind where possible
+    so the agent can repair the exact field without rereading evidence.
+    """
+    loc_parts = [str(part) for part in row.get("loc", ())]
+    sub_path = ".".join(loc_parts) if loc_parts else "$"
+    if path_prefix:
+        path = f"{path_prefix}.{sub_path}" if sub_path != "$" else path_prefix
+    else:
+        path = sub_path
+    err_type = str(row.get("type") or "")
+    msg = str(row.get("msg") or err_type or "validation error")
+    ctx = row.get("ctx") if isinstance(row.get("ctx"), Mapping) else {}
+    input_value = row.get("input")
+
+    extras: list[str] = []
+    if err_type == "string_too_long":
+        max_len = ctx.get("max_length")
+        actual = len(input_value) if isinstance(input_value, str) else None
+        if max_len is not None and actual is not None:
+            extras.append(f"string too long, {actual} > {max_len}")
+        elif max_len is not None:
+            extras.append(f"max_length {max_len}")
+    elif err_type == "string_too_short":
+        min_len = ctx.get("min_length")
+        actual = len(input_value) if isinstance(input_value, str) else None
+        if min_len is not None and actual is not None:
+            extras.append(f"string too short, {actual} < {min_len}")
+        elif min_len is not None:
+            extras.append(f"min_length {min_len}")
+    elif err_type == "too_long":
+        max_len = ctx.get("max_length")
+        actual = ctx.get("actual_length")
+        if isinstance(input_value, list) and actual is None:
+            actual = len(input_value)
+        if max_len is not None and actual is not None:
+            extras.append(f"too many items, {actual} > {max_len}")
+        elif max_len is not None:
+            extras.append(f"max items {max_len}")
+    elif err_type == "missing":
+        extras.append("required")
+    elif err_type == "extra_forbidden":
+        extras.append("extra field forbidden")
+    elif err_type.startswith("type_"):
+        expected = err_type.removeprefix("type_") or "value"
+        extras.append(f"wrong type: expected {expected}")
+
+    detail = "; ".join(extras) if extras else msg
+    return f"{path}: {detail}"
+
+
+def _validation_error_summaries(
+    exc: ValidationError,
+    *,
+    path_prefix: str = "",
+) -> list[str]:
     out: list[str] = []
     for row in exc.errors()[:MAX_STATE_PATCH_VALIDATION_ERRORS]:
-        loc_parts = [str(part) for part in row.get("loc", ())]
-        path = ".".join(loc_parts) if loc_parts else "$"
-        message = str(row.get("msg") or row.get("type") or "validation error")
-        out.append(f"{path}: {message}")
+        out.append(_format_validation_error_row(row, path_prefix=path_prefix))
     return out
 
 
@@ -205,6 +259,85 @@ def _repair_hint_from_rejection(
     return None
 
 
+_SEMANTIC_INTENT_STATUS_TOKENS = frozenset(
+    {"closed", "blocked", "earned", "in_review", "exhausted", "no_further_progress"}
+)
+
+
+def _detect_semantic_intent_kinds(
+    *,
+    state_patch: Mapping[str, Any] | None,
+    hitl_consumed_prompt_ids: tuple[str, ...] | list[str] | None,
+) -> list[str]:
+    """Return mechanical kinds of semantic persistence the patch *attempted* to encode.
+
+    The runtime does not decide semantic truth here; it only detects whether the
+    patch carried fields whose loss would represent lost semantic intent (HITL
+    consumption, claim values/evidence, status changes, closure changes).
+    """
+    kinds: list[str] = []
+    if hitl_consumed_prompt_ids:
+        kinds.append("hitl_consumed_prompt_ids")
+    if not isinstance(state_patch, Mapping):
+        return list(dict.fromkeys(kinds))
+
+    res = state_patch.get("resolution")
+    if isinstance(res, Mapping):
+        for row in (res.get("items") or ()):
+            if not isinstance(row, Mapping):
+                continue
+            status = str(row.get("status") or "").strip().lower()
+            if status in _SEMANTIC_INTENT_STATUS_TOKENS:
+                kinds.append("item_status_change")
+            for boolean_key in ("requires_hitl", "no_further_progress", "blocking"):
+                if boolean_key in row:
+                    kinds.append("item_status_change")
+                    break
+            if "determination" in row and str(row.get("determination") or "").strip().lower() == "earned":
+                kinds.append("item_status_change")
+            if row.get("evidence_refs"):
+                kinds.append("evidence_refs")
+            for unit in (row.get("covered_units") or ()):
+                if not isinstance(unit, Mapping):
+                    continue
+                if unit.get("determined_value") not in (None, ""):
+                    kinds.append("determined_value")
+                if unit.get("candidate_values"):
+                    kinds.append("candidate_values")
+                if unit.get("evidence_refs"):
+                    kinds.append("evidence_refs")
+                u_status = str(unit.get("status") or "").strip().lower()
+                if u_status in _SEMANTIC_INTENT_STATUS_TOKENS:
+                    kinds.append("unit_status_change")
+                if "determination" in unit and str(unit.get("determination") or "").strip().lower() == "earned":
+                    kinds.append("unit_status_change")
+
+    mission = state_patch.get("mission")
+    if isinstance(mission, Mapping):
+        if "closure_state" in mission:
+            kinds.append("closure_state_change")
+        if "success_conditions" in mission:
+            kinds.append("success_conditions_change")
+
+    return list(dict.fromkeys(kinds))
+
+
+def _carry_pending_hitl_integration(
+    previous_feedback: Mapping[str, Any] | None,
+) -> list[str]:
+    if not isinstance(previous_feedback, Mapping):
+        return []
+    raw = previous_feedback.get("pending_hitl_integration_prompt_ids")
+    if not isinstance(raw, list):
+        return []
+    out: list[str] = []
+    for value in raw:
+        text = str(value).strip()
+        if text and text not in out:
+            out.append(text)
+    return out
+
+
 def _build_state_patch_feedback(
     previous_feedback: Mapping[str, Any] | None,
     *,
@@ -215,6 +348,9 @@ def _build_state_patch_feedback(
     message: str | None = None,
     execution_reason_code: str | None = None,
     detail: Mapping[str, Any] | None = None,
+    semantic_intent_kinds: list[str] | None = None,
+    attempted_hitl_consumed_prompt_ids: tuple[str, ...] | list[str] | None = None,
+    cleared_hitl_consumed_prompt_ids: tuple[str, ...] | list[str] | None = None,
 ) -> dict[str, Any]:
     previous = dict(previous_feedback or {})
     feedback: dict[str, Any] = {
@@ -271,6 +407,59 @@ def _build_state_patch_feedback(
         )
         if hint is not None:
             feedback["repair_hint"] = hint
+
+    # Semantic repair debt: when a patch tried to persist meaningful state but did
+    # not land cleanly, expose the kinds of intent that remain pending so the next
+    # turn can repair before rereading or re-asking. Trivial malformed/no-op patches
+    # produce no debt because semantic_intent_kinds is empty.
+    has_skipped_rows = bool(
+        isinstance(detail, Mapping) and detail.get("skipped_resolution_rows")
+    )
+    failed_persistence = outcome in ("rejected", "not_applied") or has_skipped_rows
+    intent_kinds = list(semantic_intent_kinds or [])
+    new_debt: list[str] = []
+    if failed_persistence and intent_kinds:
+        new_debt = list(intent_kinds)
+
+    prior_debt = (
+        list(previous.get("semantic_repair_debt"))
+        if isinstance(previous.get("semantic_repair_debt"), list)
+        else []
+    )
+    if outcome == "applied" and prior_debt:
+        # Only clear prior debt kinds the current patch plausibly repaired
+        # (intent_kinds present in the patch). An unrelated clean apply must NOT
+        # silently erase a still-open obligation. The agent can still abandon a
+        # debt kind by including that kind in a clean patch with a rationale.
+        repaired = set(intent_kinds)
+        carried = [kind for kind in prior_debt if kind not in repaired]
+        merged = list(dict.fromkeys(carried))
+    else:
+        merged = list(dict.fromkeys([*prior_debt, *new_debt]))
+    if merged:
+        feedback["semantic_repair_debt"] = merged
+
+    # HITL integration stickiness: a rejected patch that *attempted* to consume
+    # HITL prompt ids leaves them as pending integration debt until a later
+    # successful patch consumes them. The runtime does not interpret answers; it
+    # only tracks attempted-consumed ids vs successfully-consumed ids.
+    pending_hitl = _carry_pending_hitl_integration(previous)
+    attempted_ids = [
+        str(p).strip()
+        for p in (attempted_hitl_consumed_prompt_ids or ())
+        if str(p).strip()
+    ]
+    if outcome != "applied" and attempted_ids:
+        for pid in attempted_ids:
+            if pid not in pending_hitl:
+                pending_hitl.append(pid)
+    if outcome == "applied":
+        cleared = {str(p).strip() for p in (cleared_hitl_consumed_prompt_ids or ()) if str(p).strip()}
+        if cleared:
+            pending_hitl = [pid for pid in pending_hitl if pid not in cleared]
+    if pending_hitl:
+        feedback["pending_hitl_integration_prompt_ids"] = pending_hitl
+
     return feedback
 
 
@@ -282,6 +471,8 @@ def record_state_patch_no_patch_in_plan(
 ) -> None:
     """Mechanical feedback when the plan carried no ``state_patch`` (prompt/runtime state; no trace row)."""
     del tracer
+    # No patch → no new attempted persistence; preserve any pending HITL integration
+    # debt and prior semantic repair debt unchanged via the carry-forward path.
     loop_memory.continuity.state_patch_feedback = _build_state_patch_feedback(
         loop_memory.continuity.state_patch_feedback,
         outcome="no_patch",
@@ -295,13 +486,21 @@ def record_state_patch_not_applied(
     tracer: KernelTraceCollector | None,
     iteration: int,
     execution_reason_code: str,
+    state_patch: Mapping[str, Any] | None = None,
+    hitl_consumed_prompt_ids: tuple[str, ...] | list[str] | None = None,
 ) -> None:
     """Patch was not merged because the mechanical step did not succeed (e.g. refusal)."""
+    intent_kinds = _detect_semantic_intent_kinds(
+        state_patch=state_patch,
+        hitl_consumed_prompt_ids=tuple(hitl_consumed_prompt_ids or ()),
+    )
     loop_memory.continuity.state_patch_feedback = _build_state_patch_feedback(
         loop_memory.continuity.state_patch_feedback,
         outcome="not_applied",
         iteration=iteration,
         execution_reason_code=execution_reason_code,
+        semantic_intent_kinds=intent_kinds,
+        attempted_hitl_consumed_prompt_ids=tuple(hitl_consumed_prompt_ids or ()),
     )
     if tracer is not None:
         tracer.emit_state_patch_outcome(
@@ -323,6 +522,11 @@ def apply_action_plan_state_patch_to_loop_memory(
     """Merge model ``state_patch`` into continuity; surface rejections via feedback + trace (not only logs)."""
     if not action_plan.state_patch:
         return
+    attempted_consumed = tuple(action_plan.hitl_consumed_prompt_ids or ())
+    intent_kinds = _detect_semantic_intent_kinds(
+        state_patch=action_plan.state_patch,
+        hitl_consumed_prompt_ids=attempted_consumed,
+    )
     try:
         ms_applied, rs_applied, row_skips, row_skip_details = _apply_state_patch_detailed(
             mission_state=loop_memory.continuity.mission_state,
@@ -341,12 +545,20 @@ def apply_action_plan_state_patch_to_loop_memory(
             hint = _row_skip_feedback_hint(row_skips)
             if hint is not None:
                 detail["repair_hint"] = hint
+        # Successfully applied (clean or with row skips). Treat fully-clean apply
+        # as clearing the consumed ids; partial apply still carries the attempt as
+        # pending integration debt because the rows that needed the answer may
+        # have been the ones that failed.
+        cleared = attempted_consumed if not row_skip_report_has_skips(row_skips) else ()
         loop_memory.continuity.state_patch_feedback = _build_state_patch_feedback(
             loop_memory.continuity.state_patch_feedback,
             outcome="applied",
             iteration=iteration,
             gate=gate,
             detail=detail,
+            semantic_intent_kinds=intent_kinds,
+            attempted_hitl_consumed_prompt_ids=attempted_consumed,
+            cleared_hitl_consumed_prompt_ids=cleared,
         )
         trace_detail: dict[str, Any] | None = None
         if row_skip_report_has_skips(row_skips):
@@ -363,6 +575,8 @@ def apply_action_plan_state_patch_to_loop_memory(
             reason_code=exc.reason_code,
             message=str(exc),
             detail=exc.detail,
+            semantic_intent_kinds=intent_kinds,
+            attempted_hitl_consumed_prompt_ids=attempted_consumed,
         )
         if tracer is not None:
             tracer.emit_state_patch_outcome(
@@ -426,6 +640,7 @@ def sync_state_patch_after_step_refusal(
     iteration: int,
     patch_present: bool,
     execution_reason_code: str,
+    action_plan: ActionPlan | None = None,
 ) -> None:
     if patch_present:
         record_state_patch_not_applied(
@@ -433,6 +648,8 @@ def sync_state_patch_after_step_refusal(
             tracer=tracer,
             iteration=iteration,
             execution_reason_code=execution_reason_code,
+            state_patch=action_plan.state_patch if action_plan is not None else None,
+            hitl_consumed_prompt_ids=tuple(action_plan.hitl_consumed_prompt_ids) if action_plan is not None else (),
         )
     else:
         record_state_patch_no_patch_in_plan(
@@ -464,6 +681,8 @@ def sync_state_patch_when_no_step_dispatched(
             tracer=tracer,
             iteration=iteration,
             execution_reason_code="no_step_dispatched",
+            state_patch=action_plan.state_patch,
+            hitl_consumed_prompt_ids=tuple(action_plan.hitl_consumed_prompt_ids or ()),
         )
     else:
         record_state_patch_no_patch_in_plan(
@@ -546,13 +765,15 @@ def _apply_state_patch_detailed(
 def _merge_covered_units_rows(
     existing: Any,
     patch_rows: list[Any],
-) -> list[dict[str, Any]] | None:
+    *,
+    item_id: str = "",
+) -> tuple[list[dict[str, Any]] | None, list[str] | None]:
     """Merge ``covered_units`` by ``unit_id`` with per-field overlay.
 
     An empty list never wipes prior units (additive-only at this level). New units
     must carry a ``unit_id`` and a ``title``; existing units accept per-field deltas.
-    Returns ``None`` if any row is structurally invalid (not an object, missing id,
-    or fails validation); caller then skips the whole item.
+    Returns ``(merged, None)`` on success, ``(None, errors)`` on the first invalid row
+    where ``errors`` is a list of compact, path-precise repair hints.
     """
     prior_list = existing if isinstance(existing, list) else []
     by_id: dict[str, dict[str, Any]] = {}
@@ -566,17 +787,26 @@ def _merge_covered_units_rows(
             by_id[uid] = dict(row)
             order.append(uid)
 
-    for row in patch_rows:
+    item_anchor = f"resolution.items[{item_id}]" if item_id else "resolution.items[?]"
+    for index, row in enumerate(patch_rows):
         if not isinstance(row, dict):
-            return None
+            return None, [
+                f"{item_anchor}.covered_units[{index}]: not an object"
+            ]
         uid_raw = row.get("unit_id")
         uid = str(uid_raw).strip() if uid_raw is not None else ""
         if not uid:
-            return None
+            return None, [
+                f"{item_anchor}.covered_units[{index}].unit_id: required"
+            ]
+        # Detect forbidden fields explicitly so the path points at the exact key.
+        for key in row.keys():
+            if key not in unit_field_names:
+                return None, [
+                    f"{item_anchor}.covered_units[{uid}].{key}: extra field forbidden"
+                ]
         base = dict(by_id.get(uid) or {})
         for key, val in row.items():
-            if key not in unit_field_names:
-                continue
             if key == "opaque_payload" and isinstance(val, dict):
                 prior_payload = base.get("opaque_payload") if isinstance(base.get("opaque_payload"), dict) else {}
                 base["opaque_payload"] = {**prior_payload, **val}
@@ -584,13 +814,14 @@ def _merge_covered_units_rows(
                 base[key] = val
         try:
             validated = ResolutionCoveredUnit.model_validate(base).model_dump(mode="json")
-        except ValidationError:
-            return None
+        except ValidationError as exc:
+            prefix = f"{item_anchor}.covered_units[{uid}]"
+            return None, _validation_error_summaries(exc, path_prefix=prefix)
         by_id[uid] = validated
         if uid not in order:
             order.append(uid)
 
-    return [by_id[uid] for uid in order]
+    return [by_id[uid] for uid in order], None
 
 
 def _merge_resolution_item_row(
@@ -600,6 +831,8 @@ def _merge_resolution_item_row(
     """Overlay patch keys onto an existing item; absent keys keep prior values (additive updates)."""
     base: dict[str, Any] = existing.model_dump(mode="json") if existing is not None else {}
     field_names = ResolutionItem.model_fields.keys()
+    item_id = str(row.get("item_id") or (existing.item_id if existing is not None else "")).strip()
+    item_anchor = f"resolution.items[{item_id}]" if item_id else "resolution.items[?]"
 
     for key, val in row.items():
         if key not in field_names:
@@ -627,9 +860,11 @@ def _merge_resolution_item_row(
         elif key == "context_notes" and isinstance(val, list):
             base["context_notes"] = list(val)
         elif key == "covered_units" and isinstance(val, list):
-            merged_units = _merge_covered_units_rows(base.get("covered_units"), val)
+            merged_units, unit_errors = _merge_covered_units_rows(
+                base.get("covered_units"), val, item_id=item_id
+            )
             if merged_units is None:
-                return None, [f"covered_units: invalid row shape"]
+                return None, unit_errors or [f"{item_anchor}.covered_units: invalid row shape"]
             base["covered_units"] = merged_units
         else:
             base[key] = val
@@ -637,7 +872,7 @@ def _merge_resolution_item_row(
     try:
         return ResolutionItem.model_validate(base), None
     except ValidationError as exc:
-        return None, _validation_error_summaries(exc)
+        return None, _validation_error_summaries(exc, path_prefix=item_anchor)
 
 
 def _apply_resolution_branch(
