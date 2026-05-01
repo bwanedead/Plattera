@@ -282,6 +282,73 @@ def test_timeline_bounds_tool_outputs_and_strips_binary(tmp_path: Path) -> None:
     assert "ZZZZ" not in body
 
 
+def test_timeline_projects_evidence_locator_and_rendered_evidence_summaries(tmp_path: Path) -> None:
+    writer = RunAuditWriter(tmp_path / "run1")
+    writer.observe_llm_io({"turn_index": 1, "parse_ok": True})
+    writer.observe_turn_completed(
+        {
+            "turn_index": 1,
+            "tool_request": {
+                "action_type": "transform_artifact",
+                "action_inputs": {"sub_action": "render_evidence_locators"},
+            },
+            "tool_result_raw": {
+                "execution_state": "executed",
+                "outputs": {
+                    "rendered_evidence_refs": [
+                        {
+                            "source_ref": "artifact://source",
+                            "rendered_ref": "artifact://source.annotated",
+                            "locator_count": 1,
+                            "summary_only_locator_count": 0,
+                            "unsupported_locator_count": 0,
+                        }
+                    ]
+                },
+                "artifact_refs": ["artifact://source.annotated"],
+                "refusal": None,
+            },
+            "resolution_state_after": {
+                "items": [
+                    {
+                        "item_id": "item-a",
+                        "title": "Item A",
+                        "kind": "check",
+                        "status": "closed",
+                        "covered_units": [
+                            {
+                                "unit_id": "unit-a",
+                                "title": "Unit A",
+                                "status": "closed",
+                                "determination": "earned",
+                                "evidence_refs": ["artifact://source"],
+                                "evidence_locators": [
+                                    {
+                                        "ref_id": "artifact://source",
+                                        "locator_kind": "image_region",
+                                        "label": "Value A",
+                                        "box_norm": [0.1, 0.2, 0.3, 0.4],
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                ]
+            },
+            "latest_refs_after": {},
+            "state_patch_feedback": {},
+        }
+    )
+
+    body = _timeline_path(tmp_path / "run1").read_text(encoding="utf-8")
+    assert "rendered_evidence_refs:" in body
+    assert "source_ref: artifact://source | rendered_ref: artifact://source.annotated" in body
+    assert "summary_only:0 | unsupported:0" in body
+    assert "evidence_locators:" in body
+    assert "kind:image_region | ref:artifact://source | label:Value A" in body
+    assert "box_norm:[0.1, 0.2, 0.3, 0.4]" in body
+
+
 def test_timeline_preserves_textual_outputs_data_but_not_image_evidence(tmp_path: Path) -> None:
     """Generic outputs.data must be preserved as visible payload; image_evidence payloads
     must not leak (image_evidence is counted, not dumped)."""
@@ -590,11 +657,14 @@ def test_timeline_run_summary_shows_duration_and_final_artifact_projection(tmp_p
     )
     body = _timeline_path(tmp_path / "run1").read_text(encoding="utf-8")
     assert "## Run Summary" in body
+    assert "## Final Run Summary" in body
+    assert body.index("## Run Summary") < body.index("TURN 0002")
+    assert body.rindex("## Final Run Summary") > body.index("TURN 0002")
     assert "terminal_class: in_progress" in body
     assert "total_run_duration: 4.0s" in body
     assert "latest_artifact_refs:" in body
     assert "transcript_edit:working: transcript_edit:working:rev:0005" in body
-    assert "## Final Artifact Projection" in body
+    assert body.count("## Final Artifact Projection") == 2
     assert "- posture: working" in body
     assert "- latest_artifact_ref: transcript_edit:working:rev:0005" in body
     assert "payload_keys:" in body
@@ -648,6 +718,8 @@ def test_timeline_does_not_project_final_artifact_from_failed_save_attempt(tmp_p
     )
     body = _timeline_path(tmp_path / "run1").read_text(encoding="utf-8")
     assert "## Final Artifact Projection" not in body
+    assert "## Final Run Summary" in body
+    assert "Saved Artifact" not in body
 
 
 def test_timeline_final_projection_scans_all_payload_entries_for_text_lanes(tmp_path: Path) -> None:
@@ -690,11 +762,56 @@ def test_timeline_final_projection_scans_all_payload_entries_for_text_lanes(tmp_
         }
     )
     body = _timeline_path(tmp_path / "run1").read_text(encoding="utf-8")
-    assert "## Final Artifact Projection" in body
+    assert body.count("## Final Artifact Projection") == 2
+    bottom = body[body.rindex("## Final Run Summary") :]
     assert "- source_lane.text:" in body
     assert "Observed source text after metadata keys." in body
     assert "- downstream_lane.text:" in body
     assert "Consumer-ready text after metadata keys." in body
+    assert "- source_lane.text:" in bottom
+    assert "Observed source text after metadata keys." in bottom
+    assert "- downstream_lane.text:" in bottom
+    assert "Consumer-ready text after metadata keys." in bottom
+
+
+def test_timeline_final_projection_renders_generic_text_bearing_payload_fields(
+    tmp_path: Path,
+) -> None:
+    writer = RunAuditWriter(tmp_path / "run1")
+    draft_payload = {
+        "metadata": {"status": "working", "revision": 3},
+        "opaque_notes": [{"note_id": "n1"}],
+        "alpha_payload": {"text": "First generic text lane with no domain-specific name."},
+        "omega_narrative": "Second generic text lane in a plain string field.",
+    }
+    writer.observe_turn_completed(
+        {
+            "turn_index": 6,
+            "tool_request": {
+                "action_type": "save_workspace_artifact",
+                "action_inputs": {"draft_payload": draft_payload},
+            },
+            "tool_result_raw": {
+                "execution_state": "executed",
+                "outputs": {"artifact_kind": "generic_working"},
+                "artifact_refs": ["artifact://generic-final"],
+                "refusal": None,
+            },
+            "latest_refs_after": {"final": "artifact://generic-final"},
+            "state_patch_feedback": {"outcome": "applied"},
+        }
+    )
+    body = _timeline_path(tmp_path / "run1").read_text(encoding="utf-8")
+    bottom = body[body.rindex("## Final Run Summary") :]
+    assert "alpha_payload: present" in bottom
+    assert "omega_narrative: present" in bottom
+    assert "- alpha_payload.text:" in bottom
+    assert "First generic text lane with no domain-specific name." in bottom
+    assert "- omega_narrative:" in bottom
+    assert "Second generic text lane in a plain string field." in bottom
+    assert "source_transcript_verbatim" not in body
+    assert "normalized_or_mapping_transcript" not in body
+    assert "parcel_metadata" not in body
 
 
 def test_timeline_rewrites_earlier_turn_sections_when_updated(tmp_path: Path) -> None:

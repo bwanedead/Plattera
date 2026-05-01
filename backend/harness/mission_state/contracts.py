@@ -116,6 +116,8 @@ class ResolutionCoveredUnit(BaseModel):
     determination: str | None = Field(default=None, max_length=64)
     verification_basis: str | None = Field(default=None, max_length=500)
     next_needed_step: str | None = Field(default=None, max_length=400)
+    closure_summary: str | None = Field(default=None, max_length=240)
+    reopen_triggers: list[str] = Field(default_factory=list, max_length=8)
     evidence_refs: list[str] = Field(default_factory=list, max_length=24)
     evidence_locators: list[EvidenceLocator] = Field(default_factory=list, max_length=16)
     materiality: str | None = Field(default=None, max_length=32)
@@ -138,6 +140,8 @@ class ResolutionItem(BaseModel):
     verification_basis: str | None = Field(default=None, max_length=500)
     next_needed_step: str | None = Field(default=None, max_length=400)
     completion_criteria: str | None = Field(default=None, max_length=400)
+    closure_summary: str | None = Field(default=None, max_length=240)
+    reopen_triggers: list[str] = Field(default_factory=list, max_length=8)
     structure_kind: ResolutionItemStructureKind | None = None
     sequence_scope: str | None = Field(default=None, max_length=128)
     sequence_index: int | None = Field(default=None, ge=1)

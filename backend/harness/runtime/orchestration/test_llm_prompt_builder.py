@@ -290,6 +290,8 @@ def test_compact_prompt_visible_observability_drops_zero_counters() -> None:
         "covered_units_with_candidates_count",
         "closed_value_units_missing_evidence_count",
         "earned_units_missing_verification_basis_count",
+        "notebook_shaped_graph_rows_count",
+        "artifact_claim_inventory_suspect_count",
     ):
         assert graph_shape_key in summary, f"graph-shape counter missing: {graph_shape_key}"
     # Zero-valued optional counters (non-graph-shape) must not appear.

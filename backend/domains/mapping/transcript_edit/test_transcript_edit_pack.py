@@ -456,6 +456,27 @@ def test_tool_spec_transform_returns_next_turn_image_evidence() -> None:
     assert "separate hydrate_artifact_refs call is not required" in result_lower
 
 
+def test_tool_spec_transform_teaches_evidence_locator_rendering() -> None:
+    specs = build_transcript_edit_tool_specs()
+    transform = next(s for s in specs if s.tool_id == "transform_artifact")
+    text = " ".join(
+        [
+            transform.purpose,
+            transform.expected_request_shape,
+            transform.expected_result_shape,
+            str(transform.expected_request_json_shape),
+        ]
+    ).lower()
+
+    assert "render_evidence_locators" in text
+    assert "image_region" in text
+    assert "rendered_evidence_refs" in text
+    assert "source_ref" in text
+    assert "rendered_ref" in text
+    assert "summary_only_locator_count" in text
+    assert "unsupported_locator_count" in text
+
+
 def test_startup_context_artifact_description_names_original_only() -> None:
     """The artifact kind table at the bottom of startup context must describe only :original."""
     from domains.mapping.transcript_edit.payloads import (

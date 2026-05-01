@@ -80,15 +80,17 @@ def build_transcript_edit_tool_specs() -> tuple[SemanticToolSpec, ...]:
             purpose=(
                 "Apply a spatial or annotation transform to a source or derived image ref. "
                 "Returns a new image:derived:* ref and model-visible image evidence for the next turn. "
-                "Sub-actions: crop, expand, zoom, annotate, reference_overlay. "
+                "Sub-actions: crop, expand, zoom, annotate, reference_overlay, render_evidence_locators. "
                 "Use annotate to highlight, draw bounding boxes, or add labels. "
+                "Use render_evidence_locators to render agent-authored image_region evidence_locators "
+                "and explicitly summarize text_span, log_span, code_span, table_cell, json_path, or unsupported locators. "
                 "Use reference_overlay to obtain a grid-labeled version of the image so you can "
                 "identify precise subregions on the next turn and then supply explicit box or box_norm coordinates "
                 "to a subsequent crop."
             ),
             expected_request_shape=(
                 "ref_id: source image ref (image:assoc:* or image:derived:*). "
-                "sub_action: one of crop | expand | zoom | annotate | reference_overlay. "
+                "sub_action: one of crop | expand | zoom | annotate | reference_overlay | render_evidence_locators. "
                 "params: sub-action-specific parameters object. "
                 "CROP GEOMETRY — two explicit forms accepted: "
                 "(1) params.box = [x1, y1, x2, y2] — absolute pixel coordinates from the top-left corner. "
@@ -104,6 +106,9 @@ def build_transcript_edit_tool_specs() -> tuple[SemanticToolSpec, ...]:
                 "line_color: [R,G,B] (default [200,200,200]), label_color: [R,G,B] (default [255,0,0])}. "
                 "Each cell label shows (col,row) and its exact box_norm bounds. "
                 "Typical workflow: reference_overlay → inspect returned image evidence next turn → crop with explicit box_norm."
+                " RENDER_EVIDENCE_LOCATORS — params: {locators: evidence_locators[]}. "
+                "Image_region locators whose ref_id matches ref_id are rendered as highlights/boxes; "
+                "text_span, log_span, code_span, table_cell, json_path, and unknown kinds are summarized explicitly."
             ),
             expected_request_json_shape={
                 "type": "object",
@@ -115,7 +120,7 @@ def build_transcript_edit_tool_specs() -> tuple[SemanticToolSpec, ...]:
                     },
                     "sub_action": {
                         "type": "string",
-                        "enum": ["crop", "expand", "zoom", "annotate", "reference_overlay"],
+                        "enum": ["crop", "expand", "zoom", "annotate", "reference_overlay", "render_evidence_locators"],
                     },
                     "params": {
                         "type": "object",
@@ -125,7 +130,8 @@ def build_transcript_edit_tool_specs() -> tuple[SemanticToolSpec, ...]:
                             "zoom: {box: [x1,y1,x2,y2]} or {factor: 2.0}. "
                             "annotate: {annotations: [{type: highlight|bbox|label, box: [x1,y1,x2,y2], "
                             "color: [R,G,B], text: str}]}. "
-                            "reference_overlay: {cols: int, rows: int, line_color: [R,G,B], label_color: [R,G,B]}."
+                            "reference_overlay: {cols: int, rows: int, line_color: [R,G,B], label_color: [R,G,B]}. "
+                            "render_evidence_locators: {locators: evidence_locators[]}."
                         ),
                     },
                 },
@@ -139,6 +145,10 @@ def build_transcript_edit_tool_specs() -> tuple[SemanticToolSpec, ...]:
             expected_result_shape=(
                 "outputs.derived_ref_id: new image:derived:* ref for later reuse or HITL payloads. "
                 "outputs.parent_ref_id, sub_action, basename, width_height. "
+                "For render_evidence_locators, outputs.rendered_evidence_refs links source_ref to "
+                "rendered_ref and reports locator_count/rendered_locator_count/summary_only_locator_count/"
+                "unsupported_locator_count; outputs.rendered_locators, outputs.summary_only_locators, "
+                "and outputs.unsupported_locators preserve per-locator lineage. "
                 "image_evidence: model-visible generated image for the next choose_action turn; "
                 "a separate hydrate_artifact_refs call is not required just to inspect the new crop/overlay. "
                 "On retryable param error: outputs.error.code = invalid_transform_params, "

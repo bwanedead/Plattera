@@ -41,6 +41,7 @@ def _mem(
     work_universe_posture: str = "initial",
     state_patch_feedback: dict | None = None,
     step_records: list[dict] | None = None,
+    step_result_records: list[dict] | None = None,
 ) -> LoopMemoryState:
     ms = new_mission_state(mission_id="m-health", loop_family="orchestration_kernel")
     ms = ms.model_copy(
@@ -71,6 +72,8 @@ def _mem(
         mem.continuity.state_patch_feedback = dict(state_patch_feedback)
     if step_records is not None:
         mem.continuity.kernel_step_records = list(step_records)
+    if step_result_records is not None:
+        mem.continuity.kernel_step_result_records = list(step_result_records)
     return mem
 
 
@@ -167,6 +170,22 @@ def _step_record(
         "complete_run": False,
         "execution_state": execution_state,
         "execution_reason_code": None,
+    }
+
+
+def _result_record(
+    turn_index: int,
+    *,
+    artifact_refs: list[str] | None = None,
+    outputs_for_continuity: dict | str | None = None,
+) -> dict:
+    return {
+        "kernel_turn_index": turn_index,
+        "action_type": "save_workspace_artifact",
+        "execution_state": "executed",
+        "artifact_refs": list(artifact_refs or []),
+        "outputs_for_continuity": outputs_for_continuity if outputs_for_continuity is not None else {},
+        "result_truncated": False,
     }
 
 
@@ -406,6 +425,7 @@ def _flags(**kwargs) -> list[str]:
         blocking_items_without_relations_count=0,
         closed_items_with_open_dependencies_count=0,
         explicit_non_blocking_without_notes_count=0,
+        notebook_shaped_graph_rows_count=0,
         complete_run_blockers=[],
     )
     base.update(kwargs)
@@ -414,6 +434,16 @@ def _flags(**kwargs) -> list[str]:
 
 def test_flags_empty_by_default() -> None:
     assert _flags() == []
+
+
+def test_flags_notebook_shaped_graph_rows() -> None:
+    result = _flags(notebook_shaped_graph_rows_count=2)
+    assert "notebook_shaped_graph_rows:2" in result
+
+
+def test_flags_artifact_claim_inventory_suspect() -> None:
+    result = _flags(artifact_claim_inventory_suspect_count=2)
+    assert "artifact_claim_inventory_suspect:2" in result
 
 
 def test_flags_repeated_rejection_streak() -> None:
@@ -1231,6 +1261,126 @@ def test_flags_output_claim_coverage_debt_carries_item_count() -> None:
     """Flag string encodes the resolution_item_count for observability."""
     result = _flags(resolution_item_count=7, closure_ready_to_close=True)
     assert "output_claim_coverage_debt:7" in result
+
+
+# ---------------------------------------------------------------------------
+# notebook_shaped_graph_rows flag
+# ---------------------------------------------------------------------------
+
+
+def test_notebook_shaped_graph_rows_flags_closed_prose_heavy_item() -> None:
+    long_prose = "This closed row carries paragraph-like notebook prose without compact anchors. " * 5
+    item = _item("i1", status="closed", determination="earned", notes=long_prose)
+    summary = build_prompt_observability_summary(_mem(resolution_items=[item]))
+
+    assert summary["notebook_shaped_graph_rows_count"] == 1
+    assert "notebook_shaped_graph_rows:1" in summary["mechanical_flags"]
+
+
+def test_notebook_shaped_graph_rows_does_not_flag_open_working_item() -> None:
+    long_prose = "This open row can still need prose while the item is actively being worked. " * 5
+    item = _item("i1", status="open", notes=long_prose)
+    summary = build_prompt_observability_summary(_mem(resolution_items=[item]))
+
+    assert summary["notebook_shaped_graph_rows_count"] == 0
+    assert not any(flag.startswith("notebook_shaped_graph_rows") for flag in summary["mechanical_flags"])
+
+
+def test_notebook_shaped_graph_rows_does_not_flag_compact_closed_atom() -> None:
+    unit = ResolutionCoveredUnit(
+        unit_id="u1",
+        title="compact atom",
+        status="closed",
+        determination="earned",
+        candidate_values=["A", "B"],
+        determined_value="A",
+        evidence_refs=["artifact://evidence"],
+        closure_summary="A was verified.",
+    )
+    item = _item(
+        "i1",
+        status="closed",
+        determination="earned",
+        verification_basis="Compact evidence check passed.",
+        evidence_refs=["artifact://evidence"],
+        covered_units=[unit],
+    )
+    summary = build_prompt_observability_summary(_mem(resolution_items=[item]))
+
+    assert summary["notebook_shaped_graph_rows_count"] == 0
+    assert not any(flag.startswith("notebook_shaped_graph_rows") for flag in summary["mechanical_flags"])
+
+
+# ---------------------------------------------------------------------------
+# artifact_claim_inventory_suspect flag
+# ---------------------------------------------------------------------------
+
+
+def test_artifact_claim_inventory_suspect_fires_near_closure_with_substantial_artifact_and_empty_inventory() -> None:
+    result_record = _result_record(
+        1,
+        artifact_refs=["artifact://working"],
+        outputs_for_continuity={"payload": {"text": "substantial output text " * 60}},
+    )
+    summary = build_prompt_observability_summary(
+        _mem(ready_to_close=True, step_result_records=[result_record])
+    )
+
+    assert summary["artifact_claim_inventory_suspect_count"] == 1
+    assert "artifact_claim_inventory_suspect:1" in summary["mechanical_flags"]
+    assert "complete_run_blockers_present" not in summary["mechanical_flags"]
+
+
+def test_artifact_claim_inventory_suspect_does_not_fire_when_not_near_closure() -> None:
+    result_record = _result_record(
+        1,
+        artifact_refs=["artifact://working"],
+        outputs_for_continuity={"payload": {"text": "substantial output text " * 60}},
+    )
+    summary = build_prompt_observability_summary(
+        _mem(work_universe_posture="partial", step_result_records=[result_record])
+    )
+
+    assert summary["artifact_claim_inventory_suspect_count"] == 0
+    assert not any(flag.startswith("artifact_claim_inventory_suspect") for flag in summary["mechanical_flags"])
+
+
+def test_artifact_claim_inventory_suspect_does_not_fire_with_compact_inventory() -> None:
+    unit = ResolutionCoveredUnit(
+        unit_id="u1",
+        title="compact atom",
+        status="closed",
+        determination="earned",
+        candidate_values=["A", "B"],
+        determined_value="A",
+        evidence_refs=["artifact://evidence"],
+    )
+    item = _item("i1", status="closed", structure_kind="group", covered_units=[unit])
+    result_record = _result_record(
+        1,
+        artifact_refs=["artifact://working"],
+        outputs_for_continuity={"payload": {"text": "substantial output text " * 60}},
+    )
+    summary = build_prompt_observability_summary(
+        _mem(ready_to_close=True, resolution_items=[item], step_result_records=[result_record])
+    )
+
+    assert summary["artifact_claim_inventory_suspect_count"] == 0
+    assert not any(flag.startswith("artifact_claim_inventory_suspect") for flag in summary["mechanical_flags"])
+
+
+def test_artifact_claim_inventory_suspect_does_not_fire_for_small_artifact_payload() -> None:
+    result_record = _result_record(
+        1,
+        artifact_refs=["artifact://working"],
+        outputs_for_continuity={"payload": {"text": "small output"}},
+    )
+    summary = build_prompt_observability_summary(
+        _mem(ready_to_close=True, step_result_records=[result_record])
+    )
+
+    assert summary["artifact_claim_inventory_suspect_count"] == 0
+    assert not any(flag.startswith("artifact_claim_inventory_suspect") for flag in summary["mechanical_flags"])
 
 
 # ---------------------------------------------------------------------------

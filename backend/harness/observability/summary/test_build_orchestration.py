@@ -154,3 +154,25 @@ def test_brief_2_locator_and_long_value_counters_project_into_typed_summary() ->
     env = build_orchestration_kernel_run_summary(orchestration_kernel_payload=payload)
     assert env.prompt_observability_summary.earned_units_missing_locator_count == 3
     assert env.prompt_observability_summary.long_determined_value_units_count == 2
+
+
+def test_notebook_shaped_graph_rows_counter_projects_into_typed_summary() -> None:
+    payload = _payload_with_prompt_event()
+    payload["prompt_observability_summary"] = {
+        "notebook_shaped_graph_rows_count": 4,
+        "mechanical_flags": ["notebook_shaped_graph_rows:4"],
+    }
+    env = build_orchestration_kernel_run_summary(orchestration_kernel_payload=payload)
+    assert env.prompt_observability_summary.notebook_shaped_graph_rows_count == 4
+    assert "notebook_shaped_graph_rows:4" in env.prompt_observability_summary.mechanical_flags
+
+
+def test_artifact_claim_inventory_suspect_counter_projects_into_typed_summary() -> None:
+    payload = _payload_with_prompt_event()
+    payload["prompt_observability_summary"] = {
+        "artifact_claim_inventory_suspect_count": 2,
+        "mechanical_flags": ["artifact_claim_inventory_suspect:2"],
+    }
+    env = build_orchestration_kernel_run_summary(orchestration_kernel_payload=payload)
+    assert env.prompt_observability_summary.artifact_claim_inventory_suspect_count == 2
+    assert "artifact_claim_inventory_suspect:2" in env.prompt_observability_summary.mechanical_flags

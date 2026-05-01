@@ -138,6 +138,10 @@ def build_prompt_observability_summary(
     same_item_same_ref_bundle_stall_streak = _same_item_same_ref_bundle_stall_streak(step_records)
     same_item_hydrate_churn_no_gain_streak = _same_item_hydrate_churn_no_gain_streak(step_records)
     recent_result_truncated_count = _recent_result_truncated_count(step_result_records, last_n=3)
+    substantial_artifact_output_count = _substantial_artifact_output_count(
+        step_result_records,
+        last_n=3,
+    )
 
     # Build status maps for the dependency open-check (structural only).
     items_status_by_id: dict[str, str] = {
@@ -180,8 +184,16 @@ def build_prompt_observability_summary(
         and not _has_text(getattr(row, "notes", None))
         and not _has_text(getattr(row, "verification_basis", None))
     )
+    notebook_shaped_graph_rows_count = _notebook_shaped_graph_rows_count(resolution_items)
 
     covered_units_metrics = _covered_units_metrics(resolution_items)
+    artifact_claim_inventory_suspect_count = _artifact_claim_inventory_suspect_count(
+        closure_ready_to_close=bool(getattr(closure_state, "ready_to_close", False)),
+        work_universe_posture=work_universe_posture,
+        substantial_artifact_output_count=substantial_artifact_output_count,
+        atomic_item_count=atomic_item_count,
+        covered_unit_count=covered_units_metrics["covered_unit_count"],
+    )
 
     closure_readiness_projection = _closure_readiness_projection(
         closure_policy=closure_policy,
@@ -216,6 +228,7 @@ def build_prompt_observability_summary(
         "same_item_same_ref_bundle_stall_streak": same_item_same_ref_bundle_stall_streak,
         "same_item_hydrate_churn_no_gain_streak": same_item_hydrate_churn_no_gain_streak,
         "recent_result_truncated_count": recent_result_truncated_count,
+        "substantial_artifact_output_count": substantial_artifact_output_count,
         "covered_unit_count": covered_units_metrics["covered_unit_count"],
         "covered_units_with_candidates_count": covered_units_metrics["covered_units_with_candidates_count"],
         "closed_candidate_units_missing_determined_value_count": covered_units_metrics[
@@ -275,6 +288,8 @@ def build_prompt_observability_summary(
         "closed_dimensions_without_basis_count": closed_dimensions_without_basis_count,
         "closed_items_with_open_dependencies_count": closed_items_with_open_dependencies_count,
         "explicit_non_blocking_without_notes_count": explicit_non_blocking_without_notes_count,
+        "notebook_shaped_graph_rows_count": notebook_shaped_graph_rows_count,
+        "artifact_claim_inventory_suspect_count": artifact_claim_inventory_suspect_count,
         "closure_readiness_projection": closure_readiness_projection,
     }
     semantic_repair_debt_kinds = _semantic_repair_debt_kinds(feedback)
@@ -302,6 +317,7 @@ def build_prompt_observability_summary(
         same_item_same_ref_bundle_stall_streak=same_item_same_ref_bundle_stall_streak,
         same_item_hydrate_churn_no_gain_streak=same_item_hydrate_churn_no_gain_streak,
         recent_result_truncated_count=recent_result_truncated_count,
+        artifact_claim_inventory_suspect_count=artifact_claim_inventory_suspect_count,
         closed_candidate_units_missing_determined_value_count=covered_units_metrics[
             "closed_candidate_units_missing_determined_value_count"
         ],
@@ -329,6 +345,7 @@ def build_prompt_observability_summary(
         blocking_items_without_relations_count=blocking_items_without_relations_count,
         closed_items_with_open_dependencies_count=closed_items_with_open_dependencies_count,
         explicit_non_blocking_without_notes_count=explicit_non_blocking_without_notes_count,
+        notebook_shaped_graph_rows_count=notebook_shaped_graph_rows_count,
         complete_run_blockers=list(closure_readiness_projection.get("complete_run_blockers", ())),
         semantic_repair_debt_kinds=semantic_repair_debt_kinds,
         pending_hitl_integration_ids=pending_hitl_integration_ids,
@@ -680,6 +697,123 @@ def _covered_units_metrics(items: list[Any]) -> dict[str, int]:
     }
 
 
+def _notebook_shaped_graph_rows_count(items: list[Any]) -> int:
+    """Conservative structural pressure for closed rows shaped like prose notebooks.
+
+    A row is counted only when it is closed/earned, has long prose fields, and
+    lacks compact skeleton anchors such as values, candidates, evidence,
+    closure memory, reopen triggers, dependencies, or covered units.
+    """
+    count = 0
+    for item in items:
+        if (
+            _is_closed_status(getattr(item, "status", None))
+            or _has_earned_determination(getattr(item, "determination", None))
+        ) and _is_prose_heavy_without_skeleton(
+            prose_values=(
+                getattr(item, "summary", None),
+                getattr(item, "notes", None),
+                getattr(item, "verification_basis", None),
+                getattr(item, "completion_criteria", None),
+            ),
+            compact_values=(
+                getattr(item, "evidence_refs", None),
+                getattr(item, "evidence_locators", None),
+                getattr(item, "dependencies", None),
+                getattr(item, "closure_summary", None),
+                getattr(item, "reopen_triggers", None),
+                getattr(item, "covered_units", None),
+            ),
+        ):
+            count += 1
+
+        for unit in getattr(item, "covered_units", None) or ():
+            if (
+                _is_closed_status(getattr(unit, "status", None))
+                or _has_earned_determination(getattr(unit, "determination", None))
+            ) and _is_prose_heavy_without_skeleton(
+                prose_values=(
+                    getattr(unit, "summary", None),
+                    getattr(unit, "verification_basis", None),
+                    getattr(unit, "next_needed_step", None),
+                ),
+                compact_values=(
+                    getattr(unit, "candidate_values", None),
+                    getattr(unit, "determined_value", None),
+                    getattr(unit, "evidence_refs", None),
+                    getattr(unit, "evidence_locators", None),
+                    getattr(unit, "closure_summary", None),
+                    getattr(unit, "reopen_triggers", None),
+                ),
+            ):
+                count += 1
+    return count
+
+
+def _artifact_claim_inventory_suspect_count(
+    *,
+    closure_ready_to_close: bool,
+    work_universe_posture: str | None,
+    substantial_artifact_output_count: int,
+    atomic_item_count: int,
+    covered_unit_count: int,
+) -> int:
+    near_closure = closure_ready_to_close or _as_optional_text(work_universe_posture) in (
+        "believed_adequate",
+        "audited",
+    )
+    weak_claim_inventory = atomic_item_count == 0 and covered_unit_count == 0
+    if near_closure and weak_claim_inventory:
+        return substantial_artifact_output_count
+    return 0
+
+
+def _substantial_artifact_output_count(
+    step_result_records: list[Any],
+    *,
+    last_n: int = 3,
+) -> int:
+    count = 0
+    for row in step_result_records[-last_n:]:
+        if not isinstance(row, Mapping):
+            continue
+        refs = row.get("artifact_refs")
+        if not isinstance(refs, list) or not refs:
+            continue
+        if _substantial_text_signal(row.get("outputs_for_continuity")):
+            count += 1
+    return count
+
+
+def _substantial_text_signal(value: Any, *, max_depth: int = 4) -> bool:
+    return _text_signal_chars(value, max_depth=max_depth) >= 800
+
+
+def _text_signal_chars(value: Any, *, max_depth: int) -> int:
+    if max_depth < 0:
+        return 0
+    if isinstance(value, str):
+        return len(value.strip())
+    if isinstance(value, Mapping):
+        return sum(_text_signal_chars(inner, max_depth=max_depth - 1) for inner in value.values())
+    if isinstance(value, list):
+        return sum(_text_signal_chars(inner, max_depth=max_depth - 1) for inner in value[:16])
+    return 0
+
+
+def _is_prose_heavy_without_skeleton(
+    *,
+    prose_values: tuple[Any, ...],
+    compact_values: tuple[Any, ...],
+) -> bool:
+    has_long_prose = any(
+        isinstance(value, str) and len(value.strip()) > 240
+        for value in prose_values
+    )
+    has_compact_skeleton = any(bool(value) for value in compact_values)
+    return has_long_prose and not has_compact_skeleton
+
+
 def _repeated_complete_run_without_state_change_count(step_records: list[dict[str, Any]]) -> int:
     attempts = [row for row in step_records if bool(row.get("complete_run"))]
     if len(attempts) < 2:
@@ -824,6 +958,7 @@ def _mechanical_flags(
     same_item_same_ref_bundle_stall_streak: int,
     same_item_hydrate_churn_no_gain_streak: int,
     recent_result_truncated_count: int = 0,
+    artifact_claim_inventory_suspect_count: int = 0,
     closed_candidate_units_missing_determined_value_count: int = 0,
     closed_value_units_missing_evidence_count: int,
     earned_units_missing_verification_basis_count: int,
@@ -843,6 +978,7 @@ def _mechanical_flags(
     semantic_repair_debt_kinds: list[str] | None = None,
     pending_hitl_integration_ids: list[str] | None = None,
     reread_after_failed_persist: Mapping[str, Any] | None = None,
+    notebook_shaped_graph_rows_count: int = 0,
 ) -> list[str]:
     flags: list[str] = []
     if semantic_repair_debt_kinds:
@@ -895,6 +1031,8 @@ def _mechanical_flags(
         flags.append(f"earned_unit_missing_locator:{earned_units_missing_locator_count}")
     if long_determined_value_units_count > 0:
         flags.append(f"long_determined_value_units:{long_determined_value_units_count}")
+    if artifact_claim_inventory_suspect_count > 0:
+        flags.append(f"artifact_claim_inventory_suspect:{artifact_claim_inventory_suspect_count}")
     if resolution_item_count >= 3 and success_condition_count == 0:
         flags.append(
             f"success_conditions_empty_with_resolution_items:{resolution_item_count}"
@@ -931,8 +1069,8 @@ def _mechanical_flags(
     # Coarse work-graph flag: structural pressure when a partial posture has
     # enough broad items to be "working", but no atomic items and no covered
     # units, and the graph has been stable while the agent keeps reading or
-    # dwelling on the same active item. Strictly structural — no transcript,
-    # deed, or domain inspection.
+    # dwelling on the same active item. Strictly structural — no mission-specific
+    # content inspection.
     if (
         _as_optional_text(work_universe_posture) == "partial"
         and resolution_item_count >= 3
@@ -957,6 +1095,8 @@ def _mechanical_flags(
         flags.append(
             f"explicit_non_blocking_without_notes:{explicit_non_blocking_without_notes_count}"
         )
+    if notebook_shaped_graph_rows_count > 0:
+        flags.append(f"notebook_shaped_graph_rows:{notebook_shaped_graph_rows_count}")
     # Output claim coverage debt: work graph has resolution items but no or very sparse
     # fine-grained claim inventory while the run is in or approaching the closure zone.
     # Structural pressure only — does not inspect content.

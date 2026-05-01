@@ -11,13 +11,18 @@ from typing import Any
 from ..composition import ComposedTurnInput, TurnBlock
 from .contracts import SharedStateProjection
 from .prompt_utils import jsonable
+from .work_graph_projection import build_prompt_work_graph_projection
 
 _PROJECTION_OPAQUE_KEYS_STRIPPED_FROM_PROMPT = frozenset({"launch_context", "turn_snapshot"})
 _PROJECTION_HOST_KEYS_STRIPPED_FROM_PROMPT = frozenset({"schema_version", "updated_at_epoch_seconds"})
 _STABLE_DOCTRINE_LAYERS = frozenset({"harness_trunk", "family_branch", "domain_branch", "domain_guidance"})
 
 
-def projection_document(projection: SharedStateProjection | None) -> dict[str, Any]:
+def projection_document(
+    projection: SharedStateProjection | None,
+    *,
+    state_patch_feedback: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
     if projection is None:
         return {}
     mission_state_visible = prompt_visible_projection_state(projection.mission_state)
@@ -25,7 +30,10 @@ def projection_document(projection: SharedStateProjection | None) -> dict[str, A
         mission_state_visible.pop("resolution_state", None)
     return {
         "mission_state": mission_state_visible,
-        "resolution_state": prompt_visible_projection_state(projection.resolution_state),
+        "resolution_state": build_prompt_work_graph_projection(
+            projection.resolution_state,
+            state_patch_feedback=state_patch_feedback,
+        ),
         "latest_refs": dict(projection.latest_refs),
         "active_item_id": projection.active_item_id,
     }

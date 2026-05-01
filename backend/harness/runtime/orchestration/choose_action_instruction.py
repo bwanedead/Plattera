@@ -77,7 +77,7 @@ Do not put latest_refs_summary, terminal_summary, or prompt_observability_summar
 Do not copy host-maintained fields such as schema_version or updated_at_epoch_seconds into state_patch.
 
 `resolution.items` may include fields such as:
-`item_id`, `title`, `kind`, `status`, `determination`, `summary`, `verification_basis`, `next_needed_step`, `completion_criteria`, `structure_kind`, `sequence_scope`, `sequence_index`, `blocking`, `requires_hitl`, `no_further_progress`, `dependencies`, `evidence_refs`, `notes`, `materiality`, `scope`, `provenance`, `covered_units`, `opaque_payload`.
+`item_id`, `title`, `kind`, `status`, `determination`, `summary`, `verification_basis`, `next_needed_step`, `completion_criteria`, `closure_summary`, `reopen_triggers`, `structure_kind`, `sequence_scope`, `sequence_index`, `blocking`, `requires_hitl`, `no_further_progress`, `dependencies`, `evidence_refs`, `notes`, `materiality`, `scope`, `provenance`, `covered_units`, `opaque_payload`.
 
 `structure_kind` is optional:
 - use `atomic` for the smallest mission-relevant independently-resolvable unit
@@ -88,10 +88,18 @@ Do not copy host-maintained fields such as schema_version or updated_at_epoch_se
 - shape (a) is preferable when sub-units are large enough to deserve their own full item with independent `status`/`determination`/`summary`/`verification_basis` and cross-linking relations
 - shape (b) is preferable when sub-units are small enough that a one-level sub-ledger on the group captures their earned state cleanly without inflating the top-level item list
 
-`covered_units` is the one-level sub-ledger on a resolution item. It is a generic, non-recursive list of the smallest mission-relevant units the item stands over. Shape: `[{unit_id, title, kind?, status?, summary?, determination?, verification_basis?, next_needed_step?, evidence_refs?, evidence_locators?, materiality?, label?, value_kind?, candidate_values?, determined_value?, opaque_payload?}]`. The runtime merges covered_units by `unit_id`; per-field overlay is applied for existing units, and new units must carry `unit_id` and `title`. Emitting an empty `covered_units` list does not wipe prior units — send only deltas. When a group item actually stands over independently-reviewable sub-units and shape (b) above is the chosen representation, author those sub-units as `covered_units` so each one's earned state is visible, and close or explicitly block each material unit before closing the group. Do not hide critical sub-units only inside summary prose.
+`covered_units` is the one-level sub-ledger on a resolution item. It is a generic, non-recursive list of the smallest mission-relevant units the item stands over. Shape: `[{unit_id, title, kind?, status?, summary?, determination?, verification_basis?, next_needed_step?, closure_summary?, reopen_triggers?, evidence_refs?, evidence_locators?, materiality?, label?, value_kind?, candidate_values?, determined_value?, opaque_payload?}]`. The runtime merges covered_units by `unit_id`; per-field overlay is applied for existing units, and new units must carry `unit_id` and `title`. Emitting an empty `covered_units` list does not wipe prior units — send only deltas. When a group item actually stands over independently-reviewable sub-units and shape (b) above is the chosen representation, author those sub-units as `covered_units` so each one's earned state is visible, and close or explicitly block each material unit before closing the group. Do not hide critical sub-units only inside summary prose.
 
 ### Compact atom contract
 Covered units are compact claim atoms. They carry labels, candidate values, determined values, status, evidence, and short verification basis. They are **not** transcript/document/log/code storage. Long source spans, full output text, paragraph-level evidence prose, or raw tool dumps belong in saved artifacts (or in `opaque_payload` when truly necessary), not in compact value fields. The host advisory flag `long_determined_value_units:N` indicates one or more closed/earned units carry an oversized `determined_value` — when you see it, move the long content to an artifact and keep the unit compact, or explain in `verification_basis` why the long value is genuinely the smallest exact claim.
+
+Field roles:
+- Skeleton fields (`label`, `value_kind`, `candidate_values`, `determined_value`, `status`, `evidence_refs`, `evidence_locators`) let future turns and UI surfaces immediately see what was considered, what was decided, and what evidence supports it.
+- `candidate_values` is for considered options, not exhaustive truth. Add new candidates when new possibilities appear.
+- `determined_value` is for compact resolved values only: identifier, quantity, date, status, decision, quoted value, row key, or another short exact value.
+- Prose fields (`summary`, `notes`, `verification_basis`, `next_needed_step`) preserve reasoning without hiding exact claims inside paragraphs. `verification_basis` explains why a value is earned.
+- `closure_summary` is the short memory retained after closure; `reopen_triggers` describe what would invalidate or reopen the row.
+- Long text belongs in artifacts, with graph rows carrying compact values and evidence refs back to those artifacts.
 
 Compact value fields on a covered unit:
 - `label`: short user-facing atom name. UI prefers `label`, then `title`, then `unit_id`. Keep `label` short and human-readable; keep `title` slightly more descriptive; keep `unit_id` a stable machine slug.
@@ -99,10 +107,17 @@ Compact value fields on a covered unit:
 - `candidate_values`: known possibilities / options / outcomes currently in play. UI may render this as “Considering.” The list is **not exhaustive**; if another possibility appears, add it. The final `determined_value` may differ from earlier candidates. Do not close a unit just because one candidate currently looks preferable.
 - `determined_value`: the earned resolved value/outcome. Compact only — exact values, short labels, identifiers, statuses, decisions, amounts, dates, or short text spans. Not a place for full output text. Author this only when the unit is actually earned — which also means `verification_basis` and `evidence_refs` support it. A disputed exact-value unit should not be marked `earned` without `determined_value` plus supporting evidence.
 
+### Prompt work-graph projection
+The prompt-visible work graph is a compact projection of durable state, not the full notebook. Full state remains in checkpoint/audit; the active prompt keeps the control skeleton hot. Closed items should retain enough compact memory to reopen intelligently without carrying every paragraph forward. Use `closure_summary` for a short closure memory when helpful, and `reopen_triggers` for concrete conditions that would require reopening. If a later conflict appears, reopen or patch the row rather than silently overwriting the prior determination.
+
+The work graph is the control skeleton, not the place for full artifacts or long notebook prose. Compact atoms let future turns, audits, and UI surfaces see what was considered, what was determined, what evidence supports it, and what would require reopening. Long prose belongs in notes, artifacts, or other prose fields; closed items should keep compact values, evidence anchors, dependencies, closure memory, and reopen triggers. `determined_value` should be compact: identifiers, amounts, dates, statuses, decisions, quoted values, row keys, or other short exact values. Whole paragraphs belong in artifacts or prose fields, not value fields.
+
 ### Evidence refs vs evidence locators
 `evidence_refs` identify the **artifact** that proves the claim. `evidence_locators` identify **where inside** that artifact the claim is proven. The agent authors locators; the runtime does not infer them and the user does not create bounding boxes. One artifact can support multiple covered units — give each unit its own locator when feasible so the audit is claim-local.
 
 `evidence_locators` shape: `[{ref_id, locator_kind, target?, label?, box_norm?, line_start?, line_end?, char_start?, char_end?, row?, column?, json_path?, opaque_payload?}]`. `ref_id` should appear in this unit's `evidence_refs`. `locator_kind` is a free string for extensibility; common kinds are `image_region` (use `box_norm` as four floats in [0.0, 1.0] ordered `[x_min, y_min, x_max, y_max]`), `text_span` / `log_span` / `code_span` (use line/char spans), `table_cell` (use `row`/`column`), and `json_path` (use the `json_path` field). For shapes that don't fit, use `opaque_payload`.
+
+When visual or structured rendering is available, render locator artifacts for important exact claims. The locator is agent-authored; the runtime only validates and renders it. For image regions, author `box_norm` and use the available transform/render action to produce a highlighted derived artifact. For text spans, log spans, code lines, table cells, and JSON paths, preserve a focused locator summary when full visual rendering is not available. Claim-local rendered evidence lets a reviewer see the asserted value immediately instead of searching a broad artifact. It prevents broad evidence refs from hiding weak verification.
 
 If a focused locator is feasible but you choose not to author one, explain why in `verification_basis` rather than implying artifact-level evidence is automatically claim-local. The host may surface `earned_unit_missing_locator:N` as an advisory flag when a closed/earned unit has `evidence_refs` but no `evidence_locators`; treat that as pressure to add a locator when the medium supports it, or to record the limitation in `verification_basis`.
 
@@ -141,6 +156,10 @@ Envelope fields such as `compacted_continuity_summary`, `recent_continuity_journ
 
 `prompt_observability_summary.mechanical_flags` may include `semantic_repair_debt:<kinds>` and `reread_after_failed_persist_risk:<outcome>`. When the second flag fires, the prior turn's persistence failed and the most recent move was a read/hydrate; the default next move is to repair the write, not to hydrate the same source again, unless the rationale names a concrete new distinction the reread is supposed to produce.
 
+`prompt_observability_summary.mechanical_flags` may include `notebook_shaped_graph_rows:N` when closed rows look structurally prose-heavy but lack compact skeleton anchors. This is advisory only. Move long content to prose/artifact fields, keep exact claims in compact fields, add evidence refs/locators where available, and prefer `closure_summary` over carrying long `summary` / `notes` after closure.
+
+`prompt_observability_summary.mechanical_flags` may include `artifact_claim_inventory_suspect:N` when recent artifact output looks substantial, the run is near closure, and the graph has little compact claim inventory. This is advisory only, not a completion gate. Do not treat the artifact alone as proof of completion. Inspect whether material exact claims are represented as compact atoms; if needed, create or update atomic items or covered units. If the mission truly does not require atomization, say why in state/prose and continue. If the artifact is only provisional or working, label it honestly. Do not reread just to reduce discomfort; patch the graph or explain the exception. Compact claim inventory lets future turns, audit, and UI surfaces compare output claims against evidence. Without it, exact claims can enter final-looking output without ever becoming reviewable.
+
 `contract_feedback` reports the mechanical outcome of the prior choose-action parse attempt. If `repair_attempted` is true, your last response failed parsing and needed repair; adjust the output shape accordingly.
 
 ### Reread guard and mechanical-flag triggers
@@ -165,6 +184,8 @@ A read, hydrate, or transform is not complete merely because you looked at somet
 
 ### Itemization and per-item resolution
 Before leaving orientation and after any fresh read, make the work explicit: each mission-essential claim, defect, ambiguity, dependency, or deliverable becomes a row in `resolution.items` (atomic), or an honest group node whose material sub-units are explicit as `covered_units` or separate related items. Every `mission.success_conditions` row should have at least one item that can earn it.
+
+If an item has mission-relevant exact claims, represent them as compact atoms. If you need to narrate context, put it in prose fields. If the text is too long to fit naturally in a compact value field, save it as an artifact or refer to an artifact rather than storing the whole passage as `determined_value`.
 
 Each `resolution.items` row is a mini-mission: orient to it, run the strongest bounded check available *for that item*, then promote the new distinction into its authored fields or into the relevant `covered_units` row (`status`, `determination`, `summary`, `verification_basis`, `completion_criteria`, or a more granular unit if the check split the claim). A closed item should be able to answer, in its own fields or covered-unit fields, what verified each material unit it stands over.
 

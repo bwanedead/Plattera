@@ -253,6 +253,78 @@ def test_choose_action_instruction_teaches_compact_atom_and_locator_doctrine() -
     # Label/title/unit_id ordering and human-facing label guidance
     assert "label" in lowered and "title" in lowered and "unit_id" in lowered
     assert "ui prefers" in lowered or "user-facing" in lowered
+    assert "render locator artifacts" in lowered
+    assert "the runtime only validates and renders it" in lowered
+    assert "claim-local rendered evidence lets a reviewer" in lowered
+    assert "broad evidence refs from hiding weak verification" in lowered
+
+
+def test_choose_action_instruction_teaches_field_role_separation() -> None:
+    text = CHOOSE_ACTION_INSTRUCTION
+    lowered = text.lower()
+    assert "field roles" in lowered
+    assert "skeleton fields" in lowered
+    assert "prose fields" in lowered
+    assert "determined_value` is for compact resolved values only" in text
+    assert "candidate_values` is for considered options, not exhaustive truth" in text
+    assert "closure_summary` is the short memory retained after closure" in text
+    assert "reopen_triggers` describe what would invalidate or reopen the row" in text
+    assert "long text belongs in artifacts" in lowered
+    assert "verification_basis` explains why a value is earned" in text
+
+
+def test_choose_action_instruction_teaches_notebook_shape_flag_guidance() -> None:
+    text = CHOOSE_ACTION_INSTRUCTION
+    lowered = text.lower()
+    assert "notebook_shaped_graph_rows" in text
+    assert "advisory only" in lowered
+    assert "move long content to prose/artifact fields" in lowered
+    assert "keep exact claims in compact fields" in lowered
+
+
+def test_choose_action_instruction_teaches_artifact_claim_inventory_suspect_guidance() -> None:
+    text = CHOOSE_ACTION_INSTRUCTION
+    lowered = text.lower()
+    assert "artifact_claim_inventory_suspect" in text
+    assert "advisory only, not a completion gate" in lowered
+    assert "do not treat the artifact alone as proof of completion" in lowered
+    assert "create or update atomic items or covered units" in lowered
+    assert "if the mission truly does not require atomization" in lowered
+    assert "label it honestly" in lowered
+    assert "compact claim inventory lets future turns, audit, and ui surfaces" in lowered
+    assert "without it, exact claims can enter final-looking output" in lowered
+
+
+def test_choose_action_instruction_prompt_work_graph_projection_has_no_domain_examples() -> None:
+    lowered = CHOOSE_ACTION_INSTRUCTION.lower()
+    start = lowered.find("### prompt work-graph projection")
+    end = lowered.find("### evidence refs vs evidence locators")
+    assert start >= 0, "prompt work-graph projection section must exist"
+    assert end > start, "evidence locator section should follow prompt projection section"
+    section = lowered[start:end]
+    for banned in ("deed", "parcel", "range", "bearing", "distance", "cutoff", "mapping"):
+        assert banned not in section, f"Found banned term {banned!r} in prompt projection doctrine"
+
+
+def test_choose_action_instruction_field_roles_have_no_domain_examples() -> None:
+    lowered = CHOOSE_ACTION_INSTRUCTION.lower()
+    start = lowered.find("field roles:")
+    end = lowered.find("compact value fields on a covered unit")
+    assert start >= 0, "field roles section must exist"
+    assert end > start, "compact value section should follow field roles"
+    section = lowered[start:end]
+    for banned in ("deed", "parcel", "range", "bearing", "distance", "cutoff", "mapping"):
+        assert banned not in section, f"Found banned term {banned!r} in field-role doctrine"
+
+
+def test_choose_action_instruction_locator_rendering_has_no_domain_examples() -> None:
+    lowered = CHOOSE_ACTION_INSTRUCTION.lower()
+    start = lowered.find("### evidence refs vs evidence locators")
+    end = lowered.find("if a focused locator is feasible")
+    assert start >= 0 and end > start
+    section = lowered[start:end]
+    for banned in ("deed", "parcel", "range", "bearing", "distance", "cutoff", "mapping"):
+        assert banned not in section, f"Found banned term {banned!r} in locator doctrine"
 
 
 def test_surface_teaches_compact_claim_atoms_and_locator_doctrine() -> None:
@@ -263,6 +335,9 @@ def test_surface_teaches_compact_claim_atoms_and_locator_doctrine() -> None:
     assert "considering" in lowered
     assert "evidence refs vs evidence locators" in lowered
     assert "deterministic code does not invent" in lowered or "agent authors locators" in lowered
+    assert "claim-local rendered evidence lets a reviewer" in lowered
+    assert "image regions" in lowered
+    assert "json paths" in lowered
 
 
 def test_state_repair_mode_excludes_bulky_step_records_fields() -> None:

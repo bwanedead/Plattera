@@ -19,6 +19,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from .evidence_locator_rendering import build_locator_render_plan, summarize_locator
 from .image_loading import hydrate_source_image_context, image_evidence_from_path
 from .paths import (
     UnsafeArtifactPathSegmentError,
@@ -28,7 +29,9 @@ from .artifact_hydration import _load_derived_image_descriptor
 
 _IMAGE_ASSOC_PREFIX = "image:assoc:"
 _IMAGE_DERIVED_PREFIX = "image:derived:"
-_SUPPORTED_SUB_ACTIONS = frozenset({"crop", "expand", "zoom", "annotate", "reference_overlay"})
+_SUPPORTED_SUB_ACTIONS = frozenset(
+    {"crop", "expand", "zoom", "annotate", "reference_overlay", "render_evidence_locators"}
+)
 
 
 def make_transform_artifact_handler(
@@ -77,7 +80,12 @@ def make_transform_artifact_handler(
 
         # Apply transform
         try:
-            derived_path, width_height = _apply_transform(source_path, sub_action, params)
+            derived_path, width_height, transform_metadata = _apply_transform(
+                source_path,
+                sub_action,
+                params,
+                source_ref_id=ref_id,
+            )
         except _TransformParamError as exc:
             # Param errors discovered at transform time (e.g. after image open) are retryable.
             return _param_error("invalid_transform_params", str(exc), repair_hint=exc.repair_hint)
@@ -87,11 +95,13 @@ def make_transform_artifact_handler(
         # Persist derived descriptor
         derived_uuid = _uuid_mod.uuid4().hex
         derived_ref_id = f"{_IMAGE_DERIVED_PREFIX}{derived_uuid}"
+        _attach_rendered_ref(transform_metadata, rendered_ref=derived_ref_id)
         descriptor: dict[str, Any] = {
             "ref_id": derived_ref_id,
             "parent_ref_id": ref_id,
             "sub_action": sub_action,
             "params": params,
+            "transform_metadata": transform_metadata,
             "absolute_path": str(derived_path.resolve()),
             "basename": derived_path.name,
             "size_bytes": derived_path.stat().st_size if derived_path.exists() else None,
@@ -116,6 +126,8 @@ def make_transform_artifact_handler(
                 "width_height": width_height,
             },
         }
+        if transform_metadata:
+            result["outputs"].update(transform_metadata)
         evidence = image_evidence_from_path(derived_ref_id, derived_path)
         if evidence:
             result["image_evidence"] = [evidence]
@@ -195,6 +207,14 @@ def _validate_params(sub_action: str, params: dict[str, Any]) -> dict[str, Any] 
                         "and x1 < x2, y1 < y2. Example: [0.0, 0.5, 1.0, 1.0] crops the bottom half."
                     ),
                 )
+    if sub_action == "render_evidence_locators":
+        locators = params.get("locators")
+        if not isinstance(locators, list) or not locators:
+            return _param_error(
+                "invalid_transform_params",
+                "render_evidence_locators requires params.locators as a non-empty list.",
+                repair_hint="Pass params.locators as the agent-authored evidence_locators list for the selected source ref.",
+            )
     return None
 
 
@@ -233,11 +253,14 @@ def _apply_transform(
     source: Path,
     sub_action: str,
     params: dict[str, Any],
-) -> tuple[Path, tuple[int, int] | None]:
+    *,
+    source_ref_id: str,
+) -> tuple[Path, tuple[int, int] | None, dict[str, Any]]:
     """Apply a PIL transform and save result to a temp path alongside the source; return (path, wh)."""
     from PIL import Image, ImageDraw, ImageFont  # type: ignore[import]
 
     img = Image.open(source)
+    transform_metadata: dict[str, Any] = {}
 
     if sub_action == "crop":
         box = params.get("box")
@@ -368,11 +391,64 @@ def _apply_transform(
                     draw.text((b[0], max(0, b[1] - 16)), text, fill=(255, 0, 0, 255))
         img = Image.alpha_composite(img, overlay).convert("RGB")
 
+    elif sub_action == "render_evidence_locators":
+        plan = build_locator_render_plan(
+            source_ref=source_ref_id,
+            locators=list(params.get("locators") or []),
+            image_width=img.width,
+            image_height=img.height,
+        )
+        img = img.convert("RGBA")
+        overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
+        draw = ImageDraw.Draw(overlay)
+        for ann in plan["annotations"]:
+            b = tuple(int(v) for v in ann["box"])
+            color = tuple(ann.get("color") or [255, 0, 0])
+            ann_type = ann.get("type")
+            if ann_type == "highlight":
+                alpha = int(ann.get("alpha", 90))
+                draw.rectangle(b, fill=(*color[:3], alpha))
+            elif ann_type == "bbox":
+                draw.rectangle(b, outline=(*color[:3], 255), width=int(ann.get("width", 3)))
+            elif ann_type == "label" and ann.get("text"):
+                draw.text((b[0], max(0, b[1] - 16)), str(ann["text"]), fill=(*color[:3], 255))
+        img = Image.alpha_composite(img, overlay).convert("RGB")
+        locator_summaries = [
+            summarize_locator(locator, index=i)
+            for i, locator in enumerate(params.get("locators") or [])
+            if isinstance(locator, dict)
+        ]
+        transform_metadata = {
+            "rendered_evidence_refs": [
+                {
+                    "source_ref": source_ref_id,
+                    "rendered_ref": None,
+                    "locator_count": len(params.get("locators") or []),
+                    "rendered_locator_count": len(plan["rendered_locators"]),
+                    "summary_only_locator_count": len(plan["summary_only_locators"]),
+                    "unsupported_locator_count": len(plan["unsupported_locators"]),
+                }
+            ],
+            "rendered_locators": plan["rendered_locators"],
+            "summary_only_locators": plan["summary_only_locators"],
+            "unsupported_locators": plan["unsupported_locators"],
+            "locator_summaries": locator_summaries,
+        }
+
     out_suffix = ".png"
     out_path = source.parent / (source.stem + f"_derived_{_uuid_mod.uuid4().hex[:8]}{out_suffix}")
     img.save(out_path)
     wh: tuple[int, int] | None = (img.width, img.height)
-    return out_path, wh
+    return out_path, wh, transform_metadata
+
+
+def _attach_rendered_ref(metadata: dict[str, Any], *, rendered_ref: str) -> None:
+    rows = metadata.get("rendered_evidence_refs")
+    if not isinstance(rows, list):
+        return
+    for row in rows:
+        if isinstance(row, dict):
+            row["rendered_ref"] = rendered_ref
 
 
 def _param_error(code: str, message: str, repair_hint: str | None = None) -> dict[str, Any]:

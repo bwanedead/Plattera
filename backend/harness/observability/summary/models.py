@@ -146,6 +146,8 @@ class PromptObservabilitySummary(BaseModel):
     closed_dimensions_without_basis_count: int = Field(default=0, ge=0)
     closed_items_with_open_dependencies_count: int = Field(default=0, ge=0)
     explicit_non_blocking_without_notes_count: int = Field(default=0, ge=0)
+    notebook_shaped_graph_rows_count: int = Field(default=0, ge=0)
+    artifact_claim_inventory_suspect_count: int = Field(default=0, ge=0)
     closure_readiness_projection: ClosureReadinessProjection = Field(
         default_factory=ClosureReadinessProjection
     )

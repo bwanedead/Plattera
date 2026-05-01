@@ -90,7 +90,7 @@ def render_timeline(
         "",
     ]
     override = _coerce_mapping(run_terminal_override)
-    lines.extend(_render_run_summary(sorted_turns, override))
+    lines.extend(_render_run_projection(sorted_turns, override, summary_heading="Run Summary"))
     if override:
         lines.extend(
             [
@@ -105,23 +105,32 @@ def render_timeline(
     for turn in sorted_turns:
         lines.extend(_render_turn(turn))
         lines.append("")
+    lines.extend(_render_run_projection(sorted_turns, override, summary_heading="Final Run Summary"))
     return "\n".join(lines) + "\n"
 
 
-def _render_run_summary(
+def _render_run_projection(
     turns: list[Mapping[str, Any]],
     override: Mapping[str, Any],
+    *,
+    summary_heading: str,
 ) -> list[str]:
     if not turns and not override:
         return []
-    lines: list[str] = ["## Run Summary", ""]
+    lines: list[str] = [f"## {summary_heading}", ""]
     total_duration = _run_duration_seconds(turns)
     terminal_class = override.get("terminal_class")
     last_terminal_decision = _last_terminal_decision(turns)
     latest_refs = _latest_refs_snapshot(turns, override)
     lines.append(f"- terminal_class: {terminal_class or 'in_progress'}")
+    reason_code = override.get("reason_code")
+    if reason_code:
+        lines.append(f"- reason_code: {reason_code}")
     if last_terminal_decision:
         lines.append(f"- last_terminal_decision: {last_terminal_decision}")
+    override_terminal_decision = override.get("terminal_decision")
+    if override_terminal_decision and override_terminal_decision != last_terminal_decision:
+        lines.append(f"- terminal_decision: {override_terminal_decision}")
     if total_duration is not None:
         lines.append(f"- total_run_duration: {_format_duration(total_duration)}")
     else:
@@ -328,6 +337,7 @@ def _render_tool_result(turn: Mapping[str, Any]) -> list[str]:
         lines.extend(_indented_prose(excerpt, indent="    "))
         if truncated:
             lines.append(f"    [truncated to {OUTPUTS_EXCERPT_MAX_CHARS} chars]")
+        lines.extend(_render_rendered_evidence_output(_coerce_mapping(outputs), indent="  "))
     else:
         lines.append("  outputs_excerpt: none")
 
@@ -343,6 +353,8 @@ def _render_saved_artifact(turn: Mapping[str, Any]) -> list[str]:
     parsed = _coerce_mapping(turn.get("parsed_action_plan"))
     action_type = tool_request.get("action_type") or parsed.get("action_type")
     if action_type != "save_workspace_artifact":
+        return []
+    if not _artifact_write_succeeded(turn):
         return []
     inputs = _coerce_mapping(tool_request.get("action_inputs")) or _coerce_mapping(
         parsed.get("action_inputs")
@@ -380,6 +392,25 @@ def _render_saved_artifact(turn: Mapping[str, Any]) -> list[str]:
     else:
         lines.append("  draft_payload: none")
     lines.append("")
+    return lines
+
+
+def _render_rendered_evidence_output(outputs: Mapping[str, Any], *, indent: str) -> list[str]:
+    rows = outputs.get("rendered_evidence_refs")
+    if not isinstance(rows, list) or not rows:
+        return []
+    lines = [f"{indent}rendered_evidence_refs:"]
+    for row in rows[:8]:
+        row = _coerce_mapping(row)
+        source_ref = row.get("source_ref") or "?"
+        rendered_ref = row.get("rendered_ref") or "?"
+        locator_count = row.get("locator_count", "?")
+        summary_only = row.get("summary_only_locator_count", 0)
+        unsupported = row.get("unsupported_locator_count", 0)
+        lines.append(
+            f"{indent}  - source_ref: {source_ref} | rendered_ref: {rendered_ref} | "
+            f"locator_count:{locator_count} | summary_only:{summary_only} | unsupported:{unsupported}"
+        )
     return lines
 
 
@@ -575,11 +606,32 @@ def _render_covered_unit(unit: Mapping[str, Any]) -> list[str]:
         lines.append("        evidence_refs:")
         for ref in refs[:16]:
             lines.append(f"          - {ref}")
+    lines.extend(_render_locator_summary(unit.get("evidence_locators"), indent="        "))
     opaque = unit.get("opaque_payload")
     if opaque:
         lines.extend(
             _labeled_json_block("        opaque_payload:", opaque, PROSE_MAX_CHARS, indent="          ")
         )
+    return lines
+
+
+def _render_locator_summary(locators: Any, *, indent: str) -> list[str]:
+    if not isinstance(locators, list) or not locators:
+        return []
+    lines = [f"{indent}evidence_locators:"]
+    for locator in locators[:16]:
+        locator = _coerce_mapping(locator)
+        kind = locator.get("locator_kind") or "?"
+        ref_id = locator.get("ref_id") or "?"
+        label = locator.get("label")
+        parts = [f"kind:{kind}", f"ref:{ref_id}"]
+        if label:
+            parts.append(f"label:{label}")
+        for key in ("box_norm", "line_start", "line_end", "row", "column", "json_path"):
+            value = locator.get(key)
+            if value is not None and value != "":
+                parts.append(f"{key}:{_bound_text(str(value), 120)}")
+        lines.append(f"{indent}  - " + " | ".join(parts))
     return lines
 
 
@@ -650,6 +702,10 @@ def _render_work_graph_unit(unit: Mapping[str, Any]) -> list[str]:
         lines.append(f"        evidence: {joined_refs}")
     else:
         lines.append("        evidence: none")
+    locators = unit.get("evidence_locators")
+    if isinstance(locators, list) and locators:
+        kinds = ", ".join(str(_coerce_mapping(loc).get("locator_kind") or "?") for loc in locators[:8])
+        lines.append(f"        evidence_locators: {len(locators)} ({kinds})")
     next_step = unit.get("next_needed_step")
     if isinstance(next_step, str) and next_step.strip():
         lines.append(f"        next: {_bound_text(next_step, 240)}")

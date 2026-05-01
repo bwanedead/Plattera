@@ -152,7 +152,10 @@ def _build_run_context(
         "active_item_id": cont.active_item_id,
         "state_patch_feedback": dict(cont.state_patch_feedback),
         "hitl_state": hitl_st,
-        "projection": projection_document(projection),
+        "projection": projection_document(
+            projection,
+            state_patch_feedback=cont.state_patch_feedback,
+        ),
     }
     contract_feedback = jsonable(context.loop_memory.contract_feedback)
     if contract_feedback:
@@ -317,6 +320,8 @@ _ALWAYS_KEEP_OBSERVABILITY_KEYS: tuple[str, ...] = (
     "covered_units_with_candidates_count",
     "closed_value_units_missing_evidence_count",
     "earned_units_missing_verification_basis_count",
+    "notebook_shaped_graph_rows_count",
+    "artifact_claim_inventory_suspect_count",
 )
 _OPTIONAL_OBSERVABILITY_COUNTERS: tuple[str, ...] = (
     "repeated_state_patch_reason_code_streak",

@@ -8,7 +8,7 @@ _SURFACE_ID = "harness_trunk"
 _BLOCK_NAMESPACE = "harness.prompt_block"
 
 _HARNESS_TRUNK_SOURCE_REF = "backend/harness/runtime/prompting/surface.py"
-_HARNESS_TRUNK_VERSION = "v18"
+_HARNESS_TRUNK_VERSION = "v20"
 
 _HARNESS_TRUNK_INTRO_TEXT = """\
 You are operating inside the **Plattera harness**.
@@ -155,8 +155,29 @@ When an output artifact may be both a faithful record of an external source and 
 ## Compact claim atoms
 Covered units are compact claim atoms, not transcript/document/log/code storage. A unit should carry a short user-facing `label`, the candidate values currently in play (`candidate_values`, which the UI may render as “Considering”), the resolved value (`determined_value`), a short `verification_basis`, status, and evidence. Long source spans, full output text, and paragraph-level prose belong in saved artifacts — not in `determined_value`. `determined_value` is for compact exact values, short labels, identifiers, statuses, decisions, amounts, dates, or short text spans. If the smallest honest exact claim is genuinely long, keep it and explain why in `verification_basis`; otherwise move the long content to an artifact and keep the atom compact. UI ordering: `label` first, then `title`, then `unit_id`.
 
+## Field roles
+Compact skeleton fields let future turns and UI surfaces immediately see what was considered, what was decided, and what evidence supports it. Prose fields preserve reasoning without hiding exact claims inside paragraphs.
+
+- `label`, `value_kind`, `candidate_values`, `determined_value`, `status`, `evidence_refs`, and `evidence_locators` are skeleton fields.
+- `candidate_values` is for considered options, not exhaustive truth.
+- `determined_value` is for compact resolved values only: identifier, quantity, date, status, decision, quoted value, row key, or another short exact value.
+- `summary`, `notes`, `verification_basis`, and `next_needed_step` are prose fields. `verification_basis` explains why the value is earned.
+- `closure_summary` is the short memory retained after closure; `reopen_triggers` describe what would invalidate or reopen the row.
+- Long text belongs in artifacts, with graph rows carrying compact values and evidence refs back to those artifacts.
+
+If an item has mission-relevant exact claims, represent them as compact atoms. If you need to narrate context, put it in prose fields. If text is too long to fit naturally in a compact value field, save it as an artifact or refer to an artifact. Closed items should prefer `closure_summary` over carrying long `summary` / `notes` into future prompt state.
+
+## Prompt work-graph projection
+The prompt-visible work graph is a compact projection of durable state, not the full notebook. Full state remains in checkpoint/audit; the active prompt keeps the control skeleton hot. Compact atoms let future turns, audits, and UI surfaces see what was considered, what was determined, what evidence supports it, and what would require reopening.
+
+Closed items should retain enough compact memory to reopen intelligently without keeping every detail hot in the prompt. Use `closure_summary` for a short closure memory when helpful, and `reopen_triggers` for concrete conditions that would require reopening. If a later conflict appears, reopen or patch the row rather than silently overwriting the prior determination.
+
+`determined_value` should stay compact: identifiers, amounts, dates, statuses, decisions, quoted values, row keys, or other short exact values. Whole paragraphs belong in artifacts, notes, or prose fields, not value fields.
+
 ## Evidence refs vs evidence locators
 `evidence_refs` identify the artifact that proves a claim. `evidence_locators` identify where inside that artifact the claim is proven. The agent authors locators; deterministic code does not invent semantic locators, and the user does not create bounding boxes. One artifact may support multiple units — when feasible, give each unit its own locator so the audit is claim-local rather than artifact-wide. If a focused locator is feasible but absent, explain why in `verification_basis` rather than implying artifact-level evidence is automatically claim-local.
+
+When rendering support is available, create locator-rendered evidence for important exact claims: image regions can become highlighted derived artifacts; text spans, log spans, code lines, table cells, and JSON paths should at least be preserved as focused summaries if full rendering is not available. Claim-local rendered evidence lets a reviewer see the asserted value immediately instead of searching a broad artifact, preventing broad evidence refs from hiding weak verification.
 
 ## Read carry-forward rule
 A read, hydrate, transform, search, query, or test is not complete merely because you looked at a thing. If it taught a useful distinction, persist that distinction immediately in durable state, the relevant covered unit, an output artifact, or a concise continuity journal entry.

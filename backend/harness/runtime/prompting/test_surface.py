@@ -83,6 +83,57 @@ def test_surface_teaches_source_and_downstream_lanes() -> None:
     assert "preserve the visible portion" in lowered
 
 
+def test_surface_prompt_work_graph_projection_has_no_domain_examples() -> None:
+    lowered = _HARNESS_TRUNK_METHOD_TEXT.lower()
+    start = lowered.find("## prompt work-graph projection")
+    end = lowered.find("## evidence refs vs evidence locators")
+    assert start >= 0, "prompt work-graph projection section must exist"
+    assert end > start, "evidence locator section should follow prompt projection section"
+    section = lowered[start:end]
+    for banned in ("deed", "parcel", "range", "bearing", "distance", "cutoff", "mapping"):
+        assert banned not in section, f"Found banned term {banned!r} in prompt projection doctrine"
+
+
+def test_surface_teaches_field_role_separation() -> None:
+    text = _HARNESS_TRUNK_METHOD_TEXT
+    lowered = text.lower()
+    assert "field roles" in lowered
+    assert "compact skeleton fields" in lowered
+    assert "prose fields preserve reasoning" in lowered
+    assert "determined_value` is for compact resolved values only" in text
+    assert "candidate_values` is for considered options, not exhaustive truth" in text
+    assert "closure_summary` is the short memory retained after closure" in text
+    assert "reopen_triggers` describe what would invalidate or reopen the row" in text
+    assert "long text belongs in artifacts" in lowered
+
+
+def test_surface_field_roles_have_no_domain_examples() -> None:
+    lowered = _HARNESS_TRUNK_METHOD_TEXT.lower()
+    start = lowered.find("## field roles")
+    end = lowered.find("## prompt work-graph projection")
+    assert start >= 0, "field roles section must exist"
+    assert end > start, "prompt projection section should follow field roles"
+    section = lowered[start:end]
+    for banned in ("deed", "parcel", "range", "bearing", "distance", "cutoff", "mapping"):
+        assert banned not in section, f"Found banned term {banned!r} in field-role doctrine"
+
+
+def test_surface_teaches_locator_rendering_without_domain_examples() -> None:
+    lowered = _HARNESS_TRUNK_METHOD_TEXT.lower()
+    start = lowered.find("## evidence refs vs evidence locators")
+    end = lowered.find("## read carry-forward rule")
+    assert start >= 0 and end > start
+    section = lowered[start:end]
+    assert "agent authors locators" in section
+    assert "image regions" in section
+    assert "text spans" in section
+    assert "table cells" in section
+    assert "json paths" in section
+    assert "claim-local rendered evidence lets a reviewer" in section
+    for banned in ("deed", "parcel", "range", "bearing", "distance", "cutoff", "mapping"):
+        assert banned not in section, f"Found banned term {banned!r} in locator rendering doctrine"
+
+
 def test_surface_source_downstream_lane_section_has_no_current_deed_examples() -> None:
     lowered = _HARNESS_TRUNK_METHOD_TEXT.lower()
     start = lowered.find("## source-observed vs downstream-usable lanes")

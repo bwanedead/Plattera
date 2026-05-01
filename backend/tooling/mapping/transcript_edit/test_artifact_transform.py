@@ -14,9 +14,13 @@ import io
 import json
 from pathlib import Path
 
+import pytest
+from pydantic import ValidationError
+
 import tooling.mapping.transcript_edit.paths as te_paths_mod
 import config.paths as paths_mod
 
+from harness.mission_state import EvidenceLocator
 from tooling.mapping.transcript_edit.artifact_transform import make_transform_artifact_handler
 
 
@@ -225,6 +229,80 @@ def test_reference_overlay_custom_grid(tmp_path, monkeypatch):
     assert result["executed"] is True
     w, h = result["outputs"]["width_height"]
     assert w == 100 and h == 80
+
+
+# ---------------------------------------------------------------------------
+# render_evidence_locators — claim-local rendered evidence
+# ---------------------------------------------------------------------------
+
+
+def test_render_evidence_locators_renders_image_region_and_preserves_lineage(tmp_path, monkeypatch):
+    handler, ref_id = _make_handler(tmp_path, monkeypatch)
+    locators = [
+        {
+            "ref_id": ref_id,
+            "locator_kind": "image_region",
+            "label": "Value A",
+            "box_norm": [0.1, 0.2, 0.4, 0.5],
+        },
+        {
+            "ref_id": ref_id,
+            "locator_kind": "text_span",
+            "label": "Text mention",
+            "line_start": 3,
+            "line_end": 4,
+        },
+    ]
+    result = handler({"ref_id": ref_id, "sub_action": "render_evidence_locators", "params": {"locators": locators}})
+
+    assert result["executed"] is True, f"Unexpected failure: {result}"
+    derived = result["outputs"]["derived_ref_id"]
+    assert derived.startswith("image:derived:")
+    rendered = result["outputs"]["rendered_evidence_refs"][0]
+    assert rendered["source_ref"] == ref_id
+    assert rendered["rendered_ref"] == derived
+    assert rendered["locator_count"] == 2
+    assert rendered["rendered_locator_count"] == 1
+    assert rendered["summary_only_locator_count"] == 1
+    assert rendered["unsupported_locator_count"] == 0
+    assert result["outputs"]["rendered_locators"][0]["label"] == "Value A"
+    summary_only = result["outputs"]["summary_only_locators"][0]
+    assert summary_only["locator_kind"] == "text_span"
+    assert summary_only["reason"] == "summary_only"
+    assert result["image_evidence"][0]["ref_id"] == derived
+
+
+def test_render_evidence_locators_reports_unknown_kind_without_silent_drop(tmp_path, monkeypatch):
+    handler, ref_id = _make_handler(tmp_path, monkeypatch)
+    result = handler({
+        "ref_id": ref_id,
+        "sub_action": "render_evidence_locators",
+        "params": {"locators": [{"ref_id": ref_id, "locator_kind": "future_kind", "label": "Future"}]},
+    })
+
+    assert result["executed"] is True
+    assert result["outputs"]["rendered_evidence_refs"][0]["rendered_locator_count"] == 0
+    assert result["outputs"]["rendered_evidence_refs"][0]["unsupported_locator_count"] == 1
+    assert result["outputs"]["unsupported_locators"][0]["reason"] == "unsupported_locator_kind"
+
+
+def test_render_evidence_locators_missing_locator_list_is_retryable(tmp_path, monkeypatch):
+    handler, ref_id = _make_handler(tmp_path, monkeypatch)
+    result = handler({"ref_id": ref_id, "sub_action": "render_evidence_locators", "params": {}})
+
+    assert result["executed"] is False
+    assert result["refusal"]["retryable"] is True
+    assert result["refusal"]["blocked_by_invariant"] is False
+    assert result["refusal"]["reason_code"] == "invalid_transform_params"
+
+
+def test_evidence_locator_schema_rejects_invalid_image_region_geometry():
+    with pytest.raises(ValidationError):
+        EvidenceLocator(
+            ref_id="image:assoc:tx-1:original",
+            locator_kind="image_region",
+            box_norm=[0.4, 0.2, 0.1, 0.5],
+        )
 
 
 # ---------------------------------------------------------------------------
