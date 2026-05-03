@@ -37,6 +37,8 @@ def test_harness_surface_teaches_output_claim_coverage() -> None:
     # evidence-local section
     assert "evidence-local earned claims" in text
     assert "direct inspectability" in text
+    assert "false determination" in text
+    assert "falsely earned determination is dangerous" in text
     # terminal posture section
     assert "terminal completion posture" in text
     assert "complete_run" in text

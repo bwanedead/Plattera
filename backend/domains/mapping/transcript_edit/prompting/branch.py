@@ -7,7 +7,7 @@ from domains.prompting import PromptBlock
 TRANSCRIPT_EDIT_DOMAIN_ID = "transcript_edit"
 TRANSCRIPT_EDIT_FAMILY_ID = "mapping"
 TRANSCRIPT_EDIT_BRANCH_SOURCE_REF = "backend/domains/mapping/transcript_edit/prompting/branch.py"
-TRANSCRIPT_EDIT_BRANCH_VERSION = "v24"
+TRANSCRIPT_EDIT_BRANCH_VERSION = "v25"
 
 TRANSCRIPT_EDIT_BRANCH_TEXT = """\
 You are operating in the **transcript edit** domain for mapping-bound work.
@@ -128,9 +128,13 @@ In particular:
 ## Earned source-reading standard
 For mapping-critical visual claims, an earned determination means the current evidence makes the source reading clear enough to defend.
 
+This domain is especially vulnerable to false visual earning: it is common to look at the correct image region, reason from the correct source, and still promote the wrong small mark, digit, direction, or word. That failure is worse than leaving a unit open because a wrong earned source reading can silently poison the normalized lane and the downstream handoff. Treat visual earning as a deliberate source-reading act, not a general impression that the document area looked right.
+
 That usually means:
 - if the claim is not clearly legible in the current view, use the strongest bounded image move available
 - if a broad page view is not enough, localize and enlarge the exact claim region rather than closing from impression
+- author the crop, box, highlight, or `image_region` locator yourself when the tool surface supports it; the user should not have to find the claimed mark manually
+- inspect the focused or rendered evidence before using it to earn a unit, ask HITL, or save output
 - if the strongest available in-run visual check is still inconclusive, keep the item unresolved rather than normalizing a guess
 - if that unresolved claim is material and no stronger in-run evidence remains, prefer HITL or explicit blocked / no-further-progress posture over false earned closure
 

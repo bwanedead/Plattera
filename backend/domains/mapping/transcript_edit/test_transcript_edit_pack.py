@@ -89,6 +89,9 @@ def test_prompt_branch_block_shape_and_doctrine_markers() -> None:
     assert "a partial answer to one layer is not a closure answer to the others" in text.lower()
     assert "earned source-reading standard" in text.lower()
     assert "strongest bounded image move" in text.lower()
+    assert "false visual earning" in text.lower()
+    assert "author the crop, box, highlight, or `image_region` locator yourself" in text.lower()
+    assert "inspect the focused or rendered evidence" in text.lower()
     assert "materialize transcript-bearing state" in text.lower()
     assert "`unassessed`, `in_review`, or `open`" in text
     assert "treat `closed` as an earned late-run determination" in text.lower()

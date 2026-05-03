@@ -110,7 +110,8 @@ def test_choose_action_instruction_teaches_defensible_evidence_and_read_carry_fo
     assert "directly and undeniably auditable" in lowered
     assert "without reconstructing broad context" in lowered
     assert "focused crop, zoom, excerpt, trace, query result, test output, screenshot, log excerpt, code pointer" in lowered
-    assert "falsely accused of incorrect work" in lowered
+    assert "false earned certainty" in lowered
+    assert "silently contaminate later state and output" in lowered
     assert "a read, hydrate, or transform is not complete" in lowered
     assert "persist that distinction immediately" in lowered
     assert "same_item_hydrate_churn_no_gain" in text
@@ -136,7 +137,8 @@ def test_surface_teaches_defensible_evidence_and_read_carry_forward() -> None:
     assert "defensible evidence rule" in lowered
     assert "directly and undeniably auditable" in lowered
     assert "without reconstructing broad context" in lowered
-    assert "falsely accused of incorrect work" in lowered
+    assert "false earned certainty is a common agent failure mode" in lowered
+    assert "wrong fine-grained determination" in lowered
     assert "read carry-forward rule" in lowered
     assert "persist that distinction immediately" in lowered
     assert "same_item_hydrate_churn_no_gain" in text
