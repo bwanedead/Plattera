@@ -1717,3 +1717,120 @@ def test_summary_excerpt_truncated_fires_boundary_risk_even_when_result_not_trun
         f.startswith("artifact_excerpt_boundary_risk:")
         for f in result["mechanical_flags"]
     )
+
+
+# ---------------------------------------------------------------------------
+# Track 2: Local-proof debt — run-9 regression shape
+# ---------------------------------------------------------------------------
+
+
+def _earned_unit_no_locator(
+    unit_id: str,
+    *,
+    determined_value: str = "N. 4° 00' W.",
+    evidence_refs: list[str] | None = None,
+) -> ResolutionCoveredUnit:
+    """Covered unit shaped like a run-9 atom: earned, compact value, refs but no locators."""
+    return ResolutionCoveredUnit(
+        unit_id=unit_id,
+        title=unit_id,
+        status="closed",
+        determination="earned",
+        determined_value=determined_value,
+        evidence_refs=list(evidence_refs or ["image:assoc:draft_legal_text_image:original"]),
+        evidence_locators=[],
+    )
+
+
+def test_earned_unit_missing_locator_count_for_run9_shape() -> None:
+    """A run-9-shaped covered unit (earned, compact value, refs, no locators) is counted."""
+    unit = _earned_unit_no_locator("bearing-unit")
+    items = [_item("parent", status="open", covered_units=[unit])]
+    mem = _mem(resolution_items=items)
+    result = build_prompt_observability_summary(mem)
+    assert result["earned_units_missing_locator_count"] == 1
+
+
+def test_earned_unit_missing_locator_flag_fires() -> None:
+    """earned_unit_missing_locator:N flag fires when count > 0."""
+    unit = _earned_unit_no_locator("bearing-unit")
+    items = [_item("parent", status="open", covered_units=[unit])]
+    mem = _mem(resolution_items=items)
+    result = build_prompt_observability_summary(mem)
+    assert "earned_unit_missing_locator:1" in result["mechanical_flags"]
+
+
+def test_earned_units_missing_locator_count_in_compact_observability() -> None:
+    """earned_units_missing_locator_count appears in compact summary even when zero."""
+    from harness.runtime.orchestration.prompt_packet_builder import (
+        _compact_prompt_observability_summary,
+    )
+    mem = _mem(resolution_items=[])
+    full = build_prompt_observability_summary(mem)
+    compact = _compact_prompt_observability_summary(full)
+    assert "earned_units_missing_locator_count" in compact
+
+
+def test_shared_unlocated_evidence_count_zero_when_all_units_unique_refs() -> None:
+    """No shared refs → shared_unlocated_evidence_for_earned_units_count == 0."""
+    unit_a = _earned_unit_no_locator("u-a", evidence_refs=["image:assoc:doc:original"])
+    unit_b = _earned_unit_no_locator("u-b", evidence_refs=["image:assoc:doc:page2"])
+    items = [_item("parent", status="open", covered_units=[unit_a, unit_b])]
+    mem = _mem(resolution_items=items)
+    result = build_prompt_observability_summary(mem)
+    assert result["shared_unlocated_evidence_for_earned_units_count"] == 0
+
+
+def test_shared_unlocated_evidence_count_fires_when_multiple_units_share_one_ref() -> None:
+    """Multiple earned unlocated units citing the same broad ref → flag fires."""
+    broad_ref = "image:assoc:draft_legal_text_image:original"
+    unit_a = _earned_unit_no_locator("u-a", evidence_refs=[broad_ref])
+    unit_b = _earned_unit_no_locator("u-b", evidence_refs=[broad_ref])
+    unit_c = _earned_unit_no_locator("u-c", evidence_refs=[broad_ref])
+    items = [_item("parent", status="open", covered_units=[unit_a, unit_b, unit_c])]
+    mem = _mem(resolution_items=items)
+    result = build_prompt_observability_summary(mem)
+    # One shared ref (cited by 3 units) → count == 1
+    assert result["shared_unlocated_evidence_for_earned_units_count"] == 1
+    assert "shared_unlocated_evidence_for_earned_units:1" in result["mechanical_flags"]
+
+
+def test_shared_unlocated_evidence_count_in_compact_observability() -> None:
+    """shared_unlocated_evidence_for_earned_units_count appears in compact summary."""
+    from harness.runtime.orchestration.prompt_packet_builder import (
+        _compact_prompt_observability_summary,
+    )
+    mem = _mem(resolution_items=[])
+    full = build_prompt_observability_summary(mem)
+    compact = _compact_prompt_observability_summary(full)
+    assert "shared_unlocated_evidence_for_earned_units_count" in compact
+
+
+def test_shared_unlocated_evidence_does_not_fire_when_units_have_locators() -> None:
+    """Units with locators are not counted even if they share the same ref."""
+    broad_ref = "image:assoc:draft_legal_text_image:original"
+    from harness.mission_state import EvidenceLocator
+    locator = EvidenceLocator(ref_id=broad_ref, locator_kind="image_region")
+    unit_a = ResolutionCoveredUnit(
+        unit_id="u-a",
+        title="u-a",
+        status="closed",
+        determination="earned",
+        determined_value="N. 4° 00' W.",
+        evidence_refs=[broad_ref],
+        evidence_locators=[locator],
+    )
+    unit_b = ResolutionCoveredUnit(
+        unit_id="u-b",
+        title="u-b",
+        status="closed",
+        determination="earned",
+        determined_value="S. 2° 00' E.",
+        evidence_refs=[broad_ref],
+        evidence_locators=[locator],
+    )
+    items = [_item("parent", status="open", covered_units=[unit_a, unit_b])]
+    mem = _mem(resolution_items=items)
+    result = build_prompt_observability_summary(mem)
+    assert result["shared_unlocated_evidence_for_earned_units_count"] == 0
+    assert result["earned_units_missing_locator_count"] == 0

@@ -320,6 +320,10 @@ _ALWAYS_KEEP_OBSERVABILITY_KEYS: tuple[str, ...] = (
     "covered_units_with_candidates_count",
     "closed_value_units_missing_evidence_count",
     "earned_units_missing_verification_basis_count",
+    # Locator debt: zero is diagnostically meaningful — confirms all earned
+    # units have claim-local proof. Non-zero signals broad-only evidence.
+    "earned_units_missing_locator_count",
+    "shared_unlocated_evidence_for_earned_units_count",
     "notebook_shaped_graph_rows_count",
     "artifact_claim_inventory_suspect_count",
 )

@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from harness.audit.run_audit_writer import RunAuditWriter, _extract_tool_sequence
+from harness.audit.run_audit_writer import RunAuditWriter, _extract_tool_sequence, _write_json_atomic
 from harness.runtime.orchestration.contracts import ActionPlan
 
 
@@ -627,4 +627,121 @@ def test_image_evidence_empty_list_when_absent(tmp_path: Path) -> None:
 
     turn = json.loads((tmp_path / "run1" / "audit" / "turn_0001.json").read_text())
     assert turn["tool_result_raw"]["image_evidence"] == []
+
+
+# ---------------------------------------------------------------------------
+# Track 1: Audit projection recovery from disk turn files
+# ---------------------------------------------------------------------------
+
+
+def test_finalize_recovers_full_audit_from_disk_turn_files(tmp_path: Path) -> None:
+    """Finalize with only the terminal turn in memory recovers all earlier turns from disk.
+
+    True run-9 shape: 24 disk forensic files exist; the save_workspace_artifact
+    succeeded on disk-only turn 20; the fresh writer only has the terminal
+    complete_run turn (turn 24) in its in-memory buffer. Finalization must merge
+    from disk so index.json, review.md, and human/timeline.md all reflect all 24
+    turns, and the final artifact projection must still surface the save from
+    disk-only turn 20.
+    """
+    run_dir = tmp_path / "run1"
+    audit_dir = run_dir / "audit"
+    audit_dir.mkdir(parents=True)
+
+    # Turns 1–19: plain hydration turns (disk only).
+    for i in range(1, 20):
+        _write_json_atomic(
+            audit_dir / f"turn_{i:04d}.json",
+            {
+                "turn_index": i,
+                "parse_ok": True,
+                "started_at_epoch_seconds": float(i),
+                "finished_at_epoch_seconds": float(i) + 0.5,
+                "tool_request": {"action_type": "hydrate_artifact_refs"},
+                "tool_result_raw": {"execution_state": "executed", "artifact_refs": []},
+            },
+        )
+
+    # Turn 20: successful save (disk only — never enters in-memory writer).
+    _write_json_atomic(
+        audit_dir / "turn_0020.json",
+        {
+            "turn_index": 20,
+            "parse_ok": True,
+            "started_at_epoch_seconds": 20.0,
+            "finished_at_epoch_seconds": 20.8,
+            "tool_request": {"action_type": "save_workspace_artifact"},
+            "tool_result_raw": {
+                "execution_state": "executed",
+                "artifact_refs": ["transcript_edit:working:rev:0001"],
+            },
+        },
+    )
+
+    # Turns 21–23: more investigation turns (disk only).
+    for i in range(21, 24):
+        _write_json_atomic(
+            audit_dir / f"turn_{i:04d}.json",
+            {
+                "turn_index": i,
+                "parse_ok": True,
+                "started_at_epoch_seconds": float(i),
+                "finished_at_epoch_seconds": float(i) + 0.5,
+                "tool_request": {"action_type": "hydrate_artifact_refs"},
+                "tool_result_raw": {"execution_state": "executed", "artifact_refs": []},
+            },
+        )
+
+    # Fresh writer — only the terminal turn (24) lands in memory; no save here.
+    writer = RunAuditWriter(run_dir)
+    writer.observe_llm_io({
+        "turn_index": 24,
+        "parse_ok": True,
+        "started_at_epoch_seconds": 24.0,
+        "finished_at_epoch_seconds": 24.8,
+    })
+    writer.observe_turn_completed({
+        "turn_index": 24,
+        "tool_request": {"action_type": "complete_run", "action_inputs": {}},
+        "tool_result_raw": {
+            "execution_state": "executed",
+            "artifact_refs": [],
+            "outputs": {},
+            "refusal": None,
+        },
+        "mission_state_after": None,
+        "resolution_state_after": None,
+        "latest_refs_after": {"transcript_edit:working": "transcript_edit:working:rev:0001"},
+        "state_patch_feedback": {},
+        "terminal_decision": {"terminal_class": "completed", "reason_code": "complete_run"},
+    })
+
+    writer.finalize(
+        terminal_class="completed",
+        reason_code="complete_run",
+        iterations=24,
+        latest_refs={"transcript_edit:working": "transcript_edit:working:rev:0001"},
+        trace_events=[],
+    )
+
+    # index.json must report all 24 turns.
+    idx = json.loads((audit_dir / "index.json").read_text())
+    assert idx["turn_count"] == 24
+
+    # review.md must report 24 LLM turns recorded.
+    review = (audit_dir / "review.md").read_text()
+    assert "**LLM turns recorded:** 24" in review
+
+    # timeline.md must contain all 24 turn sections.
+    timeline = (audit_dir / "human" / "timeline.md").read_text()
+    for i in range(1, 25):
+        assert f"TURN {i:04d}" in timeline, f"turn {i:04d} missing from timeline"
+
+    # Total duration must span from turn 1 (start=1.0) to turn 24 (finish=24.8).
+    assert "total_run_duration:" in timeline
+    # Duration ≥ 23 seconds (24.8 - 1.0 = 23.8s).
+    assert "23" in timeline or "24" in timeline
+
+    # Final artifact projection must surface the working save from disk-only turn 20.
+    assert "working" in timeline or "published" in timeline
 

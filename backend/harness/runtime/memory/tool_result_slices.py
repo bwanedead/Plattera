@@ -235,6 +235,85 @@ def _bounded_outputs_excerpt(outputs: Any, *, max_chars: int) -> tuple[Any, bool
     return blob[:max_chars], True
 
 
+_MAX_RENDERED_EVIDENCE_REFS = 8
+_MAX_DERIVED_REFS = 8
+
+
+def _extract_evidence_artifact_summary(outputs: Any) -> dict[str, Any] | None:
+    """Extract evidence artifact metadata from tool outputs without inspecting content.
+
+    Covers two common evidence-producing result shapes:
+    - ``render_evidence_locators`` results expose ``rendered_evidence_refs``
+      (list of {source_ref, rendered_ref, locator_count, ...}).
+    - ``transform_artifact`` results expose ``derived_ref_id`` and ``parent_ref_id``
+      in ``outputs`` (the real tool output shape from artifact_transform.py).
+      Also accepts the alias keys ``derived_ref`` / ``source_ref`` for forward
+      compatibility with other tool shapes.
+
+    Returns None when neither shape is detected. Purely structural — no domain
+    content inspection.
+    """
+    if not isinstance(outputs, Mapping):
+        return None
+    summary: dict[str, Any] = {}
+
+    # render_evidence_locators shape: outputs.rendered_evidence_refs
+    rendered_refs = outputs.get("rendered_evidence_refs")
+    if isinstance(rendered_refs, list) and rendered_refs:
+        rendered_rows: list[dict[str, Any]] = []
+        for row in rendered_refs[:_MAX_RENDERED_EVIDENCE_REFS]:
+            if not isinstance(row, Mapping):
+                continue
+            rendered_rows.append({
+                "source_ref": row.get("source_ref"),
+                "rendered_ref": row.get("rendered_ref"),
+                "locator_count": row.get("locator_count"),
+                "summary_only_locator_count": row.get("summary_only_locator_count", 0),
+                "unsupported_locator_count": row.get("unsupported_locator_count", 0),
+            })
+        if rendered_rows:
+            summary["rendered_evidence_refs"] = rendered_rows
+
+    # transform_artifact real output shape: outputs.derived_ref_id + outputs.parent_ref_id
+    # (from tooling/mapping/transcript_edit/artifact_transform.py)
+    derived_ref_id = outputs.get("derived_ref_id")
+    if isinstance(derived_ref_id, str) and derived_ref_id.strip():
+        summary["derived_ref"] = derived_ref_id  # normalise to canonical key for prompt
+    parent_ref_id = outputs.get("parent_ref_id")
+    if isinstance(parent_ref_id, str) and parent_ref_id.strip():
+        summary["source_ref"] = parent_ref_id  # normalise to canonical key
+
+    # Alias keys accepted for forward compatibility with other tool shapes
+    if "derived_ref" not in summary:
+        derived_ref = outputs.get("derived_ref")
+        if isinstance(derived_ref, str) and derived_ref.strip():
+            summary["derived_ref"] = derived_ref
+    derived_refs = outputs.get("derived_refs")
+    if isinstance(derived_refs, list) and derived_refs:
+        summary["derived_refs"] = [str(r) for r in derived_refs[:_MAX_DERIVED_REFS] if r]
+    # Also look one level deeper under common wrapper keys
+    for wrapper_key in ("result", "data", "outputs"):
+        child = outputs.get(wrapper_key)
+        if not isinstance(child, Mapping):
+            continue
+        if "derived_ref" not in summary:
+            child_derived = child.get("derived_ref_id") or child.get("derived_ref")
+            if isinstance(child_derived, str) and child_derived.strip():
+                summary["derived_ref"] = child_derived
+        if "source_ref" not in summary:
+            child_source = child.get("parent_ref_id") or child.get("source_ref")
+            if isinstance(child_source, str) and child_source.strip():
+                summary["source_ref"] = child_source
+
+    # Top-level source_ref alias (some tool shapes)
+    if "source_ref" not in summary:
+        source_ref = outputs.get("source_ref")
+        if isinstance(source_ref, str) and source_ref.strip():
+            summary["source_ref"] = source_ref
+
+    return summary if summary else None
+
+
 def build_recent_tool_result_slices(
     step_result_records: list[dict[str, Any]],
     *,
@@ -247,6 +326,11 @@ def build_recent_tool_result_slices(
     Selection is by ``kernel_turn_index`` order only. No semantic ranking.
     Binary/image payload keys are stripped. Each slice is bounded in size
     and the total lane is bounded by ``max_total_chars``.
+
+    ``evidence_artifact_summary`` is included whenever the outputs contain
+    evidence artifact fields (rendered_evidence_refs, derived_ref, source_ref).
+    This is always included when present so the next prompt turn can see what
+    focused evidence was produced without requiring re-hydration.
     """
     if not step_result_records or max_records <= 0:
         return []
@@ -274,6 +358,7 @@ def build_recent_tool_result_slices(
             artifact_refs = [str(x) for x in raw_refs[:_MAX_ARTIFACT_REFS]]
         else:
             artifact_refs = []
+        evidence_artifact_summary = _extract_evidence_artifact_summary(outputs)
         slice_row: dict[str, Any] = {
             "kernel_turn_index": turn,
             "action_type": row.get("action_type"),
@@ -290,6 +375,8 @@ def build_recent_tool_result_slices(
                 else None
             ),
         }
+        if evidence_artifact_summary is not None:
+            slice_row["evidence_artifact_summary"] = evidence_artifact_summary
         try:
             row_chars = len(
                 json.dumps(slice_row, ensure_ascii=False, default=str)

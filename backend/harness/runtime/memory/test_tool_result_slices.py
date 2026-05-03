@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from harness.runtime.memory.tool_result_slices import (
+    _extract_evidence_artifact_summary,
     _extract_structural_metadata,
     build_recent_tool_result_slices,
     check_outputs_excerpt_truncated,
@@ -248,3 +249,155 @@ def test_slices_structural_metadata_includes_field_presence_signals_for_text_lan
     assert signals[verbatim_path]["non_empty"] is True
     assert signals[verbatim_path]["char_length"] > 100
     assert signals[normalized_path]["non_empty"] is False
+
+
+# ---------------------------------------------------------------------------
+# Track 4: Evidence artifact summary in tool result slices
+# ---------------------------------------------------------------------------
+
+
+def test_evidence_artifact_summary_none_for_empty_outputs() -> None:
+    assert _extract_evidence_artifact_summary({}) is None
+
+
+def test_evidence_artifact_summary_none_for_string_outputs() -> None:
+    assert _extract_evidence_artifact_summary("plain text") is None
+
+
+def test_evidence_artifact_summary_extracts_rendered_evidence_refs() -> None:
+    """render_evidence_locators shape: outputs.rendered_evidence_refs is extracted."""
+    outputs = {
+        "rendered_evidence_refs": [
+            {
+                "source_ref": "image:assoc:tx:original",
+                "rendered_ref": "image:derived:tx:locators_rendered",
+                "locator_count": 3,
+                "summary_only_locator_count": 0,
+                "unsupported_locator_count": 0,
+            }
+        ]
+    }
+    summary = _extract_evidence_artifact_summary(outputs)
+    assert summary is not None
+    assert "rendered_evidence_refs" in summary
+    row = summary["rendered_evidence_refs"][0]
+    assert row["source_ref"] == "image:assoc:tx:original"
+    assert row["rendered_ref"] == "image:derived:tx:locators_rendered"
+    assert row["locator_count"] == 3
+
+
+def test_evidence_artifact_summary_extracts_derived_ref() -> None:
+    """transform_artifact shape: top-level derived_ref is extracted."""
+    outputs = {
+        "derived_ref": "image:derived:tx:crop_001",
+        "source_ref": "image:assoc:tx:original",
+    }
+    summary = _extract_evidence_artifact_summary(outputs)
+    assert summary is not None
+    assert summary["derived_ref"] == "image:derived:tx:crop_001"
+    assert summary["source_ref"] == "image:assoc:tx:original"
+
+
+def test_evidence_artifact_summary_extracts_derived_refs_list() -> None:
+    outputs = {
+        "derived_refs": [
+            "image:derived:tx:crop_001",
+            "image:derived:tx:crop_002",
+        ]
+    }
+    summary = _extract_evidence_artifact_summary(outputs)
+    assert summary is not None
+    assert summary["derived_refs"] == [
+        "image:derived:tx:crop_001",
+        "image:derived:tx:crop_002",
+    ]
+
+
+def test_evidence_artifact_summary_none_when_no_evidence_fields() -> None:
+    outputs = {"status": "ok", "count": 3, "items": []}
+    assert _extract_evidence_artifact_summary(outputs) is None
+
+
+def test_slices_include_evidence_artifact_summary_for_rendered_result() -> None:
+    """build_recent_tool_result_slices surfaces evidence_artifact_summary when present."""
+    outputs = {
+        "rendered_evidence_refs": [
+            {
+                "source_ref": "image:assoc:tx:original",
+                "rendered_ref": "image:derived:tx:rendered",
+                "locator_count": 2,
+                "summary_only_locator_count": 0,
+                "unsupported_locator_count": 1,
+            }
+        ]
+    }
+    records = [_result_record(1, outputs=outputs, action_type="render_evidence_locators")]
+    slices = build_recent_tool_result_slices(records)
+    assert len(slices) == 1
+    assert "evidence_artifact_summary" in slices[0]
+    eas = slices[0]["evidence_artifact_summary"]
+    assert eas["rendered_evidence_refs"][0]["rendered_ref"] == "image:derived:tx:rendered"
+    assert eas["rendered_evidence_refs"][0]["unsupported_locator_count"] == 1
+
+
+def test_slices_include_evidence_artifact_summary_for_transform_result() -> None:
+    """transform_artifact results expose derived_ref and source_ref in the slice."""
+    outputs = {
+        "derived_ref": "image:derived:tx:crop_001",
+        "source_ref": "image:assoc:tx:original",
+    }
+    records = [_result_record(1, outputs=outputs, action_type="transform_artifact")]
+    slices = build_recent_tool_result_slices(records)
+    assert "evidence_artifact_summary" in slices[0]
+    eas = slices[0]["evidence_artifact_summary"]
+    assert eas["derived_ref"] == "image:derived:tx:crop_001"
+    assert eas["source_ref"] == "image:assoc:tx:original"
+
+
+def test_slices_no_evidence_artifact_summary_when_absent() -> None:
+    """When no evidence fields are present, evidence_artifact_summary is omitted."""
+    records = [_result_record(1, outputs={"status": "ok"})]
+    slices = build_recent_tool_result_slices(records)
+    assert "evidence_artifact_summary" not in slices[0]
+
+
+def test_slices_evidence_artifact_summary_present_even_when_excerpt_not_truncated() -> None:
+    """evidence_artifact_summary is always included when fields are present, not only on truncation."""
+    outputs = {
+        "derived_ref": "image:derived:tx:small_crop",
+        "source_ref": "image:assoc:tx:original",
+        "status": "ok",
+    }
+    records = [_result_record(1, outputs=outputs)]
+    slices = build_recent_tool_result_slices(records, max_chars_per_result=5000)
+    assert slices[0]["outputs_excerpt_truncated"] is False
+    assert "evidence_artifact_summary" in slices[0]
+
+
+def test_evidence_artifact_summary_extracts_real_transform_artifact_keys() -> None:
+    """Real transform_artifact output uses derived_ref_id / parent_ref_id — must be normalised."""
+    outputs = {
+        "derived_ref_id": "image:derived:tx:crop_001",
+        "parent_ref_id": "image:assoc:tx:original",
+        "status": "ok",
+    }
+    summary = _extract_evidence_artifact_summary(outputs)
+    assert summary is not None
+    assert summary["derived_ref"] == "image:derived:tx:crop_001"
+    assert summary["source_ref"] == "image:assoc:tx:original"
+
+
+def test_slices_evidence_artifact_summary_for_real_transform_shape() -> None:
+    """build_recent_tool_result_slices surfaces derived_ref/source_ref from real transform output."""
+    outputs = {
+        "derived_ref_id": "image:derived:tx:zoom_002",
+        "parent_ref_id": "image:assoc:tx:page1",
+        "width": 800,
+        "height": 600,
+    }
+    records = [_result_record(1, outputs=outputs, action_type="transform_artifact")]
+    slices = build_recent_tool_result_slices(records)
+    assert "evidence_artifact_summary" in slices[0]
+    eas = slices[0]["evidence_artifact_summary"]
+    assert eas["derived_ref"] == "image:derived:tx:zoom_002"
+    assert eas["source_ref"] == "image:assoc:tx:page1"

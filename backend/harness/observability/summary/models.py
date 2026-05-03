@@ -115,6 +115,7 @@ class PromptObservabilitySummary(BaseModel):
     closed_value_units_missing_evidence_count: int = Field(default=0, ge=0)
     earned_units_missing_verification_basis_count: int = Field(default=0, ge=0)
     earned_units_missing_locator_count: int = Field(default=0, ge=0)
+    shared_unlocated_evidence_for_earned_units_count: int = Field(default=0, ge=0)
     long_determined_value_units_count: int = Field(default=0, ge=0)
     success_condition_count: int = Field(default=0, ge=0)
     success_conditions_with_earned_determination_count: int = Field(default=0, ge=0)

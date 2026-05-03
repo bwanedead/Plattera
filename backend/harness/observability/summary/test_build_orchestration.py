@@ -176,3 +176,18 @@ def test_artifact_claim_inventory_suspect_counter_projects_into_typed_summary() 
     env = build_orchestration_kernel_run_summary(orchestration_kernel_payload=payload)
     assert env.prompt_observability_summary.artifact_claim_inventory_suspect_count == 2
     assert "artifact_claim_inventory_suspect:2" in env.prompt_observability_summary.mechanical_flags
+
+
+def test_shared_unlocated_evidence_counter_projects_into_typed_summary() -> None:
+    """Typed projection must not drop shared_unlocated_evidence_for_earned_units_count."""
+    payload = _payload_with_prompt_event()
+    payload["prompt_observability_summary"] = {
+        "shared_unlocated_evidence_for_earned_units_count": 2,
+        "mechanical_flags": ["shared_unlocated_evidence_for_earned_units:2"],
+    }
+    env = build_orchestration_kernel_run_summary(orchestration_kernel_payload=payload)
+    assert env.prompt_observability_summary.shared_unlocated_evidence_for_earned_units_count == 2
+    assert (
+        "shared_unlocated_evidence_for_earned_units:2"
+        in env.prompt_observability_summary.mechanical_flags
+    )

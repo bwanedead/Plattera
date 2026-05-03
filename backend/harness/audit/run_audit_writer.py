@@ -170,10 +170,38 @@ class RunAuditWriter:
             return
         try:
             self._dir.mkdir(parents=True, exist_ok=True)
-            self._write_index(run_id, terminal_class, reason_code, iterations, latest_refs)
-            self._write_review(terminal_class, reason_code, iterations, trace_events, latest_refs)
+            merged_turns = self._merge_turns_with_disk()
+            self._write_index(run_id, terminal_class, reason_code, iterations, latest_refs, merged_turns)
+            self._write_review(terminal_class, reason_code, iterations, trace_events, latest_refs, merged_turns)
+            write_human_timeline(self._dir, merged_turns)
         except Exception:
             _LOG.warning("RunAuditWriter.finalize failed; audit artifacts may be incomplete", exc_info=True)
+
+    # ------------------------------------------------------------------
+    # Disk-merge helper
+    # ------------------------------------------------------------------
+
+    def _merge_turns_with_disk(self) -> list[dict[str, Any]]:
+        """Return complete turn list by merging in-memory turns with existing disk turn files.
+
+        In-memory records take precedence for the same turn_index because
+        ``observe_turn_completed`` supplements them after the initial write.
+        Disk-only turns (present in forensic files but not in memory) are included
+        so finalization always projects the full run even when the writer was
+        reconstructed mid-run.
+        """
+        disk_turns = _load_turn_records(self._dir) if self._dir else []
+        if not disk_turns:
+            return list(self._turns)
+        mem_by_index: dict[int, dict[str, Any]] = {
+            int(t.get("turn_index") or 0): t for t in self._turns
+        }
+        merged: dict[int, dict[str, Any]] = {}
+        for dt in disk_turns:
+            tidx = int(dt.get("turn_index") or 0)
+            merged[tidx] = dt
+        merged.update(mem_by_index)  # in-memory wins on collision
+        return sorted(merged.values(), key=lambda t: int(t.get("turn_index") or 0))
 
     # ------------------------------------------------------------------
     # Internal writers
@@ -195,8 +223,10 @@ class RunAuditWriter:
         reason_code: str,
         iterations: int,
         latest_refs: dict[str, Any],
+        turns: list[dict[str, Any]] | None = None,
     ) -> None:
-        repairs = sum(1 for t in self._turns if t.get("repair_attempted"))
+        turns = turns if turns is not None else self._turns
+        repairs = sum(1 for t in turns if t.get("repair_attempted"))
         _write_json_atomic(
             self._dir / "index.json",  # type: ignore[arg-type]
             {
@@ -204,7 +234,7 @@ class RunAuditWriter:
                 "terminal_class": terminal_class,
                 "reason_code": reason_code,
                 "iterations": iterations,
-                "turn_count": len(self._turns),
+                "turn_count": len(turns),
                 "repairs_attempted": repairs,
                 "latest_refs": latest_refs,
             },
@@ -217,9 +247,11 @@ class RunAuditWriter:
         iterations: int,
         trace_events: list[dict[str, Any]],
         latest_refs: dict[str, Any],
+        turns: list[dict[str, Any]] | None = None,
     ) -> None:
+        turns = turns if turns is not None else self._turns
         lines = _build_review_lines(
-            turns=self._turns,
+            turns=turns,
             terminal_class=terminal_class,
             reason_code=reason_code,
             iterations=iterations,

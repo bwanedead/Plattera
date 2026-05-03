@@ -243,6 +243,9 @@ def build_prompt_observability_summary(
         "earned_units_missing_locator_count": covered_units_metrics[
             "earned_units_missing_locator_count"
         ],
+        "shared_unlocated_evidence_for_earned_units_count": covered_units_metrics[
+            "shared_unlocated_evidence_for_earned_units_count"
+        ],
         "long_determined_value_units_count": covered_units_metrics[
             "long_determined_value_units_count"
         ],
@@ -329,6 +332,9 @@ def build_prompt_observability_summary(
         ],
         earned_units_missing_locator_count=covered_units_metrics[
             "earned_units_missing_locator_count"
+        ],
+        shared_unlocated_evidence_for_earned_units_count=covered_units_metrics[
+            "shared_unlocated_evidence_for_earned_units_count"
         ],
         long_determined_value_units_count=covered_units_metrics[
             "long_determined_value_units_count"
@@ -640,6 +646,8 @@ def _covered_units_metrics(items: list[Any]) -> dict[str, int]:
     earned_missing_basis = 0
     earned_units_missing_locator = 0
     long_determined_value_units = 0
+    # Track evidence_refs cited by unlocated earned units to detect shared broad refs.
+    unlocated_earned_ref_counts: dict[str, int] = {}
     for item in items:
         units = getattr(item, "covered_units", None) or ()
         for unit in units:
@@ -670,13 +678,20 @@ def _covered_units_metrics(items: list[Any]) -> dict[str, int]:
             # Earned/closed unit with evidence artifact but no locator pointing
             # inside it. Advisory only — some media kinds may not yet support
             # locators.
-            if (
+            is_unlocated_earned = (
                 closed_or_earned
                 and determined_value is not None
                 and bool(evidence_refs)
                 and not bool(evidence_locators)
-            ):
+            )
+            if is_unlocated_earned:
                 earned_units_missing_locator += 1
+                for ref in evidence_refs:
+                    ref_text = str(ref).strip()
+                    if ref_text:
+                        unlocated_earned_ref_counts[ref_text] = (
+                            unlocated_earned_ref_counts.get(ref_text, 0) + 1
+                        )
             # Compact-atom pressure: closed/earned unit whose determined_value is
             # long enough to look like prose/transcript storage. Threshold is a
             # conservative structural cue, not a hard schema cap.
@@ -686,6 +701,12 @@ def _covered_units_metrics(items: list[Any]) -> dict[str, int]:
                 and len(determined_value_raw) > 200
             ):
                 long_determined_value_units += 1
+    # Advisory structural flag: how many unique evidence_refs are shared by 2+
+    # earned unlocated units. A single broad ref backing many claims is a
+    # locator-debt amplifier. Purely structural — no content inspection.
+    shared_unlocated_evidence_count = sum(
+        1 for count in unlocated_earned_ref_counts.values() if count >= 2
+    )
     return {
         "covered_unit_count": covered_unit_count,
         "covered_units_with_candidates_count": covered_units_with_candidates,
@@ -693,6 +714,7 @@ def _covered_units_metrics(items: list[Any]) -> dict[str, int]:
         "closed_value_units_missing_evidence_count": closed_value_missing_evidence,
         "earned_units_missing_verification_basis_count": earned_missing_basis,
         "earned_units_missing_locator_count": earned_units_missing_locator,
+        "shared_unlocated_evidence_for_earned_units_count": shared_unlocated_evidence_count,
         "long_determined_value_units_count": long_determined_value_units,
     }
 
@@ -963,6 +985,7 @@ def _mechanical_flags(
     closed_value_units_missing_evidence_count: int,
     earned_units_missing_verification_basis_count: int,
     earned_units_missing_locator_count: int = 0,
+    shared_unlocated_evidence_for_earned_units_count: int = 0,
     long_determined_value_units_count: int = 0,
     sequenced_items_missing_scope_count: int,
     sequenced_items_missing_index_count: int,
@@ -1029,6 +1052,10 @@ def _mechanical_flags(
         )
     if earned_units_missing_locator_count > 0:
         flags.append(f"earned_unit_missing_locator:{earned_units_missing_locator_count}")
+    if shared_unlocated_evidence_for_earned_units_count > 0:
+        flags.append(
+            f"shared_unlocated_evidence_for_earned_units:{shared_unlocated_evidence_for_earned_units_count}"
+        )
     if long_determined_value_units_count > 0:
         flags.append(f"long_determined_value_units:{long_determined_value_units_count}")
     if artifact_claim_inventory_suspect_count > 0:

@@ -182,6 +182,13 @@ This is guarding against a known failure mode: false earned certainty. A run can
 
 A read, hydrate, or transform is not complete merely because you looked at something. If it taught a useful distinction, persist that distinction immediately in `resolution.items`, `covered_units`, mission state, an output artifact, or a concise `continuity_journal_entry`. If it taught no useful distinction, promote the no-gain result into state (`no_further_progress`, blocker, HITL need, or narrowed next step) instead of rereading until the same uncertainty reappears.
 
+### Evidence carry-forward rule
+A transform, crop, annotation, rendered locator, excerpt, trace, query result, or test result is not complete merely because it exists. Focused evidence artifacts that are left floating — never bound to a claim — do not strengthen a claim. The carry-forward obligation after any evidence-producing action is:
+- if the artifact supports a claim, bind it: update the relevant covered_unit or resolution item's `evidence_refs` and, when the medium supports it, add an `evidence_locators` entry pointing inside it
+- if the artifact does not support a claim, record that explicitly: update `next_needed_step`, `no_further_progress`, or `verification_basis` to say what the artifact failed to resolve, rather than leaving the unit open with only a broad source ref
+
+Do not close or earn a unit whose `evidence_refs` still point only to broad source artifacts when a focused derived artifact was produced this turn and should directly support the claim. The host may surface `earned_unit_missing_locator:N` and `shared_unlocated_evidence_for_earned_units:N` as advisory flags when earned units still cite only broad refs with no locators; treat those as carry-forward debt to close before completing the run.
+
 ### Itemization and per-item resolution
 Before leaving orientation and after any fresh read, make the work explicit: each mission-essential claim, defect, ambiguity, dependency, or deliverable becomes a row in `resolution.items` (atomic), or an honest group node whose material sub-units are explicit as `covered_units` or separate related items. Every `mission.success_conditions` row should have at least one item that can earn it.
 

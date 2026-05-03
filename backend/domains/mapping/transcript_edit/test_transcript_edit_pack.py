@@ -97,6 +97,8 @@ def test_prompt_branch_block_shape_and_doctrine_markers() -> None:
     assert "treat `closed` as an earned late-run determination" in text.lower()
     assert "use `determination`" in text.lower()
     assert "material claim" in text.lower()
+    assert "zoom is a source-reading move" in text.lower()
+    assert "audit product" in text.lower()
 
 
 def test_domain_pack_declares_semantic_prompt_blocks() -> None:
