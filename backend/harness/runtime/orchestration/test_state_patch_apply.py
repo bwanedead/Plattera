@@ -1480,3 +1480,167 @@ def test_successful_clean_apply_clears_pending_hitl_integration() -> None:
     fb = mem.continuity.state_patch_feedback
     assert fb["outcome"] == "applied"
     assert "hitl-abc" not in fb.get("pending_hitl_integration_prompt_ids", [])
+
+
+# ---------------------------------------------------------------------------
+# Brief 3: Field-level patch salvage (overlong optional prose fields)
+# ---------------------------------------------------------------------------
+
+
+def test_overlong_closure_summary_does_not_skip_valid_item_update() -> None:
+    # closure_summary exceeds its 240-char max but all other fields are valid.
+    # The row must be applied (with closure_summary omitted) rather than skipped.
+    from harness.runtime.memory import LoopMemoryState
+
+    mem = LoopMemoryState()
+    _seed_item_i1(mem)
+    mem2, fb = _apply_with_feedback(
+        {
+            "resolution": {
+                "items": [
+                    {
+                        "item_id": "i1",
+                        "status": "closed",
+                        "closure_summary": "x" * 500,  # exceeds 240-char max
+                    }
+                ]
+            }
+        },
+        mem=mem,
+        iteration=2,
+    )
+    # Outcome must be applied — the row was salvaged, not skipped.
+    assert fb["outcome"] == "applied"
+    assert not fb.get("skipped_resolution_rows")
+    # The item's status must have been updated.
+    item = mem2.continuity.resolution_state.items[0]
+    assert item.status == "closed"
+    # closure_summary was omitted (not stored).
+    assert item.closure_summary is None
+    # Salvage event surfaces in feedback.
+    salvaged = fb.get("salvaged_rows") or []
+    assert len(salvaged) == 1
+    assert salvaged[0]["row_id"] == "i1"
+    assert any("closure_summary" in e for e in salvaged[0]["omitted_invalid_fields"])
+
+
+def test_overlong_notes_or_summary_is_omitted_with_feedback() -> None:
+    # Both notes and summary overlong: both omitted, valid fields applied, feedback names both.
+    from harness.runtime.memory import LoopMemoryState
+
+    mem = LoopMemoryState()
+    _seed_item_i1(mem)
+    mem2, fb = _apply_with_feedback(
+        {
+            "resolution": {
+                "items": [
+                    {
+                        "item_id": "i1",
+                        "notes": "n" * 600,      # exceeds 500-char max
+                        "summary": "s" * 600,    # exceeds 500-char max
+                        "status": "in_progress",
+                    }
+                ]
+            }
+        },
+        mem=mem,
+        iteration=2,
+    )
+    assert fb["outcome"] == "applied"
+    item = mem2.continuity.resolution_state.items[0]
+    assert item.status == "in_progress"
+    assert item.notes is None
+    assert item.summary is None
+    salvaged = fb.get("salvaged_rows") or []
+    assert len(salvaged) == 1
+    omitted_fields_str = " ".join(salvaged[0]["omitted_invalid_fields"])
+    assert "notes" in omitted_fields_str
+    assert "summary" in omitted_fields_str
+
+
+def test_invalid_determined_value_is_not_salvaged_for_earned_unit() -> None:
+    # determined_value on a covered_unit is a semantic field — overlong → skip, not salvage.
+    from harness.runtime.memory import LoopMemoryState
+
+    mem = LoopMemoryState()
+    _seed_item_i1(mem)
+    _, fb = _apply_with_feedback(
+        {
+            "resolution": {
+                "items": [
+                    {
+                        "item_id": "i1",
+                        "covered_units": [
+                            {
+                                "unit_id": "u1",
+                                "title": "Unit one",
+                                "determined_value": "d" * 500,  # exceeds 400-char max
+                            }
+                        ],
+                    }
+                ]
+            }
+        },
+        mem=mem,
+        iteration=2,
+    )
+    # Row must be skipped, not salvaged.
+    assert fb.get("skipped_resolution_rows")
+    assert not fb.get("salvaged_rows")
+
+
+def test_invalid_identity_field_still_skips_row() -> None:
+    # An invalid identity field (title too short after stripping) must skip, not salvage.
+    from harness.runtime.memory import LoopMemoryState
+
+    mem = LoopMemoryState()
+    _seed_item_i1(mem)
+    _, fb = _apply_with_feedback(
+        {
+            "resolution": {
+                "items": [
+                    {
+                        "item_id": "i1",
+                        "title": "",    # min_length=1 violated — not salvageable
+                        "status": "closed",
+                        "closure_summary": "Fine summary",
+                    }
+                ]
+            }
+        },
+        mem=mem,
+        iteration=2,
+    )
+    assert fb.get("skipped_resolution_rows")
+    assert not fb.get("salvaged_rows")
+
+
+def test_salvage_feedback_names_exact_field_path() -> None:
+    # Salvage event must carry a path that includes the item anchor and field name.
+    from harness.runtime.memory import LoopMemoryState
+
+    mem = LoopMemoryState()
+    _seed_item_i1(mem)
+    _, fb = _apply_with_feedback(
+        {
+            "resolution": {
+                "items": [
+                    {
+                        "item_id": "i1",
+                        "closure_summary": "c" * 300,  # exceeds 240-char max
+                    }
+                ]
+            }
+        },
+        mem=mem,
+        iteration=2,
+    )
+    salvaged = fb.get("salvaged_rows") or []
+    assert salvaged, "expected salvage event"
+    event = salvaged[0]
+    assert event["path"].startswith("resolution.items[i1]")
+    assert event["row_id"] == "i1"
+    # omitted_invalid_fields must name the field precisely.
+    omitted = " ".join(event["omitted_invalid_fields"])
+    assert "closure_summary" in omitted
+    assert event.get("note")

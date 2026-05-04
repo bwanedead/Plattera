@@ -1834,3 +1834,581 @@ def test_shared_unlocated_evidence_does_not_fire_when_units_have_locators() -> N
     result = build_prompt_observability_summary(mem)
     assert result["shared_unlocated_evidence_for_earned_units_count"] == 0
     assert result["earned_units_missing_locator_count"] == 0
+
+
+# ---------------------------------------------------------------------------
+# artifact_refresh_trap_risk — Engineering Brief 2
+# ---------------------------------------------------------------------------
+
+
+def _hydrate_record(
+    turn_index: int,
+    *,
+    refs: dict | None = None,
+    state_sig: str = "state-constant",
+    action_inputs: dict | None = None,
+) -> dict:
+    return _step_record(
+        turn_index,
+        action_type="hydrate_artifact_refs",
+        action_inputs=action_inputs or {"ref_ids": ["artifact://working:rev:0001"]},
+        latest_refs_snapshot=refs or {"working": "artifact://working:rev:0001"},
+        work_state_signature=state_sig,
+    )
+
+
+def _save_record(turn_index: int) -> dict:
+    return _step_record(
+        turn_index,
+        action_type="save_workspace_artifact",
+        latest_refs_snapshot={"working": "artifact://working:rev:0001"},
+        work_state_signature="state-constant",
+    )
+
+
+def test_artifact_refresh_trap_risk_fires_on_save_plus_three_hydrates() -> None:
+    """Save followed by 3 hydrates with unchanged refs/state → flag fires at threshold."""
+    records = [
+        _save_record(1),
+        _hydrate_record(2),
+        _hydrate_record(3),
+        _hydrate_record(4),
+    ]
+    mem = _mem(step_records=records)
+    result = build_prompt_observability_summary(mem)
+    assert result["artifact_refresh_trap_risk_count"] == 3
+    assert "artifact_refresh_trap_risk:3" in result["mechanical_flags"]
+
+
+def test_artifact_refresh_trap_risk_does_not_fire_for_one_off_verification_after_save() -> None:
+    """A single hydration after a save is normal verification — streak is below threshold."""
+    records = [
+        _save_record(1),
+        _hydrate_record(2),
+    ]
+    mem = _mem(step_records=records)
+    result = build_prompt_observability_summary(mem)
+    assert result["artifact_refresh_trap_risk_count"] == 0
+    assert not any(f.startswith("artifact_refresh_trap_risk:") for f in result["mechanical_flags"])
+
+
+def test_artifact_refresh_trap_risk_does_not_fire_when_most_recent_hydrate_changed_refs() -> None:
+    """A ref change on the most recent turn breaks the frozen-streak pattern — no trap."""
+    records = [
+        _save_record(1),
+        _hydrate_record(2, refs={"working": "artifact://working:rev:0001"}),
+        _hydrate_record(3, refs={"working": "artifact://working:rev:0001"}),
+        _hydrate_record(4, refs={"working": "artifact://working:rev:0002"}),  # new ref on tail
+    ]
+    mem = _mem(step_records=records)
+    result = build_prompt_observability_summary(mem)
+    # Tail has rev:0002; looking back, turn 3 has rev:0001 → streak breaks at turn 3.
+    # Streak from tail = 1 (only turn 4 matches), below threshold → no flag.
+    assert result["artifact_refresh_trap_risk_count"] == 0
+    assert not any(f.startswith("artifact_refresh_trap_risk:") for f in result["mechanical_flags"])
+
+
+def test_artifact_refresh_trap_risk_does_not_fire_without_prior_save_in_lookback() -> None:
+    """Repeated hydrations with no prior save in the lookback window → trap signal suppressed."""
+    records = [
+        _hydrate_record(1),
+        _hydrate_record(2),
+        _hydrate_record(3),
+        _hydrate_record(4),
+    ]
+    mem = _mem(step_records=records)
+    result = build_prompt_observability_summary(mem)
+    assert result["artifact_refresh_trap_risk_count"] == 0
+    assert not any(f.startswith("artifact_refresh_trap_risk:") for f in result["mechanical_flags"])
+
+
+def test_artifact_refresh_trap_risk_count_in_compact_observability() -> None:
+    """artifact_refresh_trap_risk_count appears in compact observability when non-zero."""
+    from harness.runtime.orchestration.prompt_packet_builder import (
+        _compact_prompt_observability_summary,
+    )
+    records = [
+        _save_record(1),
+        _hydrate_record(2),
+        _hydrate_record(3),
+        _hydrate_record(4),
+    ]
+    mem = _mem(step_records=records)
+    full = build_prompt_observability_summary(mem)
+    compact = _compact_prompt_observability_summary(full)
+    assert "artifact_refresh_trap_risk_count" in compact
+    assert compact["artifact_refresh_trap_risk_count"] == 3
+
+
+# ---------------------------------------------------------------------------
+# artifact_refresh_trap_risk — windowed detector (run-10 interleaved shape)
+# ---------------------------------------------------------------------------
+
+
+def _state_patch_record(turn_index: int, *, refs: dict | None = None, state_sig: str = "state-constant") -> dict:
+    """A state-only bookkeeping turn — does not hydrate or save."""
+    return _step_record(
+        turn_index,
+        action_type="state_patch_apply",
+        latest_refs_snapshot=refs or {"working": "artifact://working:rev:0001"},
+        work_state_signature=state_sig,
+    )
+
+
+def test_artifact_refresh_trap_windowed_fires_on_run10_interleaved_shape() -> None:
+    """Save → interleaved state patches and hydrates of same refs → windowed detector fires.
+
+    The physical streak (consecutive hydrates) is broken by state patches, so the
+    simple streak detector returns 0. The windowed detector skips the state-only turns
+    and sees 3 fruitless hydrate rows — flag fires.
+    """
+    refs = {"working": "artifact://working:rev:0001"}
+    records = [
+        _save_record(18),
+        _state_patch_record(19, refs=refs),
+        _hydrate_record(20, refs=refs),
+        _state_patch_record(21, refs=refs),
+        _hydrate_record(22, refs=refs),
+        _state_patch_record(23, refs=refs),
+        _hydrate_record(24, refs=refs),
+    ]
+    mem = _mem(step_records=records)
+    result = build_prompt_observability_summary(mem)
+    # Simple streak should be 0 — state_patch at turn 23 breaks the physical streak
+    # Windowed count should be 3 (hydrate rows at 20, 22, 24 all have same refs sig)
+    assert result["artifact_refresh_trap_risk_count"] == 3
+    assert "artifact_refresh_trap_risk:3" in result["mechanical_flags"]
+
+
+def test_artifact_refresh_trap_windowed_save_much_earlier_still_fires() -> None:
+    """Save well outside the streak lookback but within the wide lookback fires via windowed detector."""
+    refs = {"working": "artifact://working:rev:0001"}
+    records = (
+        [_save_record(1)]
+        + [_state_patch_record(i, refs=refs) for i in range(2, 12)]
+        + [
+            _hydrate_record(12, refs=refs),
+            _state_patch_record(13, refs=refs),
+            _hydrate_record(14, refs=refs),
+            _state_patch_record(15, refs=refs),
+            _hydrate_record(16, refs=refs),
+        ]
+    )
+    mem = _mem(step_records=records)
+    result = build_prompt_observability_summary(mem)
+    # Save at turn 1 is within the wide lookback of 20 from the tail (turn 16)
+    assert result["artifact_refresh_trap_risk_count"] >= 3
+    assert any(f.startswith("artifact_refresh_trap_risk:") for f in result["mechanical_flags"])
+
+
+def test_artifact_refresh_trap_windowed_suppressed_by_copy_forward_in_window() -> None:
+    """copy_forward_save in the recent window suppresses the windowed detector."""
+    refs = {"working": "artifact://working:rev:0001"}
+    records = [
+        _save_record(1),
+        _hydrate_record(2, refs=refs),
+        _step_record(3, action_type="copy_forward_save_workspace_artifact",
+                     latest_refs_snapshot=refs, work_state_signature="state-constant"),
+        _hydrate_record(4, refs=refs),
+        _state_patch_record(5, refs=refs),
+        _hydrate_record(6, refs=refs),
+        _state_patch_record(7, refs=refs),
+        _hydrate_record(8, refs=refs),
+    ]
+    mem = _mem(step_records=records)
+    result = build_prompt_observability_summary(mem)
+    assert result["artifact_refresh_trap_risk_count"] == 0
+    assert not any(f.startswith("artifact_refresh_trap_risk:") for f in result["mechanical_flags"])
+
+
+def test_artifact_refresh_trap_windowed_suppressed_when_most_recent_hydrate_changed_refs() -> None:
+    """The windowed fruitless count breaks when the most recent hydrate produced new refs."""
+    old_refs = {"working": "artifact://working:rev:0001"}
+    new_refs = {"working": "artifact://working:rev:0001", "draft": "artifact://draft:rev:0001"}
+    records = [
+        _save_record(1),
+        _hydrate_record(2, refs=old_refs),
+        _state_patch_record(3, refs=old_refs),
+        _hydrate_record(4, refs=old_refs),
+        _state_patch_record(5, refs=old_refs),
+        _hydrate_record(6, refs=new_refs),  # most recent hydrate: new ref added
+    ]
+    mem = _mem(step_records=records)
+    result = build_prompt_observability_summary(mem)
+    # Tail hydrate (turn 6) shows new_refs; counting backward through hydrate rows,
+    # turns 2 and 4 show old_refs ≠ new_refs → fruitless count = 1 (only turn 6) < 3
+    assert result["artifact_refresh_trap_risk_count"] == 0
+    assert not any(f.startswith("artifact_refresh_trap_risk:") for f in result["mechanical_flags"])
+
+
+def test_artifact_refresh_trap_windowed_suppressed_without_prior_save() -> None:
+    """Interleaved hydrate churn with no prior save in wide lookback → suppressed."""
+    refs = {"working": "artifact://working:rev:0001"}
+    records = [
+        _hydrate_record(1, refs=refs),
+        _state_patch_record(2, refs=refs),
+        _hydrate_record(3, refs=refs),
+        _state_patch_record(4, refs=refs),
+        _hydrate_record(5, refs=refs),
+        _state_patch_record(6, refs=refs),
+        _hydrate_record(7, refs=refs),
+    ]
+    mem = _mem(step_records=records)
+    result = build_prompt_observability_summary(mem)
+    assert result["artifact_refresh_trap_risk_count"] == 0
+    assert not any(f.startswith("artifact_refresh_trap_risk:") for f in result["mechanical_flags"])
+
+
+def test_artifact_refresh_trap_windowed_fires_on_run10_cyclic_recovery_shape() -> None:
+    """Run-10 shape: save, then cycling across working rev + all drafts + single draft
+    with state-only turns between reads, no new refs produced — windowed detector fires.
+
+    Three distinct read targets, each repeated across the cycle, unchanged latest refs.
+    Distinct targets (3) < hydrate rows (5) → pigeonhole confirms cycling → fires.
+    """
+    refs = {"working": "artifact://working:rev:0001"}
+    working_rev = {"ref_ids": ["transcript_edit:working:rev:0001"]}
+    all_drafts = {"ref_ids": ["t0:raw:draft_1", "t0:raw:draft_2", "t0:raw:draft_3"]}
+    draft_1 = {"ref_ids": ["t0:raw:draft_1"]}
+
+    records = [
+        _save_record(18),
+        _state_patch_record(19, refs=refs),
+        _hydrate_record(20, refs=refs, action_inputs=working_rev),
+        _state_patch_record(21, refs=refs),
+        _hydrate_record(22, refs=refs, action_inputs=all_drafts),
+        _state_patch_record(23, refs=refs),
+        _hydrate_record(24, refs=refs, action_inputs=draft_1),
+        _state_patch_record(25, refs=refs),
+        _hydrate_record(26, refs=refs, action_inputs=working_rev),   # repeat
+        _state_patch_record(27, refs=refs),
+        _hydrate_record(28, refs=refs, action_inputs=all_drafts),    # repeat
+    ]
+    mem = _mem(step_records=records)
+    result = build_prompt_observability_summary(mem)
+    # 5 fruitless hydrate rows (all refs=X), 3 distinct targets, 5 > 3 → cycling
+    assert result["artifact_refresh_trap_risk_count"] >= 3
+    assert any(f.startswith("artifact_refresh_trap_risk:") for f in result["mechanical_flags"])
+
+
+def test_artifact_refresh_trap_windowed_does_not_fire_for_different_targets_with_unchanged_refs() -> None:
+    """Post-save verification of three different artifacts: latest_refs_snapshot unchanged for all,
+    but each hydrate targets a different ref bundle → input sigs differ → no false positive."""
+    shared_refs = {"working": "artifact://working:rev:0001"}
+    records = [
+        _save_record(1),
+        _hydrate_record(2, refs=shared_refs, action_inputs={"ref_ids": ["artifact://working:rev:0001"]}),
+        _hydrate_record(3, refs=shared_refs, action_inputs={"ref_ids": ["artifact://draft-a:rev:0001"]}),
+        _hydrate_record(4, refs=shared_refs, action_inputs={"ref_ids": ["artifact://draft-b:rev:0001"]}),
+    ]
+    mem = _mem(step_records=records)
+    result = build_prompt_observability_summary(mem)
+    # Each hydrate reads a different artifact → input sigs differ → fruitless count = 1 (only tail)
+    assert result["artifact_refresh_trap_risk_count"] == 0
+    assert not any(f.startswith("artifact_refresh_trap_risk:") for f in result["mechanical_flags"])
+
+
+# ---------------------------------------------------------------------------
+# repair_ready_without_artifact_write — Engineering Brief 4
+# ---------------------------------------------------------------------------
+
+
+def _copy_forward_save_record(turn_index: int) -> dict:
+    return _step_record(
+        turn_index,
+        action_type="copy_forward_save_workspace_artifact",
+        latest_refs_snapshot={"working": "artifact://working:rev:0002"},
+        work_state_signature="state-v2",
+    )
+
+
+def _read_record(turn_index: int, *, action_type: str = "hydrate_artifact_refs") -> dict:
+    return _step_record(
+        turn_index,
+        action_type=action_type,
+        latest_refs_snapshot={"working": "artifact://working:rev:0001"},
+        work_state_signature="state-constant",
+    )
+
+
+def test_repair_ready_without_artifact_write_fires_after_repair_debt_and_reads() -> None:
+    """Semantic repair debt in feedback + 3 hydrate turns → flag fires."""
+    records = [
+        _read_record(1),
+        _read_record(2),
+        _read_record(3),
+    ]
+    feedback = {"semantic_repair_debt": ["determined_value"]}
+    mem = _mem(step_records=records, state_patch_feedback=feedback)
+    result = build_prompt_observability_summary(mem)
+    count = result["repair_ready_without_artifact_write_count"]
+    assert count >= 3
+    assert any(f.startswith("repair_ready_without_artifact_write:") for f in result["mechanical_flags"])
+
+
+def test_repair_ready_without_artifact_write_fires_after_artifact_refresh_trap() -> None:
+    """artifact_refresh_trap_risk_count > 0 → repair pressure, 3 hydrates → flag fires."""
+    records = [
+        _save_record(1),
+        _hydrate_record(2),
+        _hydrate_record(3),
+        _hydrate_record(4),
+    ]
+    # No need to set feedback — trap risk itself is the pressure signal.
+    mem = _mem(step_records=records)
+    result = build_prompt_observability_summary(mem)
+    # Verify the trap risk actually fired so this test is meaningful.
+    assert result["artifact_refresh_trap_risk_count"] >= 3
+    count = result["repair_ready_without_artifact_write_count"]
+    assert count >= 3
+    assert any(f.startswith("repair_ready_without_artifact_write:") for f in result["mechanical_flags"])
+
+
+def test_repair_ready_without_artifact_write_suppressed_after_save() -> None:
+    """Flag is suppressed when a save_workspace_artifact turn appears in the trailing records."""
+    records = [
+        _read_record(1),
+        _read_record(2),
+        _save_record(3),
+    ]
+    feedback = {"semantic_repair_debt": ["determined_value"]}
+    mem = _mem(step_records=records, state_patch_feedback=feedback)
+    result = build_prompt_observability_summary(mem)
+    assert result["repair_ready_without_artifact_write_count"] == 0
+    assert not any(f.startswith("repair_ready_without_artifact_write:") for f in result["mechanical_flags"])
+
+
+def test_repair_ready_without_artifact_write_suppressed_after_copy_forward_save() -> None:
+    """Flag is suppressed when copy_forward_save_workspace_artifact appears in trailing records."""
+    records = [
+        _read_record(1),
+        _read_record(2),
+        _copy_forward_save_record(3),
+    ]
+    feedback = {"semantic_repair_debt": ["determined_value"]}
+    mem = _mem(step_records=records, state_patch_feedback=feedback)
+    result = build_prompt_observability_summary(mem)
+    assert result["repair_ready_without_artifact_write_count"] == 0
+    assert not any(f.startswith("repair_ready_without_artifact_write:") for f in result["mechanical_flags"])
+
+
+def test_repair_ready_without_artifact_write_not_for_one_off_post_save_read() -> None:
+    """Save followed by a single verification hydrate: trailing_no_write=1 < threshold → no flag."""
+    records = [
+        _save_record(1),
+        _hydrate_record(2),
+    ]
+    # Introduce repair debt so the pressure condition is met.
+    feedback = {"semantic_repair_debt": ["notes"]}
+    mem = _mem(step_records=records, state_patch_feedback=feedback)
+    result = build_prompt_observability_summary(mem)
+    # trailing_no_write is 1 (only the hydrate after the save), below threshold of 3.
+    assert result["repair_ready_without_artifact_write_count"] == 0
+    assert not any(f.startswith("repair_ready_without_artifact_write:") for f in result["mechanical_flags"])
+
+
+def test_repair_ready_without_artifact_write_typed_projection() -> None:
+    """repair_ready_without_artifact_write_count surfaces in the typed PromptObservabilitySummary."""
+    from harness.observability.summary.prompt_observability import (
+        _prompt_observability_summary_from_payload,
+    )
+
+    summary = _prompt_observability_summary_from_payload(
+        {"prompt_observability_summary": {"repair_ready_without_artifact_write_count": 4}}
+    )
+    assert summary.repair_ready_without_artifact_write_count == 4
+
+
+def test_repair_ready_without_artifact_write_in_compact_observability() -> None:
+    """Counter appears in compact observability when non-zero; absent when zero."""
+    from harness.runtime.orchestration.prompt_packet_builder import (
+        _compact_prompt_observability_summary,
+    )
+
+    records = [
+        _read_record(1),
+        _read_record(2),
+        _read_record(3),
+    ]
+    feedback = {"semantic_repair_debt": ["determined_value"]}
+    mem = _mem(step_records=records, state_patch_feedback=feedback)
+    full = build_prompt_observability_summary(mem)
+    compact = _compact_prompt_observability_summary(full)
+    assert "repair_ready_without_artifact_write_count" in compact
+    assert compact["repair_ready_without_artifact_write_count"] >= 3
+
+    # Zero case: no repair pressure → absent from compact.
+    mem_clean = _mem(step_records=records)
+    full_clean = build_prompt_observability_summary(mem_clean)
+    compact_clean = _compact_prompt_observability_summary(full_clean)
+    assert "repair_ready_without_artifact_write_count" not in compact_clean
+
+
+def test_repair_ready_choose_action_guidance_names_flag_no_domain_terms() -> None:
+    """choose_action_instruction.py names the flag and expected behavior; no domain jargon."""
+    from harness.runtime.orchestration.choose_action_instruction import CHOOSE_ACTION_INSTRUCTION
+
+    assert "repair_ready_without_artifact_write" in CHOOSE_ACTION_INSTRUCTION
+    assert "save_workspace_artifact" in CHOOSE_ACTION_INSTRUCTION
+    assert "copy_forward_save_workspace_artifact" in CHOOSE_ACTION_INSTRUCTION
+    # No domain-specific terms.
+    domain_terms = ["deed", "parcel", "plss", "transcription", "dossier", "mapping"]
+    for term in domain_terms:
+        assert term not in CHOOSE_ACTION_INSTRUCTION.lower(), f"Domain term found: {term}"
+
+
+# ---------------------------------------------------------------------------
+# hitl_evidence_readiness_debt — Engineering Brief 5
+# ---------------------------------------------------------------------------
+
+
+def _hitl_step_record(turn_index: int, *, refs: dict | None = None) -> dict:
+    rec = _step_record(
+        turn_index,
+        action_type="hitl_request",
+        latest_refs_snapshot=refs if refs is not None else {"working": "artifact://working:rev:0001"},
+        work_state_signature="state-hitl",
+    )
+    rec["wait_for_human"] = True
+    return rec
+
+
+def _evidence_result_record() -> dict:
+    """A step_result_record that exposes focused evidence metadata."""
+    return {"outputs_for_continuity": {"rendered_evidence_refs": ["artifact://evidence:rev:0001"]}}
+
+
+def test_hitl_evidence_readiness_debt_fires_when_no_evidence() -> None:
+    """HITL turn with refs but no evidence artifact in results → flag fires."""
+    records = [
+        _hitl_step_record(1),
+        _read_record(2),
+        _read_record(3),
+    ]
+    mem = _mem(step_records=records)
+    result = build_prompt_observability_summary(mem)
+    count = result["hitl_evidence_readiness_debt_count"]
+    assert count >= 1
+    assert any(f.startswith("hitl_evidence_readiness_debt:") for f in result["mechanical_flags"])
+
+
+def test_hitl_evidence_readiness_debt_suppressed_when_evidence_present() -> None:
+    """Recent result carries rendered_evidence_refs → flag is suppressed."""
+    records = [
+        _hitl_step_record(1),
+    ]
+    result_records = [_evidence_result_record()]
+    mem = _mem(step_records=records, step_result_records=result_records)
+    result = build_prompt_observability_summary(mem)
+    assert result["hitl_evidence_readiness_debt_count"] == 0
+    assert not any(f.startswith("hitl_evidence_readiness_debt:") for f in result["mechanical_flags"])
+
+
+def test_hitl_evidence_readiness_debt_suppressed_when_no_refs() -> None:
+    """HITL turn with empty refs (evidence genuinely unavailable) → flag suppressed."""
+    records = [
+        _hitl_step_record(1, refs={}),
+    ]
+    mem = _mem(step_records=records)
+    result = build_prompt_observability_summary(mem)
+    assert result["hitl_evidence_readiness_debt_count"] == 0
+    assert not any(f.startswith("hitl_evidence_readiness_debt:") for f in result["mechanical_flags"])
+
+
+def test_hitl_evidence_readiness_debt_suppressed_for_derived_ref() -> None:
+    """derived_ref in outputs_for_continuity suppresses the flag."""
+    records = [_hitl_step_record(1)]
+    result_records = [{"outputs_for_continuity": {"derived_ref": "artifact://derived:rev:0001"}}]
+    mem = _mem(step_records=records, step_result_records=result_records)
+    result = build_prompt_observability_summary(mem)
+    assert result["hitl_evidence_readiness_debt_count"] == 0
+
+
+def test_hitl_evidence_readiness_debt_typed_projection() -> None:
+    """hitl_evidence_readiness_debt_count surfaces in the typed PromptObservabilitySummary."""
+    from harness.observability.summary.prompt_observability import (
+        _prompt_observability_summary_from_payload,
+    )
+
+    summary = _prompt_observability_summary_from_payload(
+        {"prompt_observability_summary": {"hitl_evidence_readiness_debt_count": 2}}
+    )
+    assert summary.hitl_evidence_readiness_debt_count == 2
+
+
+def test_hitl_evidence_readiness_debt_in_compact_observability() -> None:
+    """Counter appears in compact observability when non-zero; absent when zero."""
+    from harness.runtime.orchestration.prompt_packet_builder import (
+        _compact_prompt_observability_summary,
+    )
+
+    records = [_hitl_step_record(1), _read_record(2)]
+    mem = _mem(step_records=records)
+    full = build_prompt_observability_summary(mem)
+    compact = _compact_prompt_observability_summary(full)
+    assert "hitl_evidence_readiness_debt_count" in compact
+    assert compact["hitl_evidence_readiness_debt_count"] >= 1
+
+    # Zero case: evidence artifact present → absent from compact.
+    result_records = [_evidence_result_record()]
+    mem_clean = _mem(step_records=records, step_result_records=result_records)
+    full_clean = build_prompt_observability_summary(mem_clean)
+    compact_clean = _compact_prompt_observability_summary(full_clean)
+    assert "hitl_evidence_readiness_debt_count" not in compact_clean
+
+
+def test_hitl_evidence_readiness_debt_suppressed_when_context_carries_evidence() -> None:
+    """HITL pending request whose context has evidence_refs → flag suppressed."""
+    from harness.runtime.hitl.transport import HitlTransportPosture
+
+    records = [_hitl_step_record(1)]  # kernel_turn_index=1
+    mem = _mem(step_records=records)
+    mem.hitl = HitlTransportPosture(
+        pending_hitl_requests=[
+            {
+                "prompt_id": "p-1",
+                "message": "Which value is correct?",
+                "choices": [],
+                "context": {"primary_evidence_ref": "artifact://evidence:rev:0001"},
+                "opaque_payload": {},
+                "issued_at_iteration": 1,
+            }
+        ]
+    )
+    result = build_prompt_observability_summary(mem)
+    assert result["hitl_evidence_readiness_debt_count"] == 0
+    assert not any(f.startswith("hitl_evidence_readiness_debt:") for f in result["mechanical_flags"])
+
+
+def test_hitl_evidence_readiness_debt_suppressed_when_context_carries_caveat() -> None:
+    """HITL pending request whose context has evidence_not_needed → flag suppressed."""
+    from harness.runtime.hitl.transport import HitlTransportPosture
+
+    records = [_hitl_step_record(1)]
+    mem = _mem(step_records=records)
+    mem.hitl = HitlTransportPosture(
+        pending_hitl_requests=[
+            {
+                "prompt_id": "p-2",
+                "message": "Please confirm the approach.",
+                "choices": ["Approve", "Reject"],
+                "context": {"evidence_not_needed": True, "notes": "Preference question, no artifact required"},
+                "opaque_payload": {},
+                "issued_at_iteration": 1,
+            }
+        ]
+    )
+    result = build_prompt_observability_summary(mem)
+    assert result["hitl_evidence_readiness_debt_count"] == 0
+    assert not any(f.startswith("hitl_evidence_readiness_debt:") for f in result["mechanical_flags"])
+
+
+def test_hitl_evidence_readiness_choose_action_guidance_no_domain_terms() -> None:
+    """choose_action_instruction.py names the flag and expected behavior; no domain jargon."""
+    from harness.runtime.orchestration.choose_action_instruction import CHOOSE_ACTION_INSTRUCTION
+
+    assert "hitl_evidence_readiness_debt" in CHOOSE_ACTION_INSTRUCTION
+    assert "primary_evidence_ref" in CHOOSE_ACTION_INSTRUCTION
+    domain_terms = ["deed", "parcel", "plss", "transcription", "dossier", "mapping"]
+    for term in domain_terms:
+        assert term not in CHOOSE_ACTION_INSTRUCTION.lower(), f"Domain term found: {term}"

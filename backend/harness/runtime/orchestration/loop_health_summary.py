@@ -137,7 +137,23 @@ def build_prompt_observability_summary(
     same_ref_bundle_reread_no_gain_streak = _same_ref_bundle_reread_no_gain_streak(step_records)
     same_item_same_ref_bundle_stall_streak = _same_item_same_ref_bundle_stall_streak(step_records)
     same_item_hydrate_churn_no_gain_streak = _same_item_hydrate_churn_no_gain_streak(step_records)
+    artifact_refresh_trap_risk_count = _artifact_refresh_trap_risk(step_records)
     recent_result_truncated_count = _recent_result_truncated_count(step_result_records, last_n=3)
+    semantic_repair_debt_kinds_early = _semantic_repair_debt_kinds(feedback)
+    pending_hitl_integration_ids_early = _pending_hitl_integration_ids(feedback)
+    repair_ready_without_artifact_write_count = _repair_ready_without_artifact_write(
+        step_records,
+        semantic_repair_debt_kinds=semantic_repair_debt_kinds_early,
+        pending_hitl_integration_ids=pending_hitl_integration_ids_early,
+        artifact_refresh_trap_risk_count=artifact_refresh_trap_risk_count,
+        feedback=feedback,
+    )
+    pending_hitl_requests = list(getattr(loop_memory.hitl, "pending_hitl_requests", ()) or ())
+    hitl_evidence_readiness_debt_count = _hitl_evidence_readiness_debt(
+        step_records,
+        step_result_records,
+        pending_hitl_requests=pending_hitl_requests,
+    )
     substantial_artifact_output_count = _substantial_artifact_output_count(
         step_result_records,
         last_n=3,
@@ -227,6 +243,9 @@ def build_prompt_observability_summary(
         "same_ref_bundle_reread_no_gain_streak": same_ref_bundle_reread_no_gain_streak,
         "same_item_same_ref_bundle_stall_streak": same_item_same_ref_bundle_stall_streak,
         "same_item_hydrate_churn_no_gain_streak": same_item_hydrate_churn_no_gain_streak,
+        "artifact_refresh_trap_risk_count": artifact_refresh_trap_risk_count,
+        "repair_ready_without_artifact_write_count": repair_ready_without_artifact_write_count,
+        "hitl_evidence_readiness_debt_count": hitl_evidence_readiness_debt_count,
         "recent_result_truncated_count": recent_result_truncated_count,
         "substantial_artifact_output_count": substantial_artifact_output_count,
         "covered_unit_count": covered_units_metrics["covered_unit_count"],
@@ -295,13 +314,11 @@ def build_prompt_observability_summary(
         "artifact_claim_inventory_suspect_count": artifact_claim_inventory_suspect_count,
         "closure_readiness_projection": closure_readiness_projection,
     }
-    semantic_repair_debt_kinds = _semantic_repair_debt_kinds(feedback)
-    pending_hitl_integration_ids = _pending_hitl_integration_ids(feedback)
     reread_after_failed_persist = _reread_after_failed_persist(
         feedback=feedback, step_records=step_records
     )
-    summary["semantic_repair_debt"] = list(semantic_repair_debt_kinds)
-    summary["pending_hitl_integration_prompt_ids"] = list(pending_hitl_integration_ids)
+    summary["semantic_repair_debt"] = list(semantic_repair_debt_kinds_early)
+    summary["pending_hitl_integration_prompt_ids"] = list(pending_hitl_integration_ids_early)
 
     summary["mechanical_flags"] = _mechanical_flags(
         feedback=feedback,
@@ -319,6 +336,9 @@ def build_prompt_observability_summary(
         same_ref_bundle_reread_no_gain_streak=same_ref_bundle_reread_no_gain_streak,
         same_item_same_ref_bundle_stall_streak=same_item_same_ref_bundle_stall_streak,
         same_item_hydrate_churn_no_gain_streak=same_item_hydrate_churn_no_gain_streak,
+        artifact_refresh_trap_risk_count=artifact_refresh_trap_risk_count,
+        repair_ready_without_artifact_write_count=repair_ready_without_artifact_write_count,
+        hitl_evidence_readiness_debt_count=hitl_evidence_readiness_debt_count,
         recent_result_truncated_count=recent_result_truncated_count,
         artifact_claim_inventory_suspect_count=artifact_claim_inventory_suspect_count,
         closed_candidate_units_missing_determined_value_count=covered_units_metrics[
@@ -353,8 +373,8 @@ def build_prompt_observability_summary(
         explicit_non_blocking_without_notes_count=explicit_non_blocking_without_notes_count,
         notebook_shaped_graph_rows_count=notebook_shaped_graph_rows_count,
         complete_run_blockers=list(closure_readiness_projection.get("complete_run_blockers", ())),
-        semantic_repair_debt_kinds=semantic_repair_debt_kinds,
-        pending_hitl_integration_ids=pending_hitl_integration_ids,
+        semantic_repair_debt_kinds=semantic_repair_debt_kinds_early,
+        pending_hitl_integration_ids=pending_hitl_integration_ids_early,
         reread_after_failed_persist=reread_after_failed_persist,
     )
     return summary
@@ -632,6 +652,303 @@ def _same_item_hydrate_churn_no_gain_streak(step_records: list[dict[str, Any]]) 
             break
         streak += 1
     return streak
+
+
+_ARTIFACT_REFRESH_TRAP_SAVE_LOOKBACK: int = 8
+_ARTIFACT_REFRESH_TRAP_HYDRATE_THRESHOLD: int = 3
+_ARTIFACT_REFRESH_TRAP_SAVE_ACTION_TYPES: frozenset[str] = frozenset(
+    {"save_workspace_artifact", "copy_forward_save_workspace_artifact"}
+)
+_ARTIFACT_REFRESH_TRAP_WINDOW: int = 16
+_ARTIFACT_REFRESH_TRAP_SAVE_LOOKBACK_WIDE: int = 20
+_ARTIFACT_REFRESH_TRAP_SMALL_TARGET_SET_MAX: int = 4
+
+_REPAIR_READY_WRITE_ACTION_TYPES: frozenset[str] = _ARTIFACT_REFRESH_TRAP_SAVE_ACTION_TYPES
+_REPAIR_READY_MIN_NO_WRITE_TURNS: int = 3
+_HITL_EVIDENCE_READINESS_WINDOW: int = 5
+_HITL_EVIDENCE_CONTEXT_KEYS: frozenset[str] = frozenset({
+    "evidence_refs",
+    "primary_evidence_ref",
+    "annotated_evidence_ref",
+    "rendered_evidence_refs",
+    "question_regions",
+})
+_HITL_EVIDENCE_CAVEAT_KEYS: frozenset[str] = frozenset({
+    "evidence_not_needed",
+    "evidence_unavailable",
+    "evidence_not_applicable",
+})
+
+
+def _artifact_refresh_trap_streak(step_records: list[dict[str, Any]]) -> int:
+    """Simple consecutive hydrate streak after a recent save.
+
+    Fires when the trailing turns are all hydrate_artifact_refs with unchanged refs
+    and unchanged state, and a save exists in the immediately preceding lookback.
+    Does not fire if any non-hydrate turn breaks the physical streak.
+    """
+    if not step_records:
+        return 0
+    tail = step_records[-1]
+    if _as_optional_text(tail.get("action_type")) != "hydrate_artifact_refs":
+        return 0
+    tail_input_sig = _ref_bundle_signature_for_step(tail)
+    if tail_input_sig is None:
+        return 0
+    latest_refs_sig = _stable_signature(tail.get("latest_refs_snapshot"))
+    latest_state_sig = _as_optional_text(tail.get("work_state_signature"))
+    if latest_state_sig is None:
+        return 0
+
+    streak = 0
+    for row in reversed(step_records):
+        if _as_optional_text(row.get("action_type")) != "hydrate_artifact_refs":
+            break
+        if _ref_bundle_signature_for_step(row) != tail_input_sig:
+            break
+        if _stable_signature(row.get("latest_refs_snapshot")) != latest_refs_sig:
+            break
+        if _as_optional_text(row.get("work_state_signature")) != latest_state_sig:
+            break
+        streak += 1
+
+    if streak < _ARTIFACT_REFRESH_TRAP_HYDRATE_THRESHOLD:
+        return 0
+
+    pre_streak = step_records[: len(step_records) - streak]
+    lookback = pre_streak[-_ARTIFACT_REFRESH_TRAP_SAVE_LOOKBACK:]
+    if not any(
+        _as_optional_text(row.get("action_type")) in _ARTIFACT_REFRESH_TRAP_SAVE_ACTION_TYPES
+        for row in lookback
+    ):
+        return 0
+
+    return streak
+
+
+def _artifact_refresh_trap_windowed(step_records: list[dict[str, Any]]) -> int:
+    """Windowed hydrate-churn detector — fires on same-target repeats and small-set cycling.
+
+    Catches the run-10 interleaved trap: save → hydrate(A) → state_patch → hydrate(B) →
+    state_patch → hydrate(A) → ... where the agent cycles over a small bounded set of
+    recovery refs without producing new refs and without using copy_forward_save.
+    State-only turns (state patches, no-dispatch) are invisible to the count.
+
+    Two firing conditions (both require prior save and no escape tool in window):
+    1. Trailing fruitless hydrate sub-streak: all trailing hydrate rows have the same
+       latest_refs_snapshot as the most recent hydrate AND the same read-target signature.
+    2. Cyclic small-set recovery: trailing fruitless hydrate rows (same latest_refs_snapshot)
+       cycle over ≤ SMALL_TARGET_SET_MAX distinct read-target signatures and at least one
+       target is repeated (len rows > len distinct sigs). Suppressed when every target appears
+       exactly once — that is one-off post-save verification, not a recovery cycle.
+    """
+    if not step_records:
+        return 0
+
+    window = step_records[-_ARTIFACT_REFRESH_TRAP_WINDOW:]
+
+    if any(
+        _as_optional_text(row.get("action_type")) == "copy_forward_save_workspace_artifact"
+        for row in window
+    ):
+        return 0
+
+    hydrate_rows = [
+        row for row in window
+        if _as_optional_text(row.get("action_type")) == "hydrate_artifact_refs"
+    ]
+
+    if not hydrate_rows:
+        return 0
+
+    # Collect trailing fruitless hydrate rows: same latest_refs_snapshot as the most recent
+    # hydrate means those reads produced no new refs.
+    tail_ref_sig = _stable_signature(hydrate_rows[-1].get("latest_refs_snapshot"))
+    fruitless_rows: list[dict[str, Any]] = []
+    for row in reversed(hydrate_rows):
+        if _stable_signature(row.get("latest_refs_snapshot")) != tail_ref_sig:
+            break
+        fruitless_rows.append(row)
+
+    if len(fruitless_rows) < _ARTIFACT_REFRESH_TRAP_HYDRATE_THRESHOLD:
+        return 0
+
+    input_sigs = [_ref_bundle_signature_for_step(r) for r in fruitless_rows]
+    distinct_sigs = {s for s in input_sigs if s is not None}
+
+    if not distinct_sigs:
+        return 0
+
+    if len(distinct_sigs) > _ARTIFACT_REFRESH_TRAP_SMALL_TARGET_SET_MAX:
+        # Too many distinct targets — broad exploration, not a focused recovery cycle.
+        return 0
+
+    if len(fruitless_rows) <= len(distinct_sigs):
+        # Each target appeared exactly once — one-off post-save verification, not cycling.
+        return 0
+
+    wide_lookback = step_records[-_ARTIFACT_REFRESH_TRAP_SAVE_LOOKBACK_WIDE:]
+    if not any(
+        _as_optional_text(row.get("action_type")) in _ARTIFACT_REFRESH_TRAP_SAVE_ACTION_TYPES
+        for row in wide_lookback
+    ):
+        return 0
+
+    return len(fruitless_rows)
+
+
+def _artifact_refresh_trap_risk(step_records: list[dict[str, Any]]) -> int:
+    """Artifact-refresh trap risk: max of the simple streak and windowed hydrate-churn detectors.
+
+    The streak detector catches the simplest form (consecutive hydrates after a save).
+    The windowed detector catches the run-10 interleaved form (hydrates broken up by
+    state patches, but still fruitless over the wider window).
+    Purely structural — no ref content inspection, no domain knowledge.
+    """
+    return max(
+        _artifact_refresh_trap_streak(step_records),
+        _artifact_refresh_trap_windowed(step_records),
+    )
+
+
+def _repair_ready_without_artifact_write(
+    step_records: list[dict[str, Any]],
+    *,
+    semantic_repair_debt_kinds: list[str],
+    pending_hitl_integration_ids: list[str],
+    artifact_refresh_trap_risk_count: int,
+    feedback: Mapping[str, Any],
+) -> int:
+    """Advisory counter: repair/save pressure is present but recent turns avoid artifact writes.
+
+    Fires when any of the following signal repair pressure:
+    - semantic_repair_debt_kinds is non-empty
+    - pending_hitl_integration_ids is non-empty
+    - artifact_refresh_trap_risk_count > 0
+    - feedback carries salvaged_rows (prose fields omitted on apply)
+
+    AND the trailing step_records carry no save_workspace_artifact or
+    copy_forward_save_workspace_artifact turn.
+
+    Returns the count of consecutive trailing turns without an artifact write when
+    the count meets _REPAIR_READY_MIN_NO_WRITE_TURNS. Returns 0 when no repair
+    pressure exists, when a write appears in the trailing turns, or when the
+    trailing count is below the minimum threshold.
+    """
+    if not step_records:
+        return 0
+
+    has_repair_pressure = (
+        bool(semantic_repair_debt_kinds)
+        or bool(pending_hitl_integration_ids)
+        or artifact_refresh_trap_risk_count > 0
+        or bool(feedback.get("salvaged_rows"))
+    )
+    if not has_repair_pressure:
+        return 0
+
+    trailing_no_write: int = 0
+    for row in reversed(step_records):
+        if _as_optional_text(row.get("action_type")) in _REPAIR_READY_WRITE_ACTION_TYPES:
+            break
+        trailing_no_write += 1
+
+    if trailing_no_write < _REPAIR_READY_MIN_NO_WRITE_TURNS:
+        return 0
+
+    return trailing_no_write
+
+
+def _hitl_context_has_evidence(context: Any) -> bool:
+    """True when the HITL context dict carries focused evidence keys."""
+    if not isinstance(context, Mapping):
+        return False
+    return any(bool(context.get(key)) for key in _HITL_EVIDENCE_CONTEXT_KEYS)
+
+
+def _hitl_context_has_caveat(context: Any) -> bool:
+    """True when the HITL context explicitly declares evidence is not needed or unavailable."""
+    if not isinstance(context, Mapping):
+        return False
+    return any(bool(context.get(key)) for key in _HITL_EVIDENCE_CAVEAT_KEYS)
+
+
+def _hitl_evidence_readiness_debt(
+    step_records: list[dict[str, Any]],
+    step_result_records: list[dict[str, Any]],
+    *,
+    pending_hitl_requests: list[dict[str, Any]],
+    window: int = _HITL_EVIDENCE_READINESS_WINDOW,
+) -> int:
+    """Advisory: recent HITL turns carry no focused evidence and no explicit evidence caveat.
+
+    Fires when: a HITL step exists in the recent window AND the HITL step carried
+    non-empty refs (evidence was available to curate) AND neither the HITL's own
+    context (from pending_hitl_requests) nor recent result records expose evidence
+    or an explicit evidence-not-applicable declaration.
+
+    Suppressed when:
+    - The HITL request context contains evidence keys (evidence_refs, primary_evidence_ref,
+      annotated_evidence_ref, rendered_evidence_refs, question_regions), OR
+    - The HITL request context contains a caveat key (evidence_not_needed,
+      evidence_unavailable, evidence_not_applicable), OR
+    - A recent result record exposes evidence artifact metadata, OR
+    - latest_refs_snapshot was empty at HITL time (evidence genuinely unavailable).
+
+    Returns the count of underprepared HITL turns (those without evidence or caveat).
+    """
+    if not step_records:
+        return 0
+    recent = step_records[-window:]
+    hitl_turns = [r for r in recent if bool(r.get("wait_for_human"))]
+    if not hitl_turns:
+        return 0
+
+    # Index pending requests by issued_at_iteration for O(1) context lookup.
+    pending_by_iteration: dict[int, dict[str, Any]] = {}
+    for req in pending_hitl_requests:
+        if not isinstance(req, Mapping):
+            continue
+        iteration = _as_int(req.get("issued_at_iteration"))
+        if iteration is not None:
+            pending_by_iteration[iteration] = req
+
+    # Identify HITL turns that are actually underprepared.
+    debt_turns: list[dict[str, Any]] = []
+    for turn in hitl_turns:
+        refs = turn.get("latest_refs_snapshot") or {}
+        if not refs:
+            # Evidence genuinely unavailable at this turn — not a debt.
+            continue
+        turn_index = _as_int(turn.get("kernel_turn_index"))
+        if turn_index is not None and turn_index in pending_by_iteration:
+            req = pending_by_iteration[turn_index]
+            context = req.get("context")
+            if _hitl_context_has_evidence(context) or _hitl_context_has_caveat(context):
+                continue
+        debt_turns.append(turn)
+
+    if not debt_turns:
+        return 0
+
+    # Suppress entirely when a recent result exposes focused evidence metadata.
+    if step_result_records:
+        recent_results = step_result_records[-window:]
+        for row in recent_results:
+            if not isinstance(row, Mapping):
+                continue
+            outputs = row.get("outputs_for_continuity")
+            if not isinstance(outputs, Mapping):
+                continue
+            if (
+                outputs.get("rendered_evidence_refs")
+                or outputs.get("evidence_artifact_summary")
+                or outputs.get("derived_ref_id")
+                or outputs.get("derived_ref")
+            ):
+                return 0
+
+    return len(debt_turns)
 
 
 def _covered_units_metrics(items: list[Any]) -> dict[str, int]:
@@ -979,6 +1296,9 @@ def _mechanical_flags(
     same_ref_bundle_reread_no_gain_streak: int,
     same_item_same_ref_bundle_stall_streak: int,
     same_item_hydrate_churn_no_gain_streak: int,
+    artifact_refresh_trap_risk_count: int = 0,
+    repair_ready_without_artifact_write_count: int = 0,
+    hitl_evidence_readiness_debt_count: int = 0,
     recent_result_truncated_count: int = 0,
     artifact_claim_inventory_suspect_count: int = 0,
     closed_candidate_units_missing_determined_value_count: int = 0,
@@ -1038,6 +1358,12 @@ def _mechanical_flags(
         flags.append(f"same_item_same_ref_bundle_stall:{same_item_same_ref_bundle_stall_streak}")
     if same_item_hydrate_churn_no_gain_streak >= 3:
         flags.append(f"same_item_hydrate_churn_no_gain:{same_item_hydrate_churn_no_gain_streak}")
+    if artifact_refresh_trap_risk_count >= _ARTIFACT_REFRESH_TRAP_HYDRATE_THRESHOLD:
+        flags.append(f"artifact_refresh_trap_risk:{artifact_refresh_trap_risk_count}")
+    if repair_ready_without_artifact_write_count >= _REPAIR_READY_MIN_NO_WRITE_TURNS:
+        flags.append(f"repair_ready_without_artifact_write:{repair_ready_without_artifact_write_count}")
+    if hitl_evidence_readiness_debt_count > 0:
+        flags.append(f"hitl_evidence_readiness_debt:{hitl_evidence_readiness_debt_count}")
     if closed_candidate_units_missing_determined_value_count > 0:
         flags.append(
             f"closed_candidate_unit_missing_determined_value:{closed_candidate_units_missing_determined_value_count}"

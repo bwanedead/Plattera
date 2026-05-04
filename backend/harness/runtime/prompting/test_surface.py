@@ -145,3 +145,24 @@ def test_surface_source_downstream_lane_section_has_no_current_deed_examples() -
     section = lowered[start:end]
     for banned in ("range 75", "range 74", "parcel 1", "parcel 2", "nw corner", "1638"):
         assert banned not in section, f"Found banned term {banned!r} in source/downstream lane section"
+
+
+def test_surface_teaches_hitl_evidence_readiness() -> None:
+    """HITL evidence readiness doctrine appears in method text and names the mechanical flag."""
+    assert "## HITL evidence readiness" in _HARNESS_TRUNK_METHOD_TEXT
+    assert "hitl_evidence_readiness_debt" in _HARNESS_TRUNK_METHOD_TEXT
+    assert "rendered_evidence_refs" in _HARNESS_TRUNK_METHOD_TEXT
+    assert "evidence_artifact_summary" in _HARNESS_TRUNK_METHOD_TEXT
+
+
+def test_surface_hitl_evidence_readiness_section_has_no_domain_terms() -> None:
+    """HITL evidence readiness section contains no domain-specific terms."""
+    lowered = _HARNESS_TRUNK_METHOD_TEXT.lower()
+    start = lowered.find("## hitl evidence readiness")
+    end = lowered.find("## projection boundary rule")
+    assert start >= 0, "HITL evidence readiness section must exist"
+    assert end > start, "Projection boundary rule section must follow HITL evidence readiness"
+    section = lowered[start:end]
+    domain_terms = ["deed", "parcel", "plss", "transcription", "dossier", "mapping"]
+    for term in domain_terms:
+        assert term not in section, f"Domain term {term!r} found in HITL evidence readiness section"

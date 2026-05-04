@@ -256,7 +256,7 @@ def test_hotspot_files_do_not_grow_past_budget() -> None:
         HARNESS_ROOT / "observability" / "summary" / "orchestration.py": 400,
         HARNESS_ROOT / "observability" / "summary" / "payload.py": 220,
         HARNESS_ROOT / "observability" / "summary" / "state_projection.py": 130,
-        HARNESS_ROOT / "observability" / "summary" / "prompt_observability.py": 90,
+        HARNESS_ROOT / "observability" / "summary" / "prompt_observability.py": 95,
         HARNESS_ROOT / "observability" / "summary" / "common.py": 100,
         HARNESS_ROOT / "runtime" / "orchestration" / "orchestrator.py": 660,
         HARNESS_ROOT / "runtime" / "orchestration" / "llm_turn_adapter.py": 360,

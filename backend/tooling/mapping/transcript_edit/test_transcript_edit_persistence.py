@@ -16,6 +16,7 @@ from harness.execution.executor import ExecutionExecutor
 from harness.execution.session import ExecutionSessionManager
 from tooling.mapping.transcript_edit import (
     build_transcript_edit_startup_inventory,
+    copy_forward_save,
     hydrate_transcript_edit_working_draft,
     publish_transcript_edit_output,
     save_transcript_edit,
@@ -389,3 +390,300 @@ def test_workspace_explicit_over_run_id(tmp_path, monkeypatch):
     root_ws = transcript_edit_workspace_root(d, tx, "real-ws")
     assert (root_ws / "working" / "rev_0001.json").is_file()
     assert not (transcript_edit_workspace_root(d, tx, "ignored") / "working").exists()
+
+
+# ---------------------------------------------------------------------------
+# copy_forward_save
+# ---------------------------------------------------------------------------
+
+
+def _base_draft_payload() -> dict:
+    return {
+        "source_transcript_verbatim": {"text": "long verbatim text " * 200},
+        "normalized_or_mapping_transcript": {"text": "long normalized text " * 200},
+        "issues": [],
+        "parcel_metadata": {},
+        "evidence_refs": [],
+    }
+
+
+def test_copy_forward_save_copies_text_lanes_and_sets_metadata(tmp_path, monkeypatch):
+    """Copy two long text fields from base; set metadata fields; new revision is saved correctly."""
+    root = _dossiers_root(tmp_path)
+    monkeypatch.setattr(paths_mod, "dossiers_root", lambda: root)
+    d, tx, ws = "d1", "t1", "ws-cfs-1"
+    _minimal_run_layout(root, d, tx)
+
+    base = save_transcript_edit(
+        dossier_id=d,
+        transcription_id=tx,
+        run_id=ws,
+        draft_payload=_base_draft_payload(),
+        rationale="initial",
+    )
+    assert base["executed"] is True
+    base_ref = base["outputs"]["working_draft_ref"]
+
+    new_issues = [{"id": "i1", "description": "Bearing updated."}]
+    out = copy_forward_save(
+        dossier_id=d,
+        transcription_id=tx,
+        run_id=ws,
+        base_ref=base_ref,
+        copy_forward_paths=[
+            "payload.source_transcript_verbatim",
+            "payload.normalized_or_mapping_transcript",
+        ],
+        set_paths={
+            "payload.issues": new_issues,
+            "payload.parcel_metadata": {"parcel_count": 1},
+            "payload.evidence_refs": ["image:derived:tx:crop_001"],
+        },
+        rationale="Updated issues after zoom; verbatim unchanged.",
+    )
+    assert out["executed"] is True
+    assert out["outputs"]["revision"] == 2
+    assert out["outputs"]["working_draft_ref"] == "transcript_edit:working:rev:0002"
+
+    rev2 = json.loads(
+        transcript_edit_revision_path(d, tx, ws, "0002").read_text(encoding="utf-8")
+    )
+    payload = rev2["payload"]
+    assert payload["source_transcript_verbatim"] == _base_draft_payload()["source_transcript_verbatim"]
+    assert payload["normalized_or_mapping_transcript"] == _base_draft_payload()["normalized_or_mapping_transcript"]
+    assert payload["issues"] == new_issues
+    assert payload["parcel_metadata"] == {"parcel_count": 1}
+    assert payload["evidence_refs"] == ["image:derived:tx:crop_001"]
+    assert rev2["base_revision_ref"] == base_ref
+
+
+def test_copy_forward_save_missing_path_returns_repair_error(tmp_path, monkeypatch):
+    """Requesting a path not present in the base artifact returns missing_copy_paths refusal."""
+    root = _dossiers_root(tmp_path)
+    monkeypatch.setattr(paths_mod, "dossiers_root", lambda: root)
+    d, tx, ws = "d1", "t1", "ws-cfs-2"
+    _minimal_run_layout(root, d, tx)
+
+    base = save_transcript_edit(
+        dossier_id=d,
+        transcription_id=tx,
+        run_id=ws,
+        draft_payload={"source_transcript_verbatim": {"text": "v1"}},
+    )
+    base_ref = base["outputs"]["working_draft_ref"]
+
+    out = copy_forward_save(
+        dossier_id=d,
+        transcription_id=tx,
+        run_id=ws,
+        base_ref=base_ref,
+        copy_forward_paths=["payload.does_not_exist"],
+        set_paths={},
+    )
+    assert out["executed"] is False
+    assert out["refusal"]["reason_code"] == "missing_copy_paths"
+    assert "payload.does_not_exist" in out["outputs"]["missing_copy_paths"]
+    assert "repair_hint" in out["outputs"]
+
+
+def test_copy_forward_save_invalid_path_syntax_no_payload_prefix(tmp_path, monkeypatch):
+    """Path without 'payload.' prefix returns invalid_path_syntax with repair hint."""
+    root = _dossiers_root(tmp_path)
+    monkeypatch.setattr(paths_mod, "dossiers_root", lambda: root)
+    d, tx, ws = "d1", "t1", "ws-cfs-3"
+    _minimal_run_layout(root, d, tx)
+
+    base = save_transcript_edit(
+        dossier_id=d, transcription_id=tx, run_id=ws, draft_payload={"x": 1}
+    )
+    base_ref = base["outputs"]["working_draft_ref"]
+
+    out = copy_forward_save(
+        dossier_id=d,
+        transcription_id=tx,
+        run_id=ws,
+        base_ref=base_ref,
+        copy_forward_paths=["source_transcript_verbatim"],
+        set_paths={},
+    )
+    assert out["executed"] is False
+    assert out["refusal"]["reason_code"] == "invalid_path_syntax"
+    assert "repair_hint" in out["outputs"]
+    assert out["outputs"]["invalid_path"] == "source_transcript_verbatim"
+
+
+def test_copy_forward_save_overlapping_paths_rejected(tmp_path, monkeypatch):
+    """Same path in both copy_forward_paths and set_paths is rejected with overlapping_paths."""
+    root = _dossiers_root(tmp_path)
+    monkeypatch.setattr(paths_mod, "dossiers_root", lambda: root)
+    d, tx, ws = "d1", "t1", "ws-cfs-4"
+    _minimal_run_layout(root, d, tx)
+
+    base = save_transcript_edit(
+        dossier_id=d, transcription_id=tx, run_id=ws, draft_payload={"issues": []}
+    )
+    base_ref = base["outputs"]["working_draft_ref"]
+
+    out = copy_forward_save(
+        dossier_id=d,
+        transcription_id=tx,
+        run_id=ws,
+        base_ref=base_ref,
+        copy_forward_paths=["payload.issues"],
+        set_paths={"payload.issues": [{"id": "new"}]},
+    )
+    assert out["executed"] is False
+    assert out["refusal"]["reason_code"] == "overlapping_paths"
+    assert "payload.issues" in out["outputs"]["overlapping_paths"]
+
+
+def test_copy_forward_save_invalid_base_ref_rejected(tmp_path, monkeypatch):
+    """A base_ref that doesn't match the NNNN pattern returns invalid_base_ref."""
+    root = _dossiers_root(tmp_path)
+    monkeypatch.setattr(paths_mod, "dossiers_root", lambda: root)
+    d, tx, ws = "d1", "t1", "ws-cfs-5"
+    _minimal_run_layout(root, d, tx)
+
+    out = copy_forward_save(
+        dossier_id=d,
+        transcription_id=tx,
+        run_id=ws,
+        base_ref="transcript_edit:working",
+        copy_forward_paths=["payload.x"],
+        set_paths={},
+    )
+    assert out["executed"] is False
+    assert out["refusal"]["reason_code"] == "invalid_base_ref"
+    assert "repair_hint" in out["outputs"]
+
+
+def test_copy_forward_save_via_executor_produces_new_revision(tmp_path, monkeypatch):
+    """copy_forward_save_workspace_artifact tool binding works end-to-end via executor."""
+    root = _dossiers_root(tmp_path)
+    monkeypatch.setattr(paths_mod, "dossiers_root", lambda: root)
+    d, tx, ws = "d1", "t1", "ws-cfs-ex"
+    _minimal_run_layout(root, d, tx)
+
+    bindings = runtime_composition.build_transcript_edit_tool_bindings(
+        dossier_id=d, transcription_id=tx, workspace_key=ws
+    )
+    ex = ExecutionExecutor()
+    for b in bindings:
+        ex.register(b.tool_id, b.handler)
+
+    r_save = ex.execute(
+        ExecutionStepRequest(
+            session_id="s1",
+            action_id="save_workspace_artifact",
+            inputs={"draft_payload": _base_draft_payload()},
+        )
+    )
+    assert r_save.executed is True
+    base_ref = r_save.outputs["working_draft_ref"]
+
+    r_copy = ex.execute(
+        ExecutionStepRequest(
+            session_id="s1",
+            action_id="copy_forward_save_workspace_artifact",
+            inputs={
+                "base_ref": base_ref,
+                "copy_forward_paths": [
+                    "payload.source_transcript_verbatim",
+                    "payload.normalized_or_mapping_transcript",
+                ],
+                "set_paths": {"payload.issues": [{"id": "i1"}]},
+                "rationale": "evidence refresh",
+            },
+        )
+    )
+    assert r_copy.executed is True
+    assert r_copy.outputs["revision"] == 2
+    assert r_copy.artifact_refs == (
+        "transcript_edit:working:rev:0002",
+        "transcript_edit:working",
+    )
+
+    rev2 = json.loads(
+        transcript_edit_revision_path(d, tx, ws, "0002").read_text(encoding="utf-8")
+    )
+    assert rev2["payload"]["source_transcript_verbatim"] == _base_draft_payload()["source_transcript_verbatim"]
+    assert rev2["payload"]["issues"] == [{"id": "i1"}]
+
+
+def test_copy_forward_save_ancestor_overlap_copy_parent_set_child_rejected(tmp_path, monkeypatch):
+    """Copying payload.parcel_metadata and setting payload.parcel_metadata.forwardability is rejected."""
+    root = _dossiers_root(tmp_path)
+    monkeypatch.setattr(paths_mod, "dossiers_root", lambda: root)
+    d, tx, ws = "d1", "t1", "ws-cfs-anc1"
+    _minimal_run_layout(root, d, tx)
+
+    base = save_transcript_edit(
+        dossier_id=d, transcription_id=tx, run_id=ws,
+        draft_payload={"parcel_metadata": {"forwardability": "blocked"}},
+    )
+    base_ref = base["outputs"]["working_draft_ref"]
+
+    out = copy_forward_save(
+        dossier_id=d,
+        transcription_id=tx,
+        run_id=ws,
+        base_ref=base_ref,
+        copy_forward_paths=["payload.parcel_metadata"],
+        set_paths={"payload.parcel_metadata.forwardability": "ready"},
+    )
+    assert out["executed"] is False
+    assert out["refusal"]["reason_code"] == "overlapping_paths"
+    assert "payload.parcel_metadata" in out["outputs"]["overlapping_paths"]
+    assert "payload.parcel_metadata.forwardability" in out["outputs"]["overlapping_paths"]
+
+
+def test_copy_forward_save_ancestor_overlap_copy_child_set_parent_rejected(tmp_path, monkeypatch):
+    """Copying payload.parcel_metadata.forwardability and setting payload.parcel_metadata is rejected."""
+    root = _dossiers_root(tmp_path)
+    monkeypatch.setattr(paths_mod, "dossiers_root", lambda: root)
+    d, tx, ws = "d1", "t1", "ws-cfs-anc2"
+    _minimal_run_layout(root, d, tx)
+
+    base = save_transcript_edit(
+        dossier_id=d, transcription_id=tx, run_id=ws,
+        draft_payload={"parcel_metadata": {"forwardability": "blocked"}},
+    )
+    base_ref = base["outputs"]["working_draft_ref"]
+
+    out = copy_forward_save(
+        dossier_id=d,
+        transcription_id=tx,
+        run_id=ws,
+        base_ref=base_ref,
+        copy_forward_paths=["payload.parcel_metadata.forwardability"],
+        set_paths={"payload.parcel_metadata": {"forwardability": "ready"}},
+    )
+    assert out["executed"] is False
+    assert out["refusal"]["reason_code"] == "overlapping_paths"
+    assert "payload.parcel_metadata" in out["outputs"]["overlapping_paths"]
+    assert "payload.parcel_metadata.forwardability" in out["outputs"]["overlapping_paths"]
+
+
+def test_copy_forward_save_disjoint_paths_accepted(tmp_path, monkeypatch):
+    """Copying payload.source_transcript_verbatim and setting payload.issues is accepted (no overlap)."""
+    root = _dossiers_root(tmp_path)
+    monkeypatch.setattr(paths_mod, "dossiers_root", lambda: root)
+    d, tx, ws = "d1", "t1", "ws-cfs-dis"
+    _minimal_run_layout(root, d, tx)
+
+    base = save_transcript_edit(
+        dossier_id=d, transcription_id=tx, run_id=ws,
+        draft_payload={"source_transcript_verbatim": {"text": "verbatim"}, "issues": []},
+    )
+    base_ref = base["outputs"]["working_draft_ref"]
+
+    out = copy_forward_save(
+        dossier_id=d,
+        transcription_id=tx,
+        run_id=ws,
+        base_ref=base_ref,
+        copy_forward_paths=["payload.source_transcript_verbatim"],
+        set_paths={"payload.issues": [{"id": "i1"}]},
+    )
+    assert out["executed"] is True
+    assert out["outputs"]["revision"] == 2

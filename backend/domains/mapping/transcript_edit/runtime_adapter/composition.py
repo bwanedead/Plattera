@@ -12,6 +12,7 @@ from typing import Any
 
 from harness.runtime.composition import ToolBinding, TurnBlock, TurnSurface
 from tooling.mapping.transcript_edit import (
+    copy_forward_save,
     publish_transcript_edit_output,
     save_transcript_edit,
 )
@@ -111,6 +112,14 @@ def _tool_handler_entries(
             ),
         ),
         (
+            "copy_forward_save_workspace_artifact",
+            _make_copy_forward_save_handler(
+                dossier_id=dossier_id,
+                transcription_id=transcription_id,
+                workspace_key=workspace_key,
+            ),
+        ),
+        (
             "publish_workspace_artifact",
             _make_publish_handler(
                 dossier_id=dossier_id,
@@ -137,6 +146,47 @@ def _make_save_handler(
                 transcript_text=inputs.get("transcript_text"),
                 draft_payload=inputs.get("draft_payload"),
                 base_revision_ref=inputs.get("base_revision_ref"),
+                evidence_refs=inputs.get("evidence_refs") or [],
+                rationale=inputs.get("rationale"),
+            )
+        except Exception as exc:
+            return _exception_refusal(exc)
+        return _normalize_tool_result(raw_result)
+
+    return handler
+
+
+def _make_copy_forward_save_handler(
+    *,
+    dossier_id: str,
+    transcription_id: str,
+    workspace_key: str | None,
+) -> Callable[[Any], Any]:
+    def handler(request: Any) -> Any:
+        inputs = dict(request.inputs) if hasattr(request, "inputs") else dict(request) if isinstance(request, dict) else {}
+        base_ref = str(inputs.get("base_ref") or "").strip()
+        if not base_ref:
+            return _error_refusal("base_ref_required", "base_ref is required.")
+        copy_forward_paths = inputs.get("copy_forward_paths")
+        if not isinstance(copy_forward_paths, list) or not copy_forward_paths:
+            return _error_refusal(
+                "copy_forward_paths_required",
+                "copy_forward_paths must be a non-empty list of dot-notation path strings.",
+            )
+        set_paths = inputs.get("set_paths")
+        if not isinstance(set_paths, dict):
+            return _error_refusal(
+                "set_paths_required",
+                "set_paths must be an object mapping dot-notation paths to authored values.",
+            )
+        try:
+            raw_result = copy_forward_save(
+                dossier_id=dossier_id,
+                transcription_id=transcription_id,
+                workspace_id=workspace_key,
+                base_ref=base_ref,
+                copy_forward_paths=copy_forward_paths,
+                set_paths=set_paths,
                 evidence_refs=inputs.get("evidence_refs") or [],
                 rationale=inputs.get("rationale"),
             )

@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from collections.abc import Mapping
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -21,6 +22,67 @@ from .paths import (
 
 _SCHEMA_VERSION = 1
 _WORKING_REV_REF_RE = re.compile(r"^transcript_edit:working:rev:(\d{4})$")
+
+_MAX_COPY_FORWARD_PATHS: int = 32
+_MAX_PATH_DEPTH: int = 8
+_PAYLOAD_PATH_PREFIX: str = "payload."
+
+
+def _validate_dot_path(path: str) -> str | None:
+    """Return an error string if path is invalid for copy-forward operations, else None."""
+    if not isinstance(path, str) or not path:
+        return "path must be a non-empty string"
+    if not path.startswith(_PAYLOAD_PATH_PREFIX):
+        return (
+            f"path must start with 'payload.' to scope into the artifact payload"
+            f" (got {path!r})"
+        )
+    parts = path.split(".")
+    if len(parts) > _MAX_PATH_DEPTH:
+        return f"path exceeds max depth {_MAX_PATH_DEPTH}: {path!r}"
+    for part in parts:
+        if not part:
+            return f"path has empty segment (double-dot?): {path!r}"
+    return None
+
+
+def _get_at_dot_path(obj: Any, parts: list[str]) -> tuple[Any, bool]:
+    """Traverse obj following parts. Returns (value, found)."""
+    cur: Any = obj
+    for part in parts:
+        if not isinstance(cur, Mapping):
+            return None, False
+        if part not in cur:
+            return None, False
+        cur = cur[part]
+    return cur, True
+
+
+def _set_at_dot_path(obj: dict[str, Any], parts: list[str], value: Any) -> None:
+    """Set value in obj at the path described by parts, creating intermediate dicts."""
+    cur = obj
+    for part in parts[:-1]:
+        if part not in cur or not isinstance(cur[part], dict):
+            cur[part] = {}
+        cur = cur[part]
+    cur[parts[-1]] = value
+
+
+def _paths_overlap(a: str, b: str) -> bool:
+    """Return True if dot-notation paths are identical or one is an ancestor of the other.
+
+    Ancestor overlap: copying ``payload.parcel_metadata`` and setting
+    ``payload.parcel_metadata.forwardability`` would mutate inside a copied subtree.
+    Descendant overlap: copying ``payload.parcel_metadata.forwardability`` and setting
+    ``payload.parcel_metadata`` would silently overwrite the copied value.
+    Both directions are considered overlap.
+    """
+    if a == b:
+        return True
+    parts_a = a.split(".")
+    parts_b = b.split(".")
+    shorter = min(len(parts_a), len(parts_b))
+    return parts_a[:shorter] == parts_b[:shorter]
 
 
 def parse_working_revision_ref(ref_id: str) -> str | None:
@@ -305,3 +367,163 @@ def publish_transcript_edit_output(
             "workspace_root": str(root.resolve()),
         },
     }
+
+
+def copy_forward_save(
+    *,
+    dossier_id: str,
+    transcription_id: str,
+    workspace_id: str | None = None,
+    run_id: str | None = None,
+    base_ref: str,
+    copy_forward_paths: list[str],
+    set_paths: dict[str, Any],
+    evidence_refs: list[str] | None = None,
+    rationale: str | None = None,
+) -> dict[str, Any]:
+    """Create a new revision by copying named payload paths from a base revision and applying agent-authored updates.
+
+    Deterministic code copies exact named values; no semantic inference.
+    The agent must explicitly name the base ref, all copied paths, and all authored paths.
+    Paths in copy_forward_paths and set_paths must not overlap.
+    """
+    dossier_id = str(dossier_id).strip()
+    transcription_id = str(transcription_id).strip()
+    ws = resolve_workspace_key(workspace_id=workspace_id, run_id=run_id)
+    if not ws:
+        return _refuse_missing_workspace()
+
+    base_ref_str = str(base_ref).strip() if base_ref else ""
+    rev_digits = parse_working_revision_ref(base_ref_str)
+    if not rev_digits:
+        return {
+            "executed": False,
+            "refusal": {"reason_code": "invalid_base_ref", "retryable": False},
+            "outputs": {
+                "error": "base_ref must match transcript_edit:working:rev:NNNN.",
+                "repair_hint": "Use a specific revision ref such as 'transcript_edit:working:rev:0001'.",
+            },
+        }
+
+    copy_paths: list[str] = list(copy_forward_paths or [])
+    set_dict: dict[str, Any] = dict(set_paths or {})
+
+    if len(copy_paths) + len(set_dict) > _MAX_COPY_FORWARD_PATHS:
+        return {
+            "executed": False,
+            "refusal": {"reason_code": "too_many_paths", "retryable": False},
+            "outputs": {
+                "error": (
+                    f"Total path count ({len(copy_paths)} copy + {len(set_dict)} set)"
+                    f" exceeds max {_MAX_COPY_FORWARD_PATHS}."
+                ),
+            },
+        }
+
+    for path in copy_paths:
+        err = _validate_dot_path(path)
+        if err:
+            return {
+                "executed": False,
+                "refusal": {"reason_code": "invalid_path_syntax", "retryable": False},
+                "outputs": {
+                    "error": err,
+                    "repair_hint": (
+                        "Use dot-notation paths starting with 'payload.' "
+                        "— e.g., 'payload.source_transcript_verbatim'."
+                    ),
+                    "invalid_path": path,
+                },
+            }
+    for path in set_dict:
+        err = _validate_dot_path(path)
+        if err:
+            return {
+                "executed": False,
+                "refusal": {"reason_code": "invalid_path_syntax", "retryable": False},
+                "outputs": {
+                    "error": err,
+                    "repair_hint": (
+                        "Use dot-notation paths starting with 'payload.' "
+                        "— e.g., 'payload.issues'."
+                    ),
+                    "invalid_path": path,
+                },
+            }
+
+    overlap_involved: set[str] = set()
+    for cp in copy_paths:
+        for sp in set_dict:
+            if _paths_overlap(cp, sp):
+                overlap_involved.add(cp)
+                overlap_involved.add(sp)
+    if overlap_involved:
+        return {
+            "executed": False,
+            "refusal": {"reason_code": "overlapping_paths", "retryable": False},
+            "outputs": {
+                "error": (
+                    "Paths in copy_forward_paths and set_paths overlap "
+                    "(exact match or ancestor/descendant). Remove from one list."
+                ),
+                "overlapping_paths": sorted(overlap_involved),
+            },
+        }
+
+    try:
+        rev_path = transcript_edit_revision_path(dossier_id, transcription_id, ws, rev_digits)
+        base_doc = _load_json_file(rev_path)
+        if base_doc is None:
+            return {
+                "executed": False,
+                "refusal": {"reason_code": "base_ref_not_found", "retryable": False},
+                "outputs": {
+                    "error": f"Base revision not found: {base_ref_str}",
+                    "repair_hint": "Verify the base_ref revision exists in this workspace.",
+                },
+            }
+
+        new_payload: dict[str, Any] = {}
+        missing: list[str] = []
+        for path in copy_paths:
+            parts = path.split(".")
+            value, found = _get_at_dot_path(base_doc, parts)
+            if not found:
+                missing.append(path)
+            else:
+                _set_at_dot_path(new_payload, parts[1:], value)
+
+        if missing:
+            return {
+                "executed": False,
+                "refusal": {"reason_code": "missing_copy_paths", "retryable": False},
+                "outputs": {
+                    "error": f"Paths not found in base artifact {base_ref_str}: {missing}",
+                    "missing_copy_paths": missing,
+                    "repair_hint": (
+                        "Check that the base artifact has these paths. "
+                        "Hydrate the base ref to inspect its payload structure."
+                    ),
+                },
+            }
+
+        for path, value in set_dict.items():
+            parts = path.split(".")
+            _set_at_dot_path(new_payload, parts[1:], value)
+
+    except UnsafeArtifactPathSegmentError as exc:
+        return {
+            "executed": False,
+            "refusal": {"reason_code": "invalid_scope_path", "retryable": False},
+            "outputs": {"error": str(exc)},
+        }
+
+    return save_transcript_edit(
+        dossier_id=dossier_id,
+        transcription_id=transcription_id,
+        workspace_id=ws,
+        draft_payload=new_payload,
+        base_revision_ref=base_ref_str,
+        evidence_refs=evidence_refs,
+        rationale=rationale,
+    )

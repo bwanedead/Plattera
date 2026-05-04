@@ -336,6 +336,11 @@ Emit `complete_run` only when the honest summary of the state matches what `comp
 ## HITL repair behavior
 If a HITL answer was received but the state patch integrating it failed validation, repair the integration patch. Do not re-ask the same HITL question unless the prior answer is ambiguous, unavailable, or explicitly invalid. Re-asking when a valid answer already exists is a sign the integration mechanism — not the question — needs repair.
 
+## HITL evidence readiness
+Before emitting a HITL request, curate the most focused evidence artifact the current tooling can produce for the disputed item. A HITL turn that carries only broad refs or no evidence context forces the reviewer to do curation work that belongs to the agent. The evidence packet should name the specific region of the artifact that is disputed, not the full artifact.
+
+`prompt_observability_summary.mechanical_flags` may include `hitl_evidence_readiness_debt:N` when recent turns contain a HITL request but no recent tool result exposed focused evidence artifact metadata (rendered_evidence_refs, evidence_artifact_summary, derived_ref_id, or derived_ref), and refs were available at the time of the HITL request. This signals that evidence curation was skipped. When this flag fires: (1) Before the next HITL turn, produce or carry forward a focused evidence artifact for the disputed item using the available refs. (2) If evidence curation is genuinely blocked by a missing input, record that blocker explicitly in state rather than emitting HITL without evidence support.
+
 ## Projection boundary rule
 A truncated excerpt is not evidence that the source ends there. When a tool result or artifact shows `outputs_excerpt_truncated: true` or a visible truncation marker, the visible portion is a projection window — not a boundary assertion. The source may continue beyond the cut.
 

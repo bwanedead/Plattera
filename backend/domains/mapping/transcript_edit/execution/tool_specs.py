@@ -165,7 +165,10 @@ def build_transcript_edit_tool_specs() -> tuple[SemanticToolSpec, ...]:
                 "artifact first and a handoff-metadata carrier second. Follow the domain branch's "
                 "saved-artifact contract: `source_transcript_verbatim` is the first output obligation, "
                 "it should cover the full visible/available source scope, and any separate downstream lane "
-                "must not silently overwrite the source lane. Do not silently mutate the verbatim transcript."
+                "must not silently overwrite the source lane. Do not silently mutate the verbatim transcript. "
+                "When refreshing a saved artifact and most long text lanes are unchanged, "
+                "prefer copy_forward_save_workspace_artifact — name the base artifact, list unchanged "
+                "fields to copy exactly, and author only the fields that changed."
             ),
             expected_request_shape=(
                 "transcript_text XOR draft_payload: the authored content. "
@@ -213,6 +216,82 @@ def build_transcript_edit_tool_specs() -> tuple[SemanticToolSpec, ...]:
             expected_result_shape=(
                 "artifact_refs include working revision ref + aggregate working ref for harness latest_refs. "
                 "outputs carry revision metadata, hash/size."
+            ),
+        ),
+        SemanticToolSpec(
+            tool_id="copy_forward_save_workspace_artifact",
+            category="write",
+            purpose=(
+                "Create a new working draft revision by copying named payload fields exactly from "
+                "a base artifact revision and setting only the agent-authored fields that changed. "
+                "Use this instead of save_workspace_artifact when most long text lanes are unchanged "
+                "and only metadata, evidence, or issue fields need updating — it avoids rehydrating "
+                "and re-authoring unchanged long payload lanes through prompt context. "
+                "Deterministic code copies exact values at the named paths; no semantic inference. "
+                "The agent must explicitly name the base ref, all paths to copy, and all paths to author."
+            ),
+            expected_request_shape=(
+                "base_ref: required transcript_edit:working:rev:NNNN ref to copy unchanged fields from. "
+                "copy_forward_paths: required non-empty list of dot-notation paths starting with 'payload.' "
+                "to copy exactly from the base artifact "
+                "(e.g., ['payload.source_transcript_verbatim', 'payload.normalized_or_mapping_transcript']). "
+                "set_paths: required dict mapping dot-notation paths starting with 'payload.' to "
+                "agent-authored values for the fields that changed "
+                "(e.g., {'payload.issues': [...], 'payload.parcel_metadata': {...}}). "
+                "Paths in set_paths must not overlap with copy_forward_paths — overlap is rejected. "
+                "evidence_refs: optional list of refs grounding this revision. "
+                "rationale: optional explanation of what changed."
+            ),
+            expected_request_json_shape={
+                "type": "object",
+                "required": ["base_ref", "copy_forward_paths", "set_paths"],
+                "properties": {
+                    "base_ref": {
+                        "type": "string",
+                        "description": "Base working revision to copy unchanged fields from (transcript_edit:working:rev:NNNN).",
+                    },
+                    "copy_forward_paths": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "minItems": 1,
+                        "description": "Dot-notation paths to copy exactly from the base artifact payload (must start with 'payload.').",
+                    },
+                    "set_paths": {
+                        "type": "object",
+                        "description": "Dot-notation path → agent-authored value for fields that changed (paths must start with 'payload.').",
+                    },
+                    "evidence_refs": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Refs grounding this revision (image:*, t0:raw:*, image:derived:*).",
+                    },
+                    "rationale": {
+                        "type": ["string", "null"],
+                        "description": "Brief explanation of what changed and why.",
+                    },
+                },
+                "additionalProperties": False,
+            },
+            example_request={
+                "base_ref": "transcript_edit:working:rev:0001",
+                "copy_forward_paths": [
+                    "payload.source_transcript_verbatim",
+                    "payload.normalized_or_mapping_transcript",
+                ],
+                "set_paths": {
+                    "payload.issues": [{"id": "issue-1", "description": "Bearing N 4° 00' W verified."}],
+                    "payload.parcel_metadata": {"parcel_count": 1},
+                    "payload.evidence_refs": ["image:derived:tx:crop_001"],
+                },
+                "rationale": "Updated issues and evidence after zoom verification; verbatim text unchanged.",
+            },
+            expected_result_shape=(
+                "Same shape as save_workspace_artifact: "
+                "artifact_refs include new working revision ref + aggregate working ref. "
+                "outputs carry revision metadata, hash/size. "
+                "On error: refusal with reason_code and outputs.error; "
+                "missing_copy_paths error lists which paths were absent in the base artifact; "
+                "overlapping_paths error lists which paths appeared in both copy and set lists."
             ),
         ),
         SemanticToolSpec(

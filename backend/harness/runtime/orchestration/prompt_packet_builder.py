@@ -334,6 +334,9 @@ _OPTIONAL_OBSERVABILITY_COUNTERS: tuple[str, ...] = (
     "turns_since_resolution_item_count_change",
     "new_resolution_items_since_last_complete_run_attempt",
     "repeated_complete_run_without_state_change_count",
+    "artifact_refresh_trap_risk_count",
+    "repair_ready_without_artifact_write_count",
+    "hitl_evidence_readiness_debt_count",
 )
 
 

@@ -40,6 +40,17 @@ MAX_STATE_PATCH_DETAIL_ROWS = 4
 MAX_STATE_PATCH_VALIDATION_ERRORS = 4
 _WORK_UNIVERSE_POSTURES = frozenset({"initial", "partial", "believed_adequate", "audited"})
 
+# Salvageable optional prose/display fields: may be omitted when invalid without
+# destroying core semantic content. Only top-level string-overlong failures on these
+# fields are eligible. Identity fields, semantic/evidence fields, structural lists,
+# and boolean flags must never be silently omitted.
+_SALVAGEABLE_ITEM_FIELDS: frozenset[str] = frozenset({"summary", "notes", "closure_summary"})
+_SALVAGEABLE_UNIT_FIELDS: frozenset[str] = frozenset({"summary", "closure_summary"})
+_SALVAGE_OMIT_NOTE: str = (
+    "Optional prose field omitted (invalid); field was not rewritten. "
+    "Re-author shorter text if this field matters."
+)
+
 ALLOWED_PATCH_TOP_LEVEL = frozenset({"resolution", "mission"})
 _STATE_PATCH_ALIAS_KEYS = {"mission_state": "mission", "resolution_state": "resolution"}
 ALLOWED_RESOLUTION_KEYS = frozenset({"active_item_id", "items", "relations", "opaque_payload"})
@@ -165,6 +176,34 @@ def _validation_error_summaries(
     for row in exc.errors()[:MAX_STATE_PATCH_VALIDATION_ERRORS]:
         out.append(_format_validation_error_row(row, path_prefix=path_prefix))
     return out
+
+
+def _collect_salvageable_errors(
+    exc: ValidationError,
+    *,
+    salvageable: frozenset[str],
+    path_prefix: str = "",
+) -> tuple[frozenset[str], list[str]]:
+    """Return (failing_salvageable_fields, compact_errors) if ALL errors are top-level and salvageable.
+
+    Salvageable means: single-element loc, and the field name is in the allowlist.
+    Any validation failure type (string too long, wrong type, wrong format) is
+    eligible — the constraint is the field being optional prose, not the error kind.
+    Returns (frozenset(), []) when any error touches a non-salvageable field or is nested
+    (multi-element loc). Nested errors cannot be safely dropped at this level.
+    """
+    failing: set[str] = set()
+    compact: list[str] = []
+    for err in exc.errors():
+        loc = err.get("loc") or ()
+        if len(loc) != 1:
+            return frozenset(), []
+        field = str(loc[0])
+        if field not in salvageable:
+            return frozenset(), []
+        failing.add(field)
+        compact.append(_format_validation_error_row(err, path_prefix=path_prefix))
+    return frozenset(failing), compact
 
 
 def _detail_row(
@@ -386,6 +425,7 @@ def _build_state_patch_feedback(
             "row_skips",
             "skipped_resolution_rows",
             "row_skip_details",
+            "salvaged_rows",
             "failing_path",
             "validation_errors",
             "repair_hint",
@@ -528,7 +568,7 @@ def apply_action_plan_state_patch_to_loop_memory(
         hitl_consumed_prompt_ids=attempted_consumed,
     )
     try:
-        ms_applied, rs_applied, row_skips, row_skip_details = _apply_state_patch_detailed(
+        ms_applied, rs_applied, row_skips, row_skip_details, salvage_events = _apply_state_patch_detailed(
             mission_state=loop_memory.continuity.mission_state,
             resolution_state=loop_memory.continuity.resolution_state,
             state_patch=action_plan.state_patch,
@@ -537,6 +577,8 @@ def apply_action_plan_state_patch_to_loop_memory(
         loop_memory.continuity.resolution_state = rs_applied
         loop_memory.continuity.active_item_id = rs_applied.active_item_id
         detail: dict[str, Any] = {}
+        if salvage_events:
+            detail["salvaged_rows"] = salvage_events
         if row_skip_report_has_skips(row_skips):
             detail["row_skips"] = row_skips
             detail["skipped_resolution_rows"] = True
@@ -696,7 +738,7 @@ def apply_state_patch(
     resolution_state: ResolutionState,
     state_patch: Mapping[str, Any] | None,
 ) -> tuple[MissionState, ResolutionState, dict[str, Any]]:
-    ms, rs, row_skips, _row_skip_details = _apply_state_patch_detailed(
+    ms, rs, row_skips, _row_skip_details, _salvage = _apply_state_patch_detailed(
         mission_state=mission_state,
         resolution_state=resolution_state,
         state_patch=state_patch,
@@ -709,7 +751,7 @@ def _apply_state_patch_detailed(
     mission_state: MissionState,
     resolution_state: ResolutionState,
     state_patch: Mapping[str, Any] | None,
-) -> tuple[MissionState, ResolutionState, dict[str, Any], dict[str, Any]]:
+) -> tuple[MissionState, ResolutionState, dict[str, Any], dict[str, Any], list[dict[str, Any]]]:
     """
     Merge a bounded generic patch into existing state.
 
@@ -723,7 +765,7 @@ def _apply_state_patch_detailed(
     """
     if not state_patch:
         ms = mission_state.model_copy(update={"resolution_state": resolution_state})
-        return ms, resolution_state, _empty_row_skip_report(), {}
+        return ms, resolution_state, _empty_row_skip_report(), {}, []
 
     patch = dict(state_patch)
     patch = _normalize_state_patch_aliases(patch)
@@ -747,19 +789,22 @@ def _apply_state_patch_detailed(
 
     row_skips = _empty_row_skip_report()
     row_skip_details: dict[str, Any] = {}
+    salvage_events: list[dict[str, Any]] = []
     rs = resolution_state
     if "resolution" in patch:
-        rs, res_skips, res_details = _apply_resolution_branch(rs, patch["resolution"])
+        rs, res_skips, res_details, res_salvage = _apply_resolution_branch(rs, patch["resolution"])
         row_skips["resolution"] = res_skips
         if res_details:
             row_skip_details["resolution"] = res_details
+        if res_salvage:
+            salvage_events.extend(res_salvage)
 
     ms = mission_state
     if "mission" in patch:
         ms = _apply_mission_branch(ms, patch["mission"])
 
     ms = ms.model_copy(update={"resolution_state": rs})
-    return ms, rs, row_skips, row_skip_details
+    return ms, rs, row_skips, row_skip_details, salvage_events
 
 
 def _merge_covered_units_rows(
@@ -767,13 +812,15 @@ def _merge_covered_units_rows(
     patch_rows: list[Any],
     *,
     item_id: str = "",
-) -> tuple[list[dict[str, Any]] | None, list[str] | None]:
+) -> tuple[list[dict[str, Any]] | None, list[str] | None, list[dict[str, Any]]]:
     """Merge ``covered_units`` by ``unit_id`` with per-field overlay.
 
     An empty list never wipes prior units (additive-only at this level). New units
     must carry a ``unit_id`` and a ``title``; existing units accept per-field deltas.
-    Returns ``(merged, None)`` on success, ``(None, errors)`` on the first invalid row
-    where ``errors`` is a list of compact, path-precise repair hints.
+    Returns ``(merged, None, salvage_events)`` on success.
+    Returns ``(None, errors, [])`` on the first invalid row where ``errors`` is a list
+    of compact, path-precise repair hints. When only optional prose fields are invalid,
+    attempts a one-time salvage (omit the prose fields, retry) before reporting failure.
     """
     prior_list = existing if isinstance(existing, list) else []
     by_id: dict[str, dict[str, Any]] = {}
@@ -788,23 +835,24 @@ def _merge_covered_units_rows(
             order.append(uid)
 
     item_anchor = f"resolution.items[{item_id}]" if item_id else "resolution.items[?]"
+    salvage_events: list[dict[str, Any]] = []
     for index, row in enumerate(patch_rows):
         if not isinstance(row, dict):
             return None, [
                 f"{item_anchor}.covered_units[{index}]: not an object"
-            ]
+            ], []
         uid_raw = row.get("unit_id")
         uid = str(uid_raw).strip() if uid_raw is not None else ""
         if not uid:
             return None, [
                 f"{item_anchor}.covered_units[{index}].unit_id: required"
-            ]
+            ], []
         # Detect forbidden fields explicitly so the path points at the exact key.
         for key in row.keys():
             if key not in unit_field_names:
                 return None, [
                     f"{item_anchor}.covered_units[{uid}].{key}: extra field forbidden"
-                ]
+                ], []
         base = dict(by_id.get(uid) or {})
         for key, val in row.items():
             if key == "opaque_payload" and isinstance(val, dict):
@@ -816,23 +864,45 @@ def _merge_covered_units_rows(
             validated = ResolutionCoveredUnit.model_validate(base).model_dump(mode="json")
         except ValidationError as exc:
             prefix = f"{item_anchor}.covered_units[{uid}]"
-            return None, _validation_error_summaries(exc, path_prefix=prefix)
+            omit_fields, omit_errors = _collect_salvageable_errors(
+                exc, salvageable=_SALVAGEABLE_UNIT_FIELDS, path_prefix=prefix
+            )
+            if omit_fields:
+                salvaged_base = {k: v for k, v in base.items() if k not in omit_fields}
+                try:
+                    validated = ResolutionCoveredUnit.model_validate(salvaged_base).model_dump(mode="json")
+                except ValidationError as retry_exc:
+                    return None, _validation_error_summaries(retry_exc, path_prefix=prefix), []
+                salvage_events.append({
+                    "path": prefix,
+                    "row_id": uid,
+                    "omitted_invalid_fields": omit_errors,
+                    "note": _SALVAGE_OMIT_NOTE,
+                })
+            else:
+                return None, _validation_error_summaries(exc, path_prefix=prefix), []
         by_id[uid] = validated
         if uid not in order:
             order.append(uid)
 
-    return [by_id[uid] for uid in order], None
+    return [by_id[uid] for uid in order], None, salvage_events
 
 
 def _merge_resolution_item_row(
     existing: ResolutionItem | None,
     row: dict[str, Any],
-) -> tuple[ResolutionItem | None, list[str] | None]:
-    """Overlay patch keys onto an existing item; absent keys keep prior values (additive updates)."""
+) -> tuple[ResolutionItem | None, list[str] | None, list[dict[str, Any]]]:
+    """Overlay patch keys onto an existing item; absent keys keep prior values (additive updates).
+
+    Returns ``(item, None, salvage_events)`` on success. ``salvage_events`` is non-empty
+    when optional prose fields were omitted to rescue a valid compact update.
+    Returns ``(None, errors, [])`` when non-salvageable fields are invalid.
+    """
     base: dict[str, Any] = existing.model_dump(mode="json") if existing is not None else {}
     field_names = ResolutionItem.model_fields.keys()
     item_id = str(row.get("item_id") or (existing.item_id if existing is not None else "")).strip()
     item_anchor = f"resolution.items[{item_id}]" if item_id else "resolution.items[?]"
+    salvage_events: list[dict[str, Any]] = []
 
     for key, val in row.items():
         if key not in field_names:
@@ -860,25 +930,42 @@ def _merge_resolution_item_row(
         elif key == "context_notes" and isinstance(val, list):
             base["context_notes"] = list(val)
         elif key == "covered_units" and isinstance(val, list):
-            merged_units, unit_errors = _merge_covered_units_rows(
+            merged_units, unit_errors, unit_salvage = _merge_covered_units_rows(
                 base.get("covered_units"), val, item_id=item_id
             )
             if merged_units is None:
-                return None, unit_errors or [f"{item_anchor}.covered_units: invalid row shape"]
+                return None, unit_errors or [f"{item_anchor}.covered_units: invalid row shape"], []
             base["covered_units"] = merged_units
+            salvage_events = list(unit_salvage)
         else:
             base[key] = val
 
     try:
-        return ResolutionItem.model_validate(base), None
+        return ResolutionItem.model_validate(base), None, salvage_events
     except ValidationError as exc:
-        return None, _validation_error_summaries(exc, path_prefix=item_anchor)
+        omit_fields, omit_errors = _collect_salvageable_errors(
+            exc, salvageable=_SALVAGEABLE_ITEM_FIELDS, path_prefix=item_anchor
+        )
+        if omit_fields:
+            salvaged_base = {k: v for k, v in base.items() if k not in omit_fields}
+            try:
+                item = ResolutionItem.model_validate(salvaged_base)
+            except ValidationError as retry_exc:
+                return None, _validation_error_summaries(retry_exc, path_prefix=item_anchor), []
+            salvage_events.append({
+                "path": item_anchor,
+                "row_id": item_id,
+                "omitted_invalid_fields": omit_errors,
+                "note": _SALVAGE_OMIT_NOTE,
+            })
+            return item, None, salvage_events
+        return None, _validation_error_summaries(exc, path_prefix=item_anchor), []
 
 
 def _apply_resolution_branch(
     rs: ResolutionState,
     raw: Any,
-) -> tuple[ResolutionState, dict[str, dict[str, int]], dict[str, list[dict[str, Any]]]]:
+) -> tuple[ResolutionState, dict[str, dict[str, int]], dict[str, list[dict[str, Any]]], list[dict[str, Any]]]:
     if not isinstance(raw, dict):
         raise StatePatchError("resolution_not_object", "resolution must be a JSON object")
 
@@ -893,6 +980,7 @@ def _apply_resolution_branch(
     relation_skips: dict[str, int] = {}
     item_details: list[dict[str, Any]] = []
     relation_details: list[dict[str, Any]] = []
+    salvage_details: list[dict[str, Any]] = []
 
     items = list(rs.items)
     relations = list(rs.relations)
@@ -931,7 +1019,7 @@ def _apply_resolution_branch(
                 )
                 continue
             existing = by_id.get(item_id)
-            merged, validation_errors = _merge_resolution_item_row(existing, row)
+            merged, validation_errors, row_salvage = _merge_resolution_item_row(existing, row)
             if merged is None:
                 _bump_skips(item_skips, "validation_failed")
                 _append_detail(
@@ -944,6 +1032,10 @@ def _apply_resolution_branch(
                     ),
                 )
                 continue
+            if row_salvage:
+                for event in row_salvage:
+                    if len(salvage_details) < MAX_STATE_PATCH_DETAIL_ROWS:
+                        salvage_details.append(event)
             by_id[merged.item_id] = merged
         items = list(by_id.values())
         if len(items) > MAX_RESOLUTION_ITEMS_TOTAL:
@@ -1019,7 +1111,7 @@ def _apply_resolution_branch(
     }, {
         "items": item_details,
         "relations": relation_details,
-    }
+    }, salvage_details
 
 
 def _apply_mission_branch(ms: MissionState, raw: Any) -> MissionState:
