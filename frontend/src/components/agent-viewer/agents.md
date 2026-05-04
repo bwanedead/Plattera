@@ -2,28 +2,36 @@
 
 ## Scope
 - Folder: `frontend/src/components/agent-viewer/`
-- Purpose: Agent Viewer UI composition, event timeline rendering, canvas presentation, and feedback actions.
+- Purpose: Generic Agent Viewer UI substrate: run shell, renderer registry, event/activity display, artifact/evidence presentation, work graph inspection, HITL capture, and viewer actions.
 
 ## Contracts & invariants
-- Keep `AgentViewerPanel.tsx` as orchestration/composition only: state wiring, mode switching, and top-level layout.
-- Canvas rendering belongs in dedicated canvas components; sidebar rendering belongs in sidebar components.
-- Stream/event transport and feedback API behavior should stay in hooks under `hooks/`, not in presentational components.
-- Additive payload compatibility is required for agent-viewer events (`phase/detail/stream_kind` fields).
+- Treat the existing panel as prototype/reference unless a future implementation deliberately keeps it. Do not preserve old structure just because it exists.
+- The viewer shell is composition only: layout, selected view, and child wiring. No transport, raw event scanning, or domain interpretation in shell components.
+- Transport and feedback API behavior stay in hooks/services; presentational components receive typed view models and callbacks.
+- Normalization from raw backend payloads into UI models belongs under a model/adapter layer, not inside renderers or panels.
+- Domain-specific artifact/evidence/work-item views must be registered renderers or adapters, not hardcoded branches in the generic shell.
+- HITL UI captures and submits answers only; it must not imply semantic incorporation or resolution after submit.
+- Unknown artifact/evidence/action kinds must fall back safely without hiding payloads.
 
 ## Allowed changes
-- Safe: extract render-heavy sections into focused components with stable props.
-- Safe: add utility helpers in `agentViewerUtils.ts` for shared formatting/extraction logic.
-- Avoid: reintroducing multi-concern logic into `AgentViewerPanel.tsx`.
-- Avoid: coupling presentational components directly to API calls when hooks already own that behavior.
+- Safe: add focused `shell/`, `model/`, `registry/`, `renderers/`, `panels/`, and `hooks/` modules when the responsibility is real.
+- Safe: port useful prototype behavior into the new structure when it fits the generic model.
+- Avoid: growing `AgentViewerPanel.tsx`, `agentViewerUtils.ts`, or one large renderer as a catch-all.
+- Avoid: adding deed/transcript/PLSS/mapping fields to shared viewer types; use generic fields plus opaque domain payload.
 
 ## Commands
 - Build: `.venv\scripts\activate.ps1; npm --prefix frontend run build`
-- Test: `.venv\scripts\activate.ps1; pytest backend/api/test_agent_viewer_endpoints.py -q`
+- Typecheck: `.venv\scripts\activate.ps1; npm --prefix frontend run typecheck`
+- Governance: `.venv\scripts\activate.ps1; npm --prefix frontend run governance`
 
 ## Gotchas
 - `next build` currently skips type-checking/lint; compile success does not guarantee TypeScript safety.
-- Keep fallback behavior intact for missing artifacts (live draft and transcript fallback path).
+- The viewer is a control plane/read model, not a harness semantic authority.
+- SSE is for immediacy; a durable snapshot should be the source of truth for reconnect/replay.
+- Keep existing human-centered workspaces intact; viewer actions should bridge to them rather than absorbing them.
 
 ## Links
-- Docs: `docs/ethos/architecture-ethos.md`
+- Docs: `docs/architecture/agent-viewer-v1.md`
+- Docs: `docs/architecture/harness/harness-constitution.md`
+- Docs: `docs/architecture/harness/hitl-constitution.md`
 - Related code: `frontend/src/components/agent-viewer/hooks/`

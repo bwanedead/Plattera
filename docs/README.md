@@ -59,6 +59,7 @@ Interpretation rule:
 
 These remain active references for current-state architecture and loop behavior:
 - `docs/agent-ecosystem-architecture-top-down.md`
+- `docs/architecture/agent-viewer-v1.md` — Agent Viewer v1 engineering brief: generic control-plane/read-model architecture, renderer registry boundaries, HITL/display responsibilities, and anti-monolith rules
 - `docs/agent-loop-system-overview.md`
 - `docs/agent-testing/transcript-edit-loop-holistic-intent.md`
 - `docs/transcript-edit-loop-orchestration.md`
