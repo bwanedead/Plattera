@@ -2,6 +2,7 @@ import React from 'react';
 import type { AgentViewerEvent, AgentViewerFeedbackEntry } from '../../services/agentViewerApi';
 import { DecisionChecklistPanel } from './DecisionChecklistPanel';
 import { EventDetailBlock } from './EventDetailBlock';
+import { SnapshotInventoryPanel } from './SnapshotInventoryPanel';
 import { summarizeEventForesight } from './agentViewerUtils';
 import type { DecisionLedgerItem } from './types';
 import type { AgentViewerSnapshotView } from './model/snapshotModel';
@@ -79,6 +80,10 @@ export function AgentSidebar({
     isTicker: false,
     isReplay: Boolean(evt.payload?.__replay),
   }));
+  const inventorySections = React.useMemo(
+    () => snapshotView.inventorySections.filter((section) => section.count > 0),
+    [snapshotView.inventorySections],
+  );
 
   return (
     <div style={{ position: 'absolute', top: 12, right: 12, width: 336, bottom: 78, borderRadius: 12, border: '1px solid rgba(255,255,255,0.08)', background: 'rgba(0,0,0,0.42)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
@@ -137,6 +142,8 @@ export function AgentSidebar({
           )}
         </div>
       )}
+
+      <SnapshotInventoryPanel sections={inventorySections} />
 
       {terminalSummary && (
         <div style={{ padding: '8px 12px', borderBottom: '1px solid rgba(255,255,255,0.06)', fontSize: 11, lineHeight: 1.4, opacity: 0.9 }}>

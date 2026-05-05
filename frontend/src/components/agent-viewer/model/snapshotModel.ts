@@ -3,6 +3,7 @@ import type {
   AgentViewerEvent,
   AgentViewerSnapshot,
 } from '../../../services/agentViewerApi';
+import { buildSnapshotInventory, type AgentViewerInventorySection } from './snapshotInventory';
 
 export type AgentViewerSnapshotView = {
   snapshot: AgentViewerSnapshot | null;
@@ -14,6 +15,7 @@ export type AgentViewerSnapshotView = {
   evidenceCount: number;
   workItemCount: number;
   hitlPromptCount: number;
+  inventorySections: AgentViewerInventorySection[];
 };
 
 export function buildSnapshotView(snapshot: AgentViewerSnapshot | null): AgentViewerSnapshotView {
@@ -28,6 +30,7 @@ export function buildSnapshotView(snapshot: AgentViewerSnapshot | null): AgentVi
       evidenceCount: 0,
       workItemCount: 0,
       hitlPromptCount: 0,
+      inventorySections: [],
     };
   }
   return {
@@ -40,6 +43,7 @@ export function buildSnapshotView(snapshot: AgentViewerSnapshot | null): AgentVi
     evidenceCount: snapshot.evidence.length,
     workItemCount: snapshot.work_items.length,
     hitlPromptCount: snapshot.hitl_prompts.length,
+    inventorySections: buildSnapshotInventory(snapshot),
   };
 }
 
