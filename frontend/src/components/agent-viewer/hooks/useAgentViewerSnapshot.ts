@@ -5,14 +5,16 @@ import {
   type AgentViewerSnapshot,
 } from '../../../services/agentViewerApi';
 import { buildSnapshotView } from '../model/snapshotModel';
+import type { AgentViewerRegistry } from '../registry/viewerRegistry';
 
 type Params = {
   isOpen: boolean;
   activeLoopKind: AgentViewerLoopKind | null;
   activeRunId: string | null;
+  registry?: AgentViewerRegistry;
 };
 
-export function useAgentViewerSnapshot({ isOpen, activeLoopKind, activeRunId }: Params) {
+export function useAgentViewerSnapshot({ isOpen, activeLoopKind, activeRunId, registry }: Params) {
   const [snapshot, setSnapshot] = React.useState<AgentViewerSnapshot | null>(null);
   const [snapshotLoading, setSnapshotLoading] = React.useState(false);
   const [snapshotError, setSnapshotError] = React.useState<string | null>(null);
@@ -50,7 +52,7 @@ export function useAgentViewerSnapshot({ isOpen, activeLoopKind, activeRunId }: 
     };
   }, [isOpen, activeLoopKind, activeRunId, refreshIndex]);
 
-  const snapshotView = React.useMemo(() => buildSnapshotView(snapshot), [snapshot]);
+  const snapshotView = React.useMemo(() => buildSnapshotView(snapshot, registry), [snapshot, registry]);
 
   return {
     snapshot,
