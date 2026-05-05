@@ -47,6 +47,28 @@ def test_harness_surface_teaches_output_claim_coverage() -> None:
     assert "re-asking when a valid answer already exists" in text
 
 
+def test_harness_surface_teaches_mission_critical_exactness() -> None:
+    text = _HARNESS_TRUNK_METHOD_TEXT
+    lowered = text.lower()
+    assert "mission-critical exactness" in lowered
+    assert "false determination is a common agent failure mode" in lowered
+    assert "broad familiarity with the source" in lowered
+    assert "locally and directly inspectable" in lowered
+    assert "this is not ceremony" in lowered
+    assert "falsely earned unit is dangerous" in lowered
+
+
+def test_mission_critical_exactness_section_has_no_domain_examples() -> None:
+    lowered = _HARNESS_TRUNK_METHOD_TEXT.lower()
+    start = lowered.find("## mission-critical exactness")
+    end = lowered.find("## defensible evidence rule")
+    assert start >= 0, "mission-critical exactness section must exist"
+    assert end > start, "defensible evidence rule section should follow mission-critical exactness"
+    section = lowered[start:end]
+    for banned in ("deed", "parcel", "range", "acreage", "plss", "transcript"):
+        assert banned not in section, f"Found banned term {banned!r} in generic exactness doctrine"
+
+
 def test_harness_surface_new_sections_contain_no_deed_examples() -> None:
     """New method-text sections must not introduce deed/mapping-shaped examples."""
     lowered = _HARNESS_TRUNK_METHOD_TEXT.lower()

@@ -7,7 +7,7 @@ from domains.prompting import PromptBlock
 TRANSCRIPT_EDIT_DOMAIN_ID = "transcript_edit"
 TRANSCRIPT_EDIT_FAMILY_ID = "mapping"
 TRANSCRIPT_EDIT_BRANCH_SOURCE_REF = "backend/domains/mapping/transcript_edit/prompting/branch.py"
-TRANSCRIPT_EDIT_BRANCH_VERSION = "v26"
+TRANSCRIPT_EDIT_BRANCH_VERSION = "v27"
 
 TRANSCRIPT_EDIT_BRANCH_TEXT = """\
 You are operating in the **transcript edit** domain for mapping-bound work.
@@ -139,6 +139,8 @@ That usually means:
 - if that unresolved claim is material and no stronger in-run evidence remains, prefer HITL or explicit blocked / no-further-progress posture over false earned closure
 
 For image-backed source work, zoom is a source-reading move, not a display preference. Use it deliberately when a broad page view does not clearly resolve a small mark, digit, direction, or word. Crops, zooms, boxes, highlights, and rendered locators are not only internal investigation aids — they are part of the audit product. When a visual claim is mission-critical, craft the evidence so the relevant source mark is centered, legible, and easy for a human reviewer to verify without searching the full page. Inspect the transformed or rendered evidence before relying on it to earn a unit or present it to the user; if the result does not make the source reality clear, refine it rather than accepting a blurry or poorly-framed result.
+
+For legal-description handoff, do not let one salient conflict stand in for the full mapping-critical inventory. A scope that is described as forwardable should have its visible operative call components represented as compact atoms or covered units when they can independently affect downstream geometry or handoff trust: ties, courses, distances, offsets, boundaries, acreage, governing decisions, and missing continuation points. If a component is visible but not yet earned, keep it open or candidate-valued; if it is unavailable, mark that explicitly. A smooth transcript paragraph is not a substitute for an auditable call inventory.
 
 ## Closure ledger requirement
 When this domain uses `mission.closure_state`, treat it as the explicit closure ledger for these four layers.

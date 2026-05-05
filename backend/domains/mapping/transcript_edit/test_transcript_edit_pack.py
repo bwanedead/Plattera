@@ -26,7 +26,7 @@ def test_manifest_tool_ids_match_tool_specs() -> None:
     manifest = build_transcript_edit_manifest()
     specs = build_transcript_edit_tool_specs()
     assert manifest.declared_semantic_tool_ids == tuple(s.tool_id for s in specs)
-    assert len(specs) == 4
+    assert len(specs) == 5
     assert manifest.closure_policy.hard_enforced is True
     assert manifest.closure_policy.save_action_ids == ("save_workspace_artifact",)
     assert manifest.closure_policy.publish_action_ids == ("publish_workspace_artifact",)
@@ -99,6 +99,9 @@ def test_prompt_branch_block_shape_and_doctrine_markers() -> None:
     assert "material claim" in text.lower()
     assert "zoom is a source-reading move" in text.lower()
     assert "audit product" in text.lower()
+    assert "do not let one salient conflict stand in for the full mapping-critical inventory" in text.lower()
+    assert "visible operative call components represented as compact atoms or covered units" in text.lower()
+    assert "auditable call inventory" in text.lower()
 
 
 def test_domain_pack_declares_semantic_prompt_blocks() -> None:

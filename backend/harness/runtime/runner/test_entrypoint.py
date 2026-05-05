@@ -109,6 +109,7 @@ def test_entrypoint_resolves_transcript_edit_through_opaque_domain_id(monkeypatc
         "hydrate_artifact_refs",
         "transform_artifact",
         "save_workspace_artifact",
+        "copy_forward_save_workspace_artifact",
         "publish_workspace_artifact",
     ]
     assert surface.payload["transcript_edit"]["tool_specs"][0]["tool_id"] == "hydrate_artifact_refs"

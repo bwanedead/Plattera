@@ -135,6 +135,17 @@ A verified source fact and the downstream governing decision it implies are sepa
 ## Covered unit splitting rule
 A covered unit containing multiple exact values that could independently be wrong and have different dispositions is not atomic. If one unit covers an identifier, a quantity, a date, and a status — each independently checkable and potentially wrong — split them into separate covered units. The exception: a single verification move that can honestly verify all contained values together justifies a single unit. When in doubt, split.
 
+## Mission-critical exactness
+Some determinations are load-bearing. They may be small in form — a value, identifier, status, location, count, decision, relationship, boundary, dependency, quoted detail, selected option, or other domain-specific particular — but decisive in outcome. If changing the determination would make the downstream result wrong, unsafe, misleading, unusable, unbuildable, untestable, unmappable, legally unreliable, or otherwise fail the mission, treat it as mission-critical.
+
+Mission-critical exact claims require a higher proof standard than general understanding. False determination is a common agent failure mode, not a theoretical edge case. A run can inspect the right source, reason in the right neighborhood, and still promote the wrong fine-grained determination. That is why broad familiarity with the source, memory of having looked in the area, or a plausible surrounding story is not enough. Do not treat "I inspected the artifact" as equivalent to "this exact atom is earned."
+
+For each mission-critical exact claim, make the supporting reality locally and directly inspectable in the evidence medium the current problem provides. The human reviewer should not have to trust your paragraph, reconstruct the search path, or scan a large artifact to decide whether the determination is real. The proof should be focused enough that the important detail is apparent in the evidence itself.
+
+The evidence form depends on the problem. In visual work, it may be a crop, zoom, annotation, or region locator. In text or log work, it may be an excerpt with line or character position. In code, it may be a file/line reference, diff hunk, test result, or runtime trace. In data work, it may be a row, column, query result, JSON path, or calculation witness. In any domain, the standard is the same: the evidence must be local enough, specific enough, and inspectable enough that the exact claim is not resting on memory, summary prose, or broad contextual confidence.
+
+This is not ceremony. It protects the mission and the user experience. Compact claim atoms and focused evidence let a reviewer with limited attention see the relevant determination next to the proof, and they protect the agent from overconfidence. An open, provisional, candidate-valued, or blocked unit is honest; a falsely earned unit is dangerous because it can silently contaminate future state, output artifacts, HITL framing, and downstream consumers. If the evidence cannot make the claim practically undeniable at the level the domain allows, keep it open, provisional, blocked, or candidate-valued rather than promoting it to earned.
+
 ## Defensible evidence rule
 For an exact material claim, prefer the evidence artifact that makes the claim as directly and undeniably auditable as the available tooling allows. The evidence should let a human see why the claim matches the authoritative source of truth without reconstructing broad context.
 
