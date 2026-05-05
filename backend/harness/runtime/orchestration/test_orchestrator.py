@@ -1982,3 +1982,126 @@ def test_run_control_reader_errors_do_not_crash_loop() -> None:
     # Reader errors are swallowed; loop exhausts normally.
     assert result.terminal_class == "exhausted"
     assert result.reason_code == "max_iterations_reached"
+
+
+# ---------------------------------------------------------------------------
+# Recoverable model-output failures
+# ---------------------------------------------------------------------------
+
+
+def _llm_turn_adapter_for_recovery_test(caller) -> LlmTurnOrchestrationAdapter:
+    return LlmTurnOrchestrationAdapter(
+        composed_input=ComposedTurnInput(
+            blocks=(TurnBlock(content="test prompt block"),),
+            surface_payloads={},
+            tool_handlers={"noop": lambda payload: payload},
+        ),
+        text_model_caller=caller,
+        model_name="fake-model",
+    )
+
+
+def test_orchestrator_recovers_from_length_failure_with_turn_recovery_prompt() -> None:
+    calls: list[dict[str, Any]] = []
+    checkpoints: list[dict[str, Any]] = []
+
+    def caller(prompt: str, model: str, **kwargs: Any) -> Any:
+        call_options = kwargs.get("call_options")
+        calls.append({"prompt": prompt, "phase": getattr(call_options, "phase", None)})
+        if len(calls) == 1:
+            return {
+                "success": False,
+                "error": "OpenAI returned truncated response (finish_reason: length)",
+                "text": None,
+                "model": model,
+                "finish_reason": "length",
+                "usage": {"prompt_tokens": 25966, "completion_tokens": 16000, "total_tokens": 41966},
+                "char_count": 0,
+            }
+        return json.dumps(
+            {
+                "complete_run": True,
+                "rationale": "recovered with a bounded action",
+                "state_patch": {"mission": {"work_universe_posture": "audited"}},
+                "continuity_journal_entry": {"recovered": True},
+            }
+        )
+
+    result = run_orchestration_kernel_loop(
+        orchestration_adapter=_llm_turn_adapter_for_recovery_test(caller),
+        session_manager=FakeSessionManager(),
+        session_id="s-recovery",
+        run_artifact_ref=None,
+        request_id_prefix="r-recovery",
+        opaque_run_context={"recoverable_turn_failure_budget": 1},
+        max_iterations=3,
+        lifecycle=OrchestrationLifecycle(resume_checkpoint_writer=lambda snap: checkpoints.append(dict(snap))),
+    )
+
+    assert result.terminal_class == "completed"
+    assert result.reason_code == "complete_run"
+    assert [call["phase"] for call in calls] == ["choose_action", "choose_action_turn_recovery"]
+    assert '"prompt_mode": "turn_recovery"' in calls[1]["prompt"]
+    assert checkpoints[0]["turn_recovery"]["last_failure"]["provider_finish_reason"] == "length"
+    assert result.kernel_resume_snapshot is not None
+    assert result.kernel_resume_snapshot["turn_recovery"]["last_failure"] == {}
+
+
+def test_orchestrator_fails_only_after_recoverable_turn_failure_budget_exhausted() -> None:
+    calls: list[dict[str, Any]] = []
+
+    def caller(prompt: str, model: str, **kwargs: Any) -> dict[str, Any]:
+        call_options = kwargs.get("call_options")
+        calls.append({"prompt": prompt, "phase": getattr(call_options, "phase", None)})
+        return {
+            "success": False,
+            "error": "OpenAI returned truncated response (finish_reason: length)",
+            "text": None,
+            "model": model,
+            "finish_reason": "length",
+            "usage": {"prompt_tokens": 100, "completion_tokens": 16000, "total_tokens": 16100},
+            "char_count": 0,
+        }
+
+    result = run_orchestration_kernel_loop(
+        orchestration_adapter=_llm_turn_adapter_for_recovery_test(caller),
+        session_manager=FakeSessionManager(),
+        session_id="s-recovery-fail",
+        run_artifact_ref=None,
+        request_id_prefix="r-recovery-fail",
+        opaque_run_context={"recoverable_turn_failure_budget": 1},
+        max_iterations=4,
+    )
+
+    assert result.terminal_class == "failed"
+    assert result.reason_code == "recoverable_turn_failure_budget_exhausted"
+    assert [call["phase"] for call in calls] == ["choose_action", "choose_action_turn_recovery"]
+    assert result.kernel_resume_snapshot is not None
+    assert result.kernel_resume_snapshot["turn_recovery"]["consecutive_failures"] == 2
+
+
+def test_kernel_resume_snapshot_preserves_turn_recovery_state() -> None:
+    mem = LoopMemoryState()
+    mem.turn_recovery.record_failure(
+        {
+            "iteration": 18,
+            "prompt_mode": "resume",
+            "reason_code": "model_call_failed",
+            "provider_finish_reason": "length",
+        }
+    )
+
+    from harness.runtime.memory.resume_snapshot import build_kernel_resume_snapshot
+
+    snapshot = build_kernel_resume_snapshot(
+        loop_memory=mem,
+        session_id="s-recovery-snapshot",
+        session_manager=FakeSessionManager(),
+        next_iteration=19,
+    )
+    restored, next_iteration, err = parse_kernel_resume_snapshot(snapshot)
+
+    assert err is None
+    assert next_iteration == 19
+    assert restored.turn_recovery.consecutive_failures == 1
+    assert restored.turn_recovery.last_failure["provider_finish_reason"] == "length"

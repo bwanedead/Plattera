@@ -139,6 +139,30 @@ def test_timeline_shows_raw_response_excerpt_when_parse_failed(tmp_path: Path) -
     assert "RAW_UNPARSEABLE_MODEL_OUTPUT" in body
 
 
+def test_timeline_shows_model_failure_provider_metadata(tmp_path: Path) -> None:
+    writer = RunAuditWriter(tmp_path / "run1")
+    writer.observe_llm_io(
+        {
+            "turn_index": 18,
+            "prompt_mode": "resume",
+            "parse_ok": False,
+            "parse_reason_code": "model_call_failed",
+            "provider_finish_reason": "length",
+            "provider_error": "OpenAI returned truncated response (finish_reason: length)",
+            "provider_prompt_tokens": 25966,
+            "provider_completion_tokens": 16000,
+            "raw_llm_response_char_count": 0,
+        }
+    )
+
+    body = _timeline_path(tmp_path / "run1").read_text(encoding="utf-8")
+    assert "model_failure" in body
+    assert "parse_reason_code: model_call_failed" in body
+    assert "provider_finish_reason: length" in body
+    assert "provider_completion_tokens: 16000" in body
+    assert "OpenAI returned truncated response" in body
+
+
 def test_timeline_displays_tool_request_and_result(tmp_path: Path) -> None:
     writer = RunAuditWriter(tmp_path / "run1")
     writer.observe_llm_io({"turn_index": 1, "parse_ok": True})

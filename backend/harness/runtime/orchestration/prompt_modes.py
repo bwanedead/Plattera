@@ -9,8 +9,9 @@ from .choose_action_instruction import CHOOSE_ACTION_INSTRUCTION
 from .compaction_instruction import COMPACTION_INSTRUCTION
 from .repair_instruction import REPAIR_INSTRUCTION, STATE_REPAIR_INSTRUCTION
 from .resume_instruction import RESUME_INSTRUCTION
+from .turn_recovery_instruction import TURN_RECOVERY_INSTRUCTION
 
-PromptMode = Literal["full_choose_action", "state_repair", "repair", "compaction", "resume"]
+PromptMode = Literal["full_choose_action", "state_repair", "repair", "compaction", "resume", "turn_recovery"]
 
 
 @dataclass(frozen=True)
@@ -91,6 +92,21 @@ _RESUME_STRUCTURED_STATE_FIELDS = (
     "recent_tool_result_slices",
     "prompt_observability_summary",
 )
+_TURN_RECOVERY_RUN_CONTEXT_FIELDS = (
+    "iteration",
+    "state_patch_feedback",
+    "contract_feedback",
+    "turn_recovery",
+    "hitl_state",
+    "pending_hitl_requests",
+    "answered_hitl_responses",
+    "projection",
+)
+_TURN_RECOVERY_STRUCTURED_STATE_FIELDS = (
+    "recent_turn_timeline",
+    "recent_tool_result_slices",
+    "prompt_observability_summary",
+)
 
 _PROMPT_MODE_SPECS: dict[PromptMode, PromptModeSpec] = {
     "full_choose_action": PromptModeSpec(
@@ -152,6 +168,18 @@ _PROMPT_MODE_SPECS: dict[PromptMode, PromptModeSpec] = {
         structured_state_fields=_RESUME_STRUCTURED_STATE_FIELDS,
         mode_packet_key=None,
         call_phase="choose_action_resume",
+    ),
+    "turn_recovery": PromptModeSpec(
+        mode="turn_recovery",
+        instruction_text=TURN_RECOVERY_INSTRUCTION,
+        include_doctrine_blocks=False,
+        include_surface_packet_blocks=False,
+        include_surface_payloads=False,
+        include_tool_ids=True,
+        run_context_fields=_TURN_RECOVERY_RUN_CONTEXT_FIELDS,
+        structured_state_fields=_TURN_RECOVERY_STRUCTURED_STATE_FIELDS,
+        mode_packet_key=None,
+        call_phase="choose_action_turn_recovery",
     ),
 }
 

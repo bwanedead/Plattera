@@ -31,6 +31,7 @@ from .orchestrator_policy import (
     resolution_inventory_enforcement_failure,
 )
 from .run_control import build_kernel_loop_result, maybe_exit_for_run_control
+from .recoverable_turn_failure import RecoverableTurnFailure
 from .orchestrator_turn import (
     accumulate_image_evidence,
     append_kernel_step_result_continuity,
@@ -45,6 +46,8 @@ from .state_patch_apply import (
 from .trace_collector import KernelTraceCollector
 
 _LOG = logging.getLogger(__name__)
+
+_DEFAULT_RECOVERABLE_TURN_FAILURE_BUDGET = 2
 
 
 def _hitl_loop_kind(opaque_run_context: dict[str, Any]) -> str:
@@ -77,6 +80,13 @@ def _materialize_dispatch_idempotency_key(
         return action_plan
     generated = f"{request_id_prefix}:iter:{int(iteration)}:dispatch:{action_plan.action_type}"
     return replace(action_plan, idempotency_key=generated)
+
+
+def _recoverable_turn_failure_budget(run_ctx: dict[str, Any]) -> int:
+    try:
+        return max(0, int(run_ctx.get("recoverable_turn_failure_budget", _DEFAULT_RECOVERABLE_TURN_FAILURE_BUDGET)))
+    except (TypeError, ValueError):
+        return _DEFAULT_RECOVERABLE_TURN_FAILURE_BUDGET
 
 
 def _write_resume_checkpoint(
@@ -285,7 +295,33 @@ def run_orchestration_kernel_loop(
         if participant is not None:
             participant.before_choose_action(context, projection, tracer=tracer)
 
-        action_plan = coerce_kernel_action_plan(orchestration_adapter.choose_action(context, projection))
+        try:
+            action_plan = coerce_kernel_action_plan(orchestration_adapter.choose_action(context, projection))
+        except RecoverableTurnFailure as exc:
+            failure_record = dict(exc.failure_record)
+            loop_memory.turn_recovery.record_failure(failure_record)
+            budget = _recoverable_turn_failure_budget(run_ctx)
+            _LOG.warning(
+                "KERNEL recoverable_turn_failure ► iteration=%s consecutive=%s budget=%s reason=%s",
+                iterations,
+                loop_memory.turn_recovery.consecutive_failures,
+                budget,
+                failure_record.get("reason_code"),
+            )
+            _checkpoint(iterations)
+            if loop_memory.turn_recovery.consecutive_failures > budget:
+                return build_kernel_loop_result(
+                    loop_memory=loop_memory,
+                    terminal_class="failed",
+                    reason_code="recoverable_turn_failure_budget_exhausted",
+                    terminal_summary=str(exc),
+                    iterations=iterations,
+                    session_id=session_id,
+                    run_artifact_ref=run_artifact_ref,
+                    tracer=tracer,
+                    session_manager=session_manager,
+                )
+            continue
         # Safe boundary: after choose_action completes / before tool dispatch.
         control_result = maybe_exit_for_run_control(
             lifecycle=active_lifecycle,

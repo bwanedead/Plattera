@@ -19,6 +19,7 @@ from .llm_prompt_builder import (
     build_choose_action_prompt_document,
     build_resume_prompt_document,
     build_state_repair_prompt_document,
+    build_turn_recovery_prompt_document,
 )
 from .repair_lane import TextModelCaller, should_use_state_repair_lane
 from .trace_collector import KernelTraceCollector
@@ -27,6 +28,8 @@ _LOG = logging.getLogger(__name__)
 
 
 def resolve_choose_action_prompt_mode(context: OrchestratorContext) -> str:
+    if context.loop_memory.turn_recovery.has_pending_recovery():
+        return "turn_recovery"
     hitl = context.loop_memory.hitl
     if hitl.hitl_state == "answered_unintegrated" or hitl.pending_feedback_response is not None:
         return "resume"
@@ -106,6 +109,8 @@ class LlmTurnPreChooseActionParticipant(PreChooseActionParticipant):
             prompt_builder = build_resume_prompt_document
         elif prompt_mode == "state_repair":
             prompt_builder = build_state_repair_prompt_document
+        elif prompt_mode == "turn_recovery":
+            prompt_builder = build_turn_recovery_prompt_document
         else:
             prompt_builder = build_choose_action_prompt_document
         prompt = prompt_builder(

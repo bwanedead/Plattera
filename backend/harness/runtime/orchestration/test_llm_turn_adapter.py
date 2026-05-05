@@ -21,6 +21,7 @@ from harness.runtime.orchestration.action_plan_parser import (
 from harness.runtime.orchestration.contracts import OrchestratorContext
 from harness.runtime.orchestration.llm_turn_adapter import LlmTurnOrchestrationAdapter
 from harness.runtime.orchestration.llm_turn_lifecycle import LlmTurnPreChooseActionParticipant
+from harness.runtime.orchestration.recoverable_turn_failure import RecoverableTurnFailure
 from harness.runtime.orchestration.trace_collector import KernelTraceCollector
 from harness.execution.session import ExecutionSessionManager
 
@@ -935,6 +936,45 @@ def test_choose_action_uses_resume_prompt_mode_when_hitl_answer_is_pending_integ
     assert "answered_hitl_responses" in prompts[0]
 
 
+def test_choose_action_uses_turn_recovery_prompt_mode_after_recoverable_failure() -> None:
+    from services.llm.call_options import LlmCallOptions
+
+    prompts: list[str] = []
+    received_opts: list[Any] = []
+
+    def caller(prompt: str, model: str, **kwargs: Any) -> str:
+        prompts.append(prompt)
+        received_opts.append(kwargs.get("call_options"))
+        return _VALID_PLAN_JSON
+
+    adapter = _minimal_llm_adapter(caller=caller)
+    ctx = _orch_context(iterations=5)
+    ctx.loop_memory.hitl.hitl_state = "answered_unintegrated"
+    ctx.loop_memory.hitl.answered_hitl_responses.append(
+        {"prompt_id": "p-1", "feedback": {"message": "use the human answer"}}
+    )
+    ctx.loop_memory.turn_recovery.record_failure(
+        {
+            "iteration": 4,
+            "prompt_mode": "resume",
+            "reason_code": "model_call_failed",
+            "provider_finish_reason": "length",
+        }
+    )
+
+    adapter.choose_action(ctx, projection=None)
+
+    opts = received_opts[0]
+    assert isinstance(opts, LlmCallOptions)
+    assert opts.phase == "choose_action_turn_recovery"
+    prompt = prompts[0]
+    assert '"prompt_mode": "turn_recovery"' in prompt
+    assert "turn_recovery" in prompt
+    assert "answered_hitl_responses" in prompt
+    assert "prior model turn" in prompt
+    assert not ctx.loop_memory.turn_recovery.has_pending_recovery()
+
+
 def test_choose_action_prompt_includes_contract_feedback_key() -> None:
     """contract_feedback must be present in the prompt envelope."""
     captured: list[str] = []
@@ -1454,7 +1494,7 @@ def test_choose_action_emits_raw_io_on_provider_failure() -> None:
     assert rec["repair_attempted"] is False
 
 
-def test_choose_action_emits_provider_metadata_on_truncation_failure() -> None:
+def test_choose_action_emits_provider_metadata_on_recoverable_truncation_failure() -> None:
     """Provider-envelope facts should survive into raw I/O audit on truncation."""
     records: list[dict[str, Any]] = []
     partial_text = '{"action_type": "noop"'
@@ -1479,7 +1519,7 @@ def test_choose_action_emits_provider_metadata_on_truncation_failure() -> None:
 
     adapter = _minimal_llm_adapter(caller=caller)
 
-    with pytest.raises(ModelActionParseError):
+    with pytest.raises(RecoverableTurnFailure):
         adapter.choose_action(
             _orch_context(iterations=1, raw_llm_io_observer=_RawIoRecorder(records)),
             projection=None,
@@ -1545,7 +1585,7 @@ def test_choose_action_emits_provider_metadata_on_content_filter_failure() -> No
     assert rec["raw_llm_response_char_count"] == len("Provider blocked response (finish_reason: content_filter)")
 
 
-def test_choose_action_emits_provider_metadata_on_empty_response_failure() -> None:
+def test_choose_action_empty_response_raises_recoverable_turn_failure() -> None:
     records: list[dict[str, Any]] = []
 
     def caller(prompt: str, model: str, **_kwargs: Any) -> dict[str, Any]:
@@ -1568,7 +1608,7 @@ def test_choose_action_emits_provider_metadata_on_empty_response_failure() -> No
 
     adapter = _minimal_llm_adapter(caller=caller)
 
-    with pytest.raises(ModelActionParseError):
+    with pytest.raises(RecoverableTurnFailure) as exc_info:
         adapter.choose_action(
             _orch_context(iterations=1, raw_llm_io_observer=_RawIoRecorder(records)),
             projection=None,
@@ -1585,6 +1625,47 @@ def test_choose_action_emits_provider_metadata_on_empty_response_failure() -> No
     assert rec["api_model"] == "api-model-3"
     assert rec["raw_llm_response_text"] == "OpenAI returned empty text response"
     assert rec["raw_llm_response_char_count"] == len("OpenAI returned empty text response")
+    assert exc_info.value.failure_record["provider_finish_reason"] == "stop"
+    assert exc_info.value.failure_record["reason_code"] == "model_call_failed"
+
+
+def test_choose_action_length_finish_reason_raises_recoverable_turn_failure() -> None:
+    records: list[dict[str, Any]] = []
+
+    def caller(prompt: str, model: str, **_kwargs: Any) -> dict[str, Any]:
+        return {
+            "success": False,
+            "error": "OpenAI returned truncated response (finish_reason: length)",
+            "text": None,
+            "model": model,
+            "finish_reason": "length",
+            "usage": {
+                "prompt_tokens": 25966,
+                "completion_tokens": 16000,
+                "reasoning_tokens": None,
+                "total_tokens": 41966,
+            },
+            "char_count": 0,
+            "provider_model": "gpt-5.4-2026-03-05",
+        }
+
+    adapter = _minimal_llm_adapter(caller=caller)
+
+    with pytest.raises(RecoverableTurnFailure) as exc_info:
+        adapter.choose_action(
+            _orch_context(iterations=18, raw_llm_io_observer=_RawIoRecorder(records)),
+            projection=None,
+        )
+
+    rec = records[0]
+    assert rec["parse_reason_code"] == "model_call_failed"
+    assert rec["provider_finish_reason"] == "length"
+    assert rec["provider_completion_tokens"] == 16000
+    assert rec["raw_llm_response_char_count"] == len("OpenAI returned truncated response (finish_reason: length)")
+    failure = exc_info.value.failure_record
+    assert failure["prompt_mode"] == "full_choose_action"
+    assert failure["provider_finish_reason"] == "length"
+    assert failure["provider_completion_tokens"] == 16000
 
 
 def test_choose_action_works_with_no_raw_io_cb() -> None:

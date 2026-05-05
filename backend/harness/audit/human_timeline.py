@@ -212,6 +212,23 @@ def _render_llm_authored_text(turn: Mapping[str, Any]) -> list[str]:
 
     raw_needed = not turn.get("parse_ok", True) or not (rationale or progress or continuity or hitl_req)
     if raw_needed:
+        reason = turn.get("parse_reason_code")
+        finish_reason = turn.get("provider_finish_reason")
+        provider_error = turn.get("provider_error")
+        if reason or finish_reason or provider_error:
+            lines.append("  model_failure:")
+            if reason:
+                lines.append(f"    parse_reason_code: {reason}")
+            if finish_reason:
+                lines.append(f"    provider_finish_reason: {finish_reason}")
+            if provider_error:
+                lines.extend(_labeled_prose_block("    provider_error:", str(provider_error)))
+            prompt_tokens = turn.get("provider_prompt_tokens")
+            completion_tokens = turn.get("provider_completion_tokens")
+            if prompt_tokens is not None:
+                lines.append(f"    provider_prompt_tokens: {prompt_tokens}")
+            if completion_tokens is not None:
+                lines.append(f"    provider_completion_tokens: {completion_tokens}")
         raw = turn.get("raw_llm_response_text")
         if isinstance(raw, str) and raw.strip():
             lines.append("  raw_llm_response_excerpt:")

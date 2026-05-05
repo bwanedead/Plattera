@@ -71,6 +71,24 @@ def build_state_repair_prompt_document(
     )
 
 
+def build_turn_recovery_prompt_document(
+    *,
+    composed_input: ComposedTurnInput,
+    opaque_launch_context: Mapping[str, Any],
+    context: OrchestratorContext,
+    projection: SharedStateProjection | None,
+    journal_verbatim_keep_n: int,
+) -> PromptBuildDocument:
+    return _build_turn_prompt_document(
+        mode="turn_recovery",
+        composed_input=composed_input,
+        opaque_launch_context=opaque_launch_context,
+        context=context,
+        projection=projection,
+        journal_verbatim_keep_n=journal_verbatim_keep_n,
+    )
+
+
 def build_choose_action_prompt(
     *,
     composed_input: ComposedTurnInput,
@@ -84,6 +102,8 @@ def build_choose_action_prompt(
         builder = build_resume_prompt_document
     elif mode == "state_repair":
         builder = build_state_repair_prompt_document
+    elif mode == "turn_recovery":
+        builder = build_turn_recovery_prompt_document
     else:
         builder = build_choose_action_prompt_document
     return builder(

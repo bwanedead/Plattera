@@ -26,6 +26,7 @@ from .continuity_journal import (
 )
 from .loop_state import LoopMemoryState
 from .telemetry import PromptContactTelemetry
+from .turn_recovery import TurnRecoveryState
 
 KERNEL_RESUME_SNAPSHOT_VERSION = "kernel_resume.v1"
 
@@ -82,6 +83,7 @@ def build_kernel_resume_snapshot(
             "last_prompt_event_id": loop_memory.telemetry.last_prompt_event_id,
             "last_prompt_event_surface": loop_memory.telemetry.last_prompt_event_surface,
         },
+        "turn_recovery": loop_memory.turn_recovery.to_wire(),
         "execution_session": exec_wire,
     }
 
@@ -335,6 +337,7 @@ def parse_kernel_resume_snapshot(payload: Mapping[str, Any]) -> tuple[LoopMemory
         continuity=continuity,
         telemetry=telemetry,
         hitl=hitl,
+        turn_recovery=TurnRecoveryState.from_wire(payload.get("turn_recovery")),
         iterations=0,
     )
     return memory, next_it, None

@@ -5,6 +5,7 @@ from typing import Any
 
 from .continuity import OrchestrationContinuity
 from .telemetry import PromptContactTelemetry
+from .turn_recovery import TurnRecoveryState
 from ..hitl.transport import HitlTransportPosture
 
 
@@ -32,3 +33,7 @@ class LoopMemoryState:
     # Cleared to {} on a clean (no-repair) successful turn.
     # Included in the next turn's prompt envelope so the model can self-correct.
     contract_feedback: dict[str, Any] = field(default_factory=dict)
+    # Mechanical recovery context for output-side model failures. This is not
+    # semantic state; it only tells the next prompt why the prior model turn
+    # produced no usable action plan and how many bounded retries remain.
+    turn_recovery: TurnRecoveryState = field(default_factory=TurnRecoveryState)

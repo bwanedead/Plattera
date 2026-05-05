@@ -160,6 +160,8 @@ def _build_run_context(
     contract_feedback = jsonable(context.loop_memory.contract_feedback)
     if contract_feedback:
         run_context["contract_feedback"] = contract_feedback
+    if context.loop_memory.turn_recovery.has_pending_recovery():
+        run_context["turn_recovery"] = context.loop_memory.turn_recovery.to_wire()
     if cont.operator_progress_message is not None:
         run_context["operator_progress_message"] = cont.operator_progress_message
     if hitl_pend:

@@ -26,6 +26,7 @@ from .llm_prompt_builder import (
     build_choose_action_prompt_document,
     build_resume_prompt_document,
     build_state_repair_prompt_document,
+    build_turn_recovery_prompt_document,
     jsonable,
     prompt_visible_launch_context,
 )
@@ -34,6 +35,7 @@ from .llm_turn_lifecycle import (
     resolve_choose_action_prompt_mode,
 )
 from .repair_lane import TextModelCaller, attempt_repair, extract_audit_text
+from .recoverable_turn_failure import RecoverableTurnFailure, is_recoverable_output_failure
 
 
 @dataclass(frozen=True)
@@ -155,6 +157,8 @@ class LlmTurnOrchestrationAdapter(OrchestrationAdapter):
             prompt_builder = build_resume_prompt_document
         elif prompt_mode == "state_repair":
             prompt_builder = build_state_repair_prompt_document
+        elif prompt_mode == "turn_recovery":
+            prompt_builder = build_turn_recovery_prompt_document
         else:
             prompt_builder = build_choose_action_prompt_document
         prompt_doc = prompt_builder(
@@ -192,6 +196,30 @@ class LlmTurnOrchestrationAdapter(OrchestrationAdapter):
                 # Emit observability for the original failure and surface it immediately.
                 _emit_observability(parse_ok=False, parse_reason_code=parse_exc.reason_code)
                 _audit(parse_ok=False, parse_rc=parse_exc.reason_code, repair_records=None)
+                raw_response_text = extract_audit_text(raw_response)
+                provider_audit = _provider_audit_fields(raw_response, raw_response_text=raw_response_text)
+                if is_recoverable_output_failure(
+                    reason_code=parse_exc.reason_code,
+                    raw_response=raw_response,
+                    raw_response_text=raw_response_text,
+                ):
+                    raise RecoverableTurnFailure(
+                        {
+                            "iteration": int(context.loop_memory.iterations),
+                            "prompt_mode": prompt_mode,
+                            "reason_code": parse_exc.reason_code,
+                            "message": str(parse_exc),
+                            "prompt_char_count": prompt_char_count,
+                            "active_item_id": context.loop_memory.continuity.active_item_id,
+                            "hitl_state": context.loop_memory.hitl.hitl_state,
+                            "pending_hitl_integration_prompt_ids": [
+                                str(row.get("prompt_id"))
+                                for row in context.loop_memory.hitl.answered_hitl_responses
+                                if isinstance(row, Mapping) and row.get("prompt_id")
+                            ],
+                            **provider_audit,
+                        }
+                    ) from parse_exc
                 raise parse_exc
             # One focused repair attempt before hard failure.
             # Reuse the original call_opts.image_attachments so image-grounded turns retain
@@ -223,6 +251,7 @@ class LlmTurnOrchestrationAdapter(OrchestrationAdapter):
                     "repair_attempted": True,
                     "repair_outcome": "repaired",
                 }
+                context.loop_memory.turn_recovery.clear()
                 _emit_observability(parse_ok=True, parse_reason_code="repaired")
                 _audit(parse_ok=False, parse_rc=parse_exc.reason_code,
                        plan=repair_attempt.repair_parsed_action_plan, repair_records=[_repair_rec])
@@ -241,6 +270,7 @@ class LlmTurnOrchestrationAdapter(OrchestrationAdapter):
             raise repair_error
         # Clean turn — clear stale contract feedback.
         context.loop_memory.contract_feedback = {}
+        context.loop_memory.turn_recovery.clear()
         _emit_observability(parse_ok=True, parse_reason_code=None)
         _audit(parse_ok=True, plan=plan, repair_records=None)
         return plan
