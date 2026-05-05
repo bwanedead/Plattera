@@ -43,6 +43,10 @@ class AgentViewerEventBus:
     async def publish(self, stream_key: str, event: dict[str, Any]) -> None:
         self.publish_sync(stream_key, event)
 
+    def history(self, stream_key: str) -> list[str]:
+        with self._lock:
+            return list(self._history.get(stream_key, ()))
+
     def publish_sync(self, stream_key: str, event: dict[str, Any]) -> None:
         data = json.dumps(event)
         with self._lock:

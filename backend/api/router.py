@@ -8,6 +8,7 @@ from api.endpoints import assets as assets_endpoints
 from api.endpoints import config as config_endpoints
 from api.endpoints import image_to_text_jobs, index_maintenance, retrieval
 from api.endpoints import feature_graph
+from api.endpoints import agent_viewer
 from api import logs as logs_router
 from api.endpoints.plss import container_router
 from api.endpoints.dossier import management_router, association_router, navigation_router, views_router, dossier_image_processing_router, runs_router
@@ -55,6 +56,9 @@ api_router.include_router(dossier_finalized_list.router, prefix="/api/dossier", 
 
 # Logs (backend diagnostics)
 api_router.include_router(logs_router.router, prefix="/api", tags=["logs"])
+
+# Agent Viewer control-plane read model
+api_router.include_router(agent_viewer.router, prefix="/api/agent-viewer", tags=["agent-viewer"])
 
 # Quick access to pipeline-specific endpoints for backwards compatibility
 api_router.include_router(models.router, prefix="/api/image-to-text", tags=["image-to-text"])

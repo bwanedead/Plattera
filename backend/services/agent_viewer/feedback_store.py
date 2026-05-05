@@ -8,10 +8,12 @@ from time import time
 from typing import Any
 
 from config.paths import dossiers_artifacts_root
+from services.agent_viewer.identifiers import validate_viewer_identifiers
 
 
 def feedback_path(*, loop_kind: str, run_id: str) -> Path:
-    return dossiers_artifacts_root() / "agent_viewer" / "feedback" / loop_kind / f"{run_id}.json"
+    safe_loop_kind, safe_run_id = validate_viewer_identifiers(loop_kind=loop_kind, run_id=run_id)
+    return dossiers_artifacts_root() / "agent_viewer" / "feedback" / safe_loop_kind / f"{safe_run_id}.json"
 
 
 def list_entries(*, loop_kind: str, run_id: str) -> list[dict[str, Any]]:
