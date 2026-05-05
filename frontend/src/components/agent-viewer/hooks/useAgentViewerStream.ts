@@ -10,6 +10,7 @@ type Params = {
 export function useAgentViewerStream({ isOpen, activeLoopKind, activeRunId }: Params) {
   const [events, setEvents] = React.useState<AgentViewerEvent[]>([]);
   const [connected, setConnected] = React.useState(false);
+  const [connectionEpoch, setConnectionEpoch] = React.useState(0);
   const [isHydratingReplay, setIsHydratingReplay] = React.useState(false);
   const replayHydratingRef = React.useRef(false);
 
@@ -90,6 +91,10 @@ export function useAgentViewerStream({ isOpen, activeLoopKind, activeRunId }: Pa
         setEvents((prev) => insertEventWithTickerReplacement(prev, taggedEvent));
       },
       () => setConnected(false),
+      () => {
+        setConnected(true);
+        setConnectionEpoch((value) => value + 1);
+      },
     );
     return () => {
       window.clearTimeout(replayTimer);
@@ -159,6 +164,7 @@ export function useAgentViewerStream({ isOpen, activeLoopKind, activeRunId }: Pa
     setEvents,
     connected,
     setConnected,
+    connectionEpoch,
     isHydratingReplay,
   };
 }

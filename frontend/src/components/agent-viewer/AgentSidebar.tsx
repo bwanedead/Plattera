@@ -4,6 +4,7 @@ import { DecisionChecklistPanel } from './DecisionChecklistPanel';
 import { EventDetailBlock } from './EventDetailBlock';
 import { summarizeEventForesight } from './agentViewerUtils';
 import type { DecisionLedgerItem } from './types';
+import type { AgentViewerSnapshotView } from './model/snapshotModel';
 
 type Props = {
   connected: boolean;
@@ -18,6 +19,9 @@ type Props = {
   decisionSummary: Record<string, any> | null;
   feedbackBusy: boolean;
   isHydratingReplay: boolean;
+  snapshotView: AgentViewerSnapshotView;
+  snapshotLoading: boolean;
+  snapshotError: string | null;
   allowTerminalFeedback: boolean;
   decisionOtherByKey: Record<string, string>;
   setDecisionOtherByKey: React.Dispatch<React.SetStateAction<Record<string, string>>>;
@@ -41,6 +45,9 @@ export function AgentSidebar({
   decisionSummary,
   feedbackBusy,
   isHydratingReplay,
+  snapshotView,
+  snapshotLoading,
+  snapshotError,
   allowTerminalFeedback,
   decisionOtherByKey,
   setDecisionOtherByKey,
@@ -109,6 +116,27 @@ export function AgentSidebar({
         )}
         <div style={{ fontSize: 12, lineHeight: 1.35 }}>{currentStatusText}</div>
       </div>
+
+      {(snapshotLoading || snapshotError || snapshotView.snapshot) && (
+        <div style={{ padding: '7px 12px', borderBottom: '1px solid rgba(255,255,255,0.06)', fontSize: 10, lineHeight: 1.4, opacity: 0.76 }}>
+          {snapshotLoading ? (
+            <div>Snapshot: loading</div>
+          ) : snapshotError ? (
+            <div>Snapshot: unavailable</div>
+          ) : (
+            <div>
+              Snapshot: {snapshotView.runStatus || 'unknown'}
+              {snapshotView.runReason ? ` (${snapshotView.runReason})` : ''}
+            </div>
+          )}
+          {snapshotView.snapshot && (
+            <div>
+              Activity {snapshotView.activityCount} | Artifacts {snapshotView.artifactCount} | Evidence{' '}
+              {snapshotView.evidenceCount} | Work {snapshotView.workItemCount} | HITL {snapshotView.hitlPromptCount}
+            </div>
+          )}
+        </div>
+      )}
 
       {terminalSummary && (
         <div style={{ padding: '8px 12px', borderBottom: '1px solid rgba(255,255,255,0.06)', fontSize: 11, lineHeight: 1.4, opacity: 0.9 }}>

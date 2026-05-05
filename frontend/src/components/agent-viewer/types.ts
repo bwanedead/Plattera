@@ -29,6 +29,7 @@ export type ClosureRequirement = {
   resolution_options?: string[];
   evidence_refs?: string[];
   attempt_summary?: string;
+  mapping_blocking?: boolean;
 };
 
 export type DecisionLedgerItem = {

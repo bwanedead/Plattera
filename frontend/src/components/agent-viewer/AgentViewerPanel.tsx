@@ -5,8 +5,14 @@ import { FeedbackComposer } from './FeedbackComposer';
 import { AgentViewerHeader } from './AgentViewerHeader';
 import { TranscriptionCanvasPane } from './TranscriptionCanvasPane';
 import { useAgentViewerStream } from './hooks/useAgentViewerStream';
+import { useAgentViewerSnapshot } from './hooks/useAgentViewerSnapshot';
 import { useAgentViewerFeedback } from './hooks/useAgentViewerFeedback';
 import { useAgentViewerArtifacts } from './hooks/useAgentViewerArtifacts';
+import {
+  isTerminalViewerRunStatus,
+  mergeSnapshotAndLiveEvents,
+  terminalStatusFromRunStatus,
+} from './model/snapshotModel';
 import {
   buildLaneChips,
   collectUpstreamCorrectionRequests,
@@ -33,11 +39,27 @@ export const AgentViewerPanel: React.FC<AgentViewerPanelProps> = ({
   const activeLoopKind = loopKind ?? null;
   const activeRunId = typeof runId === 'string' && runId.trim() ? runId : null;
   const hasActiveRun = Boolean(activeLoopKind && activeRunId);
-  const { events, setEvents, connected, setConnected, isHydratingReplay } = useAgentViewerStream({
+  const { events, setEvents, connected, setConnected, connectionEpoch, isHydratingReplay } = useAgentViewerStream({
     isOpen,
     activeLoopKind,
     activeRunId,
   });
+  const {
+    snapshotView,
+    snapshotLoading,
+    snapshotError,
+    refreshSnapshot,
+  } = useAgentViewerSnapshot({
+    isOpen,
+    activeLoopKind,
+    activeRunId,
+  });
+
+  React.useEffect(() => {
+    if (!hasActiveRun) return;
+    if (connectionEpoch <= 0) return;
+    refreshSnapshot();
+  }, [connectionEpoch, hasActiveRun, refreshSnapshot]);
 
   React.useEffect(() => {
     if (hasActiveRun) setCanvasMode('agent');
@@ -66,8 +88,13 @@ export const AgentViewerPanel: React.FC<AgentViewerPanelProps> = ({
     setConnected(false);
   }, [isOpen, isTranscribing, hasActiveRun]);
 
+  const viewerEvents = React.useMemo(
+    () => mergeSnapshotAndLiveEvents(snapshotView.activityEvents, events),
+    [events, snapshotView.activityEvents],
+  );
+
   const orderedEvents = React.useMemo(() => {
-    const sorted = [...events];
+    const sorted = [...viewerEvents];
     sorted.sort((a, b) => {
       const at = typeof a.timestamp_epoch_seconds === 'number' ? a.timestamp_epoch_seconds : -1;
       const bt = typeof b.timestamp_epoch_seconds === 'number' ? b.timestamp_epoch_seconds : -1;
@@ -77,7 +104,7 @@ export const AgentViewerPanel: React.FC<AgentViewerPanelProps> = ({
       return bs - as;
     });
     return sorted;
-  }, [events]);
+  }, [viewerEvents]);
 
   const doneEvent = React.useMemo(() => orderedEvents.find((evt) => evt.event_type === 'done') || null, [orderedEvents]);
   const currentEvent = doneEvent || orderedEvents.find((evt) => String(evt.payload?.stream_kind || 'narration') !== 'ticker') || orderedEvents[0] || null;
@@ -85,9 +112,11 @@ export const AgentViewerPanel: React.FC<AgentViewerPanelProps> = ({
     () => orderedEvents.find((evt) => evt?.payload?.detail && typeof evt.payload.detail === 'object') || null,
     [orderedEvents],
   );
-  const isRunTerminal = Boolean(doneEvent);
+  const snapshotTerminalStatus = terminalStatusFromRunStatus(snapshotView.runStatus);
+  const isRunTerminal = Boolean(doneEvent) || isTerminalViewerRunStatus(snapshotView.runStatus);
   const terminalStatus: 'completed' | 'needs_review' | 'failed' | null = isRunTerminal
     ? (() => {
+        if (!doneEvent && snapshotTerminalStatus) return snapshotTerminalStatus;
         const doneEvt = doneEvent;
         const stage = String(doneEvt?.status?.stage || doneEvt?.payload?.phase || '').toLowerCase();
         if (stage === 'completed') return 'completed';
@@ -412,6 +441,9 @@ export const AgentViewerPanel: React.FC<AgentViewerPanelProps> = ({
               decisionSummary={decisionSummary}
               feedbackBusy={feedbackBusy}
               isHydratingReplay={isHydratingReplay}
+              snapshotView={snapshotView}
+              snapshotLoading={snapshotLoading}
+              snapshotError={snapshotError}
               allowTerminalFeedback={allowTerminalFeedback}
               decisionOtherByKey={decisionOtherByKey}
               setDecisionOtherByKey={setDecisionOtherByKey}
