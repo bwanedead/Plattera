@@ -69,6 +69,29 @@ def test_mission_critical_exactness_section_has_no_domain_examples() -> None:
         assert banned not in section, f"Found banned term {banned!r} in generic exactness doctrine"
 
 
+def test_surface_teaches_decisive_detail_localization() -> None:
+    text = _HARNESS_TRUNK_METHOD_TEXT
+    lowered = text.lower()
+    assert "decisive-detail localization" in lowered
+    assert "smallest decisive detail" in lowered
+    assert "common failure mode, not an edge case" in lowered
+    assert "broad evidence can guide investigation" in lowered
+    assert "does not prove the decisive atom" in lowered
+    assert "point of difference" in lowered
+    assert "isolate the decisive detail" in lowered
+
+
+def test_decisive_detail_localization_section_has_no_domain_examples() -> None:
+    lowered = _HARNESS_TRUNK_METHOD_TEXT.lower()
+    start = lowered.find("## decisive-detail localization")
+    end = lowered.find("## defensible evidence rule")
+    assert start >= 0, "decisive-detail localization section must exist"
+    assert end > start, "defensible evidence rule section should follow decisive-detail localization"
+    section = lowered[start:end]
+    for banned in ("deed", "parcel", "range", "bearing", "distance", "acreage", "plss", "transcript"):
+        assert banned not in section, f"Found banned term {banned!r} in decisive-detail doctrine"
+
+
 def test_harness_surface_new_sections_contain_no_deed_examples() -> None:
     """New method-text sections must not introduce deed/mapping-shaped examples."""
     lowered = _HARNESS_TRUNK_METHOD_TEXT.lower()

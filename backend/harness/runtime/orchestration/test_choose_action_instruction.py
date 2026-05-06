@@ -117,6 +117,28 @@ def test_choose_action_instruction_teaches_defensible_evidence_and_read_carry_fo
     assert "same_item_hydrate_churn_no_gain" in text
 
 
+def test_choose_action_instruction_teaches_decisive_detail_localization() -> None:
+    text = CHOOSE_ACTION_INSTRUCTION
+    lowered = text.lower()
+    assert "smallest evidence view that resolves the point of difference" in lowered
+    assert "broad navigation evidence" in lowered
+    assert "large locator regions" in lowered
+    assert "decisive proof for a disputed exact value" in lowered
+    assert "broad evidence can tell you where to look" in lowered
+    assert "does not by itself settle the atom" in lowered
+
+
+def test_choose_action_decisive_detail_guidance_has_no_domain_examples() -> None:
+    lowered = CHOOSE_ACTION_INSTRUCTION.lower()
+    start = lowered.find("smallest evidence view that resolves the point of difference")
+    end = lowered.find("this is guarding against a known failure mode")
+    assert start >= 0, "decisive detail guidance must exist"
+    assert end > start, "false earned certainty paragraph should follow decisive detail guidance"
+    section = lowered[start:end]
+    for banned in ("deed", "parcel", "range", "bearing", "distance", "acreage", "plss", "transcript"):
+        assert banned not in section, f"Found banned term {banned!r} in decisive-detail guidance"
+
+
 def test_surface_teaches_broad_to_specific_value_decomposition() -> None:
     from harness.runtime.prompting.surface import _HARNESS_TRUNK_METHOD_TEXT
     text = _HARNESS_TRUNK_METHOD_TEXT
