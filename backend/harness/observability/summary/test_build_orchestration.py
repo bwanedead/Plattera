@@ -191,3 +191,79 @@ def test_shared_unlocated_evidence_counter_projects_into_typed_summary() -> None
         "shared_unlocated_evidence_for_earned_units:2"
         in env.prompt_observability_summary.mechanical_flags
     )
+
+
+# ---------------------------------------------------------------------------
+# terminal_artifact_posture — acceptance tests
+# ---------------------------------------------------------------------------
+
+
+def _terminal_payload(terminal_class: str, *, refs: dict | None = None) -> dict:
+    payload = {
+        "trace_events": [
+            {
+                "timestamp_epoch_seconds": 1,
+                "event_kind": "terminal_outcome",
+                "phase": "terminal",
+                "iteration_index": 1,
+                "actor": "kernel",
+                "status": "completed",
+                "refs_delta": {},
+                "payload": {"terminal_class": terminal_class, "reason_code": "done", "latest_refs": refs or {}},
+                "source_origin": {"kind": "k", "ref": "r", "sequence_index": 0},
+            },
+        ],
+        "run_artifact": {
+            "run_id": "run-posture-1",
+            "session_id": "s::run-posture-1",
+            "latest_refs": refs or {},
+            "created_at_epoch_seconds": 1,
+        },
+    }
+    return payload
+
+
+def test_terminal_artifact_posture_completed_with_output() -> None:
+    """Acceptance: complete run with transcript_edit:output ref is classified as output."""
+    payload = _terminal_payload("completed", refs={"transcript_edit:output": "artifact://output:rev:0001"})
+    env = build_orchestration_kernel_run_summary(orchestration_kernel_payload=payload)
+    assert env.terminal_summary.terminal_class == "completed"
+    assert env.terminal_summary.terminal_artifact_posture == "completed_with_output"
+
+
+def test_terminal_artifact_posture_completed_with_working_artifact() -> None:
+    """Acceptance: complete run with only working:rev:* ref is classified as working artifact."""
+    payload = _terminal_payload("completed", refs={"working:rev:0001": "artifact://working:rev:0001"})
+    env = build_orchestration_kernel_run_summary(orchestration_kernel_payload=payload)
+    assert env.terminal_summary.terminal_class == "completed"
+    assert env.terminal_summary.terminal_artifact_posture == "completed_with_working_artifact"
+
+
+def test_terminal_artifact_posture_blocked_with_working() -> None:
+    payload = _terminal_payload("blocked", refs={"working:rev:0002": "artifact://working:rev:0002"})
+    env = build_orchestration_kernel_run_summary(orchestration_kernel_payload=payload)
+    assert env.terminal_summary.terminal_artifact_posture == "blocked_with_working_artifact"
+
+
+def test_terminal_artifact_posture_failed_is_error() -> None:
+    payload = _terminal_payload("failed", refs={})
+    env = build_orchestration_kernel_run_summary(orchestration_kernel_payload=payload)
+    assert env.terminal_summary.terminal_artifact_posture == "failed_or_recoverable_error"
+
+
+def test_terminal_artifact_posture_completed_no_refs_is_none() -> None:
+    payload = _terminal_payload("completed", refs={})
+    env = build_orchestration_kernel_run_summary(orchestration_kernel_payload=payload)
+    assert env.terminal_summary.terminal_class == "completed"
+    assert env.terminal_summary.terminal_artifact_posture is None
+
+
+def test_post_hitl_spin_count_projects_into_typed_summary() -> None:
+    payload = _payload_with_prompt_event()
+    payload["prompt_observability_summary"] = {
+        "post_hitl_spin_count": 4,
+        "mechanical_flags": ["post_hitl_spin:4"],
+    }
+    env = build_orchestration_kernel_run_summary(orchestration_kernel_payload=payload)
+    assert env.prompt_observability_summary.post_hitl_spin_count == 4
+    assert "post_hitl_spin:4" in env.prompt_observability_summary.mechanical_flags

@@ -154,6 +154,7 @@ def build_prompt_observability_summary(
         step_result_records,
         pending_hitl_requests=pending_hitl_requests,
     )
+    post_hitl_spin_count = _post_hitl_spin_count(step_records)
     substantial_artifact_output_count = _substantial_artifact_output_count(
         step_result_records,
         last_n=3,
@@ -246,6 +247,7 @@ def build_prompt_observability_summary(
         "artifact_refresh_trap_risk_count": artifact_refresh_trap_risk_count,
         "repair_ready_without_artifact_write_count": repair_ready_without_artifact_write_count,
         "hitl_evidence_readiness_debt_count": hitl_evidence_readiness_debt_count,
+        "post_hitl_spin_count": post_hitl_spin_count,
         "recent_result_truncated_count": recent_result_truncated_count,
         "substantial_artifact_output_count": substantial_artifact_output_count,
         "covered_unit_count": covered_units_metrics["covered_unit_count"],
@@ -339,6 +341,7 @@ def build_prompt_observability_summary(
         artifact_refresh_trap_risk_count=artifact_refresh_trap_risk_count,
         repair_ready_without_artifact_write_count=repair_ready_without_artifact_write_count,
         hitl_evidence_readiness_debt_count=hitl_evidence_readiness_debt_count,
+        post_hitl_spin_count=post_hitl_spin_count,
         recent_result_truncated_count=recent_result_truncated_count,
         artifact_claim_inventory_suspect_count=artifact_claim_inventory_suspect_count,
         closed_candidate_units_missing_determined_value_count=covered_units_metrics[
@@ -665,6 +668,7 @@ _ARTIFACT_REFRESH_TRAP_SMALL_TARGET_SET_MAX: int = 4
 
 _REPAIR_READY_WRITE_ACTION_TYPES: frozenset[str] = _ARTIFACT_REFRESH_TRAP_SAVE_ACTION_TYPES
 _REPAIR_READY_MIN_NO_WRITE_TURNS: int = 3
+_POST_HITL_SPIN_MIN_TURNS: int = 3
 _HITL_EVIDENCE_READINESS_WINDOW: int = 5
 _HITL_EVIDENCE_CONTEXT_KEYS: frozenset[str] = frozenset({
     "evidence_refs",
@@ -949,6 +953,58 @@ def _hitl_evidence_readiness_debt(
                 return 0
 
     return len(debt_turns)
+
+
+def _post_hitl_spin_count(step_records: list[dict[str, Any]]) -> int:
+    """Advisory: trailing post-HITL turns with no new refs, no artifact write, no state change.
+
+    Fires when a wait_for_human turn exists in the step history AND the
+    trailing consecutive turns since that HITL turn show no refs change (vs
+    HITL-turn baseline), no artifact write, and no work_state_signature change.
+    Returns the count when >= _POST_HITL_SPIN_MIN_TURNS, else 0.
+    """
+    last_hitl_pos: int | None = None
+    for i, row in enumerate(step_records):
+        if bool(row.get("wait_for_human")):
+            last_hitl_pos = i
+    if last_hitl_pos is None:
+        return 0
+    post_hitl = step_records[last_hitl_pos + 1:]
+    if len(post_hitl) < _POST_HITL_SPIN_MIN_TURNS:
+        return 0
+    # Build a progress flag for each post-HITL turn by comparing to the previous turn.
+    # "Progress" = refs changed vs previous, state changed vs previous, or artifact write.
+    # This catches "integrated-then-stuck" loops where a save happens mid-window but
+    # no-gain rereads follow. A save counts as progress only for that turn itself.
+    hitl_row = step_records[last_hitl_pos]
+    prev_refs_sig = _stable_signature(hitl_row.get("latest_refs_snapshot"))
+    prev_state_sig = _as_optional_text(hitl_row.get("work_state_signature"))
+    progress_flags: list[bool] = []
+    for row in post_hitl:
+        curr_refs_sig = _stable_signature(row.get("latest_refs_snapshot"))
+        curr_state_sig = _as_optional_text(row.get("work_state_signature"))
+        action_type = _as_optional_text(row.get("action_type"))
+        had_progress = (
+            action_type in _REPAIR_READY_WRITE_ACTION_TYPES
+            or curr_refs_sig != prev_refs_sig
+            or (
+                curr_state_sig is not None
+                and prev_state_sig is not None
+                and curr_state_sig != prev_state_sig
+            )
+        )
+        progress_flags.append(had_progress)
+        prev_refs_sig = curr_refs_sig
+        prev_state_sig = curr_state_sig
+    # Count trailing consecutive no-progress turns.
+    spin_count = 0
+    for had_progress in reversed(progress_flags):
+        if had_progress:
+            break
+        spin_count += 1
+    if spin_count < _POST_HITL_SPIN_MIN_TURNS:
+        return 0
+    return spin_count
 
 
 def _covered_units_metrics(items: list[Any]) -> dict[str, int]:
@@ -1299,6 +1355,7 @@ def _mechanical_flags(
     artifact_refresh_trap_risk_count: int = 0,
     repair_ready_without_artifact_write_count: int = 0,
     hitl_evidence_readiness_debt_count: int = 0,
+    post_hitl_spin_count: int = 0,
     recent_result_truncated_count: int = 0,
     artifact_claim_inventory_suspect_count: int = 0,
     closed_candidate_units_missing_determined_value_count: int = 0,
@@ -1364,6 +1421,8 @@ def _mechanical_flags(
         flags.append(f"repair_ready_without_artifact_write:{repair_ready_without_artifact_write_count}")
     if hitl_evidence_readiness_debt_count > 0:
         flags.append(f"hitl_evidence_readiness_debt:{hitl_evidence_readiness_debt_count}")
+    if post_hitl_spin_count >= _POST_HITL_SPIN_MIN_TURNS:
+        flags.append(f"post_hitl_spin:{post_hitl_spin_count}")
     if closed_candidate_units_missing_determined_value_count > 0:
         flags.append(
             f"closed_candidate_unit_missing_determined_value:{closed_candidate_units_missing_determined_value_count}"

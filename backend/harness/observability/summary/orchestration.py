@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from ...mission_state import ResolutionState
-from ...terminal_taxonomy import TerminalClass
+from ...terminal_taxonomy import TerminalClass, classify_terminal_artifact_posture
 from .common import (
     _as_bool,
     _as_dict,
@@ -47,6 +47,14 @@ def build_orchestration_kernel_run_summary(*, orchestration_kernel_payload: dict
     run_header = _run_header_from_trace_events(trace_events)
     latest_refs_summary = _latest_refs_summary_from_trace_events(trace_events=trace_events, run_artifact=run_artifact)
     terminal_summary = _terminal_summary_from_trace_events(trace_events=trace_events, run_artifact=run_artifact)
+    terminal_artifact_posture = classify_terminal_artifact_posture(
+        terminal_class=terminal_summary.terminal_class,
+        ref_keys=latest_refs_summary.ref_keys,
+    )
+    if terminal_artifact_posture is not None:
+        terminal_summary = terminal_summary.model_copy(
+            update={"terminal_artifact_posture": terminal_artifact_posture}
+        )
     blocker_summary = _blocker_summary_from_orchestration_payload(
         payload=payload,
         terminal_summary=terminal_summary,

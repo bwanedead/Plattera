@@ -7,7 +7,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from ...mission_state import MissionState
-from ...terminal_taxonomy import TerminalClass
+from ...terminal_taxonomy import TerminalArtifactPosture, TerminalClass
 
 RUN_SUMMARY_ENVELOPE_VERSION = "run_summary.v1"
 LoopFamily = str
@@ -61,6 +61,7 @@ class NormalizedTerminalSummary(BaseModel):
     terminal: bool
     terminal_class: TerminalClass | None = None
     reason_code: str | None = Field(default=None, max_length=256)
+    terminal_artifact_posture: TerminalArtifactPosture | None = None
 
 
 class ContinuitySummary(BaseModel):
@@ -112,6 +113,7 @@ class PromptObservabilitySummary(BaseModel):
     artifact_refresh_trap_risk_count: int = Field(default=0, ge=0)
     repair_ready_without_artifact_write_count: int = Field(default=0, ge=0)
     hitl_evidence_readiness_debt_count: int = Field(default=0, ge=0)
+    post_hitl_spin_count: int = Field(default=0, ge=0)
     covered_unit_count: int = Field(default=0, ge=0)
     covered_units_with_candidates_count: int = Field(default=0, ge=0)
     closed_candidate_units_missing_determined_value_count: int = Field(default=0, ge=0)

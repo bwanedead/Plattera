@@ -22,6 +22,7 @@ from typing import Any
 from .event_log import AuditEventLog
 from .human_timeline import write_human_timeline
 from .normalize import audit_jsonable
+from harness.terminal_taxonomy import classify_terminal_artifact_posture
 
 _LOG = logging.getLogger(__name__)
 
@@ -227,11 +228,16 @@ class RunAuditWriter:
     ) -> None:
         turns = turns if turns is not None else self._turns
         repairs = sum(1 for t in turns if t.get("repair_attempted"))
+        terminal_artifact_posture = classify_terminal_artifact_posture(
+            terminal_class=terminal_class or None,
+            ref_keys=list(latest_refs.keys()),
+        )
         _write_json_atomic(
             self._dir / "index.json",  # type: ignore[arg-type]
             {
                 "run_id": run_id,
                 "terminal_class": terminal_class,
+                "terminal_artifact_posture": terminal_artifact_posture,
                 "reason_code": reason_code,
                 "iterations": iterations,
                 "turn_count": len(turns),
@@ -316,11 +322,16 @@ def rewrite_terminal_artifacts(
             "request_id": request_id or None,
         }
         write_human_timeline(audit_dir, turns, run_terminal_override=override_payload)
+        terminal_artifact_posture = classify_terminal_artifact_posture(
+            terminal_class=terminal_class or None,
+            ref_keys=list(latest_refs.keys()),
+        )
         _write_json_atomic(
             audit_dir / "index.json",
             {
                 "run_id": run_id,
                 "terminal_class": terminal_class,
+                "terminal_artifact_posture": terminal_artifact_posture,
                 "reason_code": reason_code,
                 "iterations": iterations,
                 "turn_count": len(turns),

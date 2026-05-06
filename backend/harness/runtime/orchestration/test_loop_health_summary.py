@@ -2412,3 +2412,150 @@ def test_hitl_evidence_readiness_choose_action_guidance_no_domain_terms() -> Non
     domain_terms = ["deed", "parcel", "plss", "transcription", "dossier", "mapping"]
     for term in domain_terms:
         assert term not in CHOOSE_ACTION_INSTRUCTION.lower(), f"Domain term found: {term}"
+
+
+# ---------------------------------------------------------------------------
+# Brief: Run-13 — post_hitl_spin_count detector
+# ---------------------------------------------------------------------------
+
+
+def _hitl_turn(turn_index: int, *, refs: dict | None = None, state_sig: str = "sig-a") -> dict:
+    rec = _step_record(turn_index, action_type="wait_for_human", latest_refs_snapshot=refs or {"r": "v"}, work_state_signature=state_sig)
+    rec["wait_for_human"] = True
+    return rec
+
+
+def test_post_hitl_spin_fires_when_threshold_met() -> None:
+    """3 post-HITL turns with no progress triggers post_hitl_spin:3."""
+    refs = {"r": "v"}
+    records = [
+        _hitl_turn(1, refs=refs, state_sig="sig-a"),
+        _step_record(2, action_type="hydrate_artifact_refs", latest_refs_snapshot=refs, work_state_signature="sig-a"),
+        _step_record(3, action_type="hydrate_artifact_refs", latest_refs_snapshot=refs, work_state_signature="sig-a"),
+        _step_record(4, action_type="hydrate_artifact_refs", latest_refs_snapshot=refs, work_state_signature="sig-a"),
+    ]
+    mem = _mem(step_records=records)
+    result = build_prompt_observability_summary(mem)
+    assert result["post_hitl_spin_count"] == 3
+    assert any(f.startswith("post_hitl_spin:") for f in result["mechanical_flags"])
+
+
+def test_post_hitl_spin_does_not_fire_below_threshold() -> None:
+    """2 post-HITL turns — below threshold, no flag."""
+    refs = {"r": "v"}
+    records = [
+        _hitl_turn(1, refs=refs, state_sig="sig-a"),
+        _step_record(2, action_type="hydrate_artifact_refs", latest_refs_snapshot=refs, work_state_signature="sig-a"),
+        _step_record(3, action_type="hydrate_artifact_refs", latest_refs_snapshot=refs, work_state_signature="sig-a"),
+    ]
+    mem = _mem(step_records=records)
+    result = build_prompt_observability_summary(mem)
+    assert result["post_hitl_spin_count"] == 0
+    assert not any(f.startswith("post_hitl_spin:") for f in result["mechanical_flags"])
+
+
+def test_post_hitl_spin_resets_on_refs_change() -> None:
+    """A post-HITL turn that produces new refs breaks the spin count."""
+    refs_before = {"r": "v1"}
+    refs_after = {"r": "v1", "new": "v2"}
+    records = [
+        _hitl_turn(1, refs=refs_before, state_sig="sig-a"),
+        _step_record(2, action_type="hydrate_artifact_refs", latest_refs_snapshot=refs_after, work_state_signature="sig-a"),
+        _step_record(3, action_type="hydrate_artifact_refs", latest_refs_snapshot=refs_after, work_state_signature="sig-a"),
+        _step_record(4, action_type="hydrate_artifact_refs", latest_refs_snapshot=refs_after, work_state_signature="sig-a"),
+    ]
+    mem = _mem(step_records=records)
+    result = build_prompt_observability_summary(mem)
+    # refs changed from HITL baseline, so no spin
+    assert result["post_hitl_spin_count"] == 0
+
+
+def test_post_hitl_spin_fires_for_integrated_then_stuck() -> None:
+    """Integrated-then-stuck: save shows progress at turn 2, but trailing hydrates at 3-5 spin."""
+    refs = {"r": "v"}
+    records = [
+        _hitl_turn(1, refs=refs, state_sig="sig-a"),
+        _step_record(2, action_type="save_workspace_artifact", latest_refs_snapshot=refs, work_state_signature="sig-a"),
+        _step_record(3, action_type="hydrate_artifact_refs", latest_refs_snapshot=refs, work_state_signature="sig-a"),
+        _step_record(4, action_type="hydrate_artifact_refs", latest_refs_snapshot=refs, work_state_signature="sig-a"),
+        _step_record(5, action_type="hydrate_artifact_refs", latest_refs_snapshot=refs, work_state_signature="sig-a"),
+    ]
+    mem = _mem(step_records=records)
+    result = build_prompt_observability_summary(mem)
+    # save counts as progress for turn 2 only; turns 3-5 are trailing no-progress → spin fires
+    assert result["post_hitl_spin_count"] == 3
+    assert any(f.startswith("post_hitl_spin:") for f in result["mechanical_flags"])
+
+
+def test_post_hitl_spin_no_fire_when_save_is_last_turn() -> None:
+    """A save as the final post-HITL turn means the agent is still making progress."""
+    refs = {"r": "v"}
+    records = [
+        _hitl_turn(1, refs=refs, state_sig="sig-a"),
+        _step_record(2, action_type="hydrate_artifact_refs", latest_refs_snapshot=refs, work_state_signature="sig-a"),
+        _step_record(3, action_type="hydrate_artifact_refs", latest_refs_snapshot=refs, work_state_signature="sig-a"),
+        _step_record(4, action_type="save_workspace_artifact", latest_refs_snapshot=refs, work_state_signature="sig-a"),
+    ]
+    mem = _mem(step_records=records)
+    result = build_prompt_observability_summary(mem)
+    # save at turn 4 is progress → trailing no-progress count = 0 → no spin
+    assert result["post_hitl_spin_count"] == 0
+
+
+def test_post_hitl_spin_no_hitl_turn_returns_zero() -> None:
+    """No wait_for_human turn → counter is 0."""
+    refs = {"r": "v"}
+    records = [
+        _step_record(1, action_type="hydrate_artifact_refs", latest_refs_snapshot=refs, work_state_signature="sig-a"),
+        _step_record(2, action_type="hydrate_artifact_refs", latest_refs_snapshot=refs, work_state_signature="sig-a"),
+        _step_record(3, action_type="hydrate_artifact_refs", latest_refs_snapshot=refs, work_state_signature="sig-a"),
+        _step_record(4, action_type="hydrate_artifact_refs", latest_refs_snapshot=refs, work_state_signature="sig-a"),
+    ]
+    mem = _mem(step_records=records)
+    result = build_prompt_observability_summary(mem)
+    assert result["post_hitl_spin_count"] == 0
+
+
+def test_post_hitl_spin_resets_on_state_change() -> None:
+    """A state signature change after HITL breaks spin detection."""
+    refs = {"r": "v"}
+    records = [
+        _hitl_turn(1, refs=refs, state_sig="sig-a"),
+        _step_record(2, action_type="hydrate_artifact_refs", latest_refs_snapshot=refs, work_state_signature="sig-b"),
+        _step_record(3, action_type="hydrate_artifact_refs", latest_refs_snapshot=refs, work_state_signature="sig-b"),
+        _step_record(4, action_type="hydrate_artifact_refs", latest_refs_snapshot=refs, work_state_signature="sig-b"),
+    ]
+    mem = _mem(step_records=records)
+    result = build_prompt_observability_summary(mem)
+    assert result["post_hitl_spin_count"] == 0
+
+
+def test_post_hitl_spin_uses_last_hitl_turn_as_baseline() -> None:
+    """When multiple HITL turns exist, baseline is the LAST one."""
+    refs_v1 = {"r": "v1"}
+    refs_v2 = {"r": "v1", "x": "v2"}
+    records = [
+        _hitl_turn(1, refs=refs_v1, state_sig="sig-a"),
+        # some progress happens
+        _step_record(2, action_type="save_workspace_artifact", latest_refs_snapshot=refs_v2, work_state_signature="sig-b"),
+        # second HITL turn — this is the new baseline
+        _hitl_turn(3, refs=refs_v2, state_sig="sig-b"),
+        # post-HITL spin with refs matching second HITL baseline
+        _step_record(4, action_type="hydrate_artifact_refs", latest_refs_snapshot=refs_v2, work_state_signature="sig-b"),
+        _step_record(5, action_type="hydrate_artifact_refs", latest_refs_snapshot=refs_v2, work_state_signature="sig-b"),
+        _step_record(6, action_type="hydrate_artifact_refs", latest_refs_snapshot=refs_v2, work_state_signature="sig-b"),
+    ]
+    mem = _mem(step_records=records)
+    result = build_prompt_observability_summary(mem)
+    assert result["post_hitl_spin_count"] == 3
+    assert any(f.startswith("post_hitl_spin:") for f in result["mechanical_flags"])
+
+
+def test_post_hitl_spin_choose_action_guidance_has_no_domain_terms() -> None:
+    """post_hitl_spin guidance must be in choose_action_instruction.py without domain jargon."""
+    from harness.runtime.orchestration.choose_action_instruction import CHOOSE_ACTION_INSTRUCTION
+
+    assert "post_hitl_spin" in CHOOSE_ACTION_INSTRUCTION
+    domain_terms = ["deed", "parcel", "plss", "transcription", "dossier", "mapping"]
+    for term in domain_terms:
+        assert term not in CHOOSE_ACTION_INSTRUCTION.lower(), f"Domain term found: {term}"
