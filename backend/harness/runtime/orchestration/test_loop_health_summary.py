@@ -2559,3 +2559,499 @@ def test_post_hitl_spin_choose_action_guidance_has_no_domain_terms() -> None:
     domain_terms = ["deed", "parcel", "plss", "transcription", "dossier", "mapping"]
     for term in domain_terms:
         assert term not in CHOOSE_ACTION_INSTRUCTION.lower(), f"Domain term found: {term}"
+
+
+# ---------------------------------------------------------------------------
+# Track 1 — earned_before_local_evidence_count / posthoc_recheck_needed_count
+# (debt is stored on continuity; summary reads from there)
+# ---------------------------------------------------------------------------
+
+def test_earned_before_local_evidence_count_reflects_continuity_debt() -> None:
+    """Summary surfaces non-zero earned_before_local_evidence_count from continuity."""
+    mem = _mem()
+    mem.continuity.earned_before_local_evidence_debt = {"item1//u1": 23, "item1//u2": 24}
+    result = build_prompt_observability_summary(mem)
+    assert result["earned_before_local_evidence_count"] == 2
+
+
+def test_earned_before_local_evidence_count_zero_when_no_debt() -> None:
+    mem = _mem()
+    mem.continuity.earned_before_local_evidence_debt = {}
+    result = build_prompt_observability_summary(mem)
+    assert result["earned_before_local_evidence_count"] == 0
+
+
+def test_earned_before_claim_local_evidence_flag_fires_when_count_nonzero() -> None:
+    mem = _mem()
+    mem.continuity.earned_before_local_evidence_debt = {"item1//u1": 5}
+    result = build_prompt_observability_summary(mem)
+    assert any(f.startswith("earned_before_claim_local_evidence:") for f in result["mechanical_flags"])
+
+
+def test_posthoc_recheck_needed_count_reflects_continuity_debt() -> None:
+    mem = _mem()
+    mem.continuity.earned_before_local_evidence_debt = {"item1//u1": 23}
+    mem.continuity.posthoc_recheck_needed_debt = {"item1//u1": 25}
+    result = build_prompt_observability_summary(mem)
+    assert result["posthoc_recheck_needed_count"] == 1
+
+
+def test_posthoc_evidence_recheck_needed_flag_fires_when_count_nonzero() -> None:
+    mem = _mem()
+    mem.continuity.posthoc_recheck_needed_debt = {"item1//u1": 25}
+    result = build_prompt_observability_summary(mem)
+    assert any(f.startswith("posthoc_evidence_recheck_needed:") for f in result["mechanical_flags"])
+
+
+def test_posthoc_recheck_count_zero_when_no_debt() -> None:
+    mem = _mem()
+    mem.continuity.posthoc_recheck_needed_debt = {}
+    result = build_prompt_observability_summary(mem)
+    assert result["posthoc_recheck_needed_count"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Track 2 — broad_image_locator_for_earned_exact_units flag
+# ---------------------------------------------------------------------------
+
+def test_broad_image_locator_flag_fires_for_earned_unit_with_only_broad_locator() -> None:
+    """Earned exact unit with all broad image locators produces a flag."""
+    from harness.mission_state import EvidenceLocator
+    # box area = 0.4 × 0.4 = 0.16 > 5%
+    broad = EvidenceLocator(ref_id="artifact://x", locator_kind="image_region", box_norm=[0.1, 0.1, 0.5, 0.5])
+    unit = _unit(
+        "u1",
+        status="closed",
+        determined_value="42",
+        evidence_locators=[broad],
+    )
+    item = _item("i1", status="closed", covered_units=[unit])
+    mem = _mem(resolution_items=[item])
+    result = build_prompt_observability_summary(mem)
+    assert result["earned_exact_with_broad_image_locator_count"] == 1
+    assert any(f.startswith("broad_image_locator_for_earned_exact_units:") for f in result["mechanical_flags"])
+
+
+def test_broad_image_locator_flag_suppressed_for_tight_locator() -> None:
+    """Earned unit with a tight locator (area < 5%) does not fire the flag."""
+    from harness.mission_state import EvidenceLocator
+    # 0.1 × 0.02 = 0.002 < 5%
+    tight = EvidenceLocator(ref_id="artifact://x", locator_kind="image_region", box_norm=[0.10, 0.05, 0.20, 0.07])
+    unit = _unit("u1", status="closed", determined_value="42", evidence_locators=[tight])
+    item = _item("i1", status="closed", covered_units=[unit])
+    mem = _mem(resolution_items=[item])
+    result = build_prompt_observability_summary(mem)
+    assert result["earned_exact_with_broad_image_locator_count"] == 0
+    assert not any(f.startswith("broad_image_locator_for_earned_exact_units:") for f in result["mechanical_flags"])
+
+
+def test_broad_image_locator_flag_suppressed_when_no_locators() -> None:
+    """Unit with no locators is NOT counted by the broad-locator check (separate debt)."""
+    unit = _unit("u1", status="closed", determined_value="42")
+    item = _item("i1", status="closed", covered_units=[unit])
+    mem = _mem(resolution_items=[item])
+    result = build_prompt_observability_summary(mem)
+    assert result["earned_exact_with_broad_image_locator_count"] == 0
+
+
+def test_broad_image_locator_flag_suppressed_for_group_unit_without_value() -> None:
+    """Group/broad unit without determined_value is excluded from this check."""
+    from harness.mission_state import EvidenceLocator
+    broad = EvidenceLocator(ref_id="artifact://x", locator_kind="image_region", box_norm=[0.0, 0.0, 1.0, 1.0])
+    unit = _unit("u1", status="closed", determined_value=None, evidence_locators=[broad])
+    item = _item("i1", status="closed", covered_units=[unit])
+    mem = _mem(resolution_items=[item])
+    result = build_prompt_observability_summary(mem)
+    assert result["earned_exact_with_broad_image_locator_count"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Track 3 — HITL answerability pressure flags
+# ---------------------------------------------------------------------------
+
+def test_blocked_without_hitl_answerability_flag_fires_for_blocking_item_no_assessment() -> None:
+    """Blocking item with no requires_hitl and no human_answerability fires the flag."""
+    item = _item("i1", status="open", blocking=True, requires_hitl=False)
+    # human_answerability defaults to None → counts as unclassified
+    mem = _mem(resolution_items=[item])
+    result = build_prompt_observability_summary(mem)
+    assert result["blocked_without_hitl_answerability_count"] >= 1
+    assert any(f.startswith("blocked_without_hitl_answerability:") for f in result["mechanical_flags"])
+
+
+def test_blocked_without_hitl_answerability_suppressed_when_requires_hitl_set() -> None:
+    """Blocking item with requires_hitl=True is already in HITL flow — not counted."""
+    item = _item("i1", status="open", blocking=True, requires_hitl=True)
+    mem = _mem(resolution_items=[item])
+    result = build_prompt_observability_summary(mem)
+    assert result["blocked_without_hitl_answerability_count"] == 0
+
+
+def test_human_answerable_blocker_without_hitl_fires() -> None:
+    """Item classified likely_answerable but no requires_hitl triggers pressure flag."""
+    item = ResolutionItem(
+        item_id="i1",
+        title="i1",
+        kind="work_unit",
+        status="open",
+        blocking=True,
+        requires_hitl=False,
+        human_answerability="likely_answerable",
+    )
+    mem = _mem(resolution_items=[item])
+    result = build_prompt_observability_summary(mem)
+    assert result["human_answerable_blocker_without_hitl_count"] >= 1
+    assert any(f.startswith("human_answerable_blocker_without_hitl:") for f in result["mechanical_flags"])
+
+
+def test_human_answerable_blocker_suppressed_when_hitl_set() -> None:
+    """likely_answerable + requires_hitl already in flow → no pressure flag."""
+    item = ResolutionItem(
+        item_id="i1",
+        title="i1",
+        kind="work_unit",
+        status="open",
+        blocking=True,
+        requires_hitl=True,
+        human_answerability="likely_answerable",
+    )
+    mem = _mem(resolution_items=[item])
+    result = build_prompt_observability_summary(mem)
+    assert result["human_answerable_blocker_without_hitl_count"] == 0
+
+
+def test_not_answerable_missing_reason_fires_when_reason_absent() -> None:
+    """not_answerable without hitl_not_applicable_reason fires advisory flag."""
+    item = ResolutionItem(
+        item_id="i1",
+        title="i1",
+        kind="work_unit",
+        status="open",
+        blocking=True,
+        requires_hitl=False,
+        human_answerability="not_answerable",
+        hitl_not_applicable_reason=None,
+    )
+    mem = _mem(resolution_items=[item])
+    result = build_prompt_observability_summary(mem)
+    assert result["not_answerable_missing_reason_count"] >= 1
+    assert any(f.startswith("not_answerable_missing_reason:") for f in result["mechanical_flags"])
+
+
+def test_not_answerable_suppressed_when_reason_provided() -> None:
+    """not_answerable with a reason set → no missing-reason advisory."""
+    item = ResolutionItem(
+        item_id="i1",
+        title="i1",
+        kind="work_unit",
+        status="open",
+        blocking=True,
+        requires_hitl=False,
+        human_answerability="not_answerable",
+        hitl_not_applicable_reason="System constraint prevents human input here.",
+    )
+    mem = _mem(resolution_items=[item])
+    result = build_prompt_observability_summary(mem)
+    assert result["not_answerable_missing_reason_count"] == 0
+
+
+def test_hitl_answerability_flags_absent_for_non_blocking_item() -> None:
+    """Non-blocking, non-stalled items are excluded from HITL answerability checks."""
+    item = ResolutionItem(
+        item_id="i1",
+        title="i1",
+        kind="work_unit",
+        status="open",
+        blocking=False,
+        no_further_progress=False,
+        requires_hitl=False,
+        human_answerability=None,
+    )
+    mem = _mem(resolution_items=[item])
+    result = build_prompt_observability_summary(mem)
+    assert result["blocked_without_hitl_answerability_count"] == 0
+    assert result["human_answerable_blocker_without_hitl_count"] == 0
+    assert result["not_answerable_missing_reason_count"] == 0
+
+
+def test_stalled_no_further_progress_also_triggers_answerability_check() -> None:
+    """no_further_progress items are treated the same as blocking for this check."""
+    item = _item("i1", status="open", no_further_progress=True, requires_hitl=False)
+    mem = _mem(resolution_items=[item])
+    result = build_prompt_observability_summary(mem)
+    assert result["blocked_without_hitl_answerability_count"] >= 1
+
+
+# ---------------------------------------------------------------------------
+# Track 3 — covered-unit answerability (open units inside blocking items)
+# ---------------------------------------------------------------------------
+
+def test_blocked_without_hitl_answerability_fires_for_open_covered_unit() -> None:
+    """Open covered unit inside a blocking item without answerability also counts."""
+    unit = _unit("u1", status="open")  # no human_answerability
+    item = _item("i1", status="open", blocking=True, requires_hitl=False, covered_units=[unit])
+    mem = _mem(resolution_items=[item])
+    result = build_prompt_observability_summary(mem)
+    # Counts both the item itself (answerability unset) AND the open covered unit → >= 2
+    assert result["blocked_without_hitl_answerability_count"] >= 2
+
+
+def test_covered_unit_done_skipped_by_answerability_check() -> None:
+    """Closed/earned covered units are not counted — only open atoms matter."""
+    unit = _unit("u1", status="closed", determined_value="42")  # earned/closed
+    item = _item("i1", status="open", blocking=True, requires_hitl=False, covered_units=[unit])
+    mem = _mem(resolution_items=[item])
+    result = build_prompt_observability_summary(mem)
+    # Only the item itself counts (unit is done); not the covered unit
+    assert result["blocked_without_hitl_answerability_count"] == 1
+
+
+def test_covered_unit_likely_answerable_fires_pressure() -> None:
+    """Covered unit with human_answerability='likely_answerable' but no parent HITL fires."""
+    unit = ResolutionCoveredUnit(
+        unit_id="u1",
+        title="u1",
+        status="open",
+        human_answerability="likely_answerable",
+    )
+    item = _item("i1", status="open", blocking=True, requires_hitl=False, covered_units=[unit])
+    mem = _mem(resolution_items=[item])
+    result = build_prompt_observability_summary(mem)
+    assert result["human_answerable_blocker_without_hitl_count"] >= 1
+
+
+def test_covered_unit_not_answerable_missing_reason_fires() -> None:
+    """Covered unit with not_answerable and no reason fires the missing-reason flag."""
+    unit = ResolutionCoveredUnit(
+        unit_id="u1",
+        title="u1",
+        status="open",
+        human_answerability="not_answerable",
+        hitl_not_applicable_reason=None,
+    )
+    item = _item("i1", status="open", blocking=True, requires_hitl=False, covered_units=[unit])
+    mem = _mem(resolution_items=[item])
+    result = build_prompt_observability_summary(mem)
+    assert result["not_answerable_missing_reason_count"] >= 1
+
+
+def test_covered_unit_not_answerable_with_reason_suppressed() -> None:
+    """Covered unit with not_answerable + reason does not fire missing-reason."""
+    unit = ResolutionCoveredUnit(
+        unit_id="u1",
+        title="u1",
+        status="open",
+        human_answerability="not_answerable",
+        hitl_not_applicable_reason="System constraint applies here.",
+    )
+    item = _item("i1", status="open", blocking=True, requires_hitl=False, covered_units=[unit])
+    mem = _mem(resolution_items=[item])
+    result = build_prompt_observability_summary(mem)
+    assert result["not_answerable_missing_reason_count"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Typed projection — new counters surface via _prompt_observability_summary_from_payload
+# ---------------------------------------------------------------------------
+
+def test_earned_before_local_evidence_count_typed_projection() -> None:
+    """earned_before_local_evidence_count surfaces in the typed PromptObservabilitySummary."""
+    from harness.observability.summary.prompt_observability import (
+        _prompt_observability_summary_from_payload,
+    )
+    summary = _prompt_observability_summary_from_payload(
+        {"prompt_observability_summary": {"earned_before_local_evidence_count": 3}}
+    )
+    assert summary.earned_before_local_evidence_count == 3
+
+
+def test_posthoc_recheck_needed_count_typed_projection() -> None:
+    from harness.observability.summary.prompt_observability import (
+        _prompt_observability_summary_from_payload,
+    )
+    summary = _prompt_observability_summary_from_payload(
+        {"prompt_observability_summary": {"posthoc_recheck_needed_count": 2}}
+    )
+    assert summary.posthoc_recheck_needed_count == 2
+
+
+def test_earned_exact_with_broad_image_locator_count_typed_projection() -> None:
+    from harness.observability.summary.prompt_observability import (
+        _prompt_observability_summary_from_payload,
+    )
+    summary = _prompt_observability_summary_from_payload(
+        {"prompt_observability_summary": {"earned_exact_with_broad_image_locator_count": 1}}
+    )
+    assert summary.earned_exact_with_broad_image_locator_count == 1
+
+
+def test_blocked_without_hitl_answerability_count_typed_projection() -> None:
+    from harness.observability.summary.prompt_observability import (
+        _prompt_observability_summary_from_payload,
+    )
+    summary = _prompt_observability_summary_from_payload(
+        {"prompt_observability_summary": {"blocked_without_hitl_answerability_count": 4}}
+    )
+    assert summary.blocked_without_hitl_answerability_count == 4
+
+
+def test_human_answerable_blocker_without_hitl_count_typed_projection() -> None:
+    from harness.observability.summary.prompt_observability import (
+        _prompt_observability_summary_from_payload,
+    )
+    summary = _prompt_observability_summary_from_payload(
+        {"prompt_observability_summary": {"human_answerable_blocker_without_hitl_count": 2}}
+    )
+    assert summary.human_answerable_blocker_without_hitl_count == 2
+
+
+def test_not_answerable_missing_reason_count_typed_projection() -> None:
+    from harness.observability.summary.prompt_observability import (
+        _prompt_observability_summary_from_payload,
+    )
+    summary = _prompt_observability_summary_from_payload(
+        {"prompt_observability_summary": {"not_answerable_missing_reason_count": 1}}
+    )
+    assert summary.not_answerable_missing_reason_count == 1
+
+
+def test_new_counters_zero_when_absent_from_payload() -> None:
+    """All new counters default to 0 when not present in the raw payload."""
+    from harness.observability.summary.prompt_observability import (
+        _prompt_observability_summary_from_payload,
+    )
+    summary = _prompt_observability_summary_from_payload({"prompt_observability_summary": {}})
+    assert summary.earned_before_local_evidence_count == 0
+    assert summary.posthoc_recheck_needed_count == 0
+    assert summary.earned_exact_with_broad_image_locator_count == 0
+    assert summary.blocked_without_hitl_answerability_count == 0
+    assert summary.human_answerable_blocker_without_hitl_count == 0
+    assert summary.not_answerable_missing_reason_count == 0
+
+
+# ---------------------------------------------------------------------------
+# Compact observability — new counters present/absent as expected
+# ---------------------------------------------------------------------------
+
+def test_earned_before_local_evidence_count_in_compact_observability() -> None:
+    """earned_before_local_evidence_count appears in compact when non-zero."""
+    from harness.runtime.orchestration.prompt_packet_builder import (
+        _compact_prompt_observability_summary,
+    )
+    mem = _mem()
+    mem.continuity.earned_before_local_evidence_debt = {"item1//u1": 5}
+    full = build_prompt_observability_summary(mem)
+    compact = _compact_prompt_observability_summary(full)
+    assert "earned_before_local_evidence_count" in compact
+    assert compact["earned_before_local_evidence_count"] == 1
+
+
+def test_earned_before_local_evidence_count_absent_in_compact_when_zero() -> None:
+    from harness.runtime.orchestration.prompt_packet_builder import (
+        _compact_prompt_observability_summary,
+    )
+    mem = _mem()
+    mem.continuity.earned_before_local_evidence_debt = {}
+    full = build_prompt_observability_summary(mem)
+    compact = _compact_prompt_observability_summary(full)
+    assert "earned_before_local_evidence_count" not in compact
+
+
+def test_blocked_without_hitl_answerability_count_in_compact_observability() -> None:
+    from harness.runtime.orchestration.prompt_packet_builder import (
+        _compact_prompt_observability_summary,
+    )
+    item = _item("i1", status="open", blocking=True, requires_hitl=False)
+    mem = _mem(resolution_items=[item])
+    full = build_prompt_observability_summary(mem)
+    compact = _compact_prompt_observability_summary(full)
+    assert "blocked_without_hitl_answerability_count" in compact
+
+
+def test_posthoc_recheck_needed_count_in_compact_observability() -> None:
+    """posthoc_recheck_needed_count appears in compact when non-zero."""
+    from harness.runtime.orchestration.prompt_packet_builder import (
+        _compact_prompt_observability_summary,
+    )
+    mem = _mem()
+    mem.continuity.posthoc_recheck_needed_debt = {"item1//u1": 25}
+    full = build_prompt_observability_summary(mem)
+    compact = _compact_prompt_observability_summary(full)
+    assert "posthoc_recheck_needed_count" in compact
+    assert compact["posthoc_recheck_needed_count"] == 1
+
+
+def test_earned_exact_with_broad_image_locator_count_in_compact_observability() -> None:
+    """earned_exact_with_broad_image_locator_count appears in compact when non-zero."""
+    from harness.mission_state import EvidenceLocator
+    from harness.runtime.orchestration.prompt_packet_builder import (
+        _compact_prompt_observability_summary,
+    )
+    broad = EvidenceLocator(ref_id="artifact://x", locator_kind="image_region", box_norm=[0.0, 0.0, 0.9, 0.9])
+    unit = _unit("u1", status="closed", determined_value="42", evidence_locators=[broad])
+    item = _item("i1", status="closed", covered_units=[unit])
+    mem = _mem(resolution_items=[item])
+    full = build_prompt_observability_summary(mem)
+    compact = _compact_prompt_observability_summary(full)
+    assert "earned_exact_with_broad_image_locator_count" in compact
+    assert compact["earned_exact_with_broad_image_locator_count"] >= 1
+
+
+def test_human_answerable_blocker_without_hitl_count_in_compact_observability() -> None:
+    """human_answerable_blocker_without_hitl_count appears in compact when non-zero."""
+    from harness.runtime.orchestration.prompt_packet_builder import (
+        _compact_prompt_observability_summary,
+    )
+    item = ResolutionItem(
+        item_id="i1",
+        title="i1",
+        kind="work_unit",
+        status="open",
+        blocking=True,
+        requires_hitl=False,
+        human_answerability="likely_answerable",
+    )
+    mem = _mem(resolution_items=[item])
+    full = build_prompt_observability_summary(mem)
+    compact = _compact_prompt_observability_summary(full)
+    assert "human_answerable_blocker_without_hitl_count" in compact
+
+
+def test_not_answerable_missing_reason_count_in_compact_observability() -> None:
+    """not_answerable_missing_reason_count appears in compact when non-zero."""
+    from harness.runtime.orchestration.prompt_packet_builder import (
+        _compact_prompt_observability_summary,
+    )
+    item = ResolutionItem(
+        item_id="i1",
+        title="i1",
+        kind="work_unit",
+        status="open",
+        blocking=True,
+        requires_hitl=False,
+        human_answerability="not_answerable",
+        hitl_not_applicable_reason=None,
+    )
+    mem = _mem(resolution_items=[item])
+    full = build_prompt_observability_summary(mem)
+    compact = _compact_prompt_observability_summary(full)
+    assert "not_answerable_missing_reason_count" in compact
+
+
+def test_new_optional_counters_absent_in_compact_when_zero() -> None:
+    """All six new counters are absent from compact when zero (no unnecessary noise)."""
+    from harness.runtime.orchestration.prompt_packet_builder import (
+        _compact_prompt_observability_summary,
+    )
+    mem = _mem()
+    full = build_prompt_observability_summary(mem)
+    compact = _compact_prompt_observability_summary(full)
+    for key in (
+        "earned_before_local_evidence_count",
+        "posthoc_recheck_needed_count",
+        "earned_exact_with_broad_image_locator_count",
+        "blocked_without_hitl_answerability_count",
+        "human_answerable_blocker_without_hitl_count",
+        "not_answerable_missing_reason_count",
+    ):
+        assert key not in compact, f"Expected {key!r} absent from compact when zero"

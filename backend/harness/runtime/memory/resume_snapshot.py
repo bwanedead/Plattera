@@ -68,6 +68,12 @@ def build_kernel_resume_snapshot(
             "kernel_compaction_covered_through_turn_index": int(
                 loop_memory.continuity.kernel_compaction_covered_through_turn_index
             ),
+            "earned_before_local_evidence_debt": dict(
+                loop_memory.continuity.earned_before_local_evidence_debt
+            ),
+            "posthoc_recheck_needed_debt": dict(
+                loop_memory.continuity.posthoc_recheck_needed_debt
+            ),
         },
         "hitl": {
             "hitl_state": loop_memory.hitl.hitl_state,
@@ -209,6 +215,34 @@ def parse_kernel_resume_snapshot(payload: Mapping[str, Any]) -> tuple[LoopMemory
             if covered_through < 0:
                 return empty, 1, "resume_snapshot_kernel_compaction_covered_through_invalid"
 
+    earned_debt_out: dict[str, int] = {}
+    if "earned_before_local_evidence_debt" in cont:
+        ed_raw = cont.get("earned_before_local_evidence_debt")
+        if ed_raw is not None:
+            if not isinstance(ed_raw, Mapping):
+                return empty, 1, "resume_snapshot_earned_before_local_evidence_debt_invalid"
+            for k, v in ed_raw.items():
+                if not isinstance(k, str):
+                    return empty, 1, "resume_snapshot_earned_before_local_evidence_debt_invalid"
+                try:
+                    earned_debt_out[k] = int(v)
+                except (TypeError, ValueError):
+                    return empty, 1, "resume_snapshot_earned_before_local_evidence_debt_invalid"
+
+    posthoc_debt_out: dict[str, int] = {}
+    if "posthoc_recheck_needed_debt" in cont:
+        ph_raw = cont.get("posthoc_recheck_needed_debt")
+        if ph_raw is not None:
+            if not isinstance(ph_raw, Mapping):
+                return empty, 1, "resume_snapshot_posthoc_recheck_needed_debt_invalid"
+            for k, v in ph_raw.items():
+                if not isinstance(k, str):
+                    return empty, 1, "resume_snapshot_posthoc_recheck_needed_debt_invalid"
+                try:
+                    posthoc_debt_out[k] = int(v)
+                except (TypeError, ValueError):
+                    return empty, 1, "resume_snapshot_posthoc_recheck_needed_debt_invalid"
+
     continuity = OrchestrationContinuity(
         latest_refs=latest_refs_out,
         mission_state=ms,
@@ -221,6 +255,8 @@ def parse_kernel_resume_snapshot(payload: Mapping[str, Any]) -> tuple[LoopMemory
         kernel_step_records=step_records_out,
         kernel_step_result_records=step_result_records_out,
         kernel_compaction_covered_through_turn_index=covered_through,
+        earned_before_local_evidence_debt=earned_debt_out,
+        posthoc_recheck_needed_debt=posthoc_debt_out,
     )
 
     hitl_raw = payload.get("hitl")

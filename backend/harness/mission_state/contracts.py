@@ -2,6 +2,11 @@ from __future__ import annotations
 
 from typing import Annotated, Any, Literal, Mapping
 
+# Agent-authored classification of whether a blocking/stalled item could be
+# resolved by a human operator answering a question.  Advisory only — the
+# harness surfaces it as a flag but never overrides agent authorship.
+HumanAnswerability = Literal["unknown", "likely_answerable", "not_answerable"]
+
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 MISSION_STATE_VERSION = "mission_state.v1"
@@ -125,6 +130,11 @@ class ResolutionCoveredUnit(BaseModel):
     value_kind: str | None = Field(default=None, max_length=64)
     candidate_values: list[str] = Field(default_factory=list, max_length=16)
     determined_value: str | None = Field(default=None, max_length=400)
+    # Optional agent-authored answerability classification for blocked/stalled units
+    # inside a blocking or no_further_progress parent item.  Mirrors the same fields
+    # on ResolutionItem so answerability pressure can be tracked at the atom level.
+    human_answerability: HumanAnswerability | None = None
+    hitl_not_applicable_reason: str | None = Field(default=None, max_length=400)
     opaque_payload: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -158,6 +168,13 @@ class ResolutionItem(BaseModel):
     scope: dict[str, Any] = Field(default_factory=dict)
     provenance: str | None = Field(default=None, max_length=128)
     covered_units: list[ResolutionCoveredUnit] = Field(default_factory=list, max_length=32)
+    # Optional agent-authored answerability classification for blocking/stalled items.
+    # Use "likely_answerable" when a human could confirm, choose, supply, or reject
+    # the missing piece.  Use "not_answerable" with hitl_not_applicable_reason when
+    # the current human context cannot resolve the item.  Leave unset ("unknown")
+    # when the agent has not yet assessed.
+    human_answerability: HumanAnswerability | None = None
+    hitl_not_applicable_reason: str | None = Field(default=None, max_length=400)
     opaque_payload: dict[str, Any] = Field(default_factory=dict)
 
 

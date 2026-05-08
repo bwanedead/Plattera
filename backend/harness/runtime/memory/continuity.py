@@ -42,3 +42,14 @@ class OrchestrationContinuity:
     kernel_step_result_records: list[dict[str, Any]] = field(default_factory=list)
     # Mechanical frontier: rows with ``kernel_turn_index <=`` this were already sent in a successful compaction payload.
     kernel_compaction_covered_through_turn_index: int = 0
+    # Advisory sequencing debt: unit keys ("item_id//unit_id") that transitioned to
+    # earned/closed with a determined_value before any claim-local evidence_locators
+    # existed.  Maps key → iteration when debt was first recorded.  Never auto-cleared:
+    # adding locators post-hoc does NOT erase this debt.
+    earned_before_local_evidence_debt: dict[str, int] = field(default_factory=dict)
+    # Advisory post-hoc debt: subset of earned_before_local_evidence_debt entries for
+    # which a later patch attached locators without re-evaluating the claim.
+    # Maps key → iteration when the post-hoc locator was first added.
+    # Cleared when a subsequent patch materially re-evaluates the unit: changes
+    # determined_value, updates verification_basis, or reopens the status.
+    posthoc_recheck_needed_debt: dict[str, int] = field(default_factory=dict)

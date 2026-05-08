@@ -1,6 +1,7 @@
 """Tests for tool_result_slices.py — structural metadata and excerpt-boundary awareness."""
 from __future__ import annotations
 
+from harness.runtime.memory.continuity_journal import CLIP_SENTINEL_KEY
 from harness.runtime.memory.tool_result_slices import (
     _extract_evidence_artifact_summary,
     _extract_structural_metadata,
@@ -555,3 +556,207 @@ def test_field_signal_includes_is_complete_for_string_fields() -> None:
     assert signals["medium_text"]["is_complete"] is True
     assert "large_text" in signals
     assert signals["large_text"]["is_complete"] is False
+
+
+# ---------------------------------------------------------------------------
+# Run-16 regression: 3-draft hydrate outputs preserved after continuity cap raise
+# ---------------------------------------------------------------------------
+
+_RUN16_DRAFT_TEXT = (
+    "This is a metes and bounds deed description for a parcel of land. "
+    "Beginning at a point on the north line of Section Two (2), Township "
+    "Four (4) North, Range Three (3) West, thence South 89 degrees 42 "
+    "minutes 15 seconds East along the north boundary of said section for "
+    "a distance of 660.00 feet to the point of beginning; thence continuing "
+    "South 89 degrees 42 minutes 15 seconds East for a distance of 330.00 "
+    "feet; thence South 0 degrees 17 minutes 45 seconds West for a distance "
+    "of 495.00 feet; thence North 89 degrees 42 minutes 15 seconds West for "
+    "330.00 feet; thence North 0 degrees 17 minutes 45 seconds East for "
+    "495.00 feet to the point of beginning, containing 3.75 acres more or "
+    "less as surveyed by licensed surveyor John Doe on January 15, 2024. "
+) * 4  # ~2960 chars — mirrors real run-16 per-draft size
+
+
+def _run16_outputs() -> dict:
+    """3-draft hydrate shape matching run-16 turn-1 outputs after the cap is raised."""
+    return {
+        "t0:raw:draft_1": {"text": _RUN16_DRAFT_TEXT, "source": "llm", "model": "gpt-4o-mini"},
+        "t0:raw:draft_2": {"text": _RUN16_DRAFT_TEXT, "source": "llm", "model": "gpt-4o-mini"},
+        "t0:raw:draft_3": {"text": _RUN16_DRAFT_TEXT, "source": "llm", "model": "gpt-4o-mini"},
+    }
+
+
+def test_run16_text_field_summaries_all_three_drafts_complete() -> None:
+    """Regression: after the continuity cap raise, all 3 draft texts must appear as is_complete
+    in text_field_summaries — not hidden by a string-prefix truncation.
+
+    In run-16 the stored outputs were converted to a raw string prefix at 8192 chars,
+    which caused _extract_text_field_summaries to receive a str (not a Mapping) and
+    return None — leaving no text_field_summaries in the prompt slice at all.
+    """
+    outputs = _run16_outputs()
+    # Verify the fixture is a proper Mapping (not a string) — simulating the post-fix world
+    assert isinstance(outputs, dict), "Fixture must be a dict (simulating post-cap-raise storage)"
+
+    summaries = _extract_text_field_summaries(outputs)
+    assert summaries is not None, (
+        "text_field_summaries must not be None when outputs is a full dict with text fields"
+    )
+    paths = {s["path"] for s in summaries}
+    assert "t0:raw:draft_1.text" in paths, f"draft_1 text must appear in summaries; paths={paths}"
+    assert "t0:raw:draft_2.text" in paths, f"draft_2 text must appear in summaries; paths={paths}"
+    assert "t0:raw:draft_3.text" in paths, f"draft_3 text must appear in summaries; paths={paths}"
+
+
+def test_run16_text_field_summaries_drafts_are_complete() -> None:
+    """Each draft text (~2960 chars) is below the 12000-char full cap so is_complete must be True."""
+    outputs = _run16_outputs()
+    summaries = _extract_text_field_summaries(outputs)
+    assert summaries is not None
+    for entry in summaries:
+        if entry["path"].endswith(".text"):
+            assert entry.get("is_complete") is True, (
+                f"Draft text at {entry['path']} should be is_complete=True "
+                f"(char_length={entry.get('char_length')})"
+            )
+
+
+def test_run16_slice_contains_text_field_summaries() -> None:
+    """build_recent_tool_result_slices must include text_field_summaries for run-16 outputs."""
+    records = [
+        _result_record(1, outputs=_run16_outputs(), result_truncated=False),
+    ]
+    slices = build_recent_tool_result_slices(records)
+    assert slices, "Must produce at least one slice"
+    s = slices[0]
+    assert "text_field_summaries" in s, (
+        "Slice must have text_field_summaries when outputs contain dict with text fields"
+    )
+    paths = {e["path"] for e in s["text_field_summaries"]}
+    assert "t0:raw:draft_1.text" in paths
+    assert "t0:raw:draft_2.text" in paths
+    assert "t0:raw:draft_3.text" in paths
+
+
+def test_run16_string_prefix_outputs_yield_no_text_field_summaries() -> None:
+    """Sanity check: if outputs_for_continuity is a string prefix (old broken behavior),
+    text_field_summaries must be absent — proving the dict path is what drives summaries.
+    """
+    import json
+    raw = json.dumps(_run16_outputs(), ensure_ascii=False, default=str, sort_keys=True)
+    string_prefix = raw[:8192]  # old broken behavior
+    assert isinstance(string_prefix, str)
+    summaries = _extract_text_field_summaries(string_prefix)
+    assert summaries is None, (
+        "String input must yield no text_field_summaries — confirming why the old code failed"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Clip sentinel detection in _extract_text_field_summaries
+# ---------------------------------------------------------------------------
+
+def _make_sentinel(original_text: str, *, max_chars: int = 200) -> dict:
+    """Build a clip sentinel dict as _clip_large_text_fields would produce."""
+    return {
+        CLIP_SENTINEL_KEY: True,
+        "original_char_length": len(original_text),
+        "excerpt": original_text[:max_chars],
+    }
+
+
+def test_text_field_summaries_recognizes_clip_sentinel_as_incomplete() -> None:
+    """A clip sentinel at a text field path must appear as is_complete=False.
+
+    Before this fix, _clip_large_text_fields returned a trimmed string that was
+    shorter than _TEXT_FIELD_FULL_CAP, so is_complete was reported as True for
+    what was actually partial text.
+    """
+    long_text = "x" * 5000
+    outputs = {
+        "t0:raw:draft_1": {
+            "text": _make_sentinel(long_text, max_chars=200),
+            "source": "llm",
+        }
+    }
+    summaries = _extract_text_field_summaries(outputs)
+    assert summaries is not None
+    text_entries = [s for s in summaries if s["path"] == "t0:raw:draft_1.text"]
+    assert text_entries, f"Expected t0:raw:draft_1.text in summaries; got paths={[s['path'] for s in summaries]}"
+    entry = text_entries[0]
+    assert entry["is_complete"] is False, (
+        "Clip sentinel must report is_complete=False regardless of excerpt length"
+    )
+
+
+def test_text_field_summaries_clip_sentinel_has_correct_original_char_length() -> None:
+    """char_length in the summary must reflect the original field size, not the excerpt size."""
+    long_text = "z" * 8000
+    outputs = {
+        "field": _make_sentinel(long_text, max_chars=300),
+    }
+    summaries = _extract_text_field_summaries(outputs)
+    assert summaries is not None
+    field_entries = [s for s in summaries if s["path"] == "field"]
+    assert field_entries, "Sentinel at root key must produce a summary at that path"
+    entry = field_entries[0]
+    assert entry["char_length"] == 8000, (
+        f"char_length must be original_char_length (8000); got {entry['char_length']}"
+    )
+    assert entry["truncation_reason"] == "continuity_storage_clip"
+
+
+def test_text_field_summaries_clip_sentinel_path_is_not_sentinel_subkey() -> None:
+    """The sentinel must not recurse and emit paths like 'field.__clipped__' or 'field.excerpt'."""
+    long_text = "y" * 4000
+    outputs = {"data": _make_sentinel(long_text, max_chars=100)}
+    summaries = _extract_text_field_summaries(outputs)
+    assert summaries is not None
+    paths = {s["path"] for s in summaries}
+    # Correct: path is at the sentinel node level
+    assert "data" in paths, f"Expected 'data' in paths; got {paths}"
+    # Must not recurse into the sentinel internals
+    assert f"data.{CLIP_SENTINEL_KEY}" not in paths, "Must not emit path for __clipped__ key"
+    assert "data.excerpt" not in paths, "Must not emit path for excerpt key as a separate field"
+    assert "data.original_char_length" not in paths
+
+
+def test_text_field_summaries_clip_sentinel_excerpt_is_bounded() -> None:
+    """The excerpt in the summary must be bounded by _TEXT_FIELD_FULL_CAP."""
+    # Make an excerpt that is itself 15000 chars (larger than _TEXT_FIELD_FULL_CAP=12000)
+    long_text = "q" * 20000
+    outputs = {
+        "big_field": {
+            CLIP_SENTINEL_KEY: True,
+            "original_char_length": 20000,
+            "excerpt": long_text[:15000],  # 15000-char excerpt
+        }
+    }
+    summaries = _extract_text_field_summaries(outputs)
+    assert summaries is not None
+    entries = [s for s in summaries if s["path"] == "big_field"]
+    assert entries
+    entry = entries[0]
+    assert entry["is_complete"] is False
+    assert entry["char_length"] == 20000
+    # The excerpt in the summary must be capped at _TEXT_FIELD_FULL_CAP (12000)
+    assert len(entry.get("excerpt", "")) <= 12000, (
+        "Sentinel excerpt must be capped at _TEXT_FIELD_FULL_CAP when the stored excerpt is large"
+    )
+
+
+def test_text_field_summaries_clip_sentinel_short_excerpt_skipped_when_below_min_length() -> None:
+    """A sentinel whose original_char_length is below _TEXT_FIELD_MIN_LENGTH must be skipped."""
+    short_text = "x" * 30  # below _TEXT_FIELD_MIN_LENGTH=60
+    outputs = {
+        "tiny": {
+            CLIP_SENTINEL_KEY: True,
+            "original_char_length": 30,
+            "excerpt": short_text,
+        }
+    }
+    summaries = _extract_text_field_summaries(outputs)
+    # Should be None or not contain "tiny"
+    if summaries is not None:
+        paths = {s["path"] for s in summaries}
+        assert "tiny" not in paths, "Short clip sentinel must be skipped like short plain strings"

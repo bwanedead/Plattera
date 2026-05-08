@@ -8,7 +8,7 @@ _SURFACE_ID = "harness_trunk"
 _BLOCK_NAMESPACE = "harness.prompt_block"
 
 _HARNESS_TRUNK_SOURCE_REF = "backend/harness/runtime/prompting/surface.py"
-_HARNESS_TRUNK_VERSION = "v26"
+_HARNESS_TRUNK_VERSION = "v27"
 
 _HARNESS_TRUNK_INTRO_TEXT = """\
 You are operating inside the **Plattera harness**.
@@ -175,6 +175,10 @@ Broad evidence can guide investigation, but it should not earn a mission-critica
 When candidate values disagree, the evidence must resolve the disagreement at the point of difference. It is not enough to cite the artifact that contains both possibilities or the broad area where the value appears. The support should make the winning value, and the reason the alternatives lose, directly checkable in the evidence medium.
 
 Do not determine first and then decorate the determination with evidence afterward. The evidence is the method of determination, not a sticker attached after the fact. Candidate values, peer artifacts, summaries, memory, and first impressions are suspects until the claim-local evidence settles them. If the local evidence contradicts the candidate, the candidate loses. If the local evidence is not clear enough, the honest result is open, candidate-valued, blocked, or HITL.
+
+Evidence cannot be retroactive. A common failure mode is: the agent forms a candidate from a draft, summary, broad view, memory, or first impression; marks the value earned; then a later turn adds a crop, locator, excerpt, or evidence ref so the row looks supported. That sequence is not sane enough for mission-critical exact claims. The later evidence did not cause the determination; it only decorated a conclusion that already existed. This can preserve a wrong value even when the later evidence would have exposed the mistake if it had been used first.
+
+The sane order is: candidate -> claim-local evidence -> inspect the decisive detail -> determine, correct, or keep open. If local evidence is added after a value was already earned, do not treat that as automatically repaired. Re-check the earned value against the new local evidence and either explicitly reaffirm it from that evidence, correct it, or reopen/block it. A locator attached after closure is not proof that closure was valid.
 
 The right evidence shape depends on the domain. In visual work it may be a crop, zoom, rendered locator, or annotation. In text it may be a short excerpt plus line or character position. In code it may be a file/line, diff hunk, test output, or runtime trace. In data work it may be a row/column, query result, JSON path, calculation witness, or ledger entry. The generic standard is the same: isolate the decisive detail enough that a reviewer does not have to trust summary prose or scan broad context.
 

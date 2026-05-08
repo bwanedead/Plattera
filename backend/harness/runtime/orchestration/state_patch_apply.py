@@ -27,6 +27,7 @@ from ...mission_state import (
 )
 from ..memory import LoopMemoryState
 from .contracts import ActionPlan
+from .evidence_sequencing import apply_sequencing_debt_from_patch
 from .trace_collector import KernelTraceCollector
 
 _LOG = logging.getLogger(__name__)
@@ -568,14 +569,21 @@ def apply_action_plan_state_patch_to_loop_memory(
         hitl_consumed_prompt_ids=attempted_consumed,
     )
     try:
+        before_rs = loop_memory.continuity.resolution_state
         ms_applied, rs_applied, row_skips, row_skip_details, salvage_events = _apply_state_patch_detailed(
             mission_state=loop_memory.continuity.mission_state,
-            resolution_state=loop_memory.continuity.resolution_state,
+            resolution_state=before_rs,
             state_patch=action_plan.state_patch,
         )
         loop_memory.continuity.mission_state = ms_applied
         loop_memory.continuity.resolution_state = rs_applied
         loop_memory.continuity.active_item_id = rs_applied.active_item_id
+        # Advisory sequencing-debt detection: compare before/after resolution state.
+        # Must run after the state is committed so the continuity debt dicts are
+        # updated atomically with the rest of the patch outcome.
+        apply_sequencing_debt_from_patch(
+            loop_memory, before_rs=before_rs, after_rs=rs_applied, iteration=iteration
+        )
         detail: dict[str, Any] = {}
         if salvage_events:
             detail["salvaged_rows"] = salvage_events

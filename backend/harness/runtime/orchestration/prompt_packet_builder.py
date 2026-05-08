@@ -340,6 +340,14 @@ _OPTIONAL_OBSERVABILITY_COUNTERS: tuple[str, ...] = (
     "repair_ready_without_artifact_write_count",
     "hitl_evidence_readiness_debt_count",
     "post_hitl_spin_count",
+    # Sequencing / locality debt (active pressure when non-zero)
+    "earned_before_local_evidence_count",
+    "posthoc_recheck_needed_count",
+    "earned_exact_with_broad_image_locator_count",
+    # HITL answerability pressure (advisory; show when non-zero)
+    "blocked_without_hitl_answerability_count",
+    "human_answerable_blocker_without_hitl_count",
+    "not_answerable_missing_reason_count",
 )
 
 

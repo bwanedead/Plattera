@@ -25,7 +25,18 @@ _MAX_COMPACTED_SUMMARY_CHARS = 32000
 # Cap prior summary size inside the compaction prompt only (mechanical bound).
 _MAX_COMPACTION_PRIOR_IN_PROMPT_CHARS = 12000
 # JSON-ish bound for tool outputs copied into continuity (mechanical only).
-_MAX_OUTPUTS_FOR_CONTINUITY_JSON_CHARS = 8192
+# 32000 comfortably covers typical multi-draft hydrate outputs (~8-10k chars)
+# without straining prompt budgets.  The old 8192 value was tight enough to
+# clip a 3-draft hydrate (8453 chars) into a raw string prefix, destroying
+# dict structure before text_field_summaries could traverse it.
+_MAX_OUTPUTS_FOR_CONTINUITY_JSON_CHARS = 32000
+# Per-field clip applied when the full dict still exceeds the cap after
+# the cap is raised (extreme cases with very many or very large fields).
+_STRUCTURED_CLIP_FIELD_CHARS = 2000
+# Sentinel key written into clip-replacement dicts so tool_result_slices can
+# detect clipped fields and mark them is_complete=False with the original length.
+# Paired constant: tool_result_slices.py uses the same literal.
+CLIP_SENTINEL_KEY: str = "__clipped__"
 
 
 def _clamp_optional_str(text: str | None, max_chars: int) -> str | None:
@@ -380,8 +391,52 @@ def validate_stored_step_record(row: Any) -> dict[str, Any] | None:
     return out
 
 
+def _clip_large_text_fields(value: Any, *, max_chars: int) -> Any:
+    """Recursively clip oversized string leaves to keep dict structure intact under JSON size pressure.
+
+    Oversized strings are replaced by a sentinel dict carrying the original length and a
+    bounded excerpt rather than a plain trimmed string.  This lets ``_extract_text_field_summaries``
+    in ``tool_result_slices`` detect clipped fields and emit ``is_complete: false`` with the
+    correct ``original_char_length``, preventing the truncated text from being misreported as
+    complete to the agent.
+
+    Sentinel shape::
+
+        {
+            "__clipped__": True,
+            "original_char_length": <int>,
+            "excerpt": <first max_chars chars of the original string>,
+        }
+
+    Non-string nodes pass through unchanged.
+    """
+    if isinstance(value, str):
+        if len(value) <= max_chars:
+            return value
+        return {
+            CLIP_SENTINEL_KEY: True,
+            "original_char_length": len(value),
+            "excerpt": value[:max_chars],
+        }
+    if isinstance(value, dict):
+        return {k: _clip_large_text_fields(v, max_chars=max_chars) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_clip_large_text_fields(item, max_chars=max_chars) for item in value]
+    return value
+
+
 def _bound_outputs_for_continuity(outputs: Mapping[str, Any], *, max_json_chars: int) -> tuple[Any, bool]:
-    """Mechanical JSON size bound; may return a truncated string prefix when oversized."""
+    """Mechanical JSON size bound; prefers a field-clipped dict over a raw string prefix when oversized.
+
+    Return value is ``(stored_value, result_truncated)``.
+
+    * **Within cap** → returns the round-tripped dict, ``truncated=False``.
+    * **Over cap after field-clip** → returns the field-clipped dict, ``truncated=True``; dict
+      structure is preserved so ``_extract_text_field_summaries`` can still traverse it.
+    * **Extreme fallback** (field-clipped dict still over cap) → returns a raw JSON string
+      prefix, ``truncated=True``.  This branch should only trigger for outputs with an
+      unusual number of very large non-string fields.
+    """
     as_dict = dict(outputs)
     raw = json.dumps(as_dict, ensure_ascii=False, default=str, sort_keys=True)
     if len(raw) <= max_json_chars:
@@ -389,7 +444,13 @@ def _bound_outputs_for_continuity(outputs: Mapping[str, Any], *, max_json_chars:
             return json.loads(raw), False
         except json.JSONDecodeError:
             return as_dict, False
-    return raw[:max_json_chars], True
+    # Oversized: apply field-level clipping to keep dict structure intact.
+    clipped = _clip_large_text_fields(as_dict, max_chars=_STRUCTURED_CLIP_FIELD_CHARS)
+    clipped_raw = json.dumps(clipped, ensure_ascii=False, default=str, sort_keys=True)
+    if len(clipped_raw) <= max_json_chars:
+        return clipped, True
+    # Extreme fallback: even the clipped dict exceeds the cap; return a string prefix.
+    return clipped_raw[:max_json_chars], True
 
 
 def build_kernel_step_result_record(

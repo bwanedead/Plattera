@@ -14,6 +14,10 @@ from typing import Any
 
 from ..memory import LoopMemoryState
 from ..memory.tool_result_slices import check_outputs_excerpt_truncated
+from .evidence_locality import (
+    BROAD_IMAGE_AREA_THRESHOLD,
+    count_earned_exact_units_with_broad_image_locator,
+)
 
 
 def build_prompt_observability_summary(
@@ -204,6 +208,16 @@ def build_prompt_observability_summary(
     notebook_shaped_graph_rows_count = _notebook_shaped_graph_rows_count(resolution_items)
 
     covered_units_metrics = _covered_units_metrics(resolution_items)
+    earned_exact_with_broad_image_locator_count = count_earned_exact_units_with_broad_image_locator(
+        resolution_items, area_threshold=BROAD_IMAGE_AREA_THRESHOLD
+    )
+    hitl_answerability_metrics = _hitl_answerability_metrics(resolution_items)
+    earned_before_local_evidence_count = len(
+        getattr(cont, "earned_before_local_evidence_debt", None) or {}
+    )
+    posthoc_recheck_needed_count = len(
+        getattr(cont, "posthoc_recheck_needed_debt", None) or {}
+    )
     artifact_claim_inventory_suspect_count = _artifact_claim_inventory_suspect_count(
         closure_ready_to_close=bool(getattr(closure_state, "ready_to_close", False)),
         work_universe_posture=work_universe_posture,
@@ -269,6 +283,18 @@ def build_prompt_observability_summary(
         ],
         "long_determined_value_units_count": covered_units_metrics[
             "long_determined_value_units_count"
+        ],
+        "earned_before_local_evidence_count": earned_before_local_evidence_count,
+        "posthoc_recheck_needed_count": posthoc_recheck_needed_count,
+        "earned_exact_with_broad_image_locator_count": earned_exact_with_broad_image_locator_count,
+        "blocked_without_hitl_answerability_count": hitl_answerability_metrics[
+            "blocked_without_hitl_answerability_count"
+        ],
+        "human_answerable_blocker_without_hitl_count": hitl_answerability_metrics[
+            "human_answerable_blocker_without_hitl_count"
+        ],
+        "not_answerable_missing_reason_count": hitl_answerability_metrics[
+            "not_answerable_missing_reason_count"
         ],
         "success_condition_count": len(success_conditions),
         "success_conditions_with_earned_determination_count": sum(
@@ -379,6 +405,18 @@ def build_prompt_observability_summary(
         semantic_repair_debt_kinds=semantic_repair_debt_kinds_early,
         pending_hitl_integration_ids=pending_hitl_integration_ids_early,
         reread_after_failed_persist=reread_after_failed_persist,
+        earned_before_local_evidence_count=earned_before_local_evidence_count,
+        posthoc_recheck_needed_count=posthoc_recheck_needed_count,
+        earned_exact_with_broad_image_locator_count=earned_exact_with_broad_image_locator_count,
+        blocked_without_hitl_answerability_count=hitl_answerability_metrics[
+            "blocked_without_hitl_answerability_count"
+        ],
+        human_answerable_blocker_without_hitl_count=hitl_answerability_metrics[
+            "human_answerable_blocker_without_hitl_count"
+        ],
+        not_answerable_missing_reason_count=hitl_answerability_metrics[
+            "not_answerable_missing_reason_count"
+        ],
     )
     return summary
 
@@ -1092,6 +1130,78 @@ def _covered_units_metrics(items: list[Any]) -> dict[str, int]:
     }
 
 
+def _hitl_answerability_metrics(items: list[Any]) -> dict[str, int]:
+    """Advisory counts for HITL answerability pressure on blocking/stalled items and units.
+
+    Three mechanical checks, all advisory:
+    - ``blocked_without_hitl_answerability_count``: blocking or no_further_progress
+      item/unit with no requires_hitl and no human_answerability classification set.
+    - ``human_answerable_blocker_without_hitl_count``: item/unit with
+      ``human_answerability == "likely_answerable"`` but no requires_hitl pending.
+    - ``not_answerable_missing_reason_count``: item/unit with
+      ``human_answerability == "not_answerable"`` but no hitl_not_applicable_reason.
+
+    Covered units of a blocking/stalled parent item are also checked so that
+    answerability pressure is visible at the atom level, not only the item level.
+    A covered unit is considered stalled when its parent item is blocked/stalled
+    and the unit itself is not yet earned or closed.
+    """
+    blocked_without = 0
+    answerable_without_hitl = 0
+    not_answerable_missing_reason = 0
+    for item in items:
+        is_blocking = bool(getattr(item, "blocking", False))
+        is_no_further = bool(getattr(item, "no_further_progress", False))
+        is_requires_hitl = bool(getattr(item, "requires_hitl", False))
+        answerability = _as_optional_text(getattr(item, "human_answerability", None))
+        reason = _as_optional_text(getattr(item, "hitl_not_applicable_reason", None))
+
+        is_blocked_or_stalled = is_blocking or is_no_further
+        if not is_blocked_or_stalled:
+            continue
+
+        # Blocked/stalled material item with no HITL and no answerability assessment.
+        if not is_requires_hitl and (answerability is None or answerability == "unknown"):
+            blocked_without += 1
+
+        # Agent assessed as likely answerable but hasn't emitted requires_hitl.
+        if answerability == "likely_answerable" and not is_requires_hitl:
+            answerable_without_hitl += 1
+
+        # Agent asserted not-answerable but didn't explain why.
+        if answerability == "not_answerable" and not reason:
+            not_answerable_missing_reason += 1
+
+        # Also check covered units — atoms where the actual stuck state may live.
+        # A covered unit is considered stalled when its parent is blocked/stalled
+        # and the unit itself is not yet earned or closed.
+        for unit in list(getattr(item, "covered_units", None) or []):
+            unit_status = str(getattr(unit, "status", "") or "").strip().lower()
+            unit_determination = str(getattr(unit, "determination", "") or "").strip().lower()
+            unit_is_done = unit_status == "closed" or unit_determination == "earned"
+            if unit_is_done:
+                continue  # unit is resolved; skip answerability check
+
+            unit_answerability = _as_optional_text(getattr(unit, "human_answerability", None))
+            unit_reason = _as_optional_text(getattr(unit, "hitl_not_applicable_reason", None))
+
+            # Stalled unit in a blocked item with no HITL path and no answerability assessment.
+            if not is_requires_hitl and (unit_answerability is None or unit_answerability == "unknown"):
+                blocked_without += 1
+
+            if unit_answerability == "likely_answerable" and not is_requires_hitl:
+                answerable_without_hitl += 1
+
+            if unit_answerability == "not_answerable" and not unit_reason:
+                not_answerable_missing_reason += 1
+
+    return {
+        "blocked_without_hitl_answerability_count": blocked_without,
+        "human_answerable_blocker_without_hitl_count": answerable_without_hitl,
+        "not_answerable_missing_reason_count": not_answerable_missing_reason,
+    }
+
+
 def _notebook_shaped_graph_rows_count(items: list[Any]) -> int:
     """Conservative structural pressure for closed rows shaped like prose notebooks.
 
@@ -1379,6 +1489,12 @@ def _mechanical_flags(
     pending_hitl_integration_ids: list[str] | None = None,
     reread_after_failed_persist: Mapping[str, Any] | None = None,
     notebook_shaped_graph_rows_count: int = 0,
+    earned_before_local_evidence_count: int = 0,
+    posthoc_recheck_needed_count: int = 0,
+    earned_exact_with_broad_image_locator_count: int = 0,
+    blocked_without_hitl_answerability_count: int = 0,
+    human_answerable_blocker_without_hitl_count: int = 0,
+    not_answerable_missing_reason_count: int = 0,
 ) -> list[str]:
     flags: list[str] = []
     if semantic_repair_debt_kinds:
@@ -1509,6 +1625,31 @@ def _mechanical_flags(
         )
     if notebook_shaped_graph_rows_count > 0:
         flags.append(f"notebook_shaped_graph_rows:{notebook_shaped_graph_rows_count}")
+    # Track 1: earned-before-claim-local-evidence sequencing debt.
+    # Both flags reflect *unresolved* units — entries are removed when the agent
+    # re-evaluates (changes verification_basis / determined_value or reopens).
+    # earned_before_claim_local_evidence: unit earned without locators, not yet repaired.
+    # posthoc_evidence_recheck_needed: locators added post-hoc, re-evaluation still pending.
+    if earned_before_local_evidence_count > 0:
+        flags.append(f"earned_before_claim_local_evidence:{earned_before_local_evidence_count}")
+    if posthoc_recheck_needed_count > 0:
+        flags.append(f"posthoc_evidence_recheck_needed:{posthoc_recheck_needed_count}")
+    # Track 2: earned exact units with only broad image-region locators.
+    if earned_exact_with_broad_image_locator_count > 0:
+        flags.append(
+            f"broad_image_locator_for_earned_exact_units:{earned_exact_with_broad_image_locator_count}"
+        )
+    # Track 3: HITL answerability pressure.
+    if blocked_without_hitl_answerability_count > 0:
+        flags.append(
+            f"blocked_without_hitl_answerability:{blocked_without_hitl_answerability_count}"
+        )
+    if human_answerable_blocker_without_hitl_count > 0:
+        flags.append(
+            f"human_answerable_blocker_without_hitl:{human_answerable_blocker_without_hitl_count}"
+        )
+    if not_answerable_missing_reason_count > 0:
+        flags.append(f"not_answerable_missing_reason:{not_answerable_missing_reason_count}")
     # Output claim coverage debt: work graph has resolution items but no or very sparse
     # fine-grained claim inventory while the run is in or approaching the closure zone.
     # Structural pressure only — does not inspect content.

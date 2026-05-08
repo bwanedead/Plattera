@@ -155,3 +155,21 @@ def test_working_ref_colon_working_colon_segment() -> None:
 def test_working_ref_exact_working_key() -> None:
     posture = classify_terminal_artifact_posture("completed", ["working"])
     assert posture == "completed_with_working_artifact"
+
+
+def test_run16_complete_run_with_only_working_refs_is_working_artifact_not_output() -> None:
+    """Run-16 regression: complete_run with only working refs must NOT be completed_with_output.
+
+    In run-16 the loop exited via complete_run with refs that were all working-tier
+    (no `:output` suffix).  The correct posture is `completed_with_working_artifact`.
+    This test pins that completed + working-only refs ≠ completed_with_output.
+    """
+    working_refs = [
+        "transcript_edit:working",
+        "transcript_edit:working:rev:0023",
+    ]
+    posture = classify_terminal_artifact_posture("completed", working_refs)
+    assert posture == "completed_with_working_artifact", (
+        f"Expected completed_with_working_artifact for working-only refs; got {posture!r}"
+    )
+    assert posture != "completed_with_output"

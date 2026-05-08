@@ -407,3 +407,99 @@ def test_runner_rejects_resume_path_and_inline_together(tmp_path: Path) -> None:
                 "kernel_resume_snapshot": {"schema_version": "kernel_resume.v1"},
             }
         )
+
+
+# ---------------------------------------------------------------------------
+# Sequencing debt round-trip (earned_before_local_evidence_debt / posthoc)
+# ---------------------------------------------------------------------------
+
+def test_roundtrip_sequencing_debt_preserved() -> None:
+    """earned_before_local_evidence_debt and posthoc_recheck_needed_debt survive snapshot round-trip."""
+    executor = ExecutionExecutor()
+    sm = ExecutionSessionManager(executor=executor)
+    sm.start_session(ExecutionSessionStartRequest(run_id="run-sd", session_id="sess-sd"))
+    lm = LoopMemoryState()
+    lm.continuity.mission_state = new_mission_state(mission_id="m1", loop_family="orchestration_kernel")
+    lm.continuity.resolution_state = new_resolution_state()
+    lm.continuity.earned_before_local_evidence_debt = {"item1//u1": 23, "item1//u2": 24}
+    lm.continuity.posthoc_recheck_needed_debt = {"item1//u1": 25}
+
+    snap = build_kernel_resume_snapshot(
+        loop_memory=lm, session_manager=sm, session_id="sess-sd", next_iteration=30
+    )
+    assert snap["continuity"]["earned_before_local_evidence_debt"] == {"item1//u1": 23, "item1//u2": 24}
+    assert snap["continuity"]["posthoc_recheck_needed_debt"] == {"item1//u1": 25}
+
+    mem2, next_it, err = parse_kernel_resume_snapshot(snap)
+    assert err is None
+    assert next_it == 30
+    assert mem2.continuity.earned_before_local_evidence_debt == {"item1//u1": 23, "item1//u2": 24}
+    assert mem2.continuity.posthoc_recheck_needed_debt == {"item1//u1": 25}
+
+
+def test_roundtrip_sequencing_debt_absent_defaults_to_empty() -> None:
+    """Snapshot without debt keys (old snapshot) restores to empty dicts without error."""
+    rs = new_resolution_state()
+    ms = new_mission_state(mission_id="m1", loop_family="orchestration_kernel", resolution_state=rs)
+    base = {
+        "schema_version": "kernel_resume.v1",
+        "next_iteration": 5,
+        "continuity": {
+            "latest_refs": {},
+            "mission_state": ms.model_dump(mode="json"),
+            "resolution_state": rs.model_dump(mode="json"),
+            "active_item_id": None,
+            # No earned_before_local_evidence_debt / posthoc_recheck_needed_debt keys
+        },
+        "hitl": {"hitl_state": "no_prompt"},
+        "telemetry": {"llm_contact_count": 0, "prompt_event_count": 0},
+        "execution_session": None,
+    }
+    mem2, _, err = parse_kernel_resume_snapshot(base)
+    assert err is None
+    assert mem2.continuity.earned_before_local_evidence_debt == {}
+    assert mem2.continuity.posthoc_recheck_needed_debt == {}
+
+
+def test_parse_rejects_earned_debt_wrong_type() -> None:
+    """earned_before_local_evidence_debt must be a mapping, not a list."""
+    rs = new_resolution_state()
+    ms = new_mission_state(mission_id="m1", loop_family="orchestration_kernel", resolution_state=rs)
+    base = {
+        "schema_version": "kernel_resume.v1",
+        "next_iteration": 1,
+        "continuity": {
+            "latest_refs": {},
+            "mission_state": ms.model_dump(mode="json"),
+            "resolution_state": rs.model_dump(mode="json"),
+            "active_item_id": None,
+            "earned_before_local_evidence_debt": ["not", "a", "mapping"],
+        },
+        "hitl": {"hitl_state": "no_prompt"},
+        "telemetry": {"llm_contact_count": 0, "prompt_event_count": 0},
+        "execution_session": None,
+    }
+    _, _, err = parse_kernel_resume_snapshot(base)
+    assert err == "resume_snapshot_earned_before_local_evidence_debt_invalid"
+
+
+def test_parse_rejects_posthoc_debt_wrong_type() -> None:
+    """posthoc_recheck_needed_debt must be a mapping, not a list."""
+    rs = new_resolution_state()
+    ms = new_mission_state(mission_id="m1", loop_family="orchestration_kernel", resolution_state=rs)
+    base = {
+        "schema_version": "kernel_resume.v1",
+        "next_iteration": 1,
+        "continuity": {
+            "latest_refs": {},
+            "mission_state": ms.model_dump(mode="json"),
+            "resolution_state": rs.model_dump(mode="json"),
+            "active_item_id": None,
+            "posthoc_recheck_needed_debt": "not-a-mapping",
+        },
+        "hitl": {"hitl_state": "no_prompt"},
+        "telemetry": {"llm_contact_count": 0, "prompt_event_count": 0},
+        "execution_session": None,
+    }
+    _, _, err = parse_kernel_resume_snapshot(base)
+    assert err == "resume_snapshot_posthoc_recheck_needed_debt_invalid"

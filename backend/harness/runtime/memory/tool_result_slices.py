@@ -17,6 +17,8 @@ import json
 from collections.abc import Mapping
 from typing import Any
 
+from .continuity_journal import CLIP_SENTINEL_KEY  # paired: see continuity_journal._clip_large_text_fields
+
 DEFAULT_MAX_RECORDS = 3
 DEFAULT_MAX_CHARS_PER_RESULT = 2500
 DEFAULT_MAX_TOTAL_CHARS = 7000
@@ -237,6 +239,31 @@ def _collect_text_fields(
         return
 
     if isinstance(node, Mapping):
+        # Detect a clip sentinel emitted by _clip_large_text_fields in continuity_journal.
+        # The original string was oversized and replaced with a structured marker carrying
+        # the true original length.  Always emit is_complete=False so the agent knows the
+        # text has been clipped at the storage layer, not just at the prompt-projection layer.
+        if node.get(CLIP_SENTINEL_KEY) is True:
+            orig_len = node.get("original_char_length") or 0
+            excerpt = node.get("excerpt") or ""
+            qualifying = (
+                isinstance(excerpt, str)
+                and (orig_len >= _TEXT_FIELD_MIN_LENGTH or len(excerpt) >= _TEXT_FIELD_MIN_LENGTH)
+            )
+            if qualifying and lane_remaining[0] > 0:
+                visible_end = min(len(excerpt), _TEXT_FIELD_FULL_CAP, lane_remaining[0])
+                summaries.append({
+                    "path": path,
+                    "char_length": int(orig_len),
+                    "is_complete": False,
+                    "excerpt_start": 0,
+                    "excerpt_end": visible_end,
+                    "excerpt": excerpt[:visible_end],
+                    "truncation_reason": "continuity_storage_clip",
+                })
+                lane_remaining[0] -= visible_end
+            return  # never recurse into the sentinel dict itself
+
         stripped = _strip_binary(node)
         for key, value in stripped.items():
             if len(summaries) >= _MAX_TEXT_FIELDS or lane_remaining[0] <= 0:
