@@ -4,6 +4,7 @@ from __future__ import annotations
 from harness.runtime.memory.tool_result_slices import (
     _extract_evidence_artifact_summary,
     _extract_structural_metadata,
+    _extract_text_field_summaries,
     build_recent_tool_result_slices,
     check_outputs_excerpt_truncated,
 )
@@ -401,3 +402,156 @@ def test_slices_evidence_artifact_summary_for_real_transform_shape() -> None:
     eas = slices[0]["evidence_artifact_summary"]
     assert eas["derived_ref"] == "image:derived:tx:zoom_002"
     assert eas["source_ref"] == "image:assoc:tx:page1"
+
+
+# ---------------------------------------------------------------------------
+# Track 1: text_field_summaries
+# ---------------------------------------------------------------------------
+
+
+def test_text_field_summaries_includes_field_above_old_cap_as_complete() -> None:
+    """A text field > old 2500 char cap but within full cap must appear is_complete=True."""
+    text_value = "a" * 3500  # > old 2500 cap, < 12000 full cap
+    records = [_result_record(1, outputs={"body": text_value})]
+    slices = build_recent_tool_result_slices(records, max_chars_per_result=2500)
+    # Old generic excerpt was truncated
+    assert slices[0]["outputs_excerpt_truncated"] is True
+    summaries = slices[0].get("text_field_summaries")
+    assert summaries is not None, "text_field_summaries must be present when text fields exist"
+    assert len(summaries) == 1
+    entry = summaries[0]
+    assert entry["path"] == "body"
+    assert entry["char_length"] == 3500
+    assert entry["is_complete"] is True
+    assert entry["text"] == text_value
+
+
+def test_text_field_summaries_marks_large_field_incomplete_with_excerpt_range() -> None:
+    """A text field exceeding the full cap must appear as is_complete=False with range markers."""
+    text_value = "z" * 15000  # > 12000 full cap
+    records = [_result_record(1, outputs={"content": text_value})]
+    slices = build_recent_tool_result_slices(records)
+    summaries = slices[0].get("text_field_summaries")
+    assert summaries is not None
+    entry = summaries[0]
+    assert entry["path"] == "content"
+    assert entry["char_length"] == 15000
+    assert entry["is_complete"] is False
+    assert entry["excerpt_start"] == 0
+    assert entry["excerpt_end"] <= 12000
+    assert len(entry["excerpt"]) == entry["excerpt_end"]
+    assert entry.get("truncation_reason") == "prompt_projection_cap"
+
+
+def test_text_field_summaries_not_hidden_by_metadata_heavy_output() -> None:
+    """Text fields appear in text_field_summaries even when metadata keys fill the JSON excerpt."""
+    long_text = "t" * 3000
+    outputs = {
+        "status": "ok",
+        "version": "1.0",
+        "run_id": "abc123",
+        "phase": "main",
+        "result_code": "success",
+        "iteration": 5,
+        "text_body": long_text,  # appears last — JSON excerpt would be full of metadata before this
+    }
+    records = [_result_record(1, outputs=outputs)]
+    slices = build_recent_tool_result_slices(records, max_chars_per_result=200)
+    assert slices[0]["outputs_excerpt_truncated"] is True
+    summaries = slices[0].get("text_field_summaries")
+    assert summaries is not None
+    paths = [e["path"] for e in summaries]
+    assert "text_body" in paths, f"text_body not found in text_field_summaries paths: {paths}"
+    text_entry = next(e for e in summaries if e["path"] == "text_body")
+    assert text_entry["is_complete"] is True
+    assert text_entry["text"] == long_text
+
+
+def test_text_field_summaries_none_when_no_meaningful_text_fields() -> None:
+    """text_field_summaries is absent when all string values are below the min length."""
+    outputs = {"status": "ok", "count": 3, "kind": "hydrate"}
+    records = [_result_record(1, outputs=outputs)]
+    slices = build_recent_tool_result_slices(records)
+    assert "text_field_summaries" not in slices[0]
+
+
+def test_text_field_summaries_traverses_nested_mapping() -> None:
+    """Text fields nested inside a mapping appear with their full dotted path."""
+    nested_text = "n" * 200
+    outputs = {"payload": {"source_text": nested_text}}
+    summaries = _extract_text_field_summaries(outputs)
+    assert summaries is not None
+    assert len(summaries) == 1
+    assert summaries[0]["path"] == "payload.source_text"
+    assert summaries[0]["is_complete"] is True
+    assert summaries[0]["text"] == nested_text
+
+
+def test_text_field_summaries_traverses_multiple_list_elements() -> None:
+    """All list elements (not just index 0) must contribute text fields to text_field_summaries."""
+    def _item(i: int) -> dict:
+        return {"ref": f"artifact://rev:{i:04d}", "text": f"body text for item {i} " * 20}
+
+    outputs = {"results": [_item(i) for i in range(3)]}
+    summaries = _extract_text_field_summaries(outputs)
+    assert summaries is not None
+    paths = [e["path"] for e in summaries]
+    assert "results[0].text" in paths, f"results[0].text missing from {paths}"
+    assert "results[1].text" in paths, f"results[1].text missing from {paths}"
+    assert "results[2].text" in paths, f"results[2].text missing from {paths}"
+
+
+def test_newest_result_not_crowded_out_by_large_older_text_result() -> None:
+    """A large text_field_summaries on an older result must not prevent the newest result appearing."""
+    old_record = _result_record(1, outputs={"body": "x" * 30000})  # huge — fills any budget
+    new_record = _result_record(2, outputs={"status": "done", "count": 1})
+    slices = build_recent_tool_result_slices(
+        [old_record, new_record],
+        max_records=3,
+        max_total_chars=7000,
+    )
+    turns = [s["kernel_turn_index"] for s in slices]
+    assert 2 in turns, f"Newest turn 2 was crowded out by older large result; turns present: {turns}"
+    # Output is in chronological order
+    assert turns == sorted(turns), f"Slices are not in chronological order: {turns}"
+
+
+def test_slices_chronological_order_preserved_after_newest_first_iteration() -> None:
+    """When multiple rows fit the budget they must be returned oldest-to-newest."""
+    records = [_result_record(t, outputs={"k": str(t)}) for t in (1, 2, 3)]
+    slices = build_recent_tool_result_slices(records, max_records=3)
+    turns = [s["kernel_turn_index"] for s in slices]
+    assert turns == sorted(turns)
+
+
+def test_text_field_summaries_peer_hydrate_shape_exposes_all_drafts() -> None:
+    """Simulate a peer-draft hydrate result: each results[N].payload.text must be visible."""
+    def _draft(i: int) -> dict:
+        return {
+            "ref_id": f"t0:raw:draft_{i}",
+            "kind": "t0_draft",
+            "payload": {"text": f"draft content {i} " * 50},
+        }
+
+    outputs = {"results": [_draft(i) for i in range(3)]}
+    summaries = _extract_text_field_summaries(outputs)
+    assert summaries is not None
+    paths = [e["path"] for e in summaries]
+    assert "results[0].payload.text" in paths, f"results[0].payload.text missing; paths={paths}"
+    assert "results[1].payload.text" in paths, f"results[1].payload.text missing; paths={paths}"
+    assert "results[2].payload.text" in paths, f"results[2].payload.text missing; paths={paths}"
+
+
+def test_field_signal_includes_is_complete_for_string_fields() -> None:
+    """_extract_structural_metadata field_signals must include is_complete on string entries."""
+    outputs = {
+        "medium_text": "m" * 3000,   # < 12000 full cap → is_complete True
+        "large_text": "l" * 15000,   # > 12000 full cap → is_complete False
+    }
+    meta = _extract_structural_metadata(outputs)
+    assert meta is not None
+    signals = meta.get("field_signals", {})
+    assert "medium_text" in signals
+    assert signals["medium_text"]["is_complete"] is True
+    assert "large_text" in signals
+    assert signals["large_text"]["is_complete"] is False

@@ -364,6 +364,28 @@ def test_surface_teaches_compact_claim_atoms_and_locator_doctrine() -> None:
     assert "json paths" in lowered
 
 
+def test_choose_action_instruction_teaches_truncation_boundary_doctrine() -> None:
+    """text_field_summaries and prompt-projection-boundary doctrine must be present and domain-free."""
+    text = CHOOSE_ACTION_INSTRUCTION
+    lowered = text.lower()
+    # Core vocabulary
+    assert "text_field_summaries" in text
+    assert "is_complete" in text
+    assert "outputs_excerpt_truncated" in text
+    # Must explain that excerpt_truncated is a projection boundary, not artifact boundary
+    assert "prompt projection" in lowered or "projection boundary" in lowered
+    # Must mention focused/targeted read as the alternative
+    assert "focused" in lowered
+    # Must discourage broad re-hydration for truncation recovery
+    assert "re-hydrat" in lowered or "broad re-hydration" in lowered
+    # No domain-specific terms in the surrounding doctrine block
+    start = lowered.find("outputs_excerpt_truncated")
+    assert start >= 0
+    section = lowered[start: start + 800]
+    for banned in ("deed", "parcel", "transcript_edit", "bearing", "distance", "acreage"):
+        assert banned not in section, f"Found domain term {banned!r} in truncation-boundary doctrine"
+
+
 def test_state_repair_mode_excludes_bulky_step_records_fields() -> None:
     from harness.runtime.orchestration.prompt_modes import require_prompt_mode_spec
     spec = require_prompt_mode_spec("state_repair")

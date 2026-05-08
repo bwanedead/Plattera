@@ -22,6 +22,17 @@ DEFAULT_MAX_CHARS_PER_RESULT = 2500
 DEFAULT_MAX_TOTAL_CHARS = 7000
 _MAX_ARTIFACT_REFS = 16
 
+# Text-field projection: per-field full-text cap and total lane cap.
+# Fields below _TEXT_FIELD_MIN_LENGTH (status codes, short labels) are skipped.
+# Fields at or below _TEXT_FIELD_FULL_CAP appear complete; larger fields get a
+# bounded excerpt with explicit truncation markers.
+_TEXT_FIELD_FULL_CAP: int = 12000
+_TEXT_FIELD_LANE_CAP: int = 24000
+_TEXT_FIELD_MIN_LENGTH: int = 60
+_MAX_TEXT_FIELDS: int = 12
+_TEXT_TRAVERSAL_DEPTH: int = 6
+_MAX_LIST_ELEMENTS: int = 8  # max list elements to traverse for text projection
+
 _BINARY_KEYS = frozenset(
     {
         "image_bytes",
@@ -121,6 +132,9 @@ def _field_signal(value: Any) -> dict[str, Any] | None:
             "value_type": "string",
             "non_empty": bool(value.strip()),
             "char_length": len(value),
+            # is_complete: True when the full text fits within the prompt-visible cap,
+            # i.e. text_field_summaries would show this field complete.
+            "is_complete": len(value) <= _TEXT_FIELD_FULL_CAP,
         }
     if value is None:
         return {
@@ -173,6 +187,103 @@ def _collect_field_signals(
                 path=f"{child_path}[0]",
                 depth=depth + 1,
             )
+
+
+def _collect_text_fields(
+    node: Any,
+    summaries: list[dict[str, Any]],
+    *,
+    path: str,
+    depth: int,
+    lane_remaining: list[int],
+) -> None:
+    """Recursively collect text fields by dotted path for prompt-visible projection.
+
+    Skips strings shorter than _TEXT_FIELD_MIN_LENGTH (status codes, labels).
+    Fields at or below _TEXT_FIELD_FULL_CAP appear with is_complete=True and
+    the full text.  Larger fields appear with is_complete=False plus a bounded
+    excerpt and explicit truncation markers.  The lane_remaining list is a
+    single-element mutable budget shared across the whole call tree.
+    """
+    if depth > _TEXT_TRAVERSAL_DEPTH or len(summaries) >= _MAX_TEXT_FIELDS:
+        return
+    if lane_remaining[0] <= 0:
+        return
+
+    if isinstance(node, str):
+        length = len(node)
+        if length < _TEXT_FIELD_MIN_LENGTH:
+            return
+        if length <= _TEXT_FIELD_FULL_CAP and length <= lane_remaining[0]:
+            summaries.append({
+                "path": path,
+                "char_length": length,
+                "is_complete": True,
+                "text": node,
+            })
+            lane_remaining[0] -= length
+        else:
+            end = min(_TEXT_FIELD_FULL_CAP, lane_remaining[0])
+            summaries.append({
+                "path": path,
+                "char_length": length,
+                "is_complete": False,
+                "excerpt_start": 0,
+                "excerpt_end": end,
+                "excerpt": node[:end],
+                "truncation_reason": "prompt_projection_cap",
+            })
+            lane_remaining[0] -= end
+        return
+
+    if isinstance(node, Mapping):
+        stripped = _strip_binary(node)
+        for key, value in stripped.items():
+            if len(summaries) >= _MAX_TEXT_FIELDS or lane_remaining[0] <= 0:
+                break
+            child_path = str(key) if not path else f"{path}.{key}"
+            _collect_text_fields(
+                value, summaries,
+                path=child_path,
+                depth=depth + 1,
+                lane_remaining=lane_remaining,
+            )
+        return
+
+    if isinstance(node, (list, tuple)) and node:
+        # Traverse all elements within the lane/field budget so that peer artifacts
+        # in a results list (results[1], results[2], …) are not silently hidden.
+        for idx, item in enumerate(node[:_MAX_LIST_ELEMENTS]):
+            if len(summaries) >= _MAX_TEXT_FIELDS or lane_remaining[0] <= 0:
+                break
+            child_path = f"{path}[{idx}]" if path else f"[{idx}]"
+            _collect_text_fields(
+                item, summaries,
+                path=child_path,
+                depth=depth + 1,
+                lane_remaining=lane_remaining,
+            )
+
+
+def _extract_text_field_summaries(outputs: Any) -> list[dict[str, Any]] | None:
+    """Extract meaningful text fields from outputs into a structured projection.
+
+    Returns a list of summary dicts (one per text field >= _TEXT_FIELD_MIN_LENGTH),
+    or None when outputs contains no qualifying text fields.  Each entry carries:
+    - path: dotted field path from outputs root
+    - char_length: full length of the source field
+    - is_complete: True when the full text is included; False when truncated
+    - text (complete) or excerpt/excerpt_start/excerpt_end/truncation_reason (incomplete)
+
+    This projection is independent of the generic outputs_excerpt — it traverses
+    the dict structure to find text regardless of JSON serialization order.
+    """
+    if not isinstance(outputs, Mapping):
+        return None
+    summaries: list[dict[str, Any]] = []
+    lane_remaining = [_TEXT_FIELD_LANE_CAP]
+    _collect_text_fields(outputs, summaries, path="", depth=0, lane_remaining=lane_remaining)
+    return summaries if summaries else None
 
 
 def _extract_structural_metadata(outputs: Any) -> dict[str, Any] | None:
@@ -327,6 +438,10 @@ def build_recent_tool_result_slices(
     Binary/image payload keys are stripped. Each slice is bounded in size
     and the total lane is bounded by ``max_total_chars``.
 
+    Rows are processed newest-first so the most recent result is always
+    included regardless of budget.  Older results are included while budget
+    remains.  The returned list is in chronological (ascending turn) order.
+
     ``evidence_artifact_summary`` is included whenever the outputs contain
     evidence artifact fields (rendered_evidence_refs, derived_ref, source_ref).
     This is always included when present so the next prompt turn can see what
@@ -342,7 +457,7 @@ def build_recent_tool_result_slices(
 
     slices: list[dict[str, Any]] = []
     total_chars = 0
-    for row in kept:
+    for row in reversed(kept):  # newest-first so newest is always admitted
         turn = _turn_index(row)
         if turn is None:
             continue
@@ -359,6 +474,7 @@ def build_recent_tool_result_slices(
         else:
             artifact_refs = []
         evidence_artifact_summary = _extract_evidence_artifact_summary(outputs)
+        text_field_summaries = _extract_text_field_summaries(outputs)
         slice_row: dict[str, Any] = {
             "kernel_turn_index": turn,
             "action_type": row.get("action_type"),
@@ -377,6 +493,8 @@ def build_recent_tool_result_slices(
         }
         if evidence_artifact_summary is not None:
             slice_row["evidence_artifact_summary"] = evidence_artifact_summary
+        if text_field_summaries is not None:
+            slice_row["text_field_summaries"] = text_field_summaries
         try:
             row_chars = len(
                 json.dumps(slice_row, ensure_ascii=False, default=str)
@@ -387,4 +505,5 @@ def build_recent_tool_result_slices(
             break
         slices.append(slice_row)
         total_chars += row_chars
+    slices.reverse()  # restore chronological (ascending turn) order
     return slices
