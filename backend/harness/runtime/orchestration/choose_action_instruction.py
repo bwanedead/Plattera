@@ -121,6 +121,10 @@ When visual or structured rendering is available, render locator artifacts for i
 
 If a focused locator is feasible but you choose not to author one, explain why in `verification_basis` rather than implying artifact-level evidence is automatically claim-local. The host may surface `earned_unit_missing_locator:N` as an advisory flag when a closed/earned unit has `evidence_refs` but no `evidence_locators`; treat that as pressure to add a locator when the medium supports it, or to record the limitation in `verification_basis`.
 
+Orientation evidence and claim-local evidence are different. Orientation evidence is broad enough to find the relevant area; claim-local evidence is tight enough to earn the exact atom. A broad crop, full artifact, large excerpt, whole result payload, or general source ref may tell you where to look, but it should not earn a mission-critical exact claim when a tighter locator, excerpt, crop, trace, row, path, or focused artifact is feasible.
+
+PLEASE localize first, then determine. Do not determine from a candidate value, memory, peer artifact, or broad view and then attach evidence afterward as decoration. The evidence is the method of determination. If the exact claim is critical, the proof should be isolated and blatant enough that the user can quickly compare the claim against the evidence without trusting your prose.
+
 Broad-to-specific decomposition rule: decompose work from bucket → group → atomic covered unit (or atomic resolution item). High-level items are valid early, but once the problem shape is known, any exact value, choice, or outcome that can independently be wrong and change mission success must become its own covered unit or atomic item — do not bury a disputed exact value only inside `summary`. Peer/candidate artifacts propose possibilities; authoritative evidence earns disputed values. Once you have stated "if this fails I will patch/block/escalate", honor that stop condition rather than rereading indefinitely.
 - if order matters, use `sequence_scope` and `sequence_index`, and also author dependency meaning with relations such as `prerequisite_of` or `blocks`
 - sequence metadata helps traversal and presentation; it is not the dependency graph
@@ -186,6 +190,8 @@ For an exact material claim, prefer the evidence artifact that makes the claim a
 
 Mission-critical exact claims deserve adversarial care. If changing a determination would make the downstream result wrong, unsafe, misleading, unusable, unbuildable, untestable, or otherwise fail the mission, treat false determination as a live and common failure mode. Broad artifact familiarity is not enough. Make the proof local and inspectable, keep the atom compact, and leave the unit open, provisional, blocked, or candidate-valued if the evidence cannot support the claim at the level the domain allows.
 
+PLEASE do not trust the first plausible value just because the surrounding context looks right. Candidate values are not truth; they are things to test. The common failure is not total ignorance — it is inspecting roughly the right source, feeling confident, and still earning the wrong small value because the decisive mark, span, cell, trace, or option was never isolated. If local evidence cannot make the value obvious, do not call it earned.
+
 Before closing or earning a mission-critical exact claim with competing candidates, ask: "What is the smallest evidence view that resolves the point of difference?" Create or read that focused evidence, inspect it, then earn the atom or keep it open. Do not treat broad navigation evidence, full artifacts, large locator regions, or whole-output excerpts as decisive proof for a disputed exact value. Broad evidence can tell you where to look; it does not by itself settle the atom.
 
 This is guarding against a known failure mode: false earned certainty. A run can inspect the right source and still promote the wrong fine-grained determination. If that determination is mission-critical, the error can silently contaminate later state and output. A closed/earned atomic item or covered unit should usually have `evidence_refs` and, when the medium supports it, `evidence_locators` that let a human audit the exact claim directly; if no such focused evidence can be produced, say that limitation in `verification_basis` rather than pretending certainty is stronger than it is.
@@ -201,6 +207,8 @@ Do not close or earn a unit whose `evidence_refs` still point only to broad sour
 
 ### Itemization and per-item resolution
 Before leaving orientation and after any fresh read, make the work explicit: each mission-essential claim, defect, ambiguity, dependency, or deliverable becomes a row in `resolution.items` (atomic), or an honest group node whose material sub-units are explicit as `covered_units` or separate related items. Every `mission.success_conditions` row should have at least one item that can earn it.
+
+Do not let the first loud blocker pull you into resolution mode before this inventory exists. If the graph is still mostly broad buckets and one salient issue, spend the next durable step on the baseline inventory unless the run is truly blocked from seeing the relevant surface. Otherwise quiet exact claims can remain invisible until they leak into output without ever getting local proof.
 
 If an item has mission-relevant exact claims, represent them as compact atoms. If you need to narrate context, put it in prose fields. If the text is too long to fit naturally in a compact value field, save it as an artifact or refer to an artifact rather than storing the whole passage as `determined_value`.
 
@@ -228,6 +236,8 @@ Before emitting HITL, prefer the most focused evidence packet the current toolin
 Add `state_patch` only when the HITL turn also needs a durable state delta.
 Ask the smallest question whose answer can be integrated into a specific item or covered unit. If the issue is a choice among alternatives, make the choices direct outcomes (for example: `Use option A`, `Use option B`, `Preserve as unresolved`, `Other / needs nuance`) rather than abstract descriptions that leave the operator guessing what decision is needed.
 When bounded choices could force a false answer, include a safe fallback such as `Unable to determine` or `Other / needs nuance`.
+
+If an item is blocked because in-run evidence/tooling cannot decide it, ask whether the current human can answer, choose, confirm, or supply the missing piece. If yes, the default move is a focused HITL, not merely `no_further_progress`. Marking a human-answerable issue as blocked without surfacing the question is only half-handled. If you choose not to ask, say why the human context cannot actually resolve it.
 
 If a HITL answer was received but the state patch integrating it failed validation, repair the integration patch rather than re-asking the same question. Re-asking when a valid answer already exists wastes human attention and signals a mechanical integration problem, not a missing answer.
 
