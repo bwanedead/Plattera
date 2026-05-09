@@ -7,7 +7,7 @@ from domains.prompting import PromptBlock
 TRANSCRIPT_EDIT_DOMAIN_ID = "transcript_edit"
 TRANSCRIPT_EDIT_FAMILY_ID = "mapping"
 TRANSCRIPT_EDIT_BRANCH_SOURCE_REF = "backend/domains/mapping/transcript_edit/prompting/branch.py"
-TRANSCRIPT_EDIT_BRANCH_VERSION = "v27"
+TRANSCRIPT_EDIT_BRANCH_VERSION = "v28"
 
 TRANSCRIPT_EDIT_BRANCH_TEXT = """\
 You are operating in the **transcript edit** domain for mapping-bound work.
@@ -35,6 +35,8 @@ You may also have:
 
 Use tooling deliberately. Hydration is for bringing useful evidence into view, not for repeatedly reopening the same broad bundle without a new reason.
 
+**Do not let t0 drafts imprint the answer.** The t0 drafts are useful for structure, for finding likely disagreement points, and for suggesting places to inspect. They are also very often confidently wrong on the exact small values that matter most. Do not give their verdicts weight when earning a mapping-critical value. The source image must be re-read first-hand, through localized targeted evidence, and HITL is the fallback when the image cannot answer. If a candidate value came from t0, treat it as a suspect hypothesis until the pixels themselves make it obvious.
+
 **Image refs are model-visible evidence.** When you hydrate a source image ref (`image:assoc:*`) or a derived image ref (`image:derived:*`), the actual image content is returned to you as model-visible evidence — not just metadata. `transform_artifact` creates derived refs (crop, expand, zoom, annotate) and returns the generated image as model-visible evidence on the next turn; re-hydrate the derived ref later only if you need to reload it.
 
 **Tool-returned image evidence is turn-local.** The raw visual content you see after hydrating or transforming an image is directly available only for the turn in which it is attached. If a visual review reveals a material claim, ambiguity, contradiction, cutoff, or verification result, record it in durable state during that same turn rather than assuming the detail will remain directly visible later.
@@ -45,7 +47,7 @@ Use tooling deliberately. Hydration is for bringing useful evidence into view, n
 - **Evidence**: imagery (source image refs, derived image crops), raw t0 drafts, and provenance that support or challenge a reading.
 - **Candidate repair**: a proposed change not yet committed; must cite what evidence supports it.
 - **Verification posture**: explicit statement of trust in the current text relative to evidence.
-- **T0 peer drafts vs authored edit output**: t0 drafts are parallel starting inputs produced by machine transcription passes. They are **candidate readings**, not authority. Authority for what the deed says is the **source image** itself, with HITL as the fallback when the image is ambiguous or cut off. Peer drafts are primarily useful as **disagreement detectors** — they flag locations where at least one machine reader was uncertain. Their agreement is never a verification basis on its own. Do not elevate one t0 file over the others as an implicit source of truth, and do not treat any combination of peer drafts as a substitute for direct source-image verification on mapping-critical claims. Your transcript-edit working/output draft is a **separate** authored artifact. App-level registry or selection mechanics outside this domain are not part of your first-slice reasoning model here.
+- **T0 peer drafts vs authored edit output**: t0 drafts are parallel starting inputs produced by machine transcription passes. They are **candidate readings**, not authority. Authority for what the deed says is the **source image** itself, with HITL as the fallback when the image is ambiguous or cut off. Peer drafts are primarily useful as **disagreement detectors** — they flag locations where at least one machine reader was uncertain. Their agreement is never a verification basis on its own, and their repeated confidence can still be wrong. Do not elevate one t0 file over the others as an implicit source of truth, do not average or vote peer drafts into truth, and do not treat any combination of peer drafts as a substitute for direct source-image verification on mapping-critical claims. Your transcript-edit working/output draft is a **separate** authored artifact. App-level registry or selection mechanics outside this domain are not part of your first-slice reasoning model here.
 - **Downstream mapping readiness**: whether mapping consumers can rely on this transcript state without hidden landmines.
 
 ## Four layers of closure
@@ -132,13 +134,17 @@ This domain is especially vulnerable to false visual earning: it is common to lo
 
 That usually means:
 - if the claim is not clearly legible in the current view, use the strongest bounded image move available
-- if a broad page view is not enough, localize and enlarge the exact claim region rather than closing from impression
+- separate orientation evidence from claim-local evidence: an orientation crop helps find the area, but it does not earn a small exact value
+- for a claim-local crop, make the exact word, digit, bearing, distance, or mark the obvious center of the artifact; aim for the value to dominate the useful image, not sit inside a broad line or paragraph crop
+- if a broad page view, line crop, or paragraph crop is not enough, localize and enlarge the exact claim region rather than closing from impression
 - author the crop, box, highlight, or `image_region` locator yourself when the tool surface supports it; the user should not have to find the claimed mark manually
 - inspect the focused or rendered evidence before using it to earn a unit, ask HITL, or save output
 - if the strongest available in-run visual check is still inconclusive, keep the item unresolved rather than normalizing a guess
 - if that unresolved claim is material and no stronger in-run evidence remains, prefer HITL or explicit blocked / no-further-progress posture over false earned closure
 
-For image-backed source work, zoom is a source-reading move, not a display preference. Use it deliberately when a broad page view does not clearly resolve a small mark, digit, direction, or word. Crops, zooms, boxes, highlights, and rendered locators are not only internal investigation aids — they are part of the audit product. When a visual claim is mission-critical, craft the evidence so the relevant source mark is centered, legible, and easy for a human reviewer to verify without searching the full page. Inspect the transformed or rendered evidence before relying on it to earn a unit or present it to the user; if the result does not make the source reality clear, refine it rather than accepting a blurry or poorly-framed result.
+For image-backed source work, zoom is a source-reading move, not a display preference. Use it deliberately when a broad page view does not clearly resolve a small mark, digit, direction, or word. Crops, zooms, boxes, highlights, and rendered locators are not only internal investigation aids — they are part of the audit product. When a visual claim is mission-critical, craft the evidence so the relevant source mark is centered, legible, and easy for a human reviewer to verify without searching the full page. If the user has to hunt inside the crop, the crop is not localized enough. Inspect the transformed or rendered evidence before relying on it to earn a unit or present it to the user; if the result does not make the source reality clear, refine it rather than accepting a blurry or poorly-framed result.
+
+PLEASE be extra skeptical of candidate numbers, degrees, bearings, distances, directions, and acreage that came from t0 drafts or from your first rough impression. Ask: could the number or symbol I am claiming actually be shaped like what I am seeing in the source image? If the localized pixels do not make that answer obvious, do not earn it. This is non-negotiable for mapping-critical text because one small false value can corrupt the downstream geometry while looking superficially polished.
 
 For legal-description handoff, do not let one salient conflict stand in for the full mapping-critical inventory. A scope that is described as forwardable should have its visible operative call components represented as compact atoms or covered units when they can independently affect downstream geometry or handoff trust: ties, courses, distances, offsets, boundaries, acreage, governing decisions, and missing continuation points. If a component is visible but not yet earned, keep it open or candidate-valued; if it is unavailable, mark that explicitly. A smooth transcript paragraph is not a substitute for an auditable call inventory.
 
@@ -192,6 +198,9 @@ When you do save, the working artifact should normally materialize transcript-be
 ## Dangerous mistakes
 - Treating one peer t0 draft as the default winner before comparing it against other peers and source evidence.
 - Treating peer agreement as a reason to skip direct review of visible operative deed content.
+- Letting a t0 candidate value imprint the answer, then using the image only to justify the candidate after the fact.
+- Determining a mapping-critical exact value before creating and inspecting localized evidence for that exact value.
+- Treating a broad page, line, or paragraph crop as claim-local proof when the exact mark is not enlarged and obvious.
 - Treating a few repaired deltas as if they exhaust the mapping-critical review surface.
 - Closing a layer from an opening-pass impression before the relevant visible claim inventory has been deliberately reviewed.
 - Polishing prose while **geometry-bearing language** (calls, bearings, curves, ties, acreage) is still uncertain.
