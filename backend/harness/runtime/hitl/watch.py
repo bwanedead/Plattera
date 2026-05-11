@@ -69,6 +69,7 @@ def _poll(
     done_file: Path | None,
     timeout_seconds: int,
     poll_interval: float = 2.0,
+    done_not_before_epoch_seconds: float | None = None,
 ) -> dict:
     hitl_path = hitl_pending_path(run_id)
     deadline = time.time() + max(1, timeout_seconds)
@@ -99,6 +100,13 @@ def _poll(
 
         # Check for loop completion.
         if done_file is not None and done_file.exists():
+            if done_not_before_epoch_seconds is not None:
+                try:
+                    if done_file.stat().st_mtime < done_not_before_epoch_seconds:
+                        time.sleep(poll_interval)
+                        continue
+                except OSError:
+                    pass
             try:
                 payload = json.loads(done_file.read_text(encoding="utf-8"))
             except Exception:
@@ -121,6 +129,7 @@ def run_watch(
     done_file: str | None,
     timeout_seconds: int,
     poll_interval: float = 2.0,
+    done_not_before_epoch_seconds: float | None = None,
 ) -> dict:
     done_path = Path(done_file) if done_file else None
     return _poll(
@@ -128,6 +137,7 @@ def run_watch(
         done_file=done_path,
         timeout_seconds=timeout_seconds,
         poll_interval=poll_interval,
+        done_not_before_epoch_seconds=done_not_before_epoch_seconds,
     )
 
 
@@ -144,6 +154,12 @@ def main() -> None:
     )
     parser.add_argument("--timeout", type=int, default=600, help="Max seconds to wait before giving up (default: 600).")
     parser.add_argument("--poll-interval", type=float, default=2.0, help="Poll interval in seconds (default: 2.0).")
+    parser.add_argument(
+        "--done-not-before-epoch-seconds",
+        type=float,
+        default=None,
+        help="Ignore done sentinels whose filesystem mtime is older than this epoch timestamp.",
+    )
     args = parser.parse_args()
 
     result = _poll(
@@ -151,6 +167,7 @@ def main() -> None:
         done_file=Path(args.done_file) if args.done_file else None,
         timeout_seconds=args.timeout,
         poll_interval=args.poll_interval,
+        done_not_before_epoch_seconds=args.done_not_before_epoch_seconds,
     )
     sys.stdout = open(sys.stdout.fileno(), mode="w", encoding="utf-8", buffering=1)
     print(json.dumps(result, ensure_ascii=False))

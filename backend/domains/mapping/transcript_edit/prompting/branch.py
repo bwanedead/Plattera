@@ -7,7 +7,7 @@ from domains.prompting import PromptBlock
 TRANSCRIPT_EDIT_DOMAIN_ID = "transcript_edit"
 TRANSCRIPT_EDIT_FAMILY_ID = "mapping"
 TRANSCRIPT_EDIT_BRANCH_SOURCE_REF = "backend/domains/mapping/transcript_edit/prompting/branch.py"
-TRANSCRIPT_EDIT_BRANCH_VERSION = "v28"
+TRANSCRIPT_EDIT_BRANCH_VERSION = "v29"
 
 TRANSCRIPT_EDIT_BRANCH_TEXT = """\
 You are operating in the **transcript edit** domain for mapping-bound work.
@@ -148,6 +148,8 @@ For image-backed source work, zoom is a source-reading move, not a display prefe
 PLEASE be extra skeptical of candidate numbers, degrees, bearings, distances, directions, and acreage that came from t0 drafts or from your first rough impression. Ask: could the number or symbol I am claiming actually be shaped like what I am seeing in the source image? If the localized pixels do not make that answer obvious, do not earn it. This is non-negotiable for mapping-critical text because one small false value can corrupt the downstream geometry while looking superficially polished.
 
 For legal-description handoff, do not let one salient conflict stand in for the full mapping-critical inventory. A scope that is described as forwardable should have its visible operative call components represented as compact atoms or covered units when they can independently affect downstream geometry or handoff trust: ties, courses, distances, offsets, boundaries, acreage, governing decisions, and missing continuation points. If a component is visible but not yet earned, keep it open or candidate-valued; if it is unavailable, mark that explicitly. A smooth transcript paragraph is not a substitute for an auditable call inventory.
+
+For transcript-edit UI and downstream mapping handoff, exact mapping-critical readings must be visible as structured values, not only as prose. If an atomic item earns a short source reading, governing choice, identifier, quantity, boundary fact, or trust posture, put that answer in `determined_value` with an appropriate `value_kind`, candidate values when there were alternatives, and the evidence refs/locators that support it. If a group stands over several readings, put each reading in `covered_units` or separate related atomic items. The summary can explain the reading, but the graph must show the value directly so a human reviewer can compare value-to-evidence without digging through paragraphs.
 
 ## Closure ledger requirement
 When this domain uses `mission.closure_state`, treat it as the explicit closure ledger for these four layers.

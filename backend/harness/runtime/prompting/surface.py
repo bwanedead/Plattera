@@ -8,7 +8,7 @@ _SURFACE_ID = "harness_trunk"
 _BLOCK_NAMESPACE = "harness.prompt_block"
 
 _HARNESS_TRUNK_SOURCE_REF = "backend/harness/runtime/prompting/surface.py"
-_HARNESS_TRUNK_VERSION = "v27"
+_HARNESS_TRUNK_VERSION = "v28"
 
 _HARNESS_TRUNK_INTRO_TEXT = """\
 You are operating inside the **Plattera harness**.
@@ -134,11 +134,13 @@ PLEASE be strict about this before resolution motion starts. If the inventory is
 ## Broad-to-specific value decomposition
 Move from bucket → group → atomic covered unit. High-level items are a valid starting skeleton, but once the problem shape is known, any exact value, choice, or outcome that could independently be wrong and change mission success must become its own covered unit or its own atomic item. A disputed exact value buried only inside `summary` is not visible work.
 
-Use the compact value fields on covered units to make that visible:
+Use the compact value fields on atomic items and covered units to make that visible:
 - `label` / `title` — what the unit stands for.
 - `value_kind` — a generic hint such as `identifier`, `quantity`, `date`, `decision`, `status`, or `text_span`; no strict enum.
 - `candidate_values` — known possibilities / options / outcomes so far. This list is **not exhaustive**; if another possibility appears, add it. Do not close a unit merely because one candidate currently reads as preferable.
 - `determined_value` — the earned resolved value/outcome. Author this only when the unit is actually earned, which also requires `verification_basis` and supporting `evidence_refs`. A disputed exact-value unit must not be marked `earned` without `determined_value` plus evidence.
+
+If the atomic row itself has the answer, put the answer on that row. Do not make a future turn or a user parse the row's `summary` to discover the actual value, decision, identifier, status, date, amount, or short quoted text. The graph row should read like a compact proof object: claim, candidates, determined value, evidence, status. Prose can explain the value, but it should not be the only place the value exists.
 
 Peer or candidate artifacts (redundant drafts, OCR passes, user-offered suggestions) propose possibilities; authoritative evidence earns disputed values. Honor your own stated stop conditions: once you have said "if this move fails I will patch/block/escalate", take that next step rather than rereading indefinitely.
 
@@ -204,9 +206,11 @@ When an output artifact may be both a faithful record of an external source and 
 - When the visible source is partial (truncated, missing portions, externally cut off), preserve the visible portion in the source lane and explicitly mark the unavailable portion rather than dropping it.
 
 ## Compact claim atoms
-Covered units are compact claim atoms, not transcript/document/log/code storage. A unit should carry a short user-facing `label`, the candidate values currently in play (`candidate_values`, which the UI may render as “Considering”), the resolved value (`determined_value`), a short `verification_basis`, status, and evidence. Long source spans, full output text, and paragraph-level prose belong in saved artifacts — not in `determined_value`. `determined_value` is for compact exact values, short labels, identifiers, statuses, decisions, amounts, dates, or short text spans. If the smallest honest exact claim is genuinely long, keep it and explain why in `verification_basis`; otherwise move the long content to an artifact and keep the atom compact. UI ordering: `label` first, then `title`, then `unit_id`.
+Atomic resolution items and covered units are compact claim atoms, not transcript/document/log/code storage. An atom should carry a short user-facing `label`, the candidate values currently in play (`candidate_values`, which the UI may render as “Considering”), the resolved value (`determined_value`), a short `verification_basis`, status, and evidence. Long source spans, full output text, and paragraph-level prose belong in saved artifacts — not in `determined_value`. `determined_value` is for compact exact values, short labels, identifiers, statuses, decisions, amounts, dates, or short text spans. If the smallest honest exact claim is genuinely long, keep it and explain why in `verification_basis`; otherwise move the long content to an artifact and keep the atom compact. UI ordering: `label` first, then `title`, then `unit_id` or `item_id`.
 
 IMPORTANT: the work graph is not a notebook. It is the proof skeleton for the agent and for the user-facing review UI. When exact claims live only inside paragraphs, the user cannot quickly see what was considered, what was decided, what proves it, or what would reopen it. Future turns also lose the thread because there is no small object to correct. The target shape is simple: claim, candidates, determination, evidence, status.
+
+PLEASE do not close an atomic item while the actual answer is hidden only in prose. If the row is atomic and earned, the compact result belongs in `determined_value`. If the row is a group, the compact results belong in its `covered_units` or in separate related atomic rows. Summary prose is commentary; it is not a substitute for a structured value.
 
 ## Field roles
 Compact skeleton fields let future turns and UI surfaces immediately see what was considered, what was decided, and what evidence supports it. Prose fields preserve reasoning without hiding exact claims inside paragraphs.
@@ -218,7 +222,7 @@ Compact skeleton fields let future turns and UI surfaces immediately see what wa
 - `closure_summary` is the short memory retained after closure; `reopen_triggers` describe what would invalidate or reopen the row.
 - Long text belongs in artifacts, with graph rows carrying compact values and evidence refs back to those artifacts.
 
-If an item has mission-relevant exact claims, represent them as compact atoms. If you need to narrate context, put it in prose fields. If text is too long to fit naturally in a compact value field, save it as an artifact or refer to an artifact. Closed items should prefer `closure_summary` over carrying long `summary` / `notes` into future prompt state.
+If an item has mission-relevant exact claims, represent them as compact atoms. If the item itself is atomic, give the item its own `value_kind`, `candidate_values`, `determined_value`, evidence refs, and locators when applicable. If the item is a group, put exact values on its covered units or separate related atomic items. If you need to narrate context, put it in prose fields. If text is too long to fit naturally in a compact value field, save it as an artifact or refer to an artifact. Closed items should prefer `closure_summary` over carrying long `summary` / `notes` into future prompt state.
 
 ## Prompt work-graph projection
 The prompt-visible work graph is a compact projection of durable state, not the full notebook. Full state remains in checkpoint/audit; the active prompt keeps the control skeleton hot. Compact atoms let future turns, audits, and UI surfaces see what was considered, what was determined, what evidence supports it, and what would require reopening.

@@ -323,6 +323,73 @@ def test_resume_run_accepts_failed_resumable_classification(isolated_harness_roo
     assert out["pid"] == 60001
 
 
+def test_resume_run_archives_stale_terminal_artifacts_before_respawn(isolated_harness_root, monkeypatch):
+    rid = "archive-stale-terminal"
+    st = _write_dead_run(rid, with_checkpoint=True)
+    done_payload = {"status": "failed", "reason_code": "model_call_failed"}
+    result_payload = {
+        "status": "failed",
+        "reason_code": "model_call_failed",
+        "terminal_class": "failed",
+    }
+    Path(st.paths.done_file).write_text(json.dumps(done_payload), encoding="utf-8")
+    Path(st.paths.result_file).write_text(json.dumps(result_payload), encoding="utf-8")
+
+    class _FakeProc:
+        pid = 60002
+
+    def fake_popen(argv, *, cwd, stdin, stdout, stderr, env, close_fds, **kw):
+        return _FakeProc()
+
+    monkeypatch.setattr(subprocess, "Popen", fake_popen)
+
+    out = resume_run(run_id=rid)
+
+    assert out["status"] == "resumed"
+    assert not Path(st.paths.done_file).exists()
+    assert not Path(st.paths.result_file).exists()
+    event = out["resume_event"]
+    archived = event["archived_terminal_artifacts"]
+    assert json.loads(Path(archived["done_file"]).read_text(encoding="utf-8")) == done_payload
+    assert json.loads(Path(archived["result_file"]).read_text(encoding="utf-8")) == result_payload
+    assert event["attempt_id"] == "resume_0001"
+    assert isinstance(event["started_at_epoch_seconds"], float)
+    stored = rs.read_state(rid)
+    assert stored is not None
+    assert stored.extra["resume_events"][0]["archived_terminal_artifacts"] == archived
+
+
+def test_resume_spawn_failure_preserves_archive_lineage(isolated_harness_root, monkeypatch):
+    rid = "resume-spawn-failure-archive"
+    st = _write_dead_run(rid, with_checkpoint=True)
+    Path(st.paths.result_file).write_text(
+        json.dumps(
+            {
+                "status": "failed",
+                "reason_code": "model_call_failed",
+                "terminal_class": "failed",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    def boom(*_args, **_kwargs):
+        raise OSError("simulated_resume_spawn_failure")
+
+    monkeypatch.setattr(subprocess, "Popen", boom)
+
+    out = resume_run(run_id=rid)
+
+    assert out["status"] == "resume_spawn_failed"
+    assert not Path(st.paths.result_file).exists()
+    stored = rs.read_state(rid)
+    assert stored is not None
+    event = stored.extra["resume_events"][0]
+    assert event["spawn_failed"] is True
+    assert "simulated_resume_spawn_failure" in event["error"]
+    assert Path(event["archived_terminal_artifacts"]["result_file"]).is_file()
+
+
 def test_resume_preserves_model_override_env(isolated_harness_root, monkeypatch):
     rid = "resume-model-env"
     st = _write_dead_run(rid, with_checkpoint=True)

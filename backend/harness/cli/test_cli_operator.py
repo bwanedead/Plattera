@@ -177,6 +177,56 @@ def test_watch_loop_done(isolated_harness_root, isolated_dossiers_artifacts, tmp
     assert ev.get("terminal") == "ok"
 
 
+def test_watch_ignores_stale_done_from_prior_resume_attempt(isolated_harness_root, isolated_dossiers_artifacts, tmp_path):
+    rid = "stale-done-after-resume"
+    done = tmp_path / "done.json"
+    done.write_text(
+        json.dumps({"status": "failed", "terminal": "old", "reason_code": "model_call_failed"}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    os.utime(done, (1000.0, 1000.0))
+    st = rs.new_run_state(
+        run_id=rid,
+        pid=1,
+        loop_kind="harness_cli",
+        mode="x",
+        spawn_argv=["x"],
+        extra={"resume_events": [{"started_at_epoch_seconds": 2000.0, "pid": 2}]},
+    )
+    st.paths.done_file = str(done.resolve())
+    rs.write_state(st)
+
+    ev = watch_run(run_id=rid, timeout_seconds=1, poll_interval=0.05)
+
+    assert ev["event"] == "timeout"
+
+
+def test_watch_accepts_done_newer_than_resume_attempt(isolated_harness_root, isolated_dossiers_artifacts, tmp_path):
+    rid = "fresh-done-after-resume"
+    done = tmp_path / "done.json"
+    done.write_text(
+        json.dumps({"status": "completed", "terminal": "fresh", "reason_code": "complete_run"}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    os.utime(done, (3000.0, 3000.0))
+    st = rs.new_run_state(
+        run_id=rid,
+        pid=1,
+        loop_kind="harness_cli",
+        mode="x",
+        spawn_argv=["x"],
+        extra={"resume_events": [{"started_at_epoch_seconds": 2000.0, "pid": 2}]},
+    )
+    st.paths.done_file = str(done.resolve())
+    rs.write_state(st)
+
+    ev = watch_run(run_id=rid, timeout_seconds=5, poll_interval=0.05)
+
+    assert ev["event"] == "loop_done"
+    assert ev["status"] == "completed"
+    assert ev["terminal"] == "fresh"
+
+
 def test_watch_timeout(isolated_harness_root, isolated_dossiers_artifacts):
     rid = "to-1"
     st = rs.new_run_state(run_id=rid, pid=1, loop_kind="harness_cli", mode="x", spawn_argv=["x"])

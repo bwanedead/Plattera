@@ -12,6 +12,7 @@ import json
 import subprocess
 import sys
 from pathlib import Path
+from time import time
 from typing import Any, Mapping
 
 from ._process_util import is_pid_alive
@@ -28,6 +29,7 @@ from harness.runtime.memory.resume_snapshot import (
 
 
 RESUME_CHECKPOINT_FILENAME = "kernel_resume.json"
+RESUME_ATTEMPTS_DIRNAME = "resume_attempts"
 _RESULT_RESUMABLE_REASON_CODES = {
     "model_call_failed",
     "provider_connection_error",
@@ -55,6 +57,55 @@ def _read_result_file(path: Path) -> tuple[dict[str, Any] | None, str | None]:
     if not isinstance(raw, dict):
         return None, "result_not_object"
     return raw, None
+
+
+def _archive_file_if_present(src: Path, dst: Path) -> str | None:
+    if not src.is_file():
+        return None
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    src.replace(dst)
+    return str(dst.resolve())
+
+
+def _archive_terminal_artifacts_for_resume(
+    *,
+    state_run_dir: str,
+    done_file: str,
+    result_file: str,
+    attempt_index: int,
+    started_at_epoch_seconds: float,
+    checkpoint_path: str,
+) -> dict[str, Any]:
+    """Move stale terminal sentinels out of the active watch path before respawn."""
+    attempt_id = f"resume_{attempt_index:04d}"
+    archive_dir = Path(state_run_dir) / RESUME_ATTEMPTS_DIRNAME / attempt_id
+    archived: dict[str, str] = {}
+    done_archived = _archive_file_if_present(Path(done_file), archive_dir / "prior_done.json")
+    if done_archived:
+        archived["done_file"] = done_archived
+    result_archived = _archive_file_if_present(Path(result_file), archive_dir / "prior_result.json")
+    if result_archived:
+        archived["result_file"] = result_archived
+
+    event: dict[str, Any] = {
+        "attempt_id": attempt_id,
+        "started_at_epoch_seconds": started_at_epoch_seconds,
+        "checkpoint_path": checkpoint_path,
+    }
+    if archived:
+        archive_dir.mkdir(parents=True, exist_ok=True)
+        metadata = {
+            "attempt_id": attempt_id,
+            "started_at_epoch_seconds": started_at_epoch_seconds,
+            "checkpoint_path": checkpoint_path,
+            "archived_terminal_artifacts": archived,
+        }
+        metadata_path = archive_dir / "metadata.json"
+        metadata_path.write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
+        event["archive_dir"] = str(archive_dir.resolve())
+        event["archived_terminal_artifacts"] = archived
+        event["archive_metadata_file"] = str(metadata_path.resolve())
+    return event
 
 
 def _normalize_result_token(value: Any) -> str:
@@ -228,6 +279,18 @@ def resume_run(*, run_id: str) -> dict[str, Any]:
     env = _child_env(paths=paths, run_id=run_id, loop_kind=state.loop_kind, model=model_env)
     env["HARNESS_CLI_RESUME_FILE"] = checkpoint
 
+    extra = dict(state.extra or {})
+    resumes = list(extra.get("resume_events") or [])
+    started_at_epoch_seconds = time()
+    resume_event = _archive_terminal_artifacts_for_resume(
+        state_run_dir=paths.run_dir,
+        done_file=paths.done_file,
+        result_file=paths.result_file,
+        attempt_index=len(resumes) + 1,
+        started_at_epoch_seconds=started_at_epoch_seconds,
+        checkpoint_path=checkpoint,
+    )
+
     stdout_f = open(paths.stdout_log, "ab", buffering=0)
     stderr_f = open(paths.stderr_log, "ab", buffering=0)
     try:
@@ -245,6 +308,11 @@ def resume_run(*, run_id: str) -> dict[str, Any]:
     except Exception as exc:
         stdout_f.close()
         stderr_f.close()
+        resume_event["spawn_failed"] = True
+        resume_event["error"] = str(exc)
+        resumes.append(resume_event)
+        extra["resume_events"] = resumes
+        state.extra = extra
         state.status = f"resume_spawn_failed:{exc}"
         write_state(state)
         return {
@@ -259,9 +327,8 @@ def resume_run(*, run_id: str) -> dict[str, Any]:
     state.pid = int(proc.pid or 0)
     state.status = "resumed"
     # Record resume lineage mechanically.
-    extra = dict(state.extra or {})
-    resumes = list(extra.get("resume_events") or [])
-    resumes.append({"checkpoint_path": checkpoint, "pid": state.pid})
+    resume_event["pid"] = state.pid
+    resumes.append(resume_event)
     extra["resume_events"] = resumes
     state.extra = extra
     write_state(state)
@@ -271,6 +338,7 @@ def resume_run(*, run_id: str) -> dict[str, Any]:
         "run_id": run_id,
         "pid": state.pid,
         "checkpoint_path": checkpoint,
+        "resume_event": resume_event,
         "done_file": paths.done_file,
         "result_file": paths.result_file,
         "state_file": paths.state_file,

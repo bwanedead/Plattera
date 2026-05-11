@@ -96,6 +96,9 @@ def test_choose_action_instruction_teaches_covered_unit_value_fields() -> None:
     assert "label" in text and "value_kind" in text
     assert "candidate_values" in text
     assert "determined_value" in text
+    assert "atomic item" in lowered
+    assert "put that answer in `determined_value`" in text
+    assert "do not hide the result only inside `summary`" in lowered
     assert "not exhaustive" in lowered
     assert "if another possibility appears, add it" in lowered
     assert "authoritative evidence earns disputed values" in lowered
@@ -146,6 +149,8 @@ def test_surface_teaches_broad_to_specific_value_decomposition() -> None:
     assert "broad-to-specific value decomposition" in lowered
     assert "candidate_values" in text
     assert "determined_value" in text
+    assert "if the atomic row itself has the answer" in lowered
+    assert "claim, candidates, determined value, evidence, status" in lowered
     assert "value_kind" in text
     assert "not exhaustive" in lowered
     assert "authoritative evidence earns disputed values" in lowered
@@ -333,7 +338,7 @@ def test_choose_action_instruction_prompt_work_graph_projection_has_no_domain_ex
 def test_choose_action_instruction_field_roles_have_no_domain_examples() -> None:
     lowered = CHOOSE_ACTION_INSTRUCTION.lower()
     start = lowered.find("field roles:")
-    end = lowered.find("compact value fields on a covered unit")
+    end = lowered.find("compact value fields on an atomic item or covered unit")
     assert start >= 0, "field roles section must exist"
     assert end > start, "compact value section should follow field roles"
     section = lowered[start:end]

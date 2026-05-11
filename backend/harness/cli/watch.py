@@ -12,6 +12,25 @@ from harness.runtime.hitl.watch import run_watch
 from .run_state import read_state
 
 
+def _latest_resume_started_at_epoch_seconds(extra: dict[str, Any]) -> float | None:
+    resume_events = extra.get("resume_events") if isinstance(extra, dict) else None
+    if not isinstance(resume_events, list):
+        return None
+    for event in reversed(resume_events):
+        if not isinstance(event, dict):
+            continue
+        raw = event.get("started_at_epoch_seconds")
+        if raw is None:
+            continue
+        try:
+            started_at = float(raw)
+        except (TypeError, ValueError):
+            continue
+        if started_at > 0:
+            return started_at
+    return None
+
+
 def _print_json(obj: dict[str, Any]) -> None:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
@@ -29,11 +48,13 @@ def watch_run(
     if state is None:
         return {"event": "error", "reason": "missing_run_state", "run_id": run_id}
     done_file = state.paths.done_file or None
+    done_not_before = _latest_resume_started_at_epoch_seconds(state.extra)
     return run_watch(
         run_id=run_id,
         done_file=done_file,
         timeout_seconds=timeout_seconds,
         poll_interval=poll_interval,
+        done_not_before_epoch_seconds=done_not_before,
     )
 
 
