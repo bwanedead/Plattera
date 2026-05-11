@@ -137,7 +137,8 @@ That usually means:
 - separate orientation evidence from claim-local evidence: an orientation crop helps find the area, but it does not earn a small exact value
 - for a claim-local crop, make the exact word, digit, bearing, distance, or mark the obvious center of the artifact; the final evidence should feel like a big obvious billboard for the one claim, with the claim region taking roughly 80-90 percent of the useful crop/zoom when the source allows it
 - if a broad page view, line crop, or paragraph crop is not enough, localize and enlarge the exact claim region rather than closing from impression
-- author the crop, box, highlight, or `image_region` locator yourself when the tool surface supports it; the user should not have to find the claimed mark manually
+- author the crop, box, highlight, or `image_region` locator yourself when the tool surface supports it; put the box around the exact claimed mark/value so the UI can highlight it and guide the user's eye without making the user hunt
+- verify that the bounding box or rendered highlight actually lands on the right claim before moving on or closing the item; a wrong or sloppy box is not evidence, it is another thing to fix
 - inspect the focused or rendered evidence before using it to earn a unit, ask HITL, or save output
 - if the strongest available in-run visual check is still inconclusive, keep the item unresolved rather than normalizing a guess
 - if that unresolved claim is material and no stronger in-run evidence remains, prefer HITL or explicit blocked / no-further-progress posture over false earned closure
