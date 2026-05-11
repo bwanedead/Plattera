@@ -348,6 +348,10 @@ _OPTIONAL_OBSERVABILITY_COUNTERS: tuple[str, ...] = (
     "blocked_without_hitl_answerability_count",
     "human_answerable_blocker_without_hitl_count",
     "not_answerable_missing_reason_count",
+    # HITL exchange ledger pressure (active when non-zero)
+    "answered_hitl_unconsumed_count",
+    "complete_with_unconsumed_hitl_count",
+    "hitl_consumed_unknown_prompt_count",
 )
 
 
@@ -389,6 +393,12 @@ def _compact_prompt_observability_summary(full_summary: Mapping[str, Any]) -> di
     flags = full_summary.get("mechanical_flags") or []
     if flags:
         compact["mechanical_flags"] = list(flags)
+
+    # HITL exchange ledger projection — include only when non-empty so the
+    # agent sees exact request/response payloads it must integrate.
+    exchanges = full_summary.get("recent_hitl_exchanges") or []
+    if exchanges:
+        compact["recent_hitl_exchanges"] = list(exchanges)
 
     return compact
 

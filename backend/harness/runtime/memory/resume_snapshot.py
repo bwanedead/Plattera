@@ -17,6 +17,7 @@ from ...execution.session import ExecutionSessionManager
 from ...execution.session_wire import execution_session_from_wire, execution_session_to_wire
 from ...mission_state import MissionState, ResolutionState
 from ..hitl.transport import HitlTransportPosture
+from ..hitl.exchange_ledger import validate_stored_ledger_entry
 from .continuity import OrchestrationContinuity
 from .continuity_journal import (
     clamp_compacted_summary_text,
@@ -73,6 +74,10 @@ def build_kernel_resume_snapshot(
             ),
             "posthoc_recheck_needed_debt": dict(
                 loop_memory.continuity.posthoc_recheck_needed_debt
+            ),
+            "hitl_exchange_ledger": list(loop_memory.continuity.hitl_exchange_ledger),
+            "hitl_consumed_unknown_prompt_count": int(
+                loop_memory.continuity.hitl_consumed_unknown_prompt_count
             ),
         },
         "hitl": {
@@ -243,6 +248,29 @@ def parse_kernel_resume_snapshot(payload: Mapping[str, Any]) -> tuple[LoopMemory
                 except (TypeError, ValueError):
                     return empty, 1, "resume_snapshot_posthoc_recheck_needed_debt_invalid"
 
+    hitl_exchange_ledger_out: list[dict[str, Any]] = []
+    if "hitl_exchange_ledger" in cont:
+        led_raw = cont.get("hitl_exchange_ledger")
+        if led_raw is not None:
+            if not isinstance(led_raw, list):
+                return empty, 1, "resume_snapshot_hitl_exchange_ledger_invalid"
+            for row in led_raw:
+                norm = validate_stored_ledger_entry(row)
+                if norm is None:
+                    return empty, 1, "resume_snapshot_hitl_exchange_ledger_invalid"
+                hitl_exchange_ledger_out.append(norm)
+
+    hitl_consumed_unknown_count = 0
+    if "hitl_consumed_unknown_prompt_count" in cont:
+        cu_raw = cont.get("hitl_consumed_unknown_prompt_count")
+        if cu_raw is not None:
+            try:
+                hitl_consumed_unknown_count = int(cu_raw)
+            except (TypeError, ValueError):
+                return empty, 1, "resume_snapshot_hitl_consumed_unknown_prompt_count_invalid"
+            if hitl_consumed_unknown_count < 0:
+                return empty, 1, "resume_snapshot_hitl_consumed_unknown_prompt_count_invalid"
+
     continuity = OrchestrationContinuity(
         latest_refs=latest_refs_out,
         mission_state=ms,
@@ -257,6 +285,8 @@ def parse_kernel_resume_snapshot(payload: Mapping[str, Any]) -> tuple[LoopMemory
         kernel_compaction_covered_through_turn_index=covered_through,
         earned_before_local_evidence_debt=earned_debt_out,
         posthoc_recheck_needed_debt=posthoc_debt_out,
+        hitl_exchange_ledger=hitl_exchange_ledger_out,
+        hitl_consumed_unknown_prompt_count=hitl_consumed_unknown_count,
     )
 
     hitl_raw = payload.get("hitl")

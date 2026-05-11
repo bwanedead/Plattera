@@ -257,8 +257,17 @@ class KernelTraceCollector:
         iteration: int,
         prompt_id: str,
         blocking: bool,
+        request_payload: dict[str, Any] | None = None,
     ) -> None:
-        """Mechanical record of an outbound generic HITL request (transport only)."""
+        """Mechanical record of an outbound generic HITL request (transport only).
+
+        ``request_payload`` is the normalized request as shown to the operator
+        (message, choices, context, evidence_refs, opaque_payload).  Included
+        verbatim for trace audit fidelity; the trace does not interpret content.
+        """
+        payload: dict[str, Any] = {"prompt_id": str(prompt_id), "blocking": bool(blocking)}
+        if isinstance(request_payload, dict) and request_payload:
+            payload["request"] = dict(request_payload)
         self._append(
             RawTraceEvent(
                 timestamp_epoch_seconds=self._now(),
@@ -268,8 +277,69 @@ class KernelTraceCollector:
                 actor="kernel",
                 status="completed",
                 refs_delta={},
-                payload={"prompt_id": str(prompt_id), "blocking": bool(blocking)},
+                payload=payload,
                 source_origin=self._source(local_id=f"iter_{iteration}_hitl_out"),
+            )
+        )
+
+    def emit_hitl_response_inbound(
+        self,
+        *,
+        iteration: int,
+        prompt_id: str,
+        response_payload: dict[str, Any] | None = None,
+    ) -> None:
+        """Mechanical record of an inbound HITL response received from the operator.
+
+        ``response_payload`` is the verbatim feedback row (choice, note, metadata,
+        submitted_at_epoch_seconds).  No semantic interpretation.
+        """
+        payload: dict[str, Any] = {"prompt_id": str(prompt_id)}
+        if isinstance(response_payload, dict) and response_payload:
+            payload["response"] = dict(response_payload)
+        self._append(
+            RawTraceEvent(
+                timestamp_epoch_seconds=self._now(),
+                event_kind="hitl_response_inbound",
+                phase="hitl",
+                iteration_index=iteration,
+                actor="human",
+                status="completed",
+                refs_delta={},
+                payload=payload,
+                source_origin=self._source(local_id=f"iter_{iteration}_hitl_in_{prompt_id}"),
+            )
+        )
+
+    def emit_hitl_response_consumed(
+        self,
+        *,
+        iteration: int,
+        consumed_prompt_ids: list[str] | tuple[str, ...],
+        unknown_prompt_ids: list[str] | tuple[str, ...] = (),
+    ) -> None:
+        """Mechanical record of agent-declared HITL consumption.
+
+        ``consumed_prompt_ids`` are the IDs the agent declared integrated this turn
+        that matched a ledger exchange.  ``unknown_prompt_ids`` are declared IDs
+        with no matching ledger entry (drift signal; emitted for audit).
+        """
+        payload: dict[str, Any] = {
+            "consumed_prompt_ids": [str(x) for x in consumed_prompt_ids],
+        }
+        if unknown_prompt_ids:
+            payload["unknown_prompt_ids"] = [str(x) for x in unknown_prompt_ids]
+        self._append(
+            RawTraceEvent(
+                timestamp_epoch_seconds=self._now(),
+                event_kind="hitl_response_consumed",
+                phase="hitl",
+                iteration_index=iteration,
+                actor="kernel",
+                status="completed",
+                refs_delta={},
+                payload=payload,
+                source_origin=self._source(local_id=f"iter_{iteration}_hitl_consumed"),
             )
         )
 

@@ -128,6 +128,13 @@ class PromptObservabilitySummary(BaseModel):
     blocked_without_hitl_answerability_count: int = Field(default=0, ge=0)
     human_answerable_blocker_without_hitl_count: int = Field(default=0, ge=0)
     not_answerable_missing_reason_count: int = Field(default=0, ge=0)
+    answered_hitl_unconsumed_count: int = Field(default=0, ge=0)
+    complete_with_unconsumed_hitl_count: int = Field(default=0, ge=0)
+    hitl_consumed_unknown_prompt_count: int = Field(default=0, ge=0)
+    # Bounded prompt projection of the durable HITL exchange ledger.  Contains
+    # pending + answered exchanges with exact request and response payloads,
+    # plus a small tail of recent consumed exchanges for context.  Read-only.
+    recent_hitl_exchanges: list[dict[str, Any]] = Field(default_factory=list, max_length=16)
     success_condition_count: int = Field(default=0, ge=0)
     success_conditions_with_earned_determination_count: int = Field(default=0, ge=0)
     success_conditions_with_verification_basis_count: int = Field(default=0, ge=0)

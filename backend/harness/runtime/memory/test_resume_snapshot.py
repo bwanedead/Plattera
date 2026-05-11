@@ -483,6 +483,175 @@ def test_parse_rejects_earned_debt_wrong_type() -> None:
     assert err == "resume_snapshot_earned_before_local_evidence_debt_invalid"
 
 
+def test_roundtrip_hitl_exchange_ledger_preserved() -> None:
+    """HITL exchange ledger pending/answered/consumed entries survive snapshot round-trip."""
+    executor = ExecutionExecutor()
+    sm = ExecutionSessionManager(executor=executor)
+    sm.start_session(ExecutionSessionStartRequest(run_id="run-led", session_id="sess-led"))
+    lm = LoopMemoryState()
+    lm.continuity.mission_state = new_mission_state(mission_id="m1", loop_family="orchestration_kernel")
+    lm.continuity.resolution_state = new_resolution_state()
+    lm.continuity.hitl_exchange_ledger = [
+        {
+            "exchange_id": "hitl:p1",
+            "prompt_id": "p1",
+            "blocking": True,
+            "issued_at_iteration": 5,
+            "request": {"message": "Pick", "choices": ["a", "b"]},
+            "response": None,
+            "received_at_iteration": None,
+            "consumed_at_iteration": None,
+            "status": "pending",
+        },
+        {
+            "exchange_id": "hitl:p2",
+            "prompt_id": "p2",
+            "blocking": False,
+            "issued_at_iteration": 6,
+            "request": {"message": "Confirm"},
+            "response": {"choice": "yes", "note": "ok"},
+            "received_at_iteration": 7,
+            "consumed_at_iteration": None,
+            "status": "answered",
+        },
+        {
+            "exchange_id": "hitl:p3",
+            "prompt_id": "p3",
+            "blocking": False,
+            "issued_at_iteration": 1,
+            "request": {"message": "Old"},
+            "response": {"choice": "x"},
+            "received_at_iteration": 2,
+            "consumed_at_iteration": 3,
+            "status": "consumed",
+        },
+    ]
+    lm.continuity.hitl_consumed_unknown_prompt_count = 4
+
+    snap = build_kernel_resume_snapshot(
+        loop_memory=lm, session_manager=sm, session_id="sess-led", next_iteration=10
+    )
+    assert len(snap["continuity"]["hitl_exchange_ledger"]) == 3
+    assert snap["continuity"]["hitl_consumed_unknown_prompt_count"] == 4
+
+    mem2, _, err = parse_kernel_resume_snapshot(snap)
+    assert err is None
+    led = mem2.continuity.hitl_exchange_ledger
+    assert len(led) == 3
+    assert led[0]["status"] == "pending"
+    assert led[1]["status"] == "answered"
+    assert led[1]["response"] == {"choice": "yes", "note": "ok"}
+    assert led[2]["status"] == "consumed"
+    assert led[2]["consumed_at_iteration"] == 3
+    assert mem2.continuity.hitl_consumed_unknown_prompt_count == 4
+
+
+def test_roundtrip_hitl_ledger_absent_defaults_to_empty() -> None:
+    """Old snapshots without ledger key restore to empty list (backward compat)."""
+    rs = new_resolution_state()
+    ms = new_mission_state(mission_id="m1", loop_family="orchestration_kernel", resolution_state=rs)
+    base = {
+        "schema_version": "kernel_resume.v1",
+        "next_iteration": 5,
+        "continuity": {
+            "latest_refs": {},
+            "mission_state": ms.model_dump(mode="json"),
+            "resolution_state": rs.model_dump(mode="json"),
+            "active_item_id": None,
+            # No hitl_exchange_ledger / hitl_consumed_unknown_prompt_count keys
+        },
+        "hitl": {"hitl_state": "no_prompt"},
+        "telemetry": {"llm_contact_count": 0, "prompt_event_count": 0},
+        "execution_session": None,
+    }
+    mem2, _, err = parse_kernel_resume_snapshot(base)
+    assert err is None
+    assert mem2.continuity.hitl_exchange_ledger == []
+    assert mem2.continuity.hitl_consumed_unknown_prompt_count == 0
+
+
+def test_parse_rejects_hitl_ledger_wrong_type() -> None:
+    rs = new_resolution_state()
+    ms = new_mission_state(mission_id="m1", loop_family="orchestration_kernel", resolution_state=rs)
+    base = {
+        "schema_version": "kernel_resume.v1",
+        "next_iteration": 1,
+        "continuity": {
+            "latest_refs": {},
+            "mission_state": ms.model_dump(mode="json"),
+            "resolution_state": rs.model_dump(mode="json"),
+            "active_item_id": None,
+            "hitl_exchange_ledger": "not-a-list",
+        },
+        "hitl": {"hitl_state": "no_prompt"},
+        "telemetry": {"llm_contact_count": 0, "prompt_event_count": 0},
+        "execution_session": None,
+    }
+    _, _, err = parse_kernel_resume_snapshot(base)
+    assert err == "resume_snapshot_hitl_exchange_ledger_invalid"
+
+
+def test_roundtrip_hitl_ledger_preserves_bounded_feedback_and_truncation_markers() -> None:
+    """Bounded inbound feedback (with _bounds truncation markers) survives round-trip."""
+    executor = ExecutionExecutor()
+    sm = ExecutionSessionManager(executor=executor)
+    sm.start_session(ExecutionSessionStartRequest(run_id="run-bnd", session_id="sess-bnd"))
+    lm = LoopMemoryState()
+    lm.continuity.mission_state = new_mission_state(mission_id="m1", loop_family="orchestration_kernel")
+    lm.continuity.resolution_state = new_resolution_state()
+    lm.continuity.hitl_exchange_ledger = [
+        {
+            "exchange_id": "hitl:p1",
+            "prompt_id": "p1",
+            "blocking": True,
+            "issued_at_iteration": 5,
+            "request": {"message": "Q"},
+            "response": {
+                "choice": "yes",
+                "note": "n" * 16_384,  # admission-bounded
+                "metadata": {"_truncated": True, "_prefix": "..."},
+                "submitted_at_epoch_seconds": 1.0,
+                "_bounds": {"note_truncated": True, "metadata_truncated": True},
+            },
+            "received_at_iteration": 6,
+            "consumed_at_iteration": None,
+            "status": "answered",
+        },
+    ]
+    snap = build_kernel_resume_snapshot(
+        loop_memory=lm, session_manager=sm, session_id="sess-bnd", next_iteration=10
+    )
+    mem2, _, err = parse_kernel_resume_snapshot(snap)
+    assert err is None
+    led = mem2.continuity.hitl_exchange_ledger
+    assert len(led) == 1
+    response = led[0]["response"]
+    assert response["_bounds"] == {"note_truncated": True, "metadata_truncated": True}
+    assert len(response["note"]) == 16_384
+    assert response["metadata"] == {"_truncated": True, "_prefix": "..."}
+
+
+def test_parse_rejects_hitl_ledger_with_malformed_entry() -> None:
+    rs = new_resolution_state()
+    ms = new_mission_state(mission_id="m1", loop_family="orchestration_kernel", resolution_state=rs)
+    base = {
+        "schema_version": "kernel_resume.v1",
+        "next_iteration": 1,
+        "continuity": {
+            "latest_refs": {},
+            "mission_state": ms.model_dump(mode="json"),
+            "resolution_state": rs.model_dump(mode="json"),
+            "active_item_id": None,
+            "hitl_exchange_ledger": [{"prompt_id": "p1", "status": "garbage"}],
+        },
+        "hitl": {"hitl_state": "no_prompt"},
+        "telemetry": {"llm_contact_count": 0, "prompt_event_count": 0},
+        "execution_session": None,
+    }
+    _, _, err = parse_kernel_resume_snapshot(base)
+    assert err == "resume_snapshot_hitl_exchange_ledger_invalid"
+
+
 def test_parse_rejects_posthoc_debt_wrong_type() -> None:
     """posthoc_recheck_needed_debt must be a mapping, not a list."""
     rs = new_resolution_state()

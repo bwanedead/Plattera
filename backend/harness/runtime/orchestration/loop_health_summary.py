@@ -12,6 +12,7 @@ import json
 from collections.abc import Mapping
 from typing import Any
 
+from ..hitl.exchange_ledger import build_prompt_ledger_view
 from ..memory import LoopMemoryState
 from ..memory.tool_result_slices import check_outputs_excerpt_truncated
 from .evidence_locality import (
@@ -218,6 +219,16 @@ def build_prompt_observability_summary(
     posthoc_recheck_needed_count = len(
         getattr(cont, "posthoc_recheck_needed_debt", None) or {}
     )
+    # HITL ledger metrics (Track 4 of HITL Exchange Ledger brief).
+    hitl_ledger_raw = getattr(cont, "hitl_exchange_ledger", None) or []
+    hitl_ledger_metrics = _hitl_ledger_metrics(
+        ledger=hitl_ledger_raw,
+        step_records=step_records,
+        consumed_unknown_count=int(getattr(cont, "hitl_consumed_unknown_prompt_count", 0) or 0),
+    )
+    # Track 3: bounded prompt projection — pending + answered exchanges with full
+    # request and response payloads so the agent can integrate them faithfully.
+    recent_hitl_exchanges = build_prompt_ledger_view(hitl_ledger_raw)
     artifact_claim_inventory_suspect_count = _artifact_claim_inventory_suspect_count(
         closure_ready_to_close=bool(getattr(closure_state, "ready_to_close", False)),
         work_universe_posture=work_universe_posture,
@@ -296,6 +307,10 @@ def build_prompt_observability_summary(
         "not_answerable_missing_reason_count": hitl_answerability_metrics[
             "not_answerable_missing_reason_count"
         ],
+        "answered_hitl_unconsumed_count": hitl_ledger_metrics["answered_hitl_unconsumed_count"],
+        "complete_with_unconsumed_hitl_count": hitl_ledger_metrics["complete_with_unconsumed_hitl_count"],
+        "hitl_consumed_unknown_prompt_count": hitl_ledger_metrics["hitl_consumed_unknown_prompt_count"],
+        "recent_hitl_exchanges": recent_hitl_exchanges,
         "success_condition_count": len(success_conditions),
         "success_conditions_with_earned_determination_count": sum(
             1 for row in success_conditions if _has_earned_determination(getattr(row, "determination", None))
@@ -417,6 +432,9 @@ def build_prompt_observability_summary(
         not_answerable_missing_reason_count=hitl_answerability_metrics[
             "not_answerable_missing_reason_count"
         ],
+        answered_hitl_unconsumed_count=hitl_ledger_metrics["answered_hitl_unconsumed_count"],
+        complete_with_unconsumed_hitl_count=hitl_ledger_metrics["complete_with_unconsumed_hitl_count"],
+        hitl_consumed_unknown_prompt_count=hitl_ledger_metrics["hitl_consumed_unknown_prompt_count"],
     )
     return summary
 
@@ -1202,6 +1220,41 @@ def _hitl_answerability_metrics(items: list[Any]) -> dict[str, int]:
     }
 
 
+def _hitl_ledger_metrics(
+    *,
+    ledger: list[Any],
+    step_records: list[Any],
+    consumed_unknown_count: int,
+) -> dict[str, int]:
+    """Mechanical counts derived from the durable HITL exchange ledger.
+
+    - ``answered_hitl_unconsumed_count``: ledger exchanges in ``answered`` status
+      (operator answered, agent has not declared consumption).
+    - ``complete_with_unconsumed_hitl_count``: 1 when the most recent kernel step
+      attempted ``complete_run`` AND there is at least one answered-unconsumed
+      exchange in the ledger; 0 otherwise.  Mechanical only — not a moral judgment.
+    - ``hitl_consumed_unknown_prompt_count``: cumulative count of agent-declared
+      consumed prompt ids that did not match any ledger exchange (drift signal).
+    """
+    answered_unconsumed = sum(
+        1 for entry in ledger
+        if isinstance(entry, Mapping) and entry.get("status") == "answered"
+    )
+    complete_with_unconsumed = 0
+    if answered_unconsumed > 0 and step_records:
+        last = step_records[-1] if isinstance(step_records[-1], Mapping) else None
+        if last is not None:
+            action_type = str(last.get("action_type") or "").strip().lower()
+            complete_run_flag = bool(last.get("complete_run"))
+            if action_type == "complete_run" or complete_run_flag:
+                complete_with_unconsumed = 1
+    return {
+        "answered_hitl_unconsumed_count": int(answered_unconsumed),
+        "complete_with_unconsumed_hitl_count": int(complete_with_unconsumed),
+        "hitl_consumed_unknown_prompt_count": int(max(0, consumed_unknown_count)),
+    }
+
+
 def _notebook_shaped_graph_rows_count(items: list[Any]) -> int:
     """Conservative structural pressure for closed rows shaped like prose notebooks.
 
@@ -1495,6 +1548,9 @@ def _mechanical_flags(
     blocked_without_hitl_answerability_count: int = 0,
     human_answerable_blocker_without_hitl_count: int = 0,
     not_answerable_missing_reason_count: int = 0,
+    answered_hitl_unconsumed_count: int = 0,
+    complete_with_unconsumed_hitl_count: int = 0,
+    hitl_consumed_unknown_prompt_count: int = 0,
 ) -> list[str]:
     flags: list[str] = []
     if semantic_repair_debt_kinds:
@@ -1650,6 +1706,15 @@ def _mechanical_flags(
         )
     if not_answerable_missing_reason_count > 0:
         flags.append(f"not_answerable_missing_reason:{not_answerable_missing_reason_count}")
+    # HITL exchange ledger pressure: answered HITL responses the agent has not yet
+    # declared consumed.  When complete_run is attempted while these are non-zero,
+    # also fire a stronger flag so closing without integration is loud.
+    if answered_hitl_unconsumed_count > 0:
+        flags.append(f"answered_hitl_unconsumed:{answered_hitl_unconsumed_count}")
+    if complete_with_unconsumed_hitl_count > 0:
+        flags.append(f"complete_with_unconsumed_hitl:{complete_with_unconsumed_hitl_count}")
+    if hitl_consumed_unknown_prompt_count > 0:
+        flags.append(f"hitl_consumed_unknown_prompt:{hitl_consumed_unknown_prompt_count}")
     # Output claim coverage debt: work graph has resolution items but no or very sparse
     # fine-grained claim inventory while the run is in or approaching the closure zone.
     # Structural pressure only — does not inspect content.

@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Literal
+
+from .feedback_shape import normalize_hitl_feedback
 
 HitlState = Literal[
     "no_prompt",
@@ -111,8 +114,14 @@ def hitl_poll_feedback_store(
     posture: HitlTransportPosture,
     loop_kind: str,
     run_id: str,
+    on_inbound: Callable[[str, dict[str, Any]], None] | None = None,
 ) -> None:
-    """Merge new feedback_store entries for this run (mechanical prompt_id match only)."""
+    """Merge new feedback_store entries for this run (mechanical prompt_id match only).
+
+    ``on_inbound``, when supplied, is invoked once per newly merged response with
+    ``(prompt_id, feedback_dict)``.  The transport stays mechanical; the caller
+    uses the callback to update the durable HITL exchange ledger or emit traces.
+    """
     rid = str(run_id or "").strip()
     lk = str(loop_kind or "").strip()
     if not rid or not lk:
@@ -148,12 +157,22 @@ def hitl_poll_feedback_store(
         ts = str(ent.get("submitted_at_epoch_seconds") or "")
         if (pid, ts) in seen:
             continue
-        posture.answered_hitl_responses.append({"prompt_id": pid, "feedback": dict(ent)})
+        # Bound inbound feedback once at admission; downstream consumers
+        # (answered list, pending_feedback_response, ledger callback, trace)
+        # all see the same normalized payload.  Truncation flags are surfaced
+        # via the ``_bounds`` block on the normalized dict.
+        normalized = normalize_hitl_feedback({**ent, "prompt_id": pid})
+        posture.answered_hitl_responses.append({"prompt_id": pid, "feedback": dict(normalized)})
         seen.add((pid, ts))
         posture.pending_hitl_requests[:] = [r for r in posture.pending_hitl_requests if str(r.get("prompt_id") or "").strip() != pid]
         if posture.blocking_prompt_id == pid:
-            posture.pending_feedback_response = dict(ent)
+            posture.pending_feedback_response = dict(normalized)
         if str(posture.pending_feedback_prompt_id or "").strip() == pid:
-            posture.pending_feedback_response = dict(ent)
+            posture.pending_feedback_response = dict(normalized)
+        if on_inbound is not None:
+            try:
+                on_inbound(pid, dict(normalized))
+            except Exception:  # pragma: no cover — never let observer errors break transport
+                pass
     clamp_hitl_lists(posture)
     hitl_refresh_derived_state(posture)

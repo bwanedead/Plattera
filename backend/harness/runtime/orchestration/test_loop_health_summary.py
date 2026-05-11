@@ -3055,3 +3055,142 @@ def test_new_optional_counters_absent_in_compact_when_zero() -> None:
         "not_answerable_missing_reason_count",
     ):
         assert key not in compact, f"Expected {key!r} absent from compact when zero"
+
+
+# ---------------------------------------------------------------------------
+# HITL exchange ledger — Track 4 mechanical flags + Track 3 prompt projection
+# ---------------------------------------------------------------------------
+
+def _ledger_entry(prompt_id: str, status: str, **fields) -> dict:
+    base = {
+        "exchange_id": f"hitl:{prompt_id}",
+        "prompt_id": prompt_id,
+        "blocking": False,
+        "issued_at_iteration": 1,
+        "request": {"message": f"Q-{prompt_id}"},
+        "response": None,
+        "received_at_iteration": None,
+        "consumed_at_iteration": None,
+        "status": status,
+    }
+    base.update(fields)
+    return base
+
+
+def test_answered_hitl_unconsumed_count_reflects_ledger() -> None:
+    mem = _mem()
+    mem.continuity.hitl_exchange_ledger = [
+        _ledger_entry("p1", "pending"),
+        _ledger_entry("p2", "answered", response={"choice": "yes"}, received_at_iteration=2),
+        _ledger_entry("p3", "answered", response={"choice": "no"}, received_at_iteration=3),
+        _ledger_entry("p4", "consumed", response={"choice": "ok"}, consumed_at_iteration=4),
+    ]
+    result = build_prompt_observability_summary(mem)
+    assert result["answered_hitl_unconsumed_count"] == 2
+
+
+def test_answered_hitl_unconsumed_flag_fires_when_nonzero() -> None:
+    mem = _mem()
+    mem.continuity.hitl_exchange_ledger = [
+        _ledger_entry("p1", "answered", response={"choice": "yes"}),
+    ]
+    result = build_prompt_observability_summary(mem)
+    assert any(f.startswith("answered_hitl_unconsumed:") for f in result["mechanical_flags"])
+
+
+def test_complete_with_unconsumed_hitl_fires_on_complete_run_with_unconsumed() -> None:
+    mem = _mem(step_records=[_step_record(1, action_type="complete_run")])
+    mem.continuity.hitl_exchange_ledger = [
+        _ledger_entry("p1", "answered", response={"choice": "yes"}),
+    ]
+    result = build_prompt_observability_summary(mem)
+    assert result["complete_with_unconsumed_hitl_count"] == 1
+    assert any(f.startswith("complete_with_unconsumed_hitl:") for f in result["mechanical_flags"])
+
+
+def test_complete_with_unconsumed_hitl_zero_when_no_unconsumed() -> None:
+    mem = _mem(step_records=[_step_record(1, action_type="complete_run")])
+    mem.continuity.hitl_exchange_ledger = [
+        _ledger_entry("p1", "consumed", consumed_at_iteration=1),
+    ]
+    result = build_prompt_observability_summary(mem)
+    assert result["complete_with_unconsumed_hitl_count"] == 0
+
+
+def test_complete_with_unconsumed_hitl_zero_when_last_action_not_complete_run() -> None:
+    mem = _mem(step_records=[_step_record(1, action_type="hydrate_artifact_refs")])
+    mem.continuity.hitl_exchange_ledger = [
+        _ledger_entry("p1", "answered", response={"choice": "yes"}),
+    ]
+    result = build_prompt_observability_summary(mem)
+    assert result["complete_with_unconsumed_hitl_count"] == 0
+
+
+def test_hitl_consumed_unknown_prompt_count_reflects_continuity() -> None:
+    mem = _mem()
+    mem.continuity.hitl_consumed_unknown_prompt_count = 3
+    result = build_prompt_observability_summary(mem)
+    assert result["hitl_consumed_unknown_prompt_count"] == 3
+    assert any(f.startswith("hitl_consumed_unknown_prompt:") for f in result["mechanical_flags"])
+
+
+def test_recent_hitl_exchanges_in_summary_includes_pending_and_answered() -> None:
+    mem = _mem()
+    mem.continuity.hitl_exchange_ledger = [
+        _ledger_entry("p1", "pending"),
+        _ledger_entry("p2", "answered", response={"choice": "yes", "note": "ok"}, received_at_iteration=2),
+    ]
+    result = build_prompt_observability_summary(mem)
+    exchanges = result["recent_hitl_exchanges"]
+    assert len(exchanges) == 2
+    by_pid = {e["prompt_id"]: e for e in exchanges}
+    assert by_pid["p1"]["status"] == "pending"
+    assert by_pid["p2"]["status"] == "answered"
+    assert by_pid["p2"]["response"]["choice"] == "yes"
+
+
+def test_recent_hitl_exchanges_in_compact_when_nonempty() -> None:
+    """Compact projection includes ledger view when ledger has entries."""
+    from harness.runtime.orchestration.prompt_packet_builder import (
+        _compact_prompt_observability_summary,
+    )
+    mem = _mem()
+    mem.continuity.hitl_exchange_ledger = [
+        _ledger_entry("p1", "answered", response={"choice": "yes"}, received_at_iteration=2),
+    ]
+    full = build_prompt_observability_summary(mem)
+    compact = _compact_prompt_observability_summary(full)
+    assert "recent_hitl_exchanges" in compact
+    assert compact["recent_hitl_exchanges"][0]["prompt_id"] == "p1"
+
+
+def test_recent_hitl_exchanges_absent_in_compact_when_empty() -> None:
+    from harness.runtime.orchestration.prompt_packet_builder import (
+        _compact_prompt_observability_summary,
+    )
+    mem = _mem()  # no ledger entries
+    full = build_prompt_observability_summary(mem)
+    compact = _compact_prompt_observability_summary(full)
+    assert "recent_hitl_exchanges" not in compact
+
+
+def test_hitl_ledger_counters_typed_projection() -> None:
+    """All three new HITL ledger counters surface in PromptObservabilitySummary."""
+    from harness.observability.summary.prompt_observability import (
+        _prompt_observability_summary_from_payload,
+    )
+    summary = _prompt_observability_summary_from_payload({
+        "prompt_observability_summary": {
+            "answered_hitl_unconsumed_count": 2,
+            "complete_with_unconsumed_hitl_count": 1,
+            "hitl_consumed_unknown_prompt_count": 4,
+            "recent_hitl_exchanges": [
+                {"prompt_id": "p1", "status": "answered", "request": {"message": "q"}, "response": {"choice": "y"}},
+            ],
+        },
+    })
+    assert summary.answered_hitl_unconsumed_count == 2
+    assert summary.complete_with_unconsumed_hitl_count == 1
+    assert summary.hitl_consumed_unknown_prompt_count == 4
+    assert len(summary.recent_hitl_exchanges) == 1
+    assert summary.recent_hitl_exchanges[0]["prompt_id"] == "p1"

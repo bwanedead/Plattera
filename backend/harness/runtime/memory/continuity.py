@@ -44,8 +44,10 @@ class OrchestrationContinuity:
     kernel_compaction_covered_through_turn_index: int = 0
     # Advisory sequencing debt: unit keys ("item_id//unit_id") that transitioned to
     # earned/closed with a determined_value before any claim-local evidence_locators
-    # existed.  Maps key → iteration when debt was first recorded.  Never auto-cleared:
-    # adding locators post-hoc does NOT erase this debt.
+    # existed.  Maps key → iteration when debt was first recorded.  Cleared only
+    # when the unit is materially re-evaluated (determined_value or verification_basis
+    # changed, or status reopened) — adding locators alone does NOT clear this debt
+    # (that produces ``posthoc_recheck_needed_debt`` instead).
     earned_before_local_evidence_debt: dict[str, int] = field(default_factory=dict)
     # Advisory post-hoc debt: subset of earned_before_local_evidence_debt entries for
     # which a later patch attached locators without re-evaluating the claim.
@@ -53,3 +55,13 @@ class OrchestrationContinuity:
     # Cleared when a subsequent patch materially re-evaluates the unit: changes
     # determined_value, updates verification_basis, or reopens the status.
     posthoc_recheck_needed_debt: dict[str, int] = field(default_factory=dict)
+    # Append-only HITL exchange ledger: durable mechanical history of every
+    # human-in-the-loop interaction (outbound request, inbound response,
+    # consumption status).  Separate from ``LoopMemoryState.hitl`` (transport
+    # queue) — the ledger preserves history that survives consumption.
+    # Bounded by ``runtime/hitl/exchange_ledger.clamp_ledger`` (drops only old
+    # consumed entries).  See ``runtime/hitl/exchange_ledger.py``.
+    hitl_exchange_ledger: list[dict[str, Any]] = field(default_factory=list)
+    # Cumulative count of agent-declared ``hitl_consumed_prompt_ids`` entries
+    # that did not match any ledger exchange (drift signal; never cleared).
+    hitl_consumed_unknown_prompt_count: int = 0

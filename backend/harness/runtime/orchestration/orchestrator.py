@@ -20,6 +20,11 @@ from ..hitl.transport import (
     hitl_refresh_derived_state,
 )
 from ..hitl.watch import write_hitl_operator_sidecar
+from .hitl_ledger_hooks import (
+    make_inbound_hitl_callback,
+    record_consumed_hitl,
+    record_outbound_hitl,
+)
 from .orchestrator_coercion import (
     coerce_kernel_action_plan,
     coerce_projection,
@@ -249,6 +254,9 @@ def run_orchestration_kernel_loop(
             posture=loop_memory.hitl,
             loop_kind=_hitl_loop_kind(run_ctx),
             run_id=run_id or request_id_prefix,
+            on_inbound=make_inbound_hitl_callback(
+                loop_memory=loop_memory, tracer=tracer, iteration=iterations,
+            ),
         )
         hitl_refresh_derived_state(loop_memory.hitl)
 
@@ -351,6 +359,12 @@ def run_orchestration_kernel_loop(
             _LOG.warning("KERNEL invalid hitl_consumed_prompt_ids ► skipping iteration")
             continue
         apply_hitl_consumed_prompt_ids(loop_memory.hitl, consumed_ids)
+        record_consumed_hitl(
+            loop_memory=loop_memory,
+            tracer=tracer,
+            iteration=iterations,
+            consumed_ids=consumed_ids,
+        )
 
         if action_plan.wait_for_human and action_plan.hitl_request is None:
             _LOG.warning("KERNEL wait_for_human without hitl_request ► skipping iteration")
@@ -390,10 +404,13 @@ def run_orchestration_kernel_loop(
                 latest_record=norm,
                 pending_snapshot=list(loop_memory.hitl.pending_hitl_requests),
             )
-            tracer.emit_hitl_request_outbound(
+            record_outbound_hitl(
+                loop_memory=loop_memory,
+                tracer=tracer,
                 iteration=iterations,
                 prompt_id=str(norm["prompt_id"]),
-                blocking=action_plan.wait_for_human,
+                request_payload=norm,
+                blocking=bool(action_plan.wait_for_human),
             )
             if action_plan.wait_for_human:
                 sync_state_patch_after_committed_gate(

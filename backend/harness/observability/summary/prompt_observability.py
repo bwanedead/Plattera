@@ -35,6 +35,9 @@ _ZERO_INT_FIELDS = (
     "blocked_without_hitl_answerability_count",
     "human_answerable_blocker_without_hitl_count",
     "not_answerable_missing_reason_count",
+    "answered_hitl_unconsumed_count",
+    "complete_with_unconsumed_hitl_count",
+    "hitl_consumed_unknown_prompt_count",
     "success_condition_count",
     "success_conditions_with_earned_determination_count",
     "success_conditions_with_verification_basis_count",
@@ -86,6 +89,8 @@ def _prompt_observability_summary_from_payload(payload: dict[str, Any], *, defau
         publish_blockers=_nonblank_strs(readiness.get("publish_blockers")),
     )
     data["mechanical_flags"] = _nonblank_strs(summary.get("mechanical_flags"))
+    raw_exchanges = summary.get("recent_hitl_exchanges")
+    data["recent_hitl_exchanges"] = [dict(e) for e in raw_exchanges if isinstance(e, dict)][:16] if isinstance(raw_exchanges, list) else []
     return PromptObservabilitySummary(**data)
 
 
