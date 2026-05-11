@@ -320,6 +320,729 @@ def test_unsupported_ref_kind_is_non_retryable(tmp_path, monkeypatch):
     assert refusal["reason_code"] == "unsupported_ref_kind"
 
 
+# ---------------------------------------------------------------------------
+# annotate — box and box_norm both accepted, with adjustments and resolved geometry
+# ---------------------------------------------------------------------------
+
+def test_annotate_accepts_pixel_box(tmp_path, monkeypatch):
+    """Existing pixel-box annotation surface keeps working unchanged."""
+    handler, ref_id = _make_handler(tmp_path, monkeypatch)
+    result = handler({
+        "ref_id": ref_id,
+        "sub_action": "annotate",
+        "params": {"annotations": [{"type": "bbox", "box": [10, 10, 50, 40], "color": [255, 0, 0], "width": 2}]},
+    })
+    assert result["executed"] is True, f"Unexpected failure: {result}"
+    resolved = result["outputs"]["resolved_annotations"]
+    assert len(resolved) == 1
+    assert resolved[0]["type"] == "bbox"
+    geo = resolved[0]["resolved_geometry"]
+    assert geo["box"] == [10, 10, 50, 40]
+    assert geo["source_width_height"] == [100, 80]
+    assert geo["input"] == {"box": [10, 10, 50, 40]}
+    # Both forms surfaced — same region in normalized coords.
+    assert geo["box_norm"] == [0.1, 0.125, 0.5, 0.5]
+
+
+def test_annotate_accepts_box_norm(tmp_path, monkeypatch):
+    """Per-annotation box_norm is converted to pixels using source dimensions."""
+    handler, ref_id = _make_handler(tmp_path, monkeypatch)
+    result = handler({
+        "ref_id": ref_id,
+        "sub_action": "annotate",
+        "params": {"annotations": [{"type": "bbox", "box_norm": [0.25, 0.40, 0.55, 0.52], "color": [255, 0, 0]}]},
+    })
+    assert result["executed"] is True, f"Unexpected failure: {result}"
+    geo = result["outputs"]["resolved_annotations"][0]["resolved_geometry"]
+    # 100x80 image: [round(0.25*100), round(0.40*80), round(0.55*100), round(0.52*80)]
+    # = [25, 32, 55, 42]  (0.52*80=41.6 → 42 under banker's rounding)
+    assert geo["box"] == [25, 32, 55, 42]
+    assert geo["input"] == {"box_norm": [0.25, 0.40, 0.55, 0.52]}
+
+
+def test_annotate_rejects_both_box_and_box_norm(tmp_path, monkeypatch):
+    """Providing both box AND box_norm on a single annotation is a retryable error."""
+    handler, ref_id = _make_handler(tmp_path, monkeypatch)
+    result = handler({
+        "ref_id": ref_id,
+        "sub_action": "annotate",
+        "params": {"annotations": [{"type": "bbox", "box": [0, 0, 50, 40], "box_norm": [0.0, 0.0, 0.5, 0.5]}]},
+    })
+    assert result["executed"] is False
+    assert result["refusal"]["retryable"] is True
+    assert result["refusal"]["blocked_by_invariant"] is False
+    assert "repair_hint" in result["outputs"]["error"]
+
+
+def test_annotate_skips_annotation_without_any_geometry(tmp_path, monkeypatch):
+    """An annotation with neither box nor box_norm is silently skipped (prior behavior)."""
+    handler, ref_id = _make_handler(tmp_path, monkeypatch)
+    result = handler({
+        "ref_id": ref_id,
+        "sub_action": "annotate",
+        "params": {"annotations": [
+            {"type": "bbox"},  # no geometry — skipped
+            {"type": "bbox", "box_norm": [0.1, 0.1, 0.3, 0.3]},  # rendered
+        ]},
+    })
+    assert result["executed"] is True
+    resolved = result["outputs"]["resolved_annotations"]
+    assert len(resolved) == 1
+    assert resolved[0]["index"] == 1  # the second annotation
+
+
+def test_annotate_missing_annotations_list_is_retryable(tmp_path, monkeypatch):
+    handler, ref_id = _make_handler(tmp_path, monkeypatch)
+    result = handler({"ref_id": ref_id, "sub_action": "annotate", "params": {}})
+    assert result["executed"] is False
+    assert result["refusal"]["retryable"] is True
+    assert result["refusal"]["blocked_by_invariant"] is False
+
+
+# ---------------------------------------------------------------------------
+# zoom — pixel box, normalized box, factor-only, all three
+# ---------------------------------------------------------------------------
+
+def test_zoom_with_pixel_box_crops_region(tmp_path, monkeypatch):
+    handler, ref_id = _make_handler(tmp_path, monkeypatch)
+    result = handler({"ref_id": ref_id, "sub_action": "zoom", "params": {"box": [10, 10, 60, 50]}})
+    assert result["executed"] is True
+    w, h = result["outputs"]["width_height"]
+    assert w == 50 and h == 40
+    geo = result["outputs"]["resolved_geometry"]
+    assert geo["box"] == [10, 10, 60, 50]
+
+
+def test_zoom_with_box_norm_crops_region(tmp_path, monkeypatch):
+    handler, ref_id = _make_handler(tmp_path, monkeypatch)
+    result = handler({"ref_id": ref_id, "sub_action": "zoom", "params": {"box_norm": [0.0, 0.0, 0.5, 0.5]}})
+    assert result["executed"] is True, f"Unexpected failure: {result}"
+    # Top-left quadrant of 100x80 = 50x40
+    w, h = result["outputs"]["width_height"]
+    assert w == 50 and h == 40
+    geo = result["outputs"]["resolved_geometry"]
+    assert geo["input"] == {"box_norm": [0.0, 0.0, 0.5, 0.5]}
+    assert geo["box"] == [0, 0, 50, 40]
+
+
+def test_zoom_box_norm_with_factor_crops_then_scales(tmp_path, monkeypatch):
+    """zoom with box_norm AND factor: crop the region, then scale up by factor."""
+    handler, ref_id = _make_handler(tmp_path, monkeypatch)
+    result = handler({
+        "ref_id": ref_id, "sub_action": "zoom",
+        "params": {"box_norm": [0.0, 0.0, 0.5, 0.5], "factor": 2.0},
+    })
+    assert result["executed"] is True
+    # Cropped 50x40, then scaled 2x → 100x80
+    w, h = result["outputs"]["width_height"]
+    assert w == 100 and h == 80
+    geo = result["outputs"]["resolved_geometry"]
+    assert geo.get("factor_applied") == 2.0
+
+
+def test_zoom_factor_only_preserves_existing_behavior(tmp_path, monkeypatch):
+    """zoom with only factor (no box/box_norm) scales the whole image."""
+    handler, ref_id = _make_handler(tmp_path, monkeypatch)
+    result = handler({"ref_id": ref_id, "sub_action": "zoom", "params": {"factor": 2.0}})
+    assert result["executed"] is True
+    w, h = result["outputs"]["width_height"]
+    assert w == 200 and h == 160
+    # No resolved_geometry for factor-only — no box to resolve.
+    assert "resolved_geometry" not in result["outputs"]
+    assert result["outputs"]["factor_applied"] == 2.0
+
+
+def test_zoom_default_factor_when_no_params(tmp_path, monkeypatch):
+    """zoom with empty params defaults to factor=2.0 (backward compat)."""
+    handler, ref_id = _make_handler(tmp_path, monkeypatch)
+    result = handler({"ref_id": ref_id, "sub_action": "zoom", "params": {}})
+    assert result["executed"] is True
+    w, h = result["outputs"]["width_height"]
+    assert w == 200 and h == 160
+
+
+def test_zoom_rejects_negative_factor(tmp_path, monkeypatch):
+    handler, ref_id = _make_handler(tmp_path, monkeypatch)
+    result = handler({"ref_id": ref_id, "sub_action": "zoom", "params": {"factor": -1.0}})
+    assert result["executed"] is False
+    assert result["refusal"]["retryable"] is True
+    assert "repair_hint" in result["outputs"]["error"]
+
+
+# ---------------------------------------------------------------------------
+# Adjustment controls — adjust_norm and adjust_px on crop/zoom/annotate
+# ---------------------------------------------------------------------------
+
+def test_crop_with_adjust_norm_expands_region(tmp_path, monkeypatch):
+    """adjust_norm expand_x/expand_y grow the box on both sides."""
+    handler, ref_id = _make_handler(tmp_path, monkeypatch)
+    result = handler({
+        "ref_id": ref_id, "sub_action": "crop",
+        "params": {
+            "box_norm": [0.3, 0.3, 0.5, 0.5],
+            "adjust_norm": {"expand_x": 0.1, "expand_y": 0.1},
+        },
+    })
+    assert result["executed"] is True, f"Unexpected failure: {result}"
+    geo = result["outputs"]["resolved_geometry"]
+    # Original norm [0.3, 0.3, 0.5, 0.5] → after expand_x=0.1, expand_y=0.1:
+    # [0.2, 0.2, 0.6, 0.6] → in 100x80 pixels: [20, 16, 60, 48]
+    assert geo["box"] == [20, 16, 60, 48]
+    assert geo["adjustments_applied"]["adjust_norm"] == {"expand_x": 0.1, "expand_y": 0.1}
+
+
+def test_crop_with_adjust_norm_shift_moves_region(tmp_path, monkeypatch):
+    """adjust_norm shift_x positive moves right, shift_y positive moves down."""
+    handler, ref_id = _make_handler(tmp_path, monkeypatch)
+    result = handler({
+        "ref_id": ref_id, "sub_action": "crop",
+        "params": {
+            "box_norm": [0.1, 0.1, 0.3, 0.3],
+            "adjust_norm": {"shift_x": 0.1, "shift_y": 0.05},
+        },
+    })
+    assert result["executed"] is True
+    geo = result["outputs"]["resolved_geometry"]
+    # [0.1+0.1, 0.1+0.05, 0.3+0.1, 0.3+0.05] = [0.2, 0.15, 0.4, 0.35]
+    # 100x80 → [20, 12, 40, 28]
+    assert geo["box"] == [20, 12, 40, 28]
+
+
+def test_crop_with_adjust_px_expands_pixel_box(tmp_path, monkeypatch):
+    """adjust_px expand_x grows the pixel box by N on each side."""
+    handler, ref_id = _make_handler(tmp_path, monkeypatch)
+    result = handler({
+        "ref_id": ref_id, "sub_action": "crop",
+        "params": {"box": [30, 30, 50, 50], "adjust_px": {"expand_x": 5, "expand_y": 3}},
+    })
+    assert result["executed"] is True
+    geo = result["outputs"]["resolved_geometry"]
+    assert geo["box"] == [25, 27, 55, 53]
+    assert geo["adjustments_applied"]["adjust_px"] == {"expand_x": 5, "expand_y": 3}
+
+
+def test_zoom_applies_adjust_norm_before_crop(tmp_path, monkeypatch):
+    """zoom path also honors adjust_norm — single resolver across crop/zoom/annotate."""
+    handler, ref_id = _make_handler(tmp_path, monkeypatch)
+    result = handler({
+        "ref_id": ref_id, "sub_action": "zoom",
+        "params": {"box_norm": [0.4, 0.4, 0.6, 0.6], "adjust_norm": {"expand_x": 0.05}},
+    })
+    assert result["executed"] is True
+    geo = result["outputs"]["resolved_geometry"]
+    # [0.35, 0.4, 0.65, 0.6] in 100x80 → [35, 32, 65, 48]
+    assert geo["box"] == [35, 32, 65, 48]
+
+
+def test_annotate_applies_adjust_norm(tmp_path, monkeypatch):
+    """Per-annotation adjust_norm nudges the box before drawing."""
+    handler, ref_id = _make_handler(tmp_path, monkeypatch)
+    result = handler({
+        "ref_id": ref_id, "sub_action": "annotate",
+        "params": {"annotations": [{
+            "type": "bbox",
+            "box_norm": [0.4, 0.4, 0.6, 0.6],
+            "adjust_norm": {"shift_x": 0.1},
+        }]},
+    })
+    assert result["executed"] is True
+    geo = result["outputs"]["resolved_annotations"][0]["resolved_geometry"]
+    # [0.5, 0.4, 0.7, 0.6] in 100x80 → [50, 32, 70, 48]
+    assert geo["box"] == [50, 32, 70, 48]
+
+
+# ---------------------------------------------------------------------------
+# Clamping and collapse — boundary behavior
+# ---------------------------------------------------------------------------
+
+def test_adjust_px_clamps_to_image_bounds(tmp_path, monkeypatch):
+    """Adjustments that push partially outside are clamped (without collapsing)."""
+    handler, ref_id = _make_handler(tmp_path, monkeypatch)
+    # Image is 100x80; box [80,30,95,50] + expand_x=10 → pre-clamp [70,30,105,50];
+    # x2 clamps to 100 → [70,30,100,50] (still positive area).
+    result = handler({
+        "ref_id": ref_id, "sub_action": "crop",
+        "params": {"box": [80, 30, 95, 50], "adjust_px": {"expand_x": 10}},
+    })
+    assert result["executed"] is True
+    geo = result["outputs"]["resolved_geometry"]
+    assert geo["box"] == [70, 30, 100, 50]
+
+
+def test_adjust_norm_collapse_is_retryable(tmp_path, monkeypatch):
+    """Negative expand that shrinks the box past zero width is a retryable error."""
+    handler, ref_id = _make_handler(tmp_path, monkeypatch)
+    result = handler({
+        "ref_id": ref_id, "sub_action": "crop",
+        "params": {"box_norm": [0.4, 0.4, 0.5, 0.5], "adjust_norm": {"expand_x": -0.10}},
+    })
+    # -0.10 expansion on a 0.1-wide box collapses it: [0.5, 0.4, 0.4, 0.5] → x1>=x2.
+    assert result["executed"] is False
+    assert result["refusal"]["retryable"] is True
+    assert result["refusal"]["blocked_by_invariant"] is False
+    assert "repair_hint" in result["outputs"]["error"]
+
+
+def test_adjust_px_collapse_after_clamp_is_retryable(tmp_path, monkeypatch):
+    """A pixel shift that pushes the entire box past image bounds collapses it."""
+    handler, ref_id = _make_handler(tmp_path, monkeypatch)
+    result = handler({
+        "ref_id": ref_id, "sub_action": "crop",
+        "params": {"box": [80, 30, 95, 50], "adjust_px": {"shift_x": 50}},
+    })
+    # Pre-clamp [130, 30, 145, 50]; post-clamp both x clipped to 100 → [100, 30, 100, 50] (zero width)
+    assert result["executed"] is False
+    assert result["refusal"]["retryable"] is True
+
+
+# ---------------------------------------------------------------------------
+# Pixel box is integer-only — fractional/bool/string values must not silently truncate
+# ---------------------------------------------------------------------------
+
+def test_crop_fractional_pixel_box_is_retryable(tmp_path, monkeypatch):
+    """box: [20.9, 20, 60, 50] would silently truncate to [20, 20, 60, 50] — must be retryable."""
+    handler, ref_id = _make_handler(tmp_path, monkeypatch)
+    result = handler({
+        "ref_id": ref_id, "sub_action": "crop",
+        "params": {"box": [20.9, 20, 60, 50]},
+    })
+    assert result["executed"] is False
+    refusal = result["refusal"]
+    assert refusal["retryable"] is True
+    assert refusal["blocked_by_invariant"] is False
+    error = result["outputs"]["error"]
+    assert "integer" in error["message"]
+    assert "20.9" in error["message"]
+    # Repair message points fractional intent to box_norm
+    assert "box_norm" in error["message"]
+
+
+def test_crop_negative_fractional_pixel_box_is_retryable(tmp_path, monkeypatch):
+    handler, ref_id = _make_handler(tmp_path, monkeypatch)
+    result = handler({
+        "ref_id": ref_id, "sub_action": "crop",
+        "params": {"box": [-0.5, 0, 50, 40]},
+    })
+    assert result["executed"] is False
+    assert result["refusal"]["retryable"] is True
+
+
+def test_crop_bool_in_pixel_box_is_retryable(tmp_path, monkeypatch):
+    """True in a box would coerce to 1 — must not slip through as a pixel value."""
+    handler, ref_id = _make_handler(tmp_path, monkeypatch)
+    result = handler({
+        "ref_id": ref_id, "sub_action": "crop",
+        "params": {"box": [True, 0, 50, 40]},
+    })
+    assert result["executed"] is False
+    assert result["refusal"]["retryable"] is True
+
+
+def test_crop_string_in_pixel_box_is_retryable(tmp_path, monkeypatch):
+    """Numeric-looking strings like '20' would parse via int() — must be rejected."""
+    handler, ref_id = _make_handler(tmp_path, monkeypatch)
+    result = handler({
+        "ref_id": ref_id, "sub_action": "crop",
+        "params": {"box": ["20", 0, 50, 40]},
+    })
+    assert result["executed"] is False
+    assert result["refusal"]["retryable"] is True
+
+
+def test_crop_integer_valued_float_pixel_box_accepted(tmp_path, monkeypatch):
+    """JSON often serializes 20 as 20.0 — integer-valued floats must still work."""
+    handler, ref_id = _make_handler(tmp_path, monkeypatch)
+    result = handler({
+        "ref_id": ref_id, "sub_action": "crop",
+        "params": {"box": [20.0, 20.0, 60.0, 50.0]},
+    })
+    assert result["executed"] is True, f"Unexpected failure: {result}"
+    geo = result["outputs"]["resolved_geometry"]
+    assert geo["box"] == [20, 20, 60, 50]
+
+
+def test_annotate_pixel_box_integer_only_per_annotation(tmp_path, monkeypatch):
+    """Per-annotation pixel box also enforces integer-only — field error names the annotation index."""
+    handler, ref_id = _make_handler(tmp_path, monkeypatch)
+    result = handler({
+        "ref_id": ref_id, "sub_action": "annotate",
+        "params": {"annotations": [{"type": "bbox", "box": [10.5, 10, 50, 40]}]},
+    })
+    assert result["executed"] is False
+    assert result["refusal"]["retryable"] is True
+    assert "annotations[0]" in result["outputs"]["error"]["message"]
+
+
+# ---------------------------------------------------------------------------
+# Fractional adjust_px is retryable — pixel units must be whole, no silent truncation
+# ---------------------------------------------------------------------------
+
+def test_adjust_px_fractional_shift_is_retryable(tmp_path, monkeypatch):
+    """Fractional adjust_px values would silently truncate to 0 — must be retryable."""
+    handler, ref_id = _make_handler(tmp_path, monkeypatch)
+    result = handler({
+        "ref_id": ref_id, "sub_action": "crop",
+        "params": {"box": [20, 20, 60, 50], "adjust_px": {"shift_x": 0.9}},
+    })
+    assert result["executed"] is False
+    refusal = result["refusal"]
+    assert refusal["retryable"] is True
+    assert refusal["blocked_by_invariant"] is False
+    error = result["outputs"]["error"]
+    assert "integer" in error["message"]
+    assert "0.9" in error["message"]
+    # Repair hint points the agent to adjust_norm for sub-pixel intent
+    assert "adjust_norm" in error["repair_hint"]
+
+
+def test_adjust_px_fractional_expand_is_retryable(tmp_path, monkeypatch):
+    handler, ref_id = _make_handler(tmp_path, monkeypatch)
+    result = handler({
+        "ref_id": ref_id, "sub_action": "crop",
+        "params": {"box": [20, 20, 60, 50], "adjust_px": {"expand_x": 2.5}},
+    })
+    assert result["executed"] is False
+    assert result["refusal"]["retryable"] is True
+    assert "integer" in result["outputs"]["error"]["message"]
+
+
+def test_adjust_px_negative_fractional_is_retryable(tmp_path, monkeypatch):
+    handler, ref_id = _make_handler(tmp_path, monkeypatch)
+    result = handler({
+        "ref_id": ref_id, "sub_action": "crop",
+        "params": {"box": [20, 20, 60, 50], "adjust_px": {"shift_y": -1.5}},
+    })
+    assert result["executed"] is False
+    assert result["refusal"]["retryable"] is True
+
+
+def test_adjust_px_integer_valued_float_accepted(tmp_path, monkeypatch):
+    """JSON often serializes 5 as 5.0 — integer-valued floats must still work."""
+    handler, ref_id = _make_handler(tmp_path, monkeypatch)
+    result = handler({
+        "ref_id": ref_id, "sub_action": "crop",
+        "params": {"box": [20, 20, 60, 50], "adjust_px": {"shift_x": 5.0}},
+    })
+    assert result["executed"] is True, f"Unexpected failure: {result}"
+    geo = result["outputs"]["resolved_geometry"]
+    assert geo["box"] == [25, 20, 65, 50]
+
+
+def test_adjust_px_bool_is_retryable(tmp_path, monkeypatch):
+    """Bool is a subclass of int in Python — but it must not slip through as a pixel value."""
+    handler, ref_id = _make_handler(tmp_path, monkeypatch)
+    result = handler({
+        "ref_id": ref_id, "sub_action": "crop",
+        "params": {"box": [20, 20, 60, 50], "adjust_px": {"shift_x": True}},
+    })
+    assert result["executed"] is False
+    assert result["refusal"]["retryable"] is True
+
+
+def test_adjust_norm_fractional_still_allowed(tmp_path, monkeypatch):
+    """Fractional values are the WHOLE POINT of adjust_norm — must not regress under the px rule."""
+    handler, ref_id = _make_handler(tmp_path, monkeypatch)
+    result = handler({
+        "ref_id": ref_id, "sub_action": "crop",
+        "params": {"box_norm": [0.2, 0.2, 0.4, 0.4], "adjust_norm": {"shift_x": 0.05, "expand_y": 0.025}},
+    })
+    assert result["executed"] is True, f"Unexpected failure: {result}"
+    geo = result["outputs"]["resolved_geometry"]
+    # shift_x=0.05, expand_y=0.025 → [0.25, 0.175, 0.45, 0.425] → 100x80 px
+    assert geo["box"] == [25, 14, 45, 34]
+
+
+def test_unknown_adjust_key_is_retryable(tmp_path, monkeypatch):
+    handler, ref_id = _make_handler(tmp_path, monkeypatch)
+    result = handler({
+        "ref_id": ref_id, "sub_action": "crop",
+        "params": {"box": [0, 0, 50, 40], "adjust_px": {"rotate": 45}},
+    })
+    assert result["executed"] is False
+    assert result["refusal"]["retryable"] is True
+    assert "repair_hint" in result["outputs"]["error"]
+
+
+# ---------------------------------------------------------------------------
+# "Both box and box_norm" rejection — explicit retryable error
+# ---------------------------------------------------------------------------
+
+def test_crop_rejects_both_box_and_box_norm(tmp_path, monkeypatch):
+    handler, ref_id = _make_handler(tmp_path, monkeypatch)
+    result = handler({
+        "ref_id": ref_id, "sub_action": "crop",
+        "params": {"box": [0, 0, 50, 40], "box_norm": [0.0, 0.0, 0.5, 0.5]},
+    })
+    assert result["executed"] is False
+    assert result["refusal"]["retryable"] is True
+    assert "repair_hint" in result["outputs"]["error"]
+
+
+# ---------------------------------------------------------------------------
+# Resolved geometry round-trips: input form preserved + both forms emitted
+# ---------------------------------------------------------------------------
+
+def test_resolved_geometry_includes_both_forms_and_input(tmp_path, monkeypatch):
+    handler, ref_id = _make_handler(tmp_path, monkeypatch)
+    result = handler({"ref_id": ref_id, "sub_action": "crop", "params": {"box": [20, 16, 60, 48]}})
+    assert result["executed"] is True
+    geo = result["outputs"]["resolved_geometry"]
+    assert set(geo.keys()) >= {"box", "box_norm", "source_width_height", "input"}
+    assert geo["box"] == [20, 16, 60, 48]
+    assert geo["box_norm"] == [0.2, 0.2, 0.6, 0.6]
+    assert geo["source_width_height"] == [100, 80]
+    assert geo["input"] == {"box": [20, 16, 60, 48]}
+    # No adjustments applied → key absent
+    assert "adjustments_applied" not in geo
+
+
+# ---------------------------------------------------------------------------
+# Mismatched adjustment forms — must be retryable, never silently dropped
+# ---------------------------------------------------------------------------
+
+def test_crop_box_with_adjust_norm_is_retryable_mismatch(tmp_path, monkeypatch):
+    """Pixel box + normalized adjust = silent intent loss without rejection."""
+    handler, ref_id = _make_handler(tmp_path, monkeypatch)
+    result = handler({
+        "ref_id": ref_id, "sub_action": "crop",
+        "params": {"box": [20, 20, 40, 40], "adjust_norm": {"shift_x": 0.05}},
+    })
+    assert result["executed"] is False
+    refusal = result["refusal"]
+    assert refusal["retryable"] is True
+    assert refusal["blocked_by_invariant"] is False
+    error = result["outputs"]["error"]
+    assert "adjust_norm" in error["message"]
+    assert "adjust_px" in error["repair_hint"]
+
+
+def test_crop_box_norm_with_adjust_px_is_retryable_mismatch(tmp_path, monkeypatch):
+    """Normalized box + pixel adjust = silent intent loss without rejection."""
+    handler, ref_id = _make_handler(tmp_path, monkeypatch)
+    result = handler({
+        "ref_id": ref_id, "sub_action": "crop",
+        "params": {"box_norm": [0.2, 0.2, 0.4, 0.4], "adjust_px": {"shift_x": 5}},
+    })
+    assert result["executed"] is False
+    refusal = result["refusal"]
+    assert refusal["retryable"] is True
+    assert refusal["blocked_by_invariant"] is False
+    error = result["outputs"]["error"]
+    assert "adjust_px" in error["message"]
+    assert "adjust_norm" in error["repair_hint"]
+
+
+def test_zoom_factor_only_with_adjust_is_retryable(tmp_path, monkeypatch):
+    """adjust_* without any box geometry must not be silently dropped by factor-only zoom."""
+    handler, ref_id = _make_handler(tmp_path, monkeypatch)
+    result = handler({
+        "ref_id": ref_id, "sub_action": "zoom",
+        "params": {"factor": 2.0, "adjust_norm": {"shift_x": 0.1}},
+    })
+    assert result["executed"] is False
+    refusal = result["refusal"]
+    assert refusal["retryable"] is True
+    assert refusal["blocked_by_invariant"] is False
+    assert "box" in result["outputs"]["error"]["message"]
+
+
+def test_annotate_mismatched_adjustment_form_is_retryable(tmp_path, monkeypatch):
+    """Per-annotation form mismatch must also be caught — not just top-level."""
+    handler, ref_id = _make_handler(tmp_path, monkeypatch)
+    result = handler({
+        "ref_id": ref_id, "sub_action": "annotate",
+        "params": {"annotations": [{
+            "type": "bbox",
+            "box_norm": [0.1, 0.1, 0.3, 0.3],
+            "adjust_px": {"shift_x": 5},
+        }]},
+    })
+    assert result["executed"] is False
+    refusal = result["refusal"]
+    assert refusal["retryable"] is True
+    assert "annotations[0]" in result["outputs"]["error"]["message"]
+
+
+# ---------------------------------------------------------------------------
+# Unknown annotation type — must be retryable, not silently "resolved"
+# ---------------------------------------------------------------------------
+
+def test_annotate_unknown_type_is_retryable(tmp_path, monkeypatch):
+    """A typo like 'bbbox' must not render zero shapes but still report a resolved annotation."""
+    handler, ref_id = _make_handler(tmp_path, monkeypatch)
+    result = handler({
+        "ref_id": ref_id, "sub_action": "annotate",
+        "params": {"annotations": [{"type": "bbbox", "box_norm": [0.2, 0.2, 0.4, 0.4]}]},
+    })
+    assert result["executed"] is False
+    refusal = result["refusal"]
+    assert refusal["retryable"] is True
+    assert refusal["blocked_by_invariant"] is False
+    error = result["outputs"]["error"]
+    assert "type" in error["message"]
+    # Repair hint names the allowed types so the agent can self-correct.
+    hint = error["repair_hint"]
+    assert "highlight" in hint and "bbox" in hint and "label" in hint
+
+
+def test_annotate_missing_type_is_retryable(tmp_path, monkeypatch):
+    """A missing/empty type field is also rejected with a clear repair hint."""
+    handler, ref_id = _make_handler(tmp_path, monkeypatch)
+    result = handler({
+        "ref_id": ref_id, "sub_action": "annotate",
+        "params": {"annotations": [{"box": [10, 10, 50, 40]}]},
+    })
+    assert result["executed"] is False
+    refusal = result["refusal"]
+    assert refusal["retryable"] is True
+    assert "type" in result["outputs"]["error"]["message"]
+
+
+# ---------------------------------------------------------------------------
+# Label annotations require non-empty text — same class as unknown-type bug
+# ---------------------------------------------------------------------------
+
+def test_annotate_label_without_text_is_retryable(tmp_path, monkeypatch):
+    """A label annotation with no text field draws nothing — must be retryable, not silently 'resolved'."""
+    handler, ref_id = _make_handler(tmp_path, monkeypatch)
+    result = handler({
+        "ref_id": ref_id, "sub_action": "annotate",
+        "params": {"annotations": [{"type": "label", "box_norm": [0.2, 0.2, 0.4, 0.4]}]},
+    })
+    assert result["executed"] is False
+    refusal = result["refusal"]
+    assert refusal["retryable"] is True
+    assert refusal["blocked_by_invariant"] is False
+    error = result["outputs"]["error"]
+    assert "text" in error["message"]
+    assert "label" in error["message"]
+    # Repair hint shows the agent how to fix it
+    assert "text" in error["repair_hint"]
+
+
+def test_annotate_label_with_empty_text_is_retryable(tmp_path, monkeypatch):
+    """text='' is the same class — draws nothing, must be retryable."""
+    handler, ref_id = _make_handler(tmp_path, monkeypatch)
+    result = handler({
+        "ref_id": ref_id, "sub_action": "annotate",
+        "params": {"annotations": [{"type": "label", "box_norm": [0.2, 0.2, 0.4, 0.4], "text": ""}]},
+    })
+    assert result["executed"] is False
+    refusal = result["refusal"]
+    assert refusal["retryable"] is True
+    assert "text" in result["outputs"]["error"]["message"]
+
+
+def test_annotate_label_with_whitespace_only_text_is_retryable(tmp_path, monkeypatch):
+    """text='   ' renders nothing visually — caught at validation."""
+    handler, ref_id = _make_handler(tmp_path, monkeypatch)
+    result = handler({
+        "ref_id": ref_id, "sub_action": "annotate",
+        "params": {"annotations": [{"type": "label", "box_norm": [0.2, 0.2, 0.4, 0.4], "text": "   "}]},
+    })
+    assert result["executed"] is False
+    assert result["refusal"]["retryable"] is True
+
+
+def test_annotate_label_with_valid_text_still_renders(tmp_path, monkeypatch):
+    """Positive path: a label with non-empty text renders and shows up in resolved_annotations."""
+    handler, ref_id = _make_handler(tmp_path, monkeypatch)
+    result = handler({
+        "ref_id": ref_id, "sub_action": "annotate",
+        "params": {"annotations": [{
+            "type": "label", "box_norm": [0.2, 0.2, 0.4, 0.4], "text": "Section 2",
+        }]},
+    })
+    assert result["executed"] is True, f"Unexpected failure: {result}"
+    resolved = result["outputs"]["resolved_annotations"]
+    assert len(resolved) == 1
+    assert resolved[0]["type"] == "label"
+
+
+def test_annotate_bbox_and_highlight_do_not_require_text(tmp_path, monkeypatch):
+    """text is only required for label — bbox/highlight remain unaffected by the new rule."""
+    handler, ref_id = _make_handler(tmp_path, monkeypatch)
+    result = handler({
+        "ref_id": ref_id, "sub_action": "annotate",
+        "params": {"annotations": [
+            {"type": "bbox", "box_norm": [0.1, 0.1, 0.3, 0.3]},
+            {"type": "highlight", "box_norm": [0.4, 0.4, 0.6, 0.6]},
+        ]},
+    })
+    assert result["executed"] is True
+    assert len(result["outputs"]["resolved_annotations"]) == 2
+
+
+def test_annotate_valid_type_with_no_geometry_still_skipped_not_errored(tmp_path, monkeypatch):
+    """A valid type without box or box_norm is silently skipped (not an error).
+
+    Pins the prior behavior: annotations missing geometry are skipped by the
+    renderer.  The type validation does not regress that contract.
+    """
+    handler, ref_id = _make_handler(tmp_path, monkeypatch)
+    result = handler({
+        "ref_id": ref_id, "sub_action": "annotate",
+        "params": {"annotations": [
+            {"type": "bbox"},  # skipped
+            {"type": "bbox", "box_norm": [0.1, 0.1, 0.3, 0.3]},  # rendered
+        ]},
+    })
+    assert result["executed"] is True
+    resolved = result["outputs"]["resolved_annotations"]
+    assert len(resolved) == 1
+    assert resolved[0]["index"] == 1
+
+
+def test_render_evidence_locators_behavior_unchanged_by_geometry_refactor(tmp_path, monkeypatch):
+    """The durable evidence path must not regress under the new resolver wiring."""
+    handler, ref_id = _make_handler(tmp_path, monkeypatch)
+    locators = [{
+        "ref_id": ref_id, "locator_kind": "image_region",
+        "label": "Value A", "box_norm": [0.1, 0.2, 0.4, 0.5],
+    }]
+    result = handler({"ref_id": ref_id, "sub_action": "render_evidence_locators", "params": {"locators": locators}})
+    assert result["executed"] is True
+    rendered = result["outputs"]["rendered_evidence_refs"][0]
+    assert rendered["rendered_locator_count"] == 1
+    # No resolved_geometry/resolved_annotations on this path — locators are the durable evidence.
+    assert "resolved_geometry" not in result["outputs"]
+    assert "resolved_annotations" not in result["outputs"]
+
+
+# ---------------------------------------------------------------------------
+# tool_specs mention both geometry forms and adjustment controls
+# ---------------------------------------------------------------------------
+
+def test_tool_spec_documents_box_norm_and_adjustments_for_annotate_and_zoom() -> None:
+    """Tool spec text must surface both geometry forms and adjustment controls."""
+    from domains.mapping.transcript_edit.execution.tool_specs import (
+        build_transcript_edit_tool_specs,
+    )
+    specs = build_transcript_edit_tool_specs()
+    spec = next(s for s in specs if s.tool_id == "transform_artifact")
+    text = (spec.purpose + " " + spec.expected_request_shape).lower()
+    # Both geometry forms accepted
+    assert "box_norm" in text
+    assert "annotate" in text
+    assert "zoom" in text
+    # Adjustment controls documented
+    assert "adjust_norm" in text
+    assert "adjust_px" in text
+    for verb in ("expand_x", "expand_y", "shift_x", "shift_y"):
+        assert verb in text, f"adjustment verb {verb!r} missing from tool spec"
+    # Resolved geometry surfaced
+    assert "resolved_geometry" in spec.expected_result_shape.lower()
+    # render_evidence_locators kept as the durable path
+    assert "render_evidence_locators" in text
+    assert "durable" in text
+    # Integer-only pixel intent + fractional → box_norm guidance
+    assert "integer" in text
+    # Label text contract is surfaced — must not look optional any more
+    assert "label" in text and "text" in text
+    json_shape_text = str(spec.expected_request_json_shape).lower()
+    assert "required when type='label'" in json_shape_text or "required for type='label'" in json_shape_text
+
+
 def test_missing_source_image_is_non_retryable(tmp_path, monkeypatch):
     root = _dossiers_root(tmp_path)
     monkeypatch.setattr(te_paths_mod, "dossiers_root", lambda: root)

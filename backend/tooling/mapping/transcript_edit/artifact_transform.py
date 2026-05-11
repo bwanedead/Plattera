@@ -144,31 +144,373 @@ class _TransformParamError(Exception):
         self.repair_hint = repair_hint
 
 
+def _coerce_pixel_integer(v: Any) -> int | None:
+    """Return ``v`` as an integer pixel value, or ``None`` if it is not a clean integer.
+
+    Accepts: ``int`` (excluding bool), ``float`` that ``is_integer()`` (so JSON's
+    loose ``5`` vs ``5.0`` distinction does not break agents).
+
+    Rejects: ``bool`` (subclass of ``int``), fractional floats (``20.9``), strings
+    (even numeric-looking like ``"5"``), and any other type.  Used to keep pixel
+    geometry honest: fractional pixel coordinates would silently truncate and
+    erase agent intent.  For fractional/normalized intent, the agent should use
+    ``box_norm`` + ``adjust_norm``.
+    """
+    if isinstance(v, bool):
+        return None
+    if isinstance(v, int):
+        return v
+    if isinstance(v, float) and v.is_integer():
+        return int(v)
+    return None
+
+
 def _validate_box(box: Any, *, field: str = "params.box") -> str | None:
-    """Return an error message string if *box* is not a valid 4-element list, else None."""
+    """Return an error message string if *box* is not a valid 4-element pixel box."""
     if not isinstance(box, (list, tuple)) or len(box) != 4:
         return f"{field} must be a list of exactly 4 numbers [x1, y1, x2, y2]."
-    try:
-        vals = [int(v) for v in box]
-    except (TypeError, ValueError):
-        return f"{field} values must be numeric integers."
+    vals: list[int] = []
+    for v in box:
+        coerced = _coerce_pixel_integer(v)
+        if coerced is None:
+            return (
+                f"{field} values must be integer pixel coordinates (no fractional pixels, no bools, "
+                f"no strings); got {v!r}.  Use {field.replace('.box', '.box_norm')} with normalized "
+                "[0..1] values for fractional or sub-pixel-precision geometry."
+            )
+        vals.append(coerced)
     if vals[0] >= vals[2] or vals[1] >= vals[3]:
         return f"{field} requires x1 < x2 and y1 < y2; got {vals}."
     return None
 
 
-def _validate_box_norm(box_norm: Any) -> str | None:
+def _validate_box_norm(box_norm: Any, *, field: str = "params.box_norm") -> str | None:
     """Return an error message string if *box_norm* is not a valid normalized 4-element list."""
     if not isinstance(box_norm, (list, tuple)) or len(box_norm) != 4:
-        return "params.box_norm must be a list of exactly 4 numbers [x1, y1, x2, y2] in range 0..1."
+        return f"{field} must be a list of exactly 4 numbers [x1, y1, x2, y2] in range 0..1."
     try:
         vals = [float(v) for v in box_norm]
     except (TypeError, ValueError):
-        return "params.box_norm values must be numeric."
+        return f"{field} values must be numeric."
     if any(v < 0.0 or v > 1.0 for v in vals):
-        return f"params.box_norm values must be in [0.0, 1.0]; got {vals}."
+        return f"{field} values must be in [0.0, 1.0]; got {vals}."
     if vals[0] >= vals[2] or vals[1] >= vals[3]:
-        return f"params.box_norm requires x1 < x2 and y1 < y2; got {vals}."
+        return f"{field} requires x1 < x2 and y1 < y2; got {vals}."
+    return None
+
+
+_ADJUST_KEYS: frozenset[str] = frozenset({"expand_x", "expand_y", "shift_x", "shift_y"})
+
+# Annotation types the renderer can actually draw.  An unknown type would
+# otherwise resolve geometry, render nothing, and still appear in
+# resolved_annotations — misleading the next turn about what was drawn.
+_ANNOTATION_TYPES: frozenset[str] = frozenset({"highlight", "bbox", "label"})
+
+
+def _validate_adjust(adjust: Any, *, field: str, require_integer: bool = False) -> str | None:
+    """Validate an adjust_norm or adjust_px object shape (does not range-check).
+
+    When ``require_integer`` is True (used for ``adjust_px``), fractional values
+    are rejected: pixel units are naturally whole, and silently truncating a
+    fractional value (e.g. ``shift_x: 0.9`` → ``0``) would erase agent intent.
+    Integer-valued floats like ``5.0`` are accepted to handle JSON's loose
+    int/float distinction.
+    """
+    if adjust is None:
+        return None
+    if not isinstance(adjust, dict):
+        return f"{field} must be a JSON object with optional expand_x, expand_y, shift_x, shift_y."
+    for k, v in adjust.items():
+        if k not in _ADJUST_KEYS:
+            return f"{field} has unknown key {k!r}; allowed: {sorted(_ADJUST_KEYS)}."
+        # Booleans are a subclass of int in Python; reject them explicitly so
+        # adjust values cannot accidentally smuggle non-numeric intent.
+        if isinstance(v, bool):
+            return f"{field}.{k} must be numeric, not bool."
+        try:
+            float(v)
+        except (TypeError, ValueError):
+            return f"{field}.{k} must be numeric."
+        if require_integer and _coerce_pixel_integer(v) is None:
+            return (
+                f"{field}.{k} must be an integer pixel value (no fractional pixels); got {v!r}.  "
+                f"Use {field.replace('adjust_px', 'adjust_norm')} with a box_norm for sub-pixel-precision "
+                "normalized nudges."
+            )
+    return None
+
+
+def _apply_adjust_norm(
+    box_norm: list[float],
+    adjust: dict[str, Any] | None,
+) -> tuple[list[float], dict[str, float]]:
+    """Apply normalized adjustments to a box_norm.  Returns (new_box_norm, applied_dict).
+
+    Semantics (mirroring brief):
+      - expand_x grows both left and right by the given amount (negative shrinks)
+      - expand_y grows both top and bottom by the given amount (negative shrinks)
+      - shift_x positive moves right, negative moves left
+      - shift_y positive moves down, negative moves up
+    Clamping to [0,1] happens after, in the resolver.
+    """
+    applied: dict[str, float] = {}
+    if not isinstance(adjust, dict):
+        return list(box_norm), applied
+    expand_x = float(adjust.get("expand_x", 0.0) or 0.0)
+    expand_y = float(adjust.get("expand_y", 0.0) or 0.0)
+    shift_x = float(adjust.get("shift_x", 0.0) or 0.0)
+    shift_y = float(adjust.get("shift_y", 0.0) or 0.0)
+    x1, y1, x2, y2 = (float(v) for v in box_norm)
+    x1 = x1 - expand_x + shift_x
+    x2 = x2 + expand_x + shift_x
+    y1 = y1 - expand_y + shift_y
+    y2 = y2 + expand_y + shift_y
+    if expand_x:
+        applied["expand_x"] = expand_x
+    if expand_y:
+        applied["expand_y"] = expand_y
+    if shift_x:
+        applied["shift_x"] = shift_x
+    if shift_y:
+        applied["shift_y"] = shift_y
+    return [x1, y1, x2, y2], applied
+
+
+def _apply_adjust_px(
+    box: list[int],
+    adjust: dict[str, Any] | None,
+) -> tuple[list[int], dict[str, int]]:
+    """Apply pixel adjustments to a box.  Returns (new_box, applied_dict)."""
+    applied: dict[str, int] = {}
+    if not isinstance(adjust, dict):
+        return list(box), applied
+    expand_x = int(adjust.get("expand_x", 0) or 0)
+    expand_y = int(adjust.get("expand_y", 0) or 0)
+    shift_x = int(adjust.get("shift_x", 0) or 0)
+    shift_y = int(adjust.get("shift_y", 0) or 0)
+    x1, y1, x2, y2 = (int(v) for v in box)
+    x1 = x1 - expand_x + shift_x
+    x2 = x2 + expand_x + shift_x
+    y1 = y1 - expand_y + shift_y
+    y2 = y2 + expand_y + shift_y
+    if expand_x:
+        applied["expand_x"] = expand_x
+    if expand_y:
+        applied["expand_y"] = expand_y
+    if shift_x:
+        applied["shift_x"] = shift_x
+    if shift_y:
+        applied["shift_y"] = shift_y
+    return [x1, y1, x2, y2], applied
+
+
+def _resolve_box_geometry(
+    *,
+    box: Any = None,
+    box_norm: Any = None,
+    adjust_px: Any = None,
+    adjust_norm: Any = None,
+    image_width: int,
+    image_height: int,
+    field_prefix: str = "params",
+) -> tuple[list[int], dict[str, Any]]:
+    """Resolve final pixel box from inputs and return (box_px, resolved_geometry_dict).
+
+    Accepts either pixel ``box`` or normalized ``box_norm`` (not both — that is an
+    explicit retryable error).  Optionally applies ``adjust_px`` (pixel-form box)
+    or ``adjust_norm`` (norm-form box).  Clamps to image bounds, then validates
+    the final box has strictly positive width and height.  Returns both pixel and
+    normalized forms plus the metadata an agent needs to refine the call.
+
+    Raises ``_TransformParamError`` (retryable) on conflicting inputs, missing
+    inputs, or post-adjustment collapse.
+    """
+    if box is not None and box_norm is not None:
+        raise _TransformParamError(
+            f"{field_prefix}: provide either box or box_norm, not both.",
+            repair_hint=f"Choose one geometry form: remove {field_prefix}.box or {field_prefix}.box_norm.",
+        )
+    if box is None and box_norm is None:
+        raise _TransformParamError(
+            f"{field_prefix} requires box or box_norm.",
+            repair_hint=(
+                f"Provide {field_prefix}.box = [x1, y1, x2, y2] (pixel) or "
+                f"{field_prefix}.box_norm = [x1, y1, x2, y2] (normalized 0..1)."
+            ),
+        )
+
+    original_input: dict[str, Any] = {}
+    adjustments_applied: dict[str, Any] = {}
+
+    if box_norm is not None:
+        vals_n = [float(v) for v in box_norm]
+        original_input["box_norm"] = list(vals_n)
+        if adjust_norm is not None:
+            vals_n, applied_norm = _apply_adjust_norm(vals_n, adjust_norm)
+            if applied_norm:
+                adjustments_applied["adjust_norm"] = applied_norm
+        # Clamp to [0,1]
+        vals_n = [max(0.0, min(1.0, v)) for v in vals_n]
+        # Check positive area in norm space before converting
+        if vals_n[0] >= vals_n[2] or vals_n[1] >= vals_n[3]:
+            raise _TransformParamError(
+                f"{field_prefix}: adjusted box_norm collapsed to zero/negative area; got {vals_n}.",
+                repair_hint=(
+                    "Reduce shrink magnitudes (negative expand_*) or shift magnitudes so the final "
+                    "box keeps x1<x2 and y1<y2 after clamping to [0,1]."
+                ),
+            )
+        # ``round()`` (not ``int``) tolerates floating-point noise from adjust math
+        # (e.g. 0.3 - 0.1 = 0.19999999999...) and preserves the agent's intended
+        # box edges.  Truncation here would silently shift edges by 1 px under FP drift.
+        px = [
+            round(vals_n[0] * image_width),
+            round(vals_n[1] * image_height),
+            round(vals_n[2] * image_width),
+            round(vals_n[3] * image_height),
+        ]
+    else:
+        px = [int(v) for v in box]
+        original_input["box"] = list(px)
+        if adjust_px is not None:
+            px, applied_px = _apply_adjust_px(px, adjust_px)
+            if applied_px:
+                adjustments_applied["adjust_px"] = applied_px
+        # Clamp to image bounds
+        px = [
+            max(0, min(image_width, px[0])),
+            max(0, min(image_height, px[1])),
+            max(0, min(image_width, px[2])),
+            max(0, min(image_height, px[3])),
+        ]
+
+    if px[0] >= px[2] or px[1] >= px[3]:
+        raise _TransformParamError(
+            f"{field_prefix}: resolved pixel box collapsed to zero/negative area after clamping; got {px}.",
+            repair_hint=(
+                "Choose a region inside the image with strictly positive width and height after "
+                "any adjustments.  Image bounds are [0,0,width,height]."
+            ),
+        )
+
+    # Compute resolved normalized form from the final pixel box (canonical roundtrip).
+    safe_w = image_width if image_width > 0 else 1
+    safe_h = image_height if image_height > 0 else 1
+    resolved_norm = [
+        round(px[0] / safe_w, 6),
+        round(px[1] / safe_h, 6),
+        round(px[2] / safe_w, 6),
+        round(px[3] / safe_h, 6),
+    ]
+
+    geometry: dict[str, Any] = {
+        "box": list(px),
+        "box_norm": resolved_norm,
+        "source_width_height": [image_width, image_height],
+        "input": original_input,
+    }
+    if adjustments_applied:
+        geometry["adjustments_applied"] = adjustments_applied
+    return list(px), geometry
+
+
+def _validate_box_inputs(params: dict[str, Any], *, field_prefix: str = "params") -> dict[str, Any] | None:
+    """Validate box/box_norm/adjust_px/adjust_norm shape on a params dict.
+
+    Returns a retryable param-error result if anything is fixably wrong, else None.
+    Does not require either box or box_norm to be present (callers decide that).
+
+    Adjustment forms must match the geometry form so the agent's nudge is never
+    silently dropped:
+      - ``box``      ↔ ``adjust_px`` only
+      - ``box_norm`` ↔ ``adjust_norm`` only
+      - ``adjust_*`` without any box geometry is rejected
+    """
+    box = params.get("box")
+    box_norm = params.get("box_norm")
+    has_adjust_norm = "adjust_norm" in params and params.get("adjust_norm") is not None
+    has_adjust_px = "adjust_px" in params and params.get("adjust_px") is not None
+
+    if box is not None and box_norm is not None:
+        return _param_error(
+            "invalid_transform_params",
+            f"{field_prefix}: provide either box or box_norm, not both.",
+            repair_hint=f"Choose one geometry form: remove {field_prefix}.box or {field_prefix}.box_norm.",
+        )
+
+    # Mismatched adjustment forms — agent's nudge would be silently dropped otherwise.
+    if box is not None and has_adjust_norm:
+        return _param_error(
+            "invalid_transform_params",
+            f"{field_prefix}: adjust_norm cannot be used with pixel box.  Use adjust_px instead.",
+            repair_hint=(
+                f"Either change {field_prefix}.box → {field_prefix}.box_norm to keep "
+                f"{field_prefix}.adjust_norm, or replace {field_prefix}.adjust_norm with "
+                f"{field_prefix}.adjust_px (integer expand_x/expand_y/shift_x/shift_y in pixels)."
+            ),
+        )
+    if box_norm is not None and has_adjust_px:
+        return _param_error(
+            "invalid_transform_params",
+            f"{field_prefix}: adjust_px cannot be used with normalized box_norm.  Use adjust_norm instead.",
+            repair_hint=(
+                f"Either change {field_prefix}.box_norm → {field_prefix}.box to keep "
+                f"{field_prefix}.adjust_px, or replace {field_prefix}.adjust_px with "
+                f"{field_prefix}.adjust_norm (numeric expand_x/expand_y/shift_x/shift_y in 0..1 units)."
+            ),
+        )
+    if box is None and box_norm is None and (has_adjust_norm or has_adjust_px):
+        return _param_error(
+            "invalid_transform_params",
+            f"{field_prefix}: adjust_norm/adjust_px requires a box or box_norm to nudge.",
+            repair_hint=(
+                f"Provide {field_prefix}.box or {field_prefix}.box_norm so the adjustment has a target, "
+                "or remove the adjust_* object."
+            ),
+        )
+
+    if box is not None:
+        err = _validate_box(box, field=f"{field_prefix}.box")
+        if err:
+            return _param_error(
+                "invalid_transform_params", err,
+                repair_hint=f"Use {field_prefix}.box = [x1, y1, x2, y2] with integer pixel coordinates.",
+            )
+    if box_norm is not None:
+        err = _validate_box_norm(box_norm, field=f"{field_prefix}.box_norm")
+        if err:
+            return _param_error(
+                "invalid_transform_params", err,
+                repair_hint=(
+                    f"Use {field_prefix}.box_norm = [x1, y1, x2, y2] where all values are in [0.0, 1.0] "
+                    "and x1<x2, y1<y2.  Example: [0.0, 0.5, 1.0, 1.0] crops the bottom half."
+                ),
+            )
+    if has_adjust_norm:
+        err = _validate_adjust(params.get("adjust_norm"), field=f"{field_prefix}.adjust_norm")
+        if err:
+            return _param_error(
+                "invalid_transform_params", err,
+                repair_hint=(
+                    f"{field_prefix}.adjust_norm accepts optional numeric expand_x, expand_y, shift_x, "
+                    "shift_y in normalized [0..1] units.  Positive expand_* grows the box on both sides; "
+                    "positive shift_x/y moves right/down."
+                ),
+            )
+    if has_adjust_px:
+        err = _validate_adjust(
+            params.get("adjust_px"), field=f"{field_prefix}.adjust_px", require_integer=True
+        )
+        if err:
+            return _param_error(
+                "invalid_transform_params", err,
+                repair_hint=(
+                    f"{field_prefix}.adjust_px accepts optional integer expand_x, expand_y, shift_x, "
+                    "shift_y in pixel units.  Positive expand_* grows the box on both sides; "
+                    "positive shift_x/y moves right/down.  For sub-pixel-precision nudges, switch "
+                    f"to {field_prefix}.box_norm + {field_prefix}.adjust_norm with normalized values."
+                ),
+            )
     return None
 
 
@@ -185,28 +527,107 @@ def _validate_params(sub_action: str, params: dict[str, Any]) -> dict[str, Any] 
                 repair_hint=(
                     "Provide params.box with absolute pixel coordinates, e.g. {\"box\": [100, 200, 400, 600]}, "
                     "or params.box_norm with normalized coordinates where 0.0 is the start and 1.0 is the end of that axis, "
-                    "e.g. {\"box_norm\": [0.0, 0.5, 1.0, 1.0]} crops the bottom half."
+                    "e.g. {\"box_norm\": [0.0, 0.5, 1.0, 1.0]} crops the bottom half.  "
+                    "Optionally include adjust_norm or adjust_px with expand_x/expand_y/shift_x/shift_y "
+                    "to nudge the box without recomputing coordinates from scratch."
                 ),
             )
-        if box is not None:
-            err = _validate_box(box, field="params.box")
+        err = _validate_box_inputs(params, field_prefix="params")
+        if err:
+            return err
+    if sub_action == "zoom":
+        # zoom accepts box, box_norm, or factor-only.  At least one must be present.
+        box = params.get("box")
+        box_norm = params.get("box_norm")
+        factor = params.get("factor")
+        if box is None and box_norm is None and factor is None:
+            # Factor defaults to 2.0 when nothing is supplied — preserves existing behavior.
+            pass
+        if box is not None or box_norm is not None or "adjust_norm" in params or "adjust_px" in params:
+            err = _validate_box_inputs(params, field_prefix="params")
             if err:
+                return err
+        if factor is not None:
+            try:
+                fval = float(factor)
+            except (TypeError, ValueError):
                 return _param_error(
                     "invalid_transform_params",
-                    err,
-                    repair_hint="Use params.box = [x1, y1, x2, y2] with integer pixel coordinates.",
+                    "params.factor must be numeric.",
+                    repair_hint="Use params.factor = 2.0 (or another positive scale) for factor-only zoom.",
                 )
-        if box_norm is not None:
-            err = _validate_box_norm(box_norm)
-            if err:
+            if fval <= 0.0:
                 return _param_error(
                     "invalid_transform_params",
-                    err,
+                    f"params.factor must be > 0; got {fval}.",
+                    repair_hint="Use a positive scale factor such as 1.5 or 2.0.",
+                )
+    if sub_action == "annotate":
+        annotations = params.get("annotations")
+        if annotations is None:
+            return _param_error(
+                "invalid_transform_params",
+                "annotate requires params.annotations as a non-empty list of annotation objects.",
+                repair_hint=(
+                    "Provide params.annotations = [{type: 'bbox'|'highlight'|'label', "
+                    "box: [x1,y1,x2,y2] OR box_norm: [x1,y1,x2,y2], color: [R,G,B], text?: str, "
+                    "adjust_px?: {...}, adjust_norm?: {...}}]."
+                ),
+            )
+        if not isinstance(annotations, list):
+            return _param_error(
+                "invalid_transform_params",
+                "params.annotations must be a list.",
+                repair_hint="Wrap annotation objects in a JSON array.",
+            )
+        for i, ann in enumerate(annotations):
+            if not isinstance(ann, dict):
+                return _param_error(
+                    "invalid_transform_params",
+                    f"params.annotations[{i}] must be a JSON object.",
+                    repair_hint="Each annotation is an object with type and box or box_norm.",
+                )
+            # Validate annotation type — unknown types would otherwise render nothing
+            # but still appear in resolved_annotations, misleading the next turn.
+            # Annotations without any geometry are intentionally permitted (skipped
+            # silently in the apply path); type still must be valid when it is given.
+            ann_type_raw = ann.get("type")
+            if ann_type_raw is None or not isinstance(ann_type_raw, str) or not ann_type_raw.strip():
+                return _param_error(
+                    "invalid_transform_params",
+                    f"params.annotations[{i}].type is required.",
+                    repair_hint="Set type to 'highlight', 'bbox', or 'label'.",
+                )
+            ann_type = ann_type_raw.strip().lower()
+            if ann_type not in _ANNOTATION_TYPES:
+                return _param_error(
+                    "invalid_transform_params",
+                    f"params.annotations[{i}].type must be one of "
+                    f"{sorted(_ANNOTATION_TYPES)}; got {ann_type_raw!r}.",
                     repair_hint=(
-                        "Use params.box_norm = [x1, y1, x2, y2] where all values are between 0.0 and 1.0 "
-                        "and x1 < x2, y1 < y2. Example: [0.0, 0.5, 1.0, 1.0] crops the bottom half."
+                        "Use type 'highlight' (filled rectangle), 'bbox' (outline), "
+                        "or 'label' (text at the top-left of the box)."
                     ),
                 )
+            # ``label`` annotations require non-empty text — without it the renderer
+            # draws nothing but would still report a resolved annotation, mis-signalling
+            # to the next turn that a visual label exists.
+            if ann_type == "label":
+                text_raw = ann.get("text")
+                if not isinstance(text_raw, str) or not text_raw.strip():
+                    return _param_error(
+                        "invalid_transform_params",
+                        f"params.annotations[{i}].text is required and must be a non-empty string "
+                        "when type == 'label'.",
+                        repair_hint=(
+                            f"Provide params.annotations[{i}].text with the label text to render at "
+                            "the top-left of the box, e.g. {\"type\": \"label\", \"box_norm\": [...], "
+                            "\"text\": \"Section 2\"}."
+                        ),
+                    )
+            err = _validate_box_inputs(ann, field_prefix=f"params.annotations[{i}]")
+            if err:
+                return err
     if sub_action == "render_evidence_locators":
         locators = params.get("locators")
         if not isinstance(locators, list) or not locators:
@@ -263,23 +684,17 @@ def _apply_transform(
     transform_metadata: dict[str, Any] = {}
 
     if sub_action == "crop":
-        box = params.get("box")
-        box_norm = params.get("box_norm")
-        if box is None and box_norm is not None:
-            # Convert normalized [0..1] coordinates to pixel coordinates using source dimensions.
-            vals = [float(v) for v in box_norm]
-            box = [
-                int(vals[0] * img.width),
-                int(vals[1] * img.height),
-                int(vals[2] * img.width),
-                int(vals[3] * img.height),
-            ]
-        if not isinstance(box, (list, tuple)) or len(box) != 4:
-            raise _TransformParamError(
-                "crop requires params.box = [x1, y1, x2, y2] or params.box_norm = [x1, y1, x2, y2].",
-                repair_hint="Provide params.box (pixel coords) or params.box_norm (normalized 0..1 coords).",
-            )
-        img = img.crop(tuple(int(v) for v in box))
+        resolved_box, geo = _resolve_box_geometry(
+            box=params.get("box"),
+            box_norm=params.get("box_norm"),
+            adjust_px=params.get("adjust_px"),
+            adjust_norm=params.get("adjust_norm"),
+            image_width=img.width,
+            image_height=img.height,
+            field_prefix="params",
+        )
+        img = img.crop(tuple(resolved_box))
+        transform_metadata["resolved_geometry"] = geo
 
     elif sub_action == "expand":
         padding = params.get("padding", [0, 0, 0, 0])
@@ -296,14 +711,40 @@ def _apply_transform(
         img = out
 
     elif sub_action == "zoom":
+        # Three accepted shapes:
+        #   1. box (+ optional adjust_px) + optional factor: crop to box, then scale by factor (default 1.0)
+        #   2. box_norm (+ optional adjust_norm) + optional factor: crop to normalized box, then scale by factor
+        #   3. factor only: scale the whole image (preserves prior factor-only behavior)
         box = params.get("box")
-        if box and isinstance(box, (list, tuple)) and len(box) == 4:
-            img = img.crop(tuple(int(v) for v in box))
+        box_norm = params.get("box_norm")
+        factor_raw = params.get("factor")
+        has_box_input = box is not None or box_norm is not None
+        if has_box_input:
+            resolved_box, geo = _resolve_box_geometry(
+                box=box,
+                box_norm=box_norm,
+                adjust_px=params.get("adjust_px"),
+                adjust_norm=params.get("adjust_norm"),
+                image_width=img.width,
+                image_height=img.height,
+                field_prefix="params",
+            )
+            img = img.crop(tuple(resolved_box))
+            # After cropping, optional factor scales the cropped region.
+            zoom_factor = float(factor_raw) if factor_raw is not None else 1.0
+            if zoom_factor != 1.0:
+                new_w = max(1, int(img.width * zoom_factor))
+                new_h = max(1, int(img.height * zoom_factor))
+                img = img.resize((new_w, new_h), Image.LANCZOS)  # type: ignore[attr-defined]
+                geo["factor_applied"] = zoom_factor
+            transform_metadata["resolved_geometry"] = geo
         else:
-            factor = float(params.get("factor", 2.0))
-            new_w = max(1, int(img.width * factor))
-            new_h = max(1, int(img.height * factor))
+            # Factor-only zoom — no box geometry to resolve.
+            zoom_factor = float(factor_raw) if factor_raw is not None else 2.0
+            new_w = max(1, int(img.width * zoom_factor))
+            new_h = max(1, int(img.height * zoom_factor))
             img = img.resize((new_w, new_h), Image.LANCZOS)  # type: ignore[attr-defined]
+            transform_metadata["factor_applied"] = zoom_factor
 
     elif sub_action == "reference_overlay":
         # Draw a deterministic grid with labeled coordinates so the model can select
@@ -362,18 +803,33 @@ def _apply_transform(
     elif sub_action == "annotate":
         annotations = params.get("annotations", [])
         if not isinstance(annotations, list):
-            raise ValueError("annotate requires params.annotations = list of annotation objects")
+            raise _TransformParamError(
+                "params.annotations must be a list of annotation objects.",
+                repair_hint="Wrap annotation objects in a JSON array.",
+            )
         img = img.convert("RGBA")
         overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
         draw = ImageDraw.Draw(overlay)
-        for ann in annotations:
+        resolved_annotations: list[dict[str, Any]] = []
+        for ann_idx, ann in enumerate(annotations):
             if not isinstance(ann, dict):
                 continue
             ann_type = str(ann.get("type") or "").lower()
-            box = ann.get("box")
-            if not box or not isinstance(box, (list, tuple)) or len(box) != 4:
+            has_box = ann.get("box") is not None
+            has_box_norm = ann.get("box_norm") is not None
+            if not has_box and not has_box_norm:
+                # Skip annotations with no geometry — consistent with prior behavior.
                 continue
-            b = tuple(int(v) for v in box)
+            resolved_box, geo = _resolve_box_geometry(
+                box=ann.get("box"),
+                box_norm=ann.get("box_norm"),
+                adjust_px=ann.get("adjust_px"),
+                adjust_norm=ann.get("adjust_norm"),
+                image_width=img.width,
+                image_height=img.height,
+                field_prefix=f"params.annotations[{ann_idx}]",
+            )
+            b = tuple(resolved_box)
             color = ann.get("color", (255, 255, 0))
             if isinstance(color, list):
                 color = tuple(color)
@@ -389,7 +845,14 @@ def _apply_transform(
                 text = str(ann.get("text", ""))
                 if text:
                     draw.text((b[0], max(0, b[1] - 16)), text, fill=(255, 0, 0, 255))
+            resolved_annotations.append({
+                "index": ann_idx,
+                "type": ann_type,
+                "resolved_geometry": geo,
+            })
         img = Image.alpha_composite(img, overlay).convert("RGB")
+        if resolved_annotations:
+            transform_metadata["resolved_annotations"] = resolved_annotations
 
     elif sub_action == "render_evidence_locators":
         plan = build_locator_render_plan(
