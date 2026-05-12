@@ -114,6 +114,7 @@ class PromptObservabilitySummary(BaseModel):
     repair_ready_without_artifact_write_count: int = Field(default=0, ge=0)
     hitl_evidence_readiness_debt_count: int = Field(default=0, ge=0)
     post_hitl_spin_count: int = Field(default=0, ge=0)
+    post_write_artifact_consistency_check_count: int = Field(default=0, ge=0)
     covered_unit_count: int = Field(default=0, ge=0)
     covered_units_with_candidates_count: int = Field(default=0, ge=0)
     closed_candidate_units_missing_determined_value_count: int = Field(default=0, ge=0)

@@ -545,6 +545,52 @@ def test_timeline_renders_covered_unit_work_graph_value_fields(tmp_path: Path) -
     assert "evidence: image:derived:crop-nw" in body
 
 
+def test_timeline_renders_top_level_item_work_graph_value_fields(tmp_path: Path) -> None:
+    writer = RunAuditWriter(tmp_path / "run1")
+    writer.observe_llm_io({"turn_index": 1, "parse_ok": True})
+    writer.observe_turn_completed(
+        {
+            "turn_index": 1,
+            "tool_request": None,
+            "tool_result_raw": None,
+            "resolution_state_after": {
+                "items": [
+                    {
+                        "item_id": "parcel1-bearing",
+                        "title": "Parcel 1 bearing",
+                        "kind": "claim",
+                        "status": "closed",
+                        "determination": "earned",
+                        "label": "P1 bearing",
+                        "value_kind": "bearing",
+                        "candidate_values": ["N.2\u00b000'W.", "N.4\u00b000'W."],
+                        "determined_value": "N.4\u00b000'W.",
+                        "evidence_refs": ["image:derived:crop-bearing"],
+                        "evidence_locators": [
+                            {
+                                "ref_id": "image:derived:crop-bearing",
+                                "locator_kind": "image_region",
+                                "box_norm": [0.1, 0.2, 0.4, 0.5],
+                            }
+                        ],
+                    }
+                ],
+            },
+            "latest_refs_after": {},
+            "state_patch_feedback": {"outcome": "applied"},
+        }
+    )
+    body = _timeline_path(tmp_path / "run1").read_text(encoding="utf-8")
+    assert "Work Graph" in body
+    assert "parcel1-bearing" in body
+    assert "label: P1 bearing" in body
+    assert "value_kind: bearing" in body
+    assert "candidates: N.2\u00b000'W.; N.4\u00b000'W." in body
+    assert "determined: N.4\u00b000'W." in body
+    assert "evidence: image:derived:crop-bearing" in body
+    assert "evidence_locators: 1 (image_region)" in body
+
+
 def test_timeline_renders_saved_artifact_payload_section(tmp_path: Path) -> None:
     writer = RunAuditWriter(tmp_path / "run1")
     draft_payload = {

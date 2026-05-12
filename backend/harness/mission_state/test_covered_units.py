@@ -37,6 +37,26 @@ def test_resolution_item_default_covered_units_is_empty_list() -> None:
     assert item.covered_units == []
 
 
+def test_resolution_item_accepts_work_graph_value_fields() -> None:
+    item = ResolutionItem.model_validate(
+        {
+            "item_id": "i1",
+            "title": "NW corner bearing",
+            "kind": "claim",
+            "status": "closed",
+            "determination": "earned",
+            "label": "NW corner bearing",
+            "value_kind": "bearing",
+            "candidate_values": ["N 2° 00' W", "N 4° 00' W"],
+            "determined_value": "N 4° 00' W",
+        }
+    )
+    assert item.label == "NW corner bearing"
+    assert item.value_kind == "bearing"
+    assert item.candidate_values == ["N 2° 00' W", "N 4° 00' W"]
+    assert item.determined_value == "N 4° 00' W"
+
+
 def test_covered_unit_accepts_work_graph_value_fields() -> None:
     unit = ResolutionCoveredUnit.model_validate(
         {

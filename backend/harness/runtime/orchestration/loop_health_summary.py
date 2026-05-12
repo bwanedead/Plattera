@@ -160,6 +160,9 @@ def build_prompt_observability_summary(
         pending_hitl_requests=pending_hitl_requests,
     )
     post_hitl_spin_count = _post_hitl_spin_count(step_records)
+    post_write_artifact_consistency_check_count = _post_write_artifact_consistency_check_count(
+        step_records
+    )
     artifact_state_dirty_since_write_count = _artifact_state_dirty_since_write_count(step_records)
     substantial_artifact_output_count = _substantial_artifact_output_count(
         step_result_records,
@@ -274,6 +277,7 @@ def build_prompt_observability_summary(
         "repair_ready_without_artifact_write_count": repair_ready_without_artifact_write_count,
         "hitl_evidence_readiness_debt_count": hitl_evidence_readiness_debt_count,
         "post_hitl_spin_count": post_hitl_spin_count,
+        "post_write_artifact_consistency_check_count": post_write_artifact_consistency_check_count,
         "recent_result_truncated_count": recent_result_truncated_count,
         "substantial_artifact_output_count": substantial_artifact_output_count,
         "covered_unit_count": covered_units_metrics["covered_unit_count"],
@@ -385,6 +389,7 @@ def build_prompt_observability_summary(
         repair_ready_without_artifact_write_count=repair_ready_without_artifact_write_count,
         hitl_evidence_readiness_debt_count=hitl_evidence_readiness_debt_count,
         post_hitl_spin_count=post_hitl_spin_count,
+        post_write_artifact_consistency_check_count=post_write_artifact_consistency_check_count,
         recent_result_truncated_count=recent_result_truncated_count,
         artifact_claim_inventory_suspect_count=artifact_claim_inventory_suspect_count,
         closed_candidate_units_missing_determined_value_count=covered_units_metrics[
@@ -1069,6 +1074,23 @@ def _post_hitl_spin_count(step_records: list[dict[str, Any]]) -> int:
     return spin_count
 
 
+def _post_write_artifact_consistency_check_count(step_records: list[dict[str, Any]]) -> int:
+    """One-turn advisory after a successful save-like artifact write.
+
+    This is a reminder, not a gate: the agent should compare the saved revision
+    against compact earned/determined atoms using the write result when possible.
+    """
+    if not step_records:
+        return 0
+    latest = step_records[-1]
+    action_type = _as_optional_text(latest.get("action_type"))
+    if action_type not in _ARTIFACT_REFRESH_TRAP_SAVE_ACTION_TYPES:
+        return 0
+    if _as_optional_text(latest.get("execution_state")) != "executed":
+        return 0
+    return 1
+
+
 def _artifact_state_dirty_since_write_count(step_records: list[dict[str, Any]]) -> int:
     """Count turns since last materializing write when work state has changed after it."""
     if len(step_records) < 2:
@@ -1545,6 +1567,7 @@ def _mechanical_flags(
     repair_ready_without_artifact_write_count: int = 0,
     hitl_evidence_readiness_debt_count: int = 0,
     post_hitl_spin_count: int = 0,
+    post_write_artifact_consistency_check_count: int = 0,
     recent_result_truncated_count: int = 0,
     artifact_claim_inventory_suspect_count: int = 0,
     closed_candidate_units_missing_determined_value_count: int = 0,
@@ -1622,6 +1645,10 @@ def _mechanical_flags(
         flags.append(f"hitl_evidence_readiness_debt:{hitl_evidence_readiness_debt_count}")
     if post_hitl_spin_count >= _POST_HITL_SPIN_MIN_TURNS:
         flags.append(f"post_hitl_spin:{post_hitl_spin_count}")
+    if post_write_artifact_consistency_check_count > 0:
+        flags.append(
+            f"post_write_artifact_consistency_check:{post_write_artifact_consistency_check_count}"
+        )
     if closed_candidate_units_missing_determined_value_count > 0:
         flags.append(
             f"closed_candidate_unit_missing_determined_value:{closed_candidate_units_missing_determined_value_count}"

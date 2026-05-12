@@ -912,6 +912,59 @@ def test_covered_units_accept_work_graph_value_fields_and_overlay() -> None:
     assert unit3.title == "NW bearing"
 
 
+def test_resolution_items_accept_work_graph_value_fields_and_overlay() -> None:
+    ms, rs = _base_states()
+    _, rs2, _ = apply_state_patch(
+        mission_state=ms,
+        resolution_state=rs,
+        state_patch={
+            "resolution": {
+                "items": [
+                    {
+                        "item_id": "i1",
+                        "title": "NW bearing",
+                        "kind": "claim",
+                        "status": "open",
+                        "label": "NW bearing",
+                        "value_kind": "bearing",
+                        "candidate_values": ["N 2 W", "N 4 W"],
+                    }
+                ],
+            }
+        },
+    )
+    item = rs2.items[0]
+    assert item.label == "NW bearing"
+    assert item.value_kind == "bearing"
+    assert item.candidate_values == ["N 2 W", "N 4 W"]
+    assert item.determined_value is None
+
+    _, rs3, _ = apply_state_patch(
+        mission_state=ms,
+        resolution_state=rs2,
+        state_patch={
+            "resolution": {
+                "items": [
+                    {
+                        "item_id": "i1",
+                        "status": "closed",
+                        "determination": "earned",
+                        "determined_value": "N 4 W",
+                    }
+                ],
+            }
+        },
+    )
+    item3 = rs3.items[0]
+    assert item3.status == "closed"
+    assert item3.determination == "earned"
+    assert item3.determined_value == "N 4 W"
+    assert item3.label == "NW bearing"
+    assert item3.value_kind == "bearing"
+    assert item3.candidate_values == ["N 2 W", "N 4 W"]
+    assert item3.title == "NW bearing"
+
+
 def test_covered_units_candidate_values_replaced_when_supplied() -> None:
     ms, rs = _base_states()
     _, rs2, _ = apply_state_patch(

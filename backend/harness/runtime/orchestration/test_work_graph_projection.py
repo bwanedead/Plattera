@@ -32,6 +32,10 @@ def test_closed_item_projects_compactly_and_omits_long_prose() -> None:
                 "kind": "claim",
                 "status": "closed",
                 "determination": "earned",
+                "label": "Closed value",
+                "value_kind": "identifier",
+                "candidate_values": ["A", "B"],
+                "determined_value": "A",
                 "summary": LONG_NOTEBOOK_PROSE,
                 "notes": LONG_NOTEBOOK_PROSE,
                 "verification_basis": LONG_NOTEBOOK_PROSE,
@@ -76,6 +80,10 @@ def test_closed_item_projects_compactly_and_omits_long_prose() -> None:
 
     assert item["item_id"] == "closed-a"
     assert "id" not in item
+    assert item["label"] == "Closed value"
+    assert item["value_kind"] == "identifier"
+    assert item["candidate_values"] == ["A", "B"]
+    assert item["determined_value"] == "A"
     assert item["closure_summary"] == "Verified by direct evidence."
     assert item["reopen_triggers"] == ["conflicting source appears"]
     assert item["evidence_refs"] == ["artifact://evidence-a"]

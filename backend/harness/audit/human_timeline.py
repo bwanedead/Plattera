@@ -721,12 +721,48 @@ def _render_work_graph(turn: Mapping[str, Any]) -> list[str]:
         label_or_title = item.get("title") or item.get("item_id")
         if isinstance(label_or_title, str) and label_or_title.strip():
             lines.append(f"      title: {label_or_title}")
+        if _has_work_graph_value_fields(item):
+            lines.extend(_render_work_graph_value_fields(item, indent="      "))
         covered_units = item.get("covered_units")
         if isinstance(covered_units, list) and covered_units:
             for unit in covered_units:
                 unit = _coerce_mapping(unit)
                 lines.extend(_render_work_graph_unit(unit))
     lines.append("")
+    return lines
+
+
+def _has_work_graph_value_fields(row: Mapping[str, Any]) -> bool:
+    return any(
+        row.get(key) not in (None, "", [], {})
+        for key in ("label", "value_kind", "candidate_values", "determined_value")
+    )
+
+
+def _render_work_graph_value_fields(row: Mapping[str, Any], *, indent: str) -> list[str]:
+    lines: list[str] = []
+    label = row.get("label")
+    if isinstance(label, str) and label.strip():
+        lines.append(f"{indent}label: {label}")
+    if row.get("value_kind"):
+        lines.append(f"{indent}value_kind: {row['value_kind']}")
+    candidates = row.get("candidate_values")
+    if isinstance(candidates, list) and candidates:
+        joined = "; ".join(str(c) for c in candidates[:16])
+        lines.append(f"{indent}candidates: {joined}")
+    determined = row.get("determined_value")
+    if isinstance(determined, str) and determined.strip():
+        lines.append(f"{indent}determined: {_bound_text(determined, 240)}")
+    refs = row.get("evidence_refs")
+    if isinstance(refs, list) and refs:
+        joined_refs = ", ".join(str(r) for r in refs[:8])
+        lines.append(f"{indent}evidence: {joined_refs}")
+    locators = row.get("evidence_locators")
+    if isinstance(locators, list) and locators:
+        kinds = ", ".join(
+            str(_coerce_mapping(loc).get("locator_kind") or "?") for loc in locators[:8]
+        )
+        lines.append(f"{indent}evidence_locators: {len(locators)} ({kinds})")
     return lines
 
 

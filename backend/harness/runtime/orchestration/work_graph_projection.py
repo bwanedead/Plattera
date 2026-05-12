@@ -81,6 +81,14 @@ def _project_item(item: Any, *, active_item_id: str | None) -> dict[str, Any]:
         "status": payload.get("status"),
     }
     _copy_if_present(row, payload, "determination")
+    for key in (
+        "label",
+        "value_kind",
+        "candidate_values",
+        "determined_value",
+        "materiality",
+    ):
+        _copy_if_present(row, payload, key)
     _copy_if_present(row, payload, "structure_kind")
     _copy_if_present(row, payload, "blocking")
     _copy_if_present(row, payload, "requires_hitl")

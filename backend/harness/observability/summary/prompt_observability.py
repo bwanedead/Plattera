@@ -21,6 +21,7 @@ _ZERO_INT_FIELDS = (
     "repair_ready_without_artifact_write_count",
     "hitl_evidence_readiness_debt_count",
     "post_hitl_spin_count",
+    "post_write_artifact_consistency_check_count",
     "covered_unit_count",
     "covered_units_with_candidates_count",
     "closed_candidate_units_missing_determined_value_count",

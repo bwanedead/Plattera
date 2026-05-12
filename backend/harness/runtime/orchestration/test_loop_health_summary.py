@@ -2436,7 +2436,35 @@ def test_artifact_state_dirty_since_write_suppressed_when_latest_save_is_fresh()
     assert not any(f.startswith("artifact_state_dirty_since_write:") for f in result["mechanical_flags"])
 
 
-def test_artifact_state_dirty_since_write_typed_and_compact_projection() -> None:
+def test_post_write_artifact_consistency_check_fires_after_successful_save() -> None:
+    records = [
+        _step_record(1, action_type="hydrate_artifact_refs", work_state_signature="old"),
+        _step_record(
+            2,
+            action_type="copy_forward_save_workspace_artifact",
+            execution_state="executed",
+            work_state_signature="new",
+        ),
+    ]
+    result = build_prompt_observability_summary(_mem(step_records=records))
+    assert result["post_write_artifact_consistency_check_count"] == 1
+    assert "post_write_artifact_consistency_check:1" in result["mechanical_flags"]
+
+
+def test_post_write_artifact_consistency_check_is_one_turn_only() -> None:
+    records = [
+        _step_record(1, action_type="save_workspace_artifact", work_state_signature="saved"),
+        _step_record(2, action_type="no_dispatch", work_state_signature="saved"),
+    ]
+    result = build_prompt_observability_summary(_mem(step_records=records))
+    assert result["post_write_artifact_consistency_check_count"] == 0
+    assert not any(
+        f.startswith("post_write_artifact_consistency_check:")
+        for f in result["mechanical_flags"]
+    )
+
+
+def test_artifact_consistency_counters_typed_and_compact_projection() -> None:
     from harness.observability.summary.prompt_observability import (
         _prompt_observability_summary_from_payload,
     )
@@ -2445,17 +2473,32 @@ def test_artifact_state_dirty_since_write_typed_and_compact_projection() -> None
     )
 
     summary = _prompt_observability_summary_from_payload(
-        {"prompt_observability_summary": {"artifact_state_dirty_since_write_count": 4}}
+        {
+            "prompt_observability_summary": {
+                "artifact_state_dirty_since_write_count": 4,
+                "post_write_artifact_consistency_check_count": 1,
+            }
+        }
     )
     assert summary.artifact_state_dirty_since_write_count == 4
+    assert summary.post_write_artifact_consistency_check_count == 1
 
     compact = _compact_prompt_observability_summary(
-        {"artifact_state_dirty_since_write_count": 4}
+        {
+            "artifact_state_dirty_since_write_count": 4,
+            "post_write_artifact_consistency_check_count": 1,
+        }
     )
     assert compact["artifact_state_dirty_since_write_count"] == 4
-    assert "artifact_state_dirty_since_write_count" not in _compact_prompt_observability_summary(
-        {"artifact_state_dirty_since_write_count": 0}
+    assert compact["post_write_artifact_consistency_check_count"] == 1
+    zero_compact = _compact_prompt_observability_summary(
+        {
+            "artifact_state_dirty_since_write_count": 0,
+            "post_write_artifact_consistency_check_count": 0,
+        }
     )
+    assert "artifact_state_dirty_since_write_count" not in zero_compact
+    assert "post_write_artifact_consistency_check_count" not in zero_compact
 
 
 # ---------------------------------------------------------------------------
