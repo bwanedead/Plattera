@@ -38,6 +38,7 @@ _ZERO_INT_FIELDS = (
     "answered_hitl_unconsumed_count",
     "complete_with_unconsumed_hitl_count",
     "hitl_consumed_unknown_prompt_count",
+    "artifact_state_dirty_since_write_count",
     "success_condition_count",
     "success_conditions_with_earned_determination_count",
     "success_conditions_with_verification_basis_count",

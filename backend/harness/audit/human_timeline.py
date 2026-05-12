@@ -257,7 +257,8 @@ def _final_artifact_projection(
     result = _coerce_mapping(materialized_turn.get("tool_result_raw"))
     artifact_refs = result.get("artifact_refs") or []
     outputs = _coerce_mapping(result.get("outputs"))
-    payload_inputs = _artifact_action_inputs(materialized_turn)
+    payload_turn = _published_source_turn(turns, materialized_turn) or materialized_turn
+    payload_inputs = _artifact_action_inputs(payload_turn)
     draft_payload = payload_inputs.get("draft_payload")
     transcript_text = payload_inputs.get("transcript_text")
     lines: list[str] = [f"- posture: {posture}"]
@@ -275,6 +276,43 @@ def _final_artifact_projection(
         lines.extend(f"  - {line}" for line in payload_summary)
     lines.extend(_render_final_text_lanes(draft_payload, transcript_text))
     return lines
+
+
+def _published_source_turn(
+    turns: list[Mapping[str, Any]],
+    publish_turn: Mapping[str, Any],
+) -> Mapping[str, Any] | None:
+    if _pick_action_type(publish_turn) != "publish_workspace_artifact":
+        return None
+    source_ref = _published_source_revision_ref(publish_turn)
+    if source_ref is None:
+        return None
+    for turn in reversed(turns):
+        if turn is publish_turn:
+            continue
+        if _pick_action_type(turn) not in (
+            "save_workspace_artifact",
+            "copy_forward_save_workspace_artifact",
+        ):
+            continue
+        if not _artifact_write_succeeded(turn):
+            continue
+        result = _coerce_mapping(turn.get("tool_result_raw"))
+        refs = result.get("artifact_refs") or []
+        if isinstance(refs, list) and source_ref in {str(ref) for ref in refs}:
+            return turn
+    return None
+
+
+def _published_source_revision_ref(turn: Mapping[str, Any]) -> str | None:
+    inputs = _artifact_action_inputs(turn)
+    result = _coerce_mapping(turn.get("tool_result_raw"))
+    outputs = _coerce_mapping(result.get("outputs"))
+    for source in (inputs, outputs):
+        value = source.get("source_revision_ref")
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
 
 
 def _render_repair(turn: Mapping[str, Any]) -> list[str]:

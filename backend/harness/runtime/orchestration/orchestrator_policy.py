@@ -46,6 +46,83 @@ def _action_has_policy_role(
     return action_id in _policy_action_ids(policy, role_action_ids_key)
 
 
+def _materializing_action_ids(policy: dict[str, Any] | None) -> frozenset[str]:
+    """Action IDs declared by the active pack as externally durable writes."""
+    if not policy:
+        return frozenset()
+    return (
+        _policy_action_ids(policy, "save_action_ids")
+        | _policy_action_ids(policy, "publish_action_ids")
+    )
+
+
+def _latest_work_state_signature(step_records: list[dict[str, Any]]) -> str | None:
+    for row in reversed(step_records):
+        sig = str(row.get("work_state_signature") or "").strip()
+        if sig:
+            return sig
+    return None
+
+
+def _latest_materialized_work_state_signature(
+    *,
+    step_records: list[dict[str, Any]],
+    materializing_action_ids: frozenset[str],
+) -> tuple[str | None, str | None]:
+    for row in reversed(step_records):
+        action_type = _normalize_action_id(row.get("action_type"))
+        if action_type not in materializing_action_ids:
+            continue
+        if str(row.get("execution_state") or "").strip() != "executed":
+            continue
+        sig = str(row.get("work_state_signature") or "").strip()
+        if sig:
+            return sig, action_type
+    return None, None
+
+
+def artifact_materialization_enforcement_failure(
+    *,
+    run_ctx: dict[str, Any],
+    loop_memory: LoopMemoryState,
+    action_plan: ActionPlan,
+) -> tuple[str, str] | None:
+    """Block publish/complete when work state changed after last artifact write."""
+    policy = closure_policy(run_ctx)
+    is_publish = bool(policy) and _action_has_policy_role(
+        policy=policy,
+        action_plan=action_plan,
+        role_action_ids_key="publish_action_ids",
+    )
+    is_complete = bool(action_plan.complete_run)
+    if not (is_publish or is_complete):
+        return None
+    if not policy or not bool(policy.get("hard_enforced")):
+        return None
+
+    step_records = list(loop_memory.continuity.kernel_step_records)
+    materializing_action_ids = _materializing_action_ids(policy)
+    if not step_records or not materializing_action_ids:
+        return None
+
+    latest_sig = _latest_work_state_signature(step_records)
+    materialized_sig, materialized_action = _latest_materialized_work_state_signature(
+        step_records=step_records,
+        materializing_action_ids=materializing_action_ids,
+    )
+    if latest_sig is None or materialized_sig is None or latest_sig == materialized_sig:
+        return None
+
+    target = "publish" if is_publish else "complete"
+    return (
+        f"artifact_state_dirty_since_write_{target}",
+        (
+            f"work state changed after the last successful artifact write "
+            f"({materialized_action}); save or copy-forward the current work before {target}"
+        ),
+    )
+
+
 def effective_resolution_state(
     *,
     loop_memory: LoopMemoryState,
@@ -257,4 +334,8 @@ def closure_enforcement_failure(
             "closure enforcement requires ready_to_close before complete_run",
         )
 
-    return None
+    return artifact_materialization_enforcement_failure(
+        run_ctx=run_ctx,
+        loop_memory=loop_memory,
+        action_plan=action_plan,
+    )

@@ -160,6 +160,7 @@ def build_prompt_observability_summary(
         pending_hitl_requests=pending_hitl_requests,
     )
     post_hitl_spin_count = _post_hitl_spin_count(step_records)
+    artifact_state_dirty_since_write_count = _artifact_state_dirty_since_write_count(step_records)
     substantial_artifact_output_count = _substantial_artifact_output_count(
         step_result_records,
         last_n=3,
@@ -310,6 +311,7 @@ def build_prompt_observability_summary(
         "answered_hitl_unconsumed_count": hitl_ledger_metrics["answered_hitl_unconsumed_count"],
         "complete_with_unconsumed_hitl_count": hitl_ledger_metrics["complete_with_unconsumed_hitl_count"],
         "hitl_consumed_unknown_prompt_count": hitl_ledger_metrics["hitl_consumed_unknown_prompt_count"],
+        "artifact_state_dirty_since_write_count": artifact_state_dirty_since_write_count,
         "recent_hitl_exchanges": recent_hitl_exchanges,
         "success_condition_count": len(success_conditions),
         "success_conditions_with_earned_determination_count": sum(
@@ -435,6 +437,7 @@ def build_prompt_observability_summary(
         answered_hitl_unconsumed_count=hitl_ledger_metrics["answered_hitl_unconsumed_count"],
         complete_with_unconsumed_hitl_count=hitl_ledger_metrics["complete_with_unconsumed_hitl_count"],
         hitl_consumed_unknown_prompt_count=hitl_ledger_metrics["hitl_consumed_unknown_prompt_count"],
+        artifact_state_dirty_since_write_count=artifact_state_dirty_since_write_count,
     )
     return summary
 
@@ -717,6 +720,9 @@ _ARTIFACT_REFRESH_TRAP_SAVE_LOOKBACK: int = 8
 _ARTIFACT_REFRESH_TRAP_HYDRATE_THRESHOLD: int = 3
 _ARTIFACT_REFRESH_TRAP_SAVE_ACTION_TYPES: frozenset[str] = frozenset(
     {"save_workspace_artifact", "copy_forward_save_workspace_artifact"}
+)
+_ARTIFACT_MATERIALIZE_ACTION_TYPES: frozenset[str] = frozenset(
+    {"save_workspace_artifact", "copy_forward_save_workspace_artifact", "publish_workspace_artifact"}
 )
 _ARTIFACT_REFRESH_TRAP_WINDOW: int = 16
 _ARTIFACT_REFRESH_TRAP_SAVE_LOOKBACK_WIDE: int = 20
@@ -1061,6 +1067,26 @@ def _post_hitl_spin_count(step_records: list[dict[str, Any]]) -> int:
     if spin_count < _POST_HITL_SPIN_MIN_TURNS:
         return 0
     return spin_count
+
+
+def _artifact_state_dirty_since_write_count(step_records: list[dict[str, Any]]) -> int:
+    """Count turns since last materializing write when work state has changed after it."""
+    if len(step_records) < 2:
+        return 0
+    latest_sig = _as_optional_text(step_records[-1].get("work_state_signature"))
+    if latest_sig is None:
+        return 0
+    for offset, row in enumerate(reversed(step_records), start=0):
+        action_type = _as_optional_text(row.get("action_type"))
+        if action_type not in _ARTIFACT_MATERIALIZE_ACTION_TYPES:
+            continue
+        if _as_optional_text(row.get("execution_state")) != "executed":
+            continue
+        materialized_sig = _as_optional_text(row.get("work_state_signature"))
+        if materialized_sig is None or materialized_sig == latest_sig:
+            return 0
+        return offset
+    return 0
 
 
 def _covered_units_metrics(items: list[Any]) -> dict[str, int]:
@@ -1551,6 +1577,7 @@ def _mechanical_flags(
     answered_hitl_unconsumed_count: int = 0,
     complete_with_unconsumed_hitl_count: int = 0,
     hitl_consumed_unknown_prompt_count: int = 0,
+    artifact_state_dirty_since_write_count: int = 0,
 ) -> list[str]:
     flags: list[str] = []
     if semantic_repair_debt_kinds:
@@ -1715,6 +1742,8 @@ def _mechanical_flags(
         flags.append(f"complete_with_unconsumed_hitl:{complete_with_unconsumed_hitl_count}")
     if hitl_consumed_unknown_prompt_count > 0:
         flags.append(f"hitl_consumed_unknown_prompt:{hitl_consumed_unknown_prompt_count}")
+    if artifact_state_dirty_since_write_count > 0:
+        flags.append(f"artifact_state_dirty_since_write:{artifact_state_dirty_since_write_count}")
     # Output claim coverage debt: work graph has resolution items but no or very sparse
     # fine-grained claim inventory while the run is in or approaching the closure zone.
     # Structural pressure only — does not inspect content.

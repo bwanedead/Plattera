@@ -16,6 +16,7 @@ from harness.mission_state import (
 from harness.runtime.memory import LoopMemoryState
 from harness.runtime.orchestration.contracts import ActionPlan
 from harness.runtime.orchestration.orchestrator_policy import (
+    artifact_materialization_enforcement_failure,
     closure_enforcement_failure,
     resolution_inventory_enforcement_failure,
 )
@@ -76,7 +77,7 @@ def _hard_enforced_policy(**overrides: object) -> dict[str, object]:
         "hard_enforced": True,
         "enforce_on_complete": True,
         "enforce_on_publish": True,
-        "save_action_ids": ["save_workspace_artifact"],
+        "save_action_ids": ["save_workspace_artifact", "copy_forward_save_workspace_artifact"],
         "publish_action_ids": ["publish_workspace_artifact"],
         "required_dimension_ids": ["layer_a"],
     }
@@ -322,6 +323,137 @@ def test_closure_enforcement_allows_complete_when_same_turn_patch_sets_audited()
         )
         is None
     )
+
+
+def test_artifact_materialization_blocks_publish_when_state_changed_after_save() -> None:
+    mem = _loop_memory_with_closure(
+        dimensions=[_dim("layer_a")],
+        ready_to_publish=True,
+        work_universe_posture="audited",
+    )
+    mem.continuity.kernel_step_records = [
+        {
+            "kernel_turn_index": 1,
+            "action_type": "save_workspace_artifact",
+            "execution_state": "executed",
+            "work_state_signature": "sig-at-save",
+        },
+        {
+            "kernel_turn_index": 2,
+            "action_type": "no_dispatch",
+            "execution_state": "executed",
+            "work_state_signature": "sig-after-graph-change",
+        },
+    ]
+    result = artifact_materialization_enforcement_failure(
+        run_ctx={"domain_closure_policy": _hard_enforced_policy()},
+        loop_memory=mem,
+        action_plan=ActionPlan(action_type="publish_workspace_artifact"),
+    )
+    assert result == (
+        "artifact_state_dirty_since_write_publish",
+        (
+            "work state changed after the last successful artifact write "
+            "(save_workspace_artifact); save or copy-forward the current work before publish"
+        ),
+    )
+    assert (
+        closure_enforcement_failure(
+            run_ctx={"domain_closure_policy": _hard_enforced_policy()},
+            loop_memory=mem,
+            action_plan=ActionPlan(action_type="publish_workspace_artifact"),
+        )
+        == result
+    )
+
+
+def test_artifact_materialization_allows_publish_when_latest_save_is_fresh() -> None:
+    mem = _loop_memory_with_closure(
+        dimensions=[_dim("layer_a")],
+        ready_to_publish=True,
+        work_universe_posture="audited",
+    )
+    mem.continuity.kernel_step_records = [
+        {
+            "kernel_turn_index": 1,
+            "action_type": "save_workspace_artifact",
+            "execution_state": "executed",
+            "work_state_signature": "same",
+        },
+        {
+            "kernel_turn_index": 2,
+            "action_type": "hydrate_artifact_refs",
+            "execution_state": "executed",
+            "work_state_signature": "same",
+        },
+    ]
+    assert (
+        artifact_materialization_enforcement_failure(
+            run_ctx={"domain_closure_policy": _hard_enforced_policy()},
+            loop_memory=mem,
+            action_plan=ActionPlan(action_type="publish_workspace_artifact"),
+        )
+        is None
+    )
+
+
+def test_artifact_materialization_treats_copy_forward_save_as_fresh_write() -> None:
+    mem = _loop_memory_with_closure(
+        dimensions=[_dim("layer_a")],
+        ready_to_publish=True,
+        work_universe_posture="audited",
+    )
+    mem.continuity.kernel_step_records = [
+        {
+            "kernel_turn_index": 1,
+            "action_type": "save_workspace_artifact",
+            "execution_state": "executed",
+            "work_state_signature": "old",
+        },
+        {
+            "kernel_turn_index": 2,
+            "action_type": "copy_forward_save_workspace_artifact",
+            "execution_state": "executed",
+            "work_state_signature": "new",
+        },
+    ]
+    assert (
+        artifact_materialization_enforcement_failure(
+            run_ctx={"domain_closure_policy": _hard_enforced_policy()},
+            loop_memory=mem,
+            action_plan=ActionPlan(action_type="publish_workspace_artifact"),
+        )
+        is None
+    )
+
+
+def test_artifact_materialization_blocks_complete_after_state_change_post_publish() -> None:
+    mem = _loop_memory_with_closure(
+        dimensions=[_dim("layer_a")],
+        ready_to_close=True,
+        work_universe_posture="audited",
+    )
+    mem.continuity.kernel_step_records = [
+        {
+            "kernel_turn_index": 1,
+            "action_type": "publish_workspace_artifact",
+            "execution_state": "executed",
+            "work_state_signature": "published",
+        },
+        {
+            "kernel_turn_index": 2,
+            "action_type": "no_dispatch",
+            "execution_state": "executed",
+            "work_state_signature": "changed-after-publish",
+        },
+    ]
+    result = artifact_materialization_enforcement_failure(
+        run_ctx={"domain_closure_policy": _hard_enforced_policy()},
+        loop_memory=mem,
+        action_plan=ActionPlan(complete_run=True),
+    )
+    assert result is not None
+    assert result[0] == "artifact_state_dirty_since_write_complete"
 
 
 # ---------------------------------------------------------------------------

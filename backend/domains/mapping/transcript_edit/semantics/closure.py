@@ -22,7 +22,7 @@ def build_transcript_edit_closure_policy() -> DomainClosurePolicy:
         hard_enforced=True,
         enforce_on_publish=True,
         enforce_on_complete=True,
-        save_action_ids=("save_workspace_artifact",),
+        save_action_ids=("save_workspace_artifact", "copy_forward_save_workspace_artifact"),
         publish_action_ids=("publish_workspace_artifact",),
         minimum_resolution_items_for_save=1,
         minimum_resolution_items_for_wait=1,

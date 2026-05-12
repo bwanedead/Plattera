@@ -701,6 +701,61 @@ def test_timeline_run_summary_shows_duration_and_final_artifact_projection(tmp_p
     assert "TURN 0002 | choose_action | save_workspace_artifact | patch:applied | duration:4.0s" in body
 
 
+def test_timeline_final_projection_uses_source_revision_payload_after_publish(
+    tmp_path: Path,
+) -> None:
+    writer = RunAuditWriter(tmp_path / "run1")
+    draft_payload = {
+        "source_lane": {"text": "Published source lane text."},
+        "downstream_lane": {"text": "Published downstream lane text."},
+    }
+    writer.observe_turn_completed(
+        {
+            "turn_index": 4,
+            "tool_request": {
+                "action_type": "save_workspace_artifact",
+                "action_inputs": {"draft_payload": draft_payload},
+            },
+            "tool_result_raw": {
+                "execution_state": "executed",
+                "outputs": {"artifact_kind": "transcript_edit_working"},
+                "artifact_refs": ["transcript_edit:working:rev:0007", "transcript_edit:working"],
+                "refusal": None,
+            },
+            "latest_refs_after": {"transcript_edit:working": "transcript_edit:working:rev:0007"},
+            "state_patch_feedback": {"outcome": "applied"},
+        }
+    )
+    writer.observe_turn_completed(
+        {
+            "turn_index": 5,
+            "tool_request": {
+                "action_type": "publish_workspace_artifact",
+                "action_inputs": {"source_revision_ref": "transcript_edit:working:rev:0007"},
+            },
+            "tool_result_raw": {
+                "execution_state": "executed",
+                "outputs": {
+                    "output_ref": "transcript_edit:output",
+                    "source_revision_ref": "transcript_edit:working:rev:0007",
+                },
+                "artifact_refs": ["transcript_edit:output", "transcript_edit:working:rev:0007"],
+                "refusal": None,
+            },
+            "latest_refs_after": {"transcript_edit:output": "transcript_edit:output"},
+            "state_patch_feedback": {"outcome": "no_patch"},
+        }
+    )
+    body = _timeline_path(tmp_path / "run1").read_text(encoding="utf-8")
+    bottom = body[body.rindex("## Final Run Summary") :]
+    assert "- posture: published" in bottom
+    assert "- latest_artifact_ref: transcript_edit:output" in bottom
+    assert "- source_lane.text:" in bottom
+    assert "Published source lane text." in bottom
+    assert "- downstream_lane.text:" in bottom
+    assert "Published downstream lane text." in bottom
+
+
 def test_timeline_does_not_project_final_artifact_from_failed_save_attempt(tmp_path: Path) -> None:
     writer = RunAuditWriter(tmp_path / "run1")
     writer.observe_llm_io(

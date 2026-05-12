@@ -2414,6 +2414,50 @@ def test_hitl_evidence_readiness_choose_action_guidance_no_domain_terms() -> Non
         assert term not in CHOOSE_ACTION_INSTRUCTION.lower(), f"Domain term found: {term}"
 
 
+def test_artifact_state_dirty_since_write_count_fires_after_state_change_post_save() -> None:
+    records = [
+        _step_record(1, action_type="save_workspace_artifact", work_state_signature="saved"),
+        _step_record(2, action_type="no_dispatch", work_state_signature="changed"),
+        _step_record(3, action_type="hydrate_artifact_refs", work_state_signature="changed"),
+    ]
+    result = build_prompt_observability_summary(_mem(step_records=records))
+    assert result["artifact_state_dirty_since_write_count"] == 2
+    assert "artifact_state_dirty_since_write:2" in result["mechanical_flags"]
+
+
+def test_artifact_state_dirty_since_write_suppressed_when_latest_save_is_fresh() -> None:
+    records = [
+        _step_record(1, action_type="save_workspace_artifact", work_state_signature="old"),
+        _step_record(2, action_type="no_dispatch", work_state_signature="changed"),
+        _step_record(3, action_type="copy_forward_save_workspace_artifact", work_state_signature="changed"),
+    ]
+    result = build_prompt_observability_summary(_mem(step_records=records))
+    assert result["artifact_state_dirty_since_write_count"] == 0
+    assert not any(f.startswith("artifact_state_dirty_since_write:") for f in result["mechanical_flags"])
+
+
+def test_artifact_state_dirty_since_write_typed_and_compact_projection() -> None:
+    from harness.observability.summary.prompt_observability import (
+        _prompt_observability_summary_from_payload,
+    )
+    from harness.runtime.orchestration.prompt_packet_builder import (
+        _compact_prompt_observability_summary,
+    )
+
+    summary = _prompt_observability_summary_from_payload(
+        {"prompt_observability_summary": {"artifact_state_dirty_since_write_count": 4}}
+    )
+    assert summary.artifact_state_dirty_since_write_count == 4
+
+    compact = _compact_prompt_observability_summary(
+        {"artifact_state_dirty_since_write_count": 4}
+    )
+    assert compact["artifact_state_dirty_since_write_count"] == 4
+    assert "artifact_state_dirty_since_write_count" not in _compact_prompt_observability_summary(
+        {"artifact_state_dirty_since_write_count": 0}
+    )
+
+
 # ---------------------------------------------------------------------------
 # Brief: Run-13 — post_hitl_spin_count detector
 # ---------------------------------------------------------------------------

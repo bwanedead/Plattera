@@ -131,6 +131,7 @@ class PromptObservabilitySummary(BaseModel):
     answered_hitl_unconsumed_count: int = Field(default=0, ge=0)
     complete_with_unconsumed_hitl_count: int = Field(default=0, ge=0)
     hitl_consumed_unknown_prompt_count: int = Field(default=0, ge=0)
+    artifact_state_dirty_since_write_count: int = Field(default=0, ge=0)
     # Bounded prompt projection of the durable HITL exchange ledger.  Contains
     # pending + answered exchanges with exact request and response payloads,
     # plus a small tail of recent consumed exchanges for context.  Read-only.

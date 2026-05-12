@@ -352,6 +352,7 @@ _OPTIONAL_OBSERVABILITY_COUNTERS: tuple[str, ...] = (
     "answered_hitl_unconsumed_count",
     "complete_with_unconsumed_hitl_count",
     "hitl_consumed_unknown_prompt_count",
+    "artifact_state_dirty_since_write_count",
 )
 
 
