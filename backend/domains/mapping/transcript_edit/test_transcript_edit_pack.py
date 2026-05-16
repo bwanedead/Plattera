@@ -143,6 +143,11 @@ def test_domain_pack_declares_semantic_prompt_blocks() -> None:
     assert "`unassessed`, `in_review`, or `open`" in guidance.text
     assert "verified visible portion" in text
     assert "use `determination`" in text
+    assert "transcript-edit run duration pressure" in text
+    assert "run_context.iteration" in guidance.text
+    assert "critical_budget" in text
+    assert "not an instruction" in text
+    assert "not a command to close" in text
     assert "source-reading hitl evidence packets" in text
     assert "primary_evidence_ref" in text
     assert "annotated_evidence_ref" in text

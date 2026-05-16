@@ -10,7 +10,7 @@ from ..branch import TRANSCRIPT_EDIT_DOMAIN_ID
 TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_SOURCE_REF = (
     "backend/domains/mapping/transcript_edit/prompting/surfaces/procedural_guidance.py"
 )
-TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_VERSION = "v19"
+TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_VERSION = "v20"
 
 TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_TEXT = """\
 Use this guidance to shape your movement through transcript-edit work. This is **guidance**, not a hard script. The harness still owns orchestration. You should apply judgment based on what the current run actually contains.
@@ -89,6 +89,20 @@ This is transcript-edit guidance, not a hard-coded controller pipeline.
 - If the strongest available in-run checks are exhausted on a material unresolved issue, emit HITL or explicit blocked posture rather than continuing indefinitely in posture-only turns.
 - When a material blocker is plausibly human-answerable (for example, an intrinsic source contradiction the operator can adjudicate), surface it as its own HITL in addition to any missing-source HITL already emitted. A single continuation-request HITL does not discharge other distinct human-answerable blockers.
 - When per-scope handoffability is honestly different (for example, one independently usable scope can move forward while another remains blocked), represent that through per-scope items in the ledger with appropriate `blocking` / `no_further_progress` flags and use `resolution.relations` to tie them to Layer 4 of the closure state.
+
+## Transcript-edit run duration pressure
+`run_context.iteration` is the current run turn count. In transcript-edit, treat it as an informational budget-pressure signal only. It is not an instruction, not a command to close, not a command to keep checking, and not a substitute for evidence judgment.
+
+Current simple transcript-edit calibration:
+- 0-10: `fresh_early_budget` — normal opening budget
+- 11-20: `early_mid_budget` — normal working budget
+- 21-30: `mid_budget` — mature working budget
+- 31-40: `late_budget` — visibly long for this domain shape
+- 41-50: `very_late_budget` — high budget pressure
+- 51-60: `severe_budget` — severe budget pressure
+- 61+: `critical_budget` — critical budget pressure
+
+These labels exist so the run knows how long it has been working under transcript-edit expectations. They do not decide the next action. Use them only as awareness of elapsed budget pressure.
 
 ## Audit-sweep gap items
 During the audit sweep before close or publish, if you discover that mission-essential visible content was never explicitly covered by any resolution item (for example, a visible sequence of thence-calls in a parcel was only implicitly assumed reviewed), the correct move is to **create a new explicit item for that coverage and work it**, not to annotate existing items to claim coverage they do not actually have. A late audit-gap item is a sign of healthy self-review, not a failure. Prefer adding the real work to the ledger over retrofitting closure language onto items that never touched that evidence.
