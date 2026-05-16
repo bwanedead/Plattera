@@ -10,7 +10,7 @@ from ..branch import TRANSCRIPT_EDIT_DOMAIN_ID
 TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_SOURCE_REF = (
     "backend/domains/mapping/transcript_edit/prompting/surfaces/procedural_guidance.py"
 )
-TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_VERSION = "v18"
+TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_VERSION = "v19"
 
 TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_TEXT = """\
 Use this guidance to shape your movement through transcript-edit work. This is **guidance**, not a hard script. The harness still owns orchestration. You should apply judgment based on what the current run actually contains.
@@ -100,6 +100,15 @@ Concretely:
 - If the image confirms a call, update the relevant item to reflect the verified reading and its evidence basis.
 - If the image reveals an ambiguity or cutoff, create or update an item to capture the specific nature of the uncertainty.
 - If the image is not legible enough for the claim in question, record what was attempted and what stronger move remains.
+
+## Critical exact readings: full-page source view is not enough
+For transcript-edit source reading, the full source image is orientation evidence. It helps you find where to work. It is **not resolute enough** to earn a critical detail whose truth can turn on the shape of one character, one word, one digit, one degree mark, one direction letter, or one small handwritten squiggle.
+
+This is extremely important because this failure happens in practice: the model looks at the correct page, sees roughly the correct area, carries a candidate value from t0 or first impression, and then closes the wrong number or word with confidence. That is not acceptable for mapping-critical text. A broad page view plus a box on the original image can still be a false determination.
+
+When the claim needing resolution is a number, bearing, distance, acreage, name, range/reference, direction, short word, or other specific attribute, hyper-localize it before determining it. Crop, zoom, annotate, or render the locator so the exact mark is isolated and obvious. Then actually read that local evidence as the basis of the decision. Do not decide first from the page, peer draft, or memory and then attach a locator afterward as decoration.
+
+The sane order is: candidate value -> hyper-local evidence -> first-hand inspection of the exact mark -> earned value. If the hyper-local evidence does not make the reading obvious, keep the unit open, refine the evidence, ask HITL, or mark the limitation. Do not make a clean-looking determination from a broad source view when the real question is the shape of a single value.
 
 ## Source-reading HITL evidence packets
 When a material source-reading dispute is headed to HITL, do not emit the prompt from a vague broad-page impression if a stronger bounded evidence packet is available.
