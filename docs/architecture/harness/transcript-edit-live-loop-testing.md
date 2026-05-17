@@ -171,6 +171,56 @@ If `watch` returns a HITL prompt, answer it:
 python -m harness.cli.answer --run-id $runId --prompt-id <prompt_id_from_watch> --choice "<your answer>" --note "<optional note>"
 ```
 
+### User-to-agent messages / tester corrections
+
+HITL is agent-initiated: the agent asks, the tester answers.  The
+user-message channel is tester/user-initiated: if you notice a concrete
+mistake or need to give the agent context while observing a run, inject an
+exact message for the next turn.
+
+Use this when you see an incorrect detail, stale draft value, missing
+operator instruction, or other user-observed issue that the agent should
+repair.  Keep the message specific and actionable.  Do not treat it as a
+truth override in your report; it is exact user-authored context delivered to
+the agent, and the agent must integrate it through normal state/artifact
+edits.
+
+Example correction:
+
+```powershell
+python -m harness.cli.message --run-id $runId --text "Correction: parcel1_tie_bearing_to_nw_corner is wrong. Change the determined value and draft text from N. 2° 00' W. to N. 4° 00' W.; preserve/update the evidence note so it reflects the localized source crop." --source tester
+```
+
+Recommended correction shape:
+
+- name the item/atom if you can (`item_id`, `unit_id`, or title)
+- state the wrong value and the corrected value
+- say what should be repaired: graph, draft/output artifact, evidence note, or
+  all of them
+- include a short why only when useful; avoid broad critique when a precise
+  correction is enough
+
+Then keep watching the same live run:
+
+```powershell
+python -m harness.cli.watch --run-id $runId --timeout 120
+```
+
+If the run has already stopped/failed/paused and `status` reports a resumable
+checkpoint, inject the message first, then resume:
+
+```powershell
+python -m harness.cli.message --run-id $runId --text "Correction: <specific item and repair request>." --source tester
+python -m harness.cli.resume --run-id $runId
+python -m harness.cli.watch --run-id $runId --timeout 120
+```
+
+Current CLI boundary: completed runs are not reopened by `harness.cli.resume`.
+If a mistake is discovered only after a `completed` terminal state, record it
+in the test report and either start a follow-up run/workspace or ask for a
+separate reopen capability.  Do not claim that the current resume path can
+resume completed runs.
+
 If a run dies because the child process exited, the network disconnected, or
 the provider returned a resumable failure, check status before starting over:
 
