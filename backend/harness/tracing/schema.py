@@ -22,6 +22,8 @@ EventKind = Literal[
     "hitl_request_outbound",
     "hitl_response_inbound",
     "hitl_response_consumed",
+    "user_message_inbound",
+    "user_message_consumed",
     "state_patch_outcome",
     "continuity_compacted",
     "terminal_outcome",

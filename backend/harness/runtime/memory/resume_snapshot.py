@@ -18,6 +18,7 @@ from ...execution.session_wire import execution_session_from_wire, execution_ses
 from ...mission_state import MissionState, ResolutionState
 from ..hitl.transport import HitlTransportPosture
 from ..hitl.exchange_ledger import validate_stored_ledger_entry
+from ..user_messages.ledger import validate_stored_user_message
 from .continuity import OrchestrationContinuity
 from .continuity_journal import (
     clamp_compacted_summary_text,
@@ -78,6 +79,10 @@ def build_kernel_resume_snapshot(
             "hitl_exchange_ledger": list(loop_memory.continuity.hitl_exchange_ledger),
             "hitl_consumed_unknown_prompt_count": int(
                 loop_memory.continuity.hitl_consumed_unknown_prompt_count
+            ),
+            "user_message_ledger": list(loop_memory.continuity.user_message_ledger),
+            "user_message_consumed_unknown_count": int(
+                loop_memory.continuity.user_message_consumed_unknown_count
             ),
         },
         "hitl": {
@@ -271,6 +276,29 @@ def parse_kernel_resume_snapshot(payload: Mapping[str, Any]) -> tuple[LoopMemory
             if hitl_consumed_unknown_count < 0:
                 return empty, 1, "resume_snapshot_hitl_consumed_unknown_prompt_count_invalid"
 
+    user_message_ledger_out: list[dict[str, Any]] = []
+    if "user_message_ledger" in cont:
+        umled_raw = cont.get("user_message_ledger")
+        if umled_raw is not None:
+            if not isinstance(umled_raw, list):
+                return empty, 1, "resume_snapshot_user_message_ledger_invalid"
+            for row in umled_raw:
+                norm = validate_stored_user_message(row)
+                if norm is None:
+                    return empty, 1, "resume_snapshot_user_message_ledger_invalid"
+                user_message_ledger_out.append(norm)
+
+    user_message_consumed_unknown_count = 0
+    if "user_message_consumed_unknown_count" in cont:
+        ucu_raw = cont.get("user_message_consumed_unknown_count")
+        if ucu_raw is not None:
+            try:
+                user_message_consumed_unknown_count = int(ucu_raw)
+            except (TypeError, ValueError):
+                return empty, 1, "resume_snapshot_user_message_consumed_unknown_count_invalid"
+            if user_message_consumed_unknown_count < 0:
+                return empty, 1, "resume_snapshot_user_message_consumed_unknown_count_invalid"
+
     continuity = OrchestrationContinuity(
         latest_refs=latest_refs_out,
         mission_state=ms,
@@ -287,6 +315,8 @@ def parse_kernel_resume_snapshot(payload: Mapping[str, Any]) -> tuple[LoopMemory
         posthoc_recheck_needed_debt=posthoc_debt_out,
         hitl_exchange_ledger=hitl_exchange_ledger_out,
         hitl_consumed_unknown_prompt_count=hitl_consumed_unknown_count,
+        user_message_ledger=user_message_ledger_out,
+        user_message_consumed_unknown_count=user_message_consumed_unknown_count,
     )
 
     hitl_raw = payload.get("hitl")

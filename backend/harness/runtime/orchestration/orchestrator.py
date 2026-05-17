@@ -25,6 +25,10 @@ from .hitl_ledger_hooks import (
     record_consumed_hitl,
     record_outbound_hitl,
 )
+from .user_message_hooks import (
+    poll_and_record_user_messages,
+    record_consumed_and_deferred_user_messages,
+)
 from .orchestrator_coercion import (
     coerce_kernel_action_plan,
     coerce_projection,
@@ -260,6 +264,19 @@ def run_orchestration_kernel_loop(
         )
         hitl_refresh_derived_state(loop_memory.hitl)
 
+        # Generic harness-owned user-to-agent message channel (CLI/UI/API).
+        # Reads the on-disk message store, ingests new entries into the durable
+        # ledger, and emits trace events.  No semantic interpretation here —
+        # the agent reads pending messages on the next turn and decides what
+        # state changes to make (or defers with a reason).
+        poll_and_record_user_messages(
+            loop_memory=loop_memory,
+            tracer=tracer,
+            iteration=iterations,
+            loop_kind=_hitl_loop_kind(run_ctx),
+            run_id=run_id or request_id_prefix,
+        )
+
         if loop_memory.hitl.hitl_state == "waiting" and loop_memory.hitl.blocking_prompt_id:
             if not hitl_has_answer_for_prompt(loop_memory.hitl, loop_memory.hitl.blocking_prompt_id):
                 return build_kernel_loop_result(
@@ -364,6 +381,16 @@ def run_orchestration_kernel_loop(
             tracer=tracer,
             iteration=iterations,
             consumed_ids=consumed_ids,
+        )
+
+        # Apply user-message acknowledgments (consumed / deferred).  The agent
+        # owns interpretation; this just updates ledger status and emits trace.
+        record_consumed_and_deferred_user_messages(
+            loop_memory=loop_memory,
+            tracer=tracer,
+            iteration=iterations,
+            consumed_ids=action_plan.user_message_consumed_ids,
+            defers=action_plan.user_message_defers,
         )
 
         if action_plan.wait_for_human and action_plan.hitl_request is None:

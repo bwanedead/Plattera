@@ -672,3 +672,136 @@ def test_parse_rejects_posthoc_debt_wrong_type() -> None:
     }
     _, _, err = parse_kernel_resume_snapshot(base)
     assert err == "resume_snapshot_posthoc_recheck_needed_debt_invalid"
+
+
+# ---------------------------------------------------------------------------
+# User-message ledger round-trip
+# ---------------------------------------------------------------------------
+
+def test_roundtrip_user_message_ledger_preserves_pending_consumed_deferred() -> None:
+    """All three user-message ledger statuses survive the snapshot round-trip."""
+    executor = ExecutionExecutor()
+    sm = ExecutionSessionManager(executor=executor)
+    sm.start_session(ExecutionSessionStartRequest(run_id="run-um", session_id="sess-um"))
+    lm = LoopMemoryState()
+    lm.continuity.mission_state = new_mission_state(mission_id="m1", loop_family="orchestration_kernel")
+    lm.continuity.resolution_state = new_resolution_state()
+    lm.continuity.user_message_ledger = [
+        {
+            "message_id": "user-msg-pending",
+            "created_at_epoch_seconds": 100,
+            "source": "cli",
+            "text": "fix this",
+            "metadata": {"item_id": "i-1"},
+            "status": "pending",
+            "received_at_iteration": 5,
+            "consumed_iteration": None,
+            "deferred_iteration": None,
+            "defer_reason": None,
+            "_bounds": {"text_truncated": True},
+        },
+        {
+            "message_id": "user-msg-consumed",
+            "created_at_epoch_seconds": 200,
+            "source": "viewer",
+            "text": "done one",
+            "metadata": {},
+            "status": "consumed",
+            "received_at_iteration": 3,
+            "consumed_iteration": 7,
+            "deferred_iteration": None,
+            "defer_reason": None,
+        },
+        {
+            "message_id": "user-msg-deferred",
+            "created_at_epoch_seconds": 300,
+            "source": None,
+            "text": "wait",
+            "metadata": {},
+            "status": "deferred",
+            "received_at_iteration": 4,
+            "consumed_iteration": None,
+            "deferred_iteration": 6,
+            "defer_reason": "scope X paused",
+        },
+    ]
+    lm.continuity.user_message_consumed_unknown_count = 2
+
+    snap = build_kernel_resume_snapshot(
+        loop_memory=lm, session_manager=sm, session_id="sess-um", next_iteration=10,
+    )
+    mem2, _, err = parse_kernel_resume_snapshot(snap)
+    assert err is None
+    ledger = mem2.continuity.user_message_ledger
+    assert len(ledger) == 3
+    assert {e["status"] for e in ledger} == {"pending", "consumed", "deferred"}
+    pending = next(e for e in ledger if e["status"] == "pending")
+    assert pending["_bounds"] == {"text_truncated": True}
+    deferred = next(e for e in ledger if e["status"] == "deferred")
+    assert deferred["defer_reason"] == "scope X paused"
+    assert mem2.continuity.user_message_consumed_unknown_count == 2
+
+
+def test_roundtrip_user_message_ledger_absent_defaults_to_empty() -> None:
+    """Old snapshots without the user_message_ledger key restore to empty."""
+    rs = new_resolution_state()
+    ms = new_mission_state(mission_id="m1", loop_family="orchestration_kernel", resolution_state=rs)
+    base = {
+        "schema_version": "kernel_resume.v1",
+        "next_iteration": 5,
+        "continuity": {
+            "latest_refs": {},
+            "mission_state": ms.model_dump(mode="json"),
+            "resolution_state": rs.model_dump(mode="json"),
+            "active_item_id": None,
+        },
+        "hitl": {"hitl_state": "no_prompt"},
+        "telemetry": {"llm_contact_count": 0, "prompt_event_count": 0},
+        "execution_session": None,
+    }
+    mem2, _, err = parse_kernel_resume_snapshot(base)
+    assert err is None
+    assert mem2.continuity.user_message_ledger == []
+    assert mem2.continuity.user_message_consumed_unknown_count == 0
+
+
+def test_parse_rejects_user_message_ledger_wrong_type() -> None:
+    rs = new_resolution_state()
+    ms = new_mission_state(mission_id="m1", loop_family="orchestration_kernel", resolution_state=rs)
+    base = {
+        "schema_version": "kernel_resume.v1",
+        "next_iteration": 1,
+        "continuity": {
+            "latest_refs": {},
+            "mission_state": ms.model_dump(mode="json"),
+            "resolution_state": rs.model_dump(mode="json"),
+            "active_item_id": None,
+            "user_message_ledger": "not-a-list",
+        },
+        "hitl": {"hitl_state": "no_prompt"},
+        "telemetry": {"llm_contact_count": 0, "prompt_event_count": 0},
+        "execution_session": None,
+    }
+    _, _, err = parse_kernel_resume_snapshot(base)
+    assert err == "resume_snapshot_user_message_ledger_invalid"
+
+
+def test_parse_rejects_user_message_ledger_with_malformed_entry() -> None:
+    rs = new_resolution_state()
+    ms = new_mission_state(mission_id="m1", loop_family="orchestration_kernel", resolution_state=rs)
+    base = {
+        "schema_version": "kernel_resume.v1",
+        "next_iteration": 1,
+        "continuity": {
+            "latest_refs": {},
+            "mission_state": ms.model_dump(mode="json"),
+            "resolution_state": rs.model_dump(mode="json"),
+            "active_item_id": None,
+            "user_message_ledger": [{"text": "no message_id", "status": "pending"}],
+        },
+        "hitl": {"hitl_state": "no_prompt"},
+        "telemetry": {"llm_contact_count": 0, "prompt_event_count": 0},
+        "execution_session": None,
+    }
+    _, _, err = parse_kernel_resume_snapshot(base)
+    assert err == "resume_snapshot_user_message_ledger_invalid"

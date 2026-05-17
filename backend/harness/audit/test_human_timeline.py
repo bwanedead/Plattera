@@ -966,3 +966,44 @@ def test_timeline_rewrites_earlier_turn_sections_when_updated(tmp_path: Path) ->
     assert body.count("TURN 0001") == 1
     assert "first_action" in body
     assert "execution_state: executed" in body
+
+
+def test_timeline_renders_user_message_ledger(tmp_path: Path) -> None:
+    writer = RunAuditWriter(tmp_path / "run1")
+    writer.observe_llm_io({"turn_index": 1, "parse_ok": True})
+    writer.observe_turn_completed(
+        {
+            "turn_index": 1,
+            "tool_request": None,
+            "tool_result_raw": None,
+            "user_message_ledger": [
+                {
+                    "message_id": "user-msg-1",
+                    "status": "pending",
+                    "source": "tester",
+                    "text": "The value in atom x should be reviewed.",
+                    "_bounds": {"text_truncated": True},
+                },
+                {
+                    "message_id": "user-msg-2",
+                    "status": "deferred",
+                    "source": "ui",
+                    "text": "Handle later",
+                    "defer_reason": "out of scope for this turn",
+                },
+            ],
+            "user_message_consumed_unknown_count": 1,
+            "latest_refs_after": {},
+            "state_patch_feedback": {"outcome": "applied"},
+        }
+    )
+    body = _timeline_path(tmp_path / "run1").read_text(encoding="utf-8")
+    assert "User Messages" in body
+    assert "consumed_unknown_count: 1" in body
+    assert "message_id: user-msg-1" in body
+    assert "status: pending" in body
+    assert "source: tester" in body
+    assert "The value in atom x should be reviewed." in body
+    assert "text_truncated" in body
+    assert "defer_reason:" in body
+    assert "out of scope for this turn" in body

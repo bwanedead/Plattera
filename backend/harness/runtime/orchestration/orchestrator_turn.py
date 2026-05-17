@@ -156,6 +156,10 @@ def observe_turn_completed(
             "resolution_state_after": loop_memory.continuity.resolution_state,
             "latest_refs_after": dict(loop_memory.continuity.latest_refs),
             "state_patch_feedback": dict(loop_memory.continuity.state_patch_feedback),
+            "user_message_ledger": list(loop_memory.continuity.user_message_ledger),
+            "user_message_consumed_unknown_count": int(
+                loop_memory.continuity.user_message_consumed_unknown_count
+            ),
             "terminal_decision": terminal_decision,
         }
     )

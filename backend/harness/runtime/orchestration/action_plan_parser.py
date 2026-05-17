@@ -14,12 +14,17 @@ from typing import Any
 from ..hitl.request_shape import normalize_hitl_request, validate_hitl_consumed_prompt_ids
 from .continuity_journal_entry import normalize_continuity_journal_entry
 from .contracts import ActionPlan
+from .user_message_action_plan_shape import (
+    validate_user_message_consumed_ids,
+    validate_user_message_defers,
+)
 
 _ALLOWED_ACTION_PLAN_KEYS = {
     "action_type", "action_inputs", "idempotency_key",
     "skip_execution", "wait_for_human", "complete_run",
     "rationale", "state_patch", "continuity_journal_entry",
     "operator_progress_message", "hitl_request", "hitl_consumed_prompt_ids",
+    "user_message_consumed_ids", "user_message_defers",
 }
 
 
@@ -143,12 +148,35 @@ def parse_action_plan_response(
     except ValueError as exc:
         raise _parse_error(f"hitl_consumed_prompt_ids failed canonical validation: {exc}") from exc
 
+    try:
+        user_msg_consumed_out = validate_user_message_consumed_ids(
+            payload.get("user_message_consumed_ids")
+        )
+    except ValueError as exc:
+        raise _parse_error(f"user_message_consumed_ids failed canonical validation: {exc}") from exc
+
+    try:
+        user_msg_defers_out = validate_user_message_defers(payload.get("user_message_defers"))
+    except ValueError as exc:
+        raise _parse_error(f"user_message_defers failed canonical validation: {exc}") from exc
+
     state_patch_out = _json_object_or_null(payload.get("state_patch"), "state_patch")
 
+    # A turn that only consumes/defers user messages (no state patch, no HITL,
+    # no tool dispatch) is a valid no-dispatch acknowledgment turn — the agent
+    # is telling the harness "I've read these messages and acted in another
+    # turn / am deliberately deferring" without doing other work this turn.
+    user_message_ack_only = (
+        bool(user_msg_consumed_out) or bool(user_msg_defers_out)
+    )
     implicit_no_dispatch_turn = (
         not complete_run
         and not action_type
-        and (state_patch_out is not None or hitl_out is not None)
+        and (
+            state_patch_out is not None
+            or hitl_out is not None
+            or user_message_ack_only
+        )
     )
     if implicit_no_dispatch_turn:
         skip_execution = True
@@ -161,9 +189,10 @@ def parse_action_plan_response(
                 )
             if action_inputs:
                 raise _parse_error("action_inputs must be empty when action_type is null on a no-dispatch turn")
-            if state_patch_out is None and hitl_out is None:
+            if state_patch_out is None and hitl_out is None and not user_message_ack_only:
                 raise _parse_error(
-                    "state_patch or hitl_request is required when action_type is null on a no-dispatch turn",
+                    "state_patch or hitl_request is required when action_type is null on a no-dispatch turn "
+                    "(a user_message_consumed_ids or user_message_defers acknowledgment also satisfies this)",
                 )
         elif available_tool_ids and action_type not in available_tool_ids:
             raise _parse_error(f"unknown action_type: {action_type}")
@@ -208,6 +237,8 @@ def parse_action_plan_response(
         complete_run=complete_run,
         hitl_request=hitl_out,
         hitl_consumed_prompt_ids=consumed_out,
+        user_message_consumed_ids=user_msg_consumed_out,
+        user_message_defers=user_msg_defers_out,
         rationale=rationale_text,
         state_patch=state_patch_out,
         continuity_journal_entry=cje_out,

@@ -13,6 +13,12 @@ from collections.abc import Mapping
 from typing import Any
 
 from ..hitl.exchange_ledger import build_prompt_ledger_view
+from ..user_messages.ledger import (
+    build_prompt_user_message_view,
+    count_consumed as _count_user_messages_consumed,
+    count_deferred as _count_user_messages_deferred,
+    count_pending as _count_user_messages_pending,
+)
 from ..memory import LoopMemoryState
 from ..memory.tool_result_slices import check_outputs_excerpt_truncated
 from .evidence_locality import (
@@ -233,6 +239,17 @@ def build_prompt_observability_summary(
     # Track 3: bounded prompt projection — pending + answered exchanges with full
     # request and response payloads so the agent can integrate them faithfully.
     recent_hitl_exchanges = build_prompt_ledger_view(hitl_ledger_raw)
+
+    # User-to-agent message ledger projection + counters.  Generic mechanics
+    # only — domain decides how to interpret messages.
+    user_message_ledger_raw = getattr(cont, "user_message_ledger", None) or []
+    recent_user_messages = build_prompt_user_message_view(user_message_ledger_raw)
+    user_message_pending_count = _count_user_messages_pending(user_message_ledger_raw)
+    user_message_consumed_count = _count_user_messages_consumed(user_message_ledger_raw)
+    user_message_deferred_count = _count_user_messages_deferred(user_message_ledger_raw)
+    user_message_consumed_unknown_count = int(
+        getattr(cont, "user_message_consumed_unknown_count", 0) or 0
+    )
     artifact_claim_inventory_suspect_count = _artifact_claim_inventory_suspect_count(
         closure_ready_to_close=bool(getattr(closure_state, "ready_to_close", False)),
         work_universe_posture=work_universe_posture,
@@ -317,6 +334,11 @@ def build_prompt_observability_summary(
         "hitl_consumed_unknown_prompt_count": hitl_ledger_metrics["hitl_consumed_unknown_prompt_count"],
         "artifact_state_dirty_since_write_count": artifact_state_dirty_since_write_count,
         "recent_hitl_exchanges": recent_hitl_exchanges,
+        "recent_user_messages": recent_user_messages,
+        "user_message_pending_count": user_message_pending_count,
+        "user_message_consumed_count": user_message_consumed_count,
+        "user_message_deferred_count": user_message_deferred_count,
+        "user_message_consumed_unknown_count": user_message_consumed_unknown_count,
         "success_condition_count": len(success_conditions),
         "success_conditions_with_earned_determination_count": sum(
             1 for row in success_conditions if _has_earned_determination(getattr(row, "determination", None))

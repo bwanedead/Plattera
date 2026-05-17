@@ -137,6 +137,13 @@ class PromptObservabilitySummary(BaseModel):
     # pending + answered exchanges with exact request and response payloads,
     # plus a small tail of recent consumed exchanges for context.  Read-only.
     recent_hitl_exchanges: list[dict[str, Any]] = Field(default_factory=list, max_length=16)
+    # Bounded prompt projection of durable user-to-agent messages.  Contains
+    # pending messages first plus a small terminal tail for context.  Read-only.
+    recent_user_messages: list[dict[str, Any]] = Field(default_factory=list, max_length=16)
+    user_message_pending_count: int = Field(default=0, ge=0)
+    user_message_consumed_count: int = Field(default=0, ge=0)
+    user_message_deferred_count: int = Field(default=0, ge=0)
+    user_message_consumed_unknown_count: int = Field(default=0, ge=0)
     success_condition_count: int = Field(default=0, ge=0)
     success_conditions_with_earned_determination_count: int = Field(default=0, ge=0)
     success_conditions_with_verification_basis_count: int = Field(default=0, ge=0)

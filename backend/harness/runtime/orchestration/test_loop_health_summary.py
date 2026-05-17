@@ -3281,3 +3281,68 @@ def test_hitl_ledger_counters_typed_projection() -> None:
     assert summary.hitl_consumed_unknown_prompt_count == 4
     assert len(summary.recent_hitl_exchanges) == 1
     assert summary.recent_hitl_exchanges[0]["prompt_id"] == "p1"
+
+
+def test_recent_user_messages_in_summary_includes_pending_and_terminal() -> None:
+    mem = _mem()
+    mem.continuity.user_message_ledger = [
+        {"message_id": "um-1", "status": "pending", "text": "Please fix x", "source": "tester"},
+        {"message_id": "um-2", "status": "consumed", "text": "Older note", "source": "tester"},
+        {"message_id": "um-3", "status": "deferred", "text": "Later note", "source": "tester"},
+    ]
+    mem.continuity.user_message_consumed_unknown_count = 1
+    result = build_prompt_observability_summary(mem)
+    assert result["user_message_pending_count"] == 1
+    assert result["user_message_consumed_count"] == 1
+    assert result["user_message_deferred_count"] == 1
+    assert result["user_message_consumed_unknown_count"] == 1
+    assert [row["message_id"] for row in result["recent_user_messages"]] == [
+        "um-1",
+        "um-2",
+        "um-3",
+    ]
+
+
+def test_recent_user_messages_in_compact_when_nonempty() -> None:
+    from harness.runtime.orchestration.prompt_packet_builder import (
+        _compact_prompt_observability_summary,
+    )
+    mem = _mem()
+    mem.continuity.user_message_ledger = [
+        {"message_id": "um-1", "status": "pending", "text": "Please fix x", "source": "tester"},
+    ]
+    full = build_prompt_observability_summary(mem)
+    compact = _compact_prompt_observability_summary(full)
+    assert compact["user_message_pending_count"] == 1
+    assert compact["recent_user_messages"][0]["message_id"] == "um-1"
+
+
+def test_recent_user_messages_absent_in_compact_when_empty() -> None:
+    from harness.runtime.orchestration.prompt_packet_builder import (
+        _compact_prompt_observability_summary,
+    )
+    compact = _compact_prompt_observability_summary(build_prompt_observability_summary(_mem()))
+    assert "recent_user_messages" not in compact
+    assert "user_message_pending_count" not in compact
+
+
+def test_user_message_counters_typed_projection() -> None:
+    from harness.observability.summary.prompt_observability import (
+        _prompt_observability_summary_from_payload,
+    )
+    summary = _prompt_observability_summary_from_payload({
+        "prompt_observability_summary": {
+            "user_message_pending_count": 2,
+            "user_message_consumed_count": 3,
+            "user_message_deferred_count": 4,
+            "user_message_consumed_unknown_count": 5,
+            "recent_user_messages": [
+                {"message_id": "um-1", "status": "pending", "text": "exact human text"},
+            ],
+        },
+    })
+    assert summary.user_message_pending_count == 2
+    assert summary.user_message_consumed_count == 3
+    assert summary.user_message_deferred_count == 4
+    assert summary.user_message_consumed_unknown_count == 5
+    assert summary.recent_user_messages[0]["message_id"] == "um-1"

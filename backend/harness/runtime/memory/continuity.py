@@ -65,3 +65,13 @@ class OrchestrationContinuity:
     # Cumulative count of agent-declared ``hitl_consumed_prompt_ids`` entries
     # that did not match any ledger exchange (drift signal; never cleared).
     hitl_consumed_unknown_prompt_count: int = 0
+    # Append-only user-message ledger: durable mechanical history of every
+    # user-initiated message injected into the run (via CLI/UI/API).  Each
+    # entry preserves exact user-authored text plus consumption status
+    # (pending/consumed/deferred).  Separate from the HITL exchange ledger:
+    # HITL is agent-initiated, user messages are user-initiated.  See
+    # ``runtime/user_messages/ledger.py``.
+    user_message_ledger: list[dict[str, Any]] = field(default_factory=list)
+    # Cumulative count of agent-declared ``user_message_consumed_ids`` entries
+    # that did not match any ledger row (drift signal; never cleared).
+    user_message_consumed_unknown_count: int = 0

@@ -343,6 +343,71 @@ class KernelTraceCollector:
             )
         )
 
+    def emit_user_message_inbound(
+        self,
+        *,
+        iteration: int,
+        message_id: str,
+        message_payload: dict[str, Any] | None = None,
+    ) -> None:
+        """Mechanical record of an inbound user-to-agent message.
+
+        ``message_payload`` is the bounded ledger entry exactly as stored
+        (text, metadata, source, created_at_epoch_seconds, _bounds).  Included
+        verbatim for trace audit fidelity; the trace does not interpret content.
+        """
+        payload: dict[str, Any] = {"message_id": str(message_id)}
+        if isinstance(message_payload, dict) and message_payload:
+            payload["message"] = dict(message_payload)
+        self._append(
+            RawTraceEvent(
+                timestamp_epoch_seconds=self._now(),
+                event_kind="user_message_inbound",
+                phase="user_message",
+                iteration_index=iteration,
+                actor="human",
+                status="completed",
+                refs_delta={},
+                payload=payload,
+                source_origin=self._source(local_id=f"iter_{iteration}_user_msg_in_{message_id}"),
+            )
+        )
+
+    def emit_user_message_consumed(
+        self,
+        *,
+        iteration: int,
+        consumed_message_ids: list[str] | tuple[str, ...],
+        unknown_message_ids: list[str] | tuple[str, ...] = (),
+        deferred: list[dict[str, Any]] | tuple[dict[str, Any], ...] = (),
+    ) -> None:
+        """Mechanical record of agent acknowledgment of user messages.
+
+        ``consumed_message_ids`` matched the ledger; ``unknown_message_ids``
+        did not (drift signal).  ``deferred`` carries the
+        ``{message_id, reason}`` rows from the action plan.
+        """
+        payload: dict[str, Any] = {
+            "consumed_message_ids": [str(x) for x in consumed_message_ids],
+        }
+        if unknown_message_ids:
+            payload["unknown_message_ids"] = [str(x) for x in unknown_message_ids]
+        if deferred:
+            payload["deferred"] = [dict(d) for d in deferred if isinstance(d, dict)]
+        self._append(
+            RawTraceEvent(
+                timestamp_epoch_seconds=self._now(),
+                event_kind="user_message_consumed",
+                phase="user_message",
+                iteration_index=iteration,
+                actor="kernel",
+                status="completed",
+                refs_delta={},
+                payload=payload,
+                source_origin=self._source(local_id=f"iter_{iteration}_user_msg_consumed"),
+            )
+        )
+
     def emit_continuity_compacted(
         self,
         *,

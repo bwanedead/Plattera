@@ -215,3 +215,81 @@ def test_parse_action_plan_rejects_non_boolean_when_present(field: str) -> None:
     payload = {"action_type": "noop", field: "false"}
     with pytest.raises(ModelActionParseError, match=f"{field} must be a JSON boolean"):
         parse_action_plan_response(json.dumps(payload), available_tool_ids=("noop",))
+
+
+# ---------------------------------------------------------------------------
+# user_message_consumed_ids + user_message_defers fields
+# ---------------------------------------------------------------------------
+
+def test_parse_action_plan_accepts_user_message_consumed_ids() -> None:
+    payload = {
+        "action_type": "noop",
+        "rationale": "ack user message",
+        "user_message_consumed_ids": ["user-msg-1", "user-msg-2"],
+    }
+    plan = parse_action_plan_response(json.dumps(payload), available_tool_ids=("noop",))
+    assert plan.user_message_consumed_ids == ("user-msg-1", "user-msg-2")
+
+
+def test_parse_action_plan_accepts_user_message_defers() -> None:
+    payload = {
+        "action_type": "noop",
+        "rationale": "defer for hitl",
+        "user_message_defers": [
+            {"message_id": "user-msg-1", "reason": "waiting for hitl answer"},
+        ],
+    }
+    plan = parse_action_plan_response(json.dumps(payload), available_tool_ids=("noop",))
+    assert plan.user_message_defers == (
+        {"message_id": "user-msg-1", "reason": "waiting for hitl answer"},
+    )
+
+
+def test_parse_action_plan_user_message_ack_only_no_dispatch_turn_is_valid() -> None:
+    """A turn that only consumes user messages (no state_patch, no HITL) is allowed."""
+    payload = {
+        "action_type": None,
+        "skip_execution": True,
+        "rationale": "ack and move on",
+        "user_message_consumed_ids": ["user-msg-1"],
+    }
+    plan = parse_action_plan_response(json.dumps(payload), available_tool_ids=("noop",))
+    assert plan.skip_execution is True
+    assert plan.user_message_consumed_ids == ("user-msg-1",)
+
+
+def test_parse_action_plan_user_message_defer_only_no_dispatch_turn_is_valid() -> None:
+    payload = {
+        "action_type": None,
+        "rationale": "explicit defer",
+        "user_message_defers": [{"message_id": "user-msg-1", "reason": "not in scope"}],
+    }
+    plan = parse_action_plan_response(json.dumps(payload), available_tool_ids=("noop",))
+    assert plan.skip_execution is True
+
+
+def test_parse_action_plan_user_message_consumed_ids_must_be_list_of_strings() -> None:
+    payload = {
+        "action_type": "noop", "rationale": "t",
+        "user_message_consumed_ids": [42, "ok"],
+    }
+    with pytest.raises(ModelActionParseError, match="user_message_consumed_ids"):
+        parse_action_plan_response(json.dumps(payload), available_tool_ids=("noop",))
+
+
+def test_parse_action_plan_user_message_defers_must_have_reason() -> None:
+    payload = {
+        "action_type": "noop", "rationale": "t",
+        "user_message_defers": [{"message_id": "user-msg-1"}],  # missing reason
+    }
+    with pytest.raises(ModelActionParseError, match="user_message_defers"):
+        parse_action_plan_response(json.dumps(payload), available_tool_ids=("noop",))
+
+
+def test_parse_action_plan_user_message_defers_reject_blank_message_id() -> None:
+    payload = {
+        "action_type": "noop", "rationale": "t",
+        "user_message_defers": [{"message_id": "  ", "reason": "x"}],
+    }
+    with pytest.raises(ModelActionParseError, match="user_message_defers"):
+        parse_action_plan_response(json.dumps(payload), available_tool_ids=("noop",))

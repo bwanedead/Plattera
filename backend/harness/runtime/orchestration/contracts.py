@@ -47,6 +47,14 @@ class ActionPlan:
     hitl_request: dict[str, Any] | None = None
     # Mechanical acknowledgment: drop matching rows from ``answered_hitl_responses`` (LLM declares integration).
     hitl_consumed_prompt_ids: tuple[str, ...] = ()
+    # Mechanical acknowledgment for the user-message ledger: ids the agent declares
+    # it has acted on (state changes, artifact edits, scope changes — domain decides).
+    # Marks matching ledger rows as ``consumed``.  Unknown ids are surfaced as drift.
+    user_message_consumed_ids: tuple[str, ...] = ()
+    # Mechanical defer: each row is ``{"message_id": str, "reason": str}``.  Marks
+    # matching ledger rows as ``deferred`` with a short bounded reason so the next
+    # turn still sees them but knows they were intentionally not actioned yet.
+    user_message_defers: tuple[dict[str, Any], ...] = ()
     # Required on every LLM-authored choose-action turn: short decision note carrying
     # why-this-move and expected-gain. Enforced by ``action_plan_parser``; the parser
     # rejects plans whose rationale is missing or whitespace-only. Host-synthesized

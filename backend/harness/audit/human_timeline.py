@@ -34,6 +34,7 @@ OUTPUTS_EXCERPT_MAX_CHARS = 2000
 RAW_RESPONSE_EXCERPT_MAX_CHARS = 2000
 CONTINUITY_JOURNAL_MAX_CHARS = 3000
 HITL_CONTEXT_MAX_CHARS = 1500
+USER_MESSAGE_TEXT_MAX_CHARS = 1500
 MAX_PAYLOAD_TEXT_FIELDS = 4
 
 _BINARY_KEYS = frozenset(
@@ -169,6 +170,7 @@ def _render_turn(turn: Mapping[str, Any]) -> list[str]:
     out.extend(_render_saved_artifact(turn))
     out.extend(_render_state_patch(turn))
     out.extend(_render_hitl(turn))
+    out.extend(_render_user_messages(turn))
     out.extend(_render_mission_snapshot(turn))
     out.extend(_render_resolution(turn))
     out.extend(_render_work_graph(turn))
@@ -514,6 +516,48 @@ def _render_hitl(turn: Mapping[str, Any]) -> list[str]:
                 lines.extend(_labeled_json_block("      feedback:", fb, PROSE_MAX_CHARS, indent="      "))
     else:
         lines.append("  answered: none")
+    lines.append("")
+    return lines
+
+
+def _render_user_messages(turn: Mapping[str, Any]) -> list[str]:
+    ledger = turn.get("user_message_ledger") or []
+    unknown_count = turn.get("user_message_consumed_unknown_count")
+    if not isinstance(ledger, list) and not unknown_count:
+        return []
+    rows = [row for row in ledger if isinstance(row, Mapping)]
+    if not rows and not unknown_count:
+        return []
+    lines = ["User Messages"]
+    if unknown_count:
+        lines.append(f"  consumed_unknown_count: {unknown_count}")
+    if rows:
+        lines.append("  ledger:")
+        for raw in rows[:8]:
+            row = _coerce_mapping(raw)
+            lines.append(f"    - message_id: {row.get('message_id') or 'none'}")
+            lines.append(f"      status: {row.get('status') or 'unknown'}")
+            source = row.get("source")
+            if source:
+                lines.append(f"      source: {source}")
+            text = row.get("text")
+            if text is not None:
+                lines.append("      text:")
+                lines.extend(
+                    _indented_prose(
+                        _bound_text(str(text), USER_MESSAGE_TEXT_MAX_CHARS),
+                        indent="        ",
+                    )
+                )
+            reason = row.get("defer_reason")
+            if reason:
+                lines.append("      defer_reason:")
+                lines.extend(_indented_prose(_bound_text(str(reason), 400), indent="        "))
+            bounds = row.get("_bounds")
+            if bounds:
+                lines.extend(_labeled_json_block("      bounds:", bounds, 800, indent="        "))
+    else:
+        lines.append("  ledger: none")
     lines.append("")
     return lines
 

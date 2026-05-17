@@ -39,6 +39,10 @@ _ZERO_INT_FIELDS = (
     "answered_hitl_unconsumed_count",
     "complete_with_unconsumed_hitl_count",
     "hitl_consumed_unknown_prompt_count",
+    "user_message_pending_count",
+    "user_message_consumed_count",
+    "user_message_deferred_count",
+    "user_message_consumed_unknown_count",
     "artifact_state_dirty_since_write_count",
     "success_condition_count",
     "success_conditions_with_earned_determination_count",
@@ -93,6 +97,8 @@ def _prompt_observability_summary_from_payload(payload: dict[str, Any], *, defau
     data["mechanical_flags"] = _nonblank_strs(summary.get("mechanical_flags"))
     raw_exchanges = summary.get("recent_hitl_exchanges")
     data["recent_hitl_exchanges"] = [dict(e) for e in raw_exchanges if isinstance(e, dict)][:16] if isinstance(raw_exchanges, list) else []
+    raw_messages = summary.get("recent_user_messages")
+    data["recent_user_messages"] = [dict(e) for e in raw_messages if isinstance(e, dict)][:16] if isinstance(raw_messages, list) else []
     return PromptObservabilitySummary(**data)
 
 

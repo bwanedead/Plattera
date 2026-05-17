@@ -13,10 +13,12 @@ import pytest
 
 from harness.cli import run_state as rs
 from harness.cli.answer import answer_run
+from harness.cli.message import inject_user_message
 from harness.cli.start import build_module_argv, build_stub_argv, start_run
 from harness.cli.status import status_run
 from harness.cli.watch import watch_run
 from harness.runtime.hitl import watch as hitl_watch
+from harness.runtime.user_messages import store as user_message_store
 from services.agent_viewer import feedback_store
 
 
@@ -263,6 +265,43 @@ def test_answer_loop_kind_override_without_state(isolated_dossiers_artifacts):
         loop_kind="custom_loop",
     )
     assert res["status"] == "injected"
+
+
+def test_message_writes_user_message_store(
+    isolated_dossiers_artifacts, isolated_harness_root, monkeypatch,
+):
+    monkeypatch.setattr(user_message_store, "dossiers_artifacts_root", lambda: isolated_dossiers_artifacts)
+    rid = "msg-1"
+    st = rs.new_run_state(run_id=rid, pid=1, loop_kind="harness_cli", mode="x", spawn_argv=["x"])
+    rs.write_state(st)
+    res = inject_user_message(
+        run_id=rid,
+        text="Please correct item x.",
+        source="tester",
+        loop_kind=None,
+        metadata={"item_id": "x"},
+        message_id="user-msg-explicit",
+    )
+    assert res["status"] == "injected"
+    assert res["loop_kind"] == "harness_cli"
+    assert res["entry"]["message_id"] == "user-msg-explicit"
+    path = user_message_store.user_messages_path(loop_kind="harness_cli", run_id=rid)
+    data = json.loads(path.read_text(encoding="utf-8"))
+    assert data["entries"][0]["text"] == "Please correct item x."
+    assert data["entries"][0]["metadata"] == {"item_id": "x"}
+
+
+def test_message_loop_kind_override_without_state(isolated_dossiers_artifacts, monkeypatch):
+    monkeypatch.setattr(user_message_store, "dossiers_artifacts_root", lambda: isolated_dossiers_artifacts)
+    res = inject_user_message(
+        run_id="msg-override",
+        text="Generic note",
+        source="cli",
+        loop_kind="custom_loop",
+        metadata=None,
+    )
+    assert res["status"] == "injected"
+    assert res["loop_kind"] == "custom_loop"
 
 
 def test_status_missing_and_ok(isolated_harness_root, isolated_dossiers_artifacts):

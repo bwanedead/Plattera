@@ -402,6 +402,21 @@ def _compact_prompt_observability_summary(full_summary: Mapping[str, Any]) -> di
     if exchanges:
         compact["recent_hitl_exchanges"] = list(exchanges)
 
+    # User-to-agent message ledger projection — include only when non-empty.
+    # Counters surface as compact metrics for the prompt observability layer.
+    user_messages = full_summary.get("recent_user_messages") or []
+    if user_messages:
+        compact["recent_user_messages"] = list(user_messages)
+    for key in (
+        "user_message_pending_count",
+        "user_message_consumed_count",
+        "user_message_deferred_count",
+        "user_message_consumed_unknown_count",
+    ):
+        val = full_summary.get(key)
+        if val:  # drop None and 0
+            compact[key] = val
+
     return compact
 
 
