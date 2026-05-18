@@ -218,7 +218,41 @@ def _build_structured_state(
     )
     if tool_result_slices:
         structured["recent_tool_result_slices"] = tool_result_slices
+    pending_hydration = _build_agent_requested_hydration(cont.pending_agent_hydration)
+    if pending_hydration is not None:
+        structured["agent_requested_hydration"] = pending_hydration
     return structured
+
+
+def _build_agent_requested_hydration(record: Mapping[str, Any] | None) -> dict[str, Any] | None:
+    """One-shot prompt-visible projection of a pending hydrate_next record.
+
+    Returns ``None`` when there is no record.  Otherwise emits a compact view
+    with the requested refs, resolved refs, optional reason, any compact
+    resolution/dispatch errors, and the bounded hydrated payload (results +
+    errors as returned by ``hydrate_artifact_refs``).  This is host-owned
+    transport; the orchestrator drops the record after surface.
+    """
+    if not record:
+        return None
+    out: dict[str, Any] = {
+        "source_turn_index": int(record.get("source_turn_index") or 0),
+        "requested_refs": list(record.get("requested_refs") or []),
+        "resolved_refs": list(record.get("resolved_refs") or []),
+    }
+    reason = record.get("reason")
+    if isinstance(reason, str) and reason:
+        out["reason"] = reason
+    errors = record.get("errors") or []
+    if errors:
+        out["errors"] = list(errors)
+    hydrated_results = record.get("hydrated_results")
+    if hydrated_results is not None:
+        out["hydrated_results"] = list(hydrated_results)
+    hydration_errors = record.get("hydration_errors")
+    if hydration_errors:
+        out["hydration_errors"] = list(hydration_errors)
+    return out
 
 
 def _build_recent_turn_timeline(

@@ -29,6 +29,11 @@ from .user_message_hooks import (
     poll_and_record_user_messages,
     record_consumed_and_deferred_user_messages,
 )
+from .hydrate_next_hooks import (
+    capture_hydrate_next_after_step,
+    clear_surfaced_hydration,
+    surface_pending_hydration_before_choose_action,
+)
 from .orchestrator_coercion import (
     coerce_kernel_action_plan,
     coerce_projection,
@@ -254,6 +259,11 @@ def run_orchestration_kernel_loop(
             return control_result
         tracer.emit_iteration_start(iteration=iterations, hitl_state=loop_memory.hitl.hitl_state)
 
+        # Drop a prior-iteration ``hydrate_next`` record once it has been
+        # surfaced.  Keeps the lane strictly one-shot and prevents the same
+        # hydrated payload from re-appearing in subsequent prompts.
+        clear_surfaced_hydration(loop_memory=loop_memory)
+
         hitl_poll_feedback_store(
             posture=loop_memory.hitl,
             loop_kind=_hitl_loop_kind(run_ctx),
@@ -315,6 +325,19 @@ def run_orchestration_kernel_loop(
                 tracer=tracer,
                 session_manager=session_manager,
             )
+
+        # Surface any agent-authored ``hydrate_next`` request from the prior
+        # turn.  Dispatches a single bounded ``hydrate_artifact_refs`` step
+        # via the session manager, attaches the result to the pending record,
+        # and flips status to ``surfaced`` so the prompt builder includes it.
+        surface_pending_hydration_before_choose_action(
+            loop_memory=loop_memory,
+            session_manager=session_manager,
+            session_id=session_id,
+            request_id_prefix=request_id_prefix,
+            run_id=run_id,
+            iteration=iterations,
+        )
 
         participant = active_lifecycle.pre_choose_action_participant
         if participant is not None:
@@ -618,6 +641,12 @@ def run_orchestration_kernel_loop(
                     action_plan=action_plan, step_result=step_result,
                     loop_memory=loop_memory,
                 )
+                capture_hydrate_next_after_step(
+                    loop_memory=loop_memory,
+                    action_plan=action_plan,
+                    step_result=step_result,
+                    iteration=iterations,
+                )
                 _checkpoint(iterations)
             else:
                 if step_result.dashboard is not None:
@@ -650,6 +679,12 @@ def run_orchestration_kernel_loop(
                     action_plan=action_plan, step_result=step_result,
                     loop_memory=loop_memory,
                 )
+                capture_hydrate_next_after_step(
+                    loop_memory=loop_memory,
+                    action_plan=action_plan,
+                    step_result=step_result,
+                    iteration=iterations,
+                )
                 _checkpoint(iterations)
         else:
             sync_state_patch_when_no_step_dispatched(
@@ -672,6 +707,12 @@ def run_orchestration_kernel_loop(
                 iterations,
                 action_plan=action_plan, step_result=None,
                 loop_memory=loop_memory,
+            )
+            capture_hydrate_next_after_step(
+                loop_memory=loop_memory,
+                action_plan=action_plan,
+                step_result=None,
+                iteration=iterations,
             )
             _checkpoint(iterations)
 

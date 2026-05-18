@@ -293,3 +293,98 @@ def test_parse_action_plan_user_message_defers_reject_blank_message_id() -> None
     }
     with pytest.raises(ModelActionParseError, match="user_message_defers"):
         parse_action_plan_response(json.dumps(payload), available_tool_ids=("noop",))
+
+
+# ---------------------------------------------------------------------------
+# hydrate_next + hydrate_next_reason fields
+# ---------------------------------------------------------------------------
+
+def test_parse_action_plan_absent_hydrate_next_is_empty_tuple() -> None:
+    plan = parse_action_plan_response(
+        json.dumps({"action_type": "noop", "rationale": "t"}),
+        available_tool_ids=("noop",),
+    )
+    assert plan.hydrate_next == ()
+    assert plan.hydrate_next_reason is None
+
+
+def test_parse_action_plan_accepts_literal_hydrate_next() -> None:
+    plan = parse_action_plan_response(
+        json.dumps({
+            "action_type": "noop", "rationale": "t",
+            "hydrate_next": ["artifact://x", "artifact://y"],
+        }),
+        available_tool_ids=("noop",),
+    )
+    assert plan.hydrate_next == ("artifact://x", "artifact://y")
+
+
+def test_parse_action_plan_accepts_hydrate_next_placeholders() -> None:
+    plan = parse_action_plan_response(
+        json.dumps({
+            "action_type": "save_workspace_artifact", "rationale": "t",
+            "hydrate_next": ["@result.revision_ref", "@result.artifact_refs[]"],
+        }),
+        available_tool_ids=("save_workspace_artifact",),
+    )
+    assert plan.hydrate_next == ("@result.revision_ref", "@result.artifact_refs[]")
+
+
+def test_parse_action_plan_accepts_hydrate_next_reason() -> None:
+    plan = parse_action_plan_response(
+        json.dumps({
+            "action_type": "noop", "rationale": "t",
+            "hydrate_next": ["@result.revision_ref"],
+            "hydrate_next_reason": "inspect saved payload",
+        }),
+        available_tool_ids=("noop",),
+    )
+    assert plan.hydrate_next_reason == "inspect saved payload"
+
+
+def test_parse_action_plan_clamps_overlong_hydrate_next_reason() -> None:
+    plan = parse_action_plan_response(
+        json.dumps({
+            "action_type": "noop", "rationale": "t",
+            "hydrate_next_reason": "x" * 800,
+        }),
+        available_tool_ids=("noop",),
+    )
+    assert plan.hydrate_next_reason is not None
+    assert len(plan.hydrate_next_reason) == 400
+
+
+def test_parse_action_plan_rejects_hydrate_next_over_max_length() -> None:
+    payload = {
+        "action_type": "noop", "rationale": "t",
+        "hydrate_next": [f"r-{i}" for i in range(6)],
+    }
+    with pytest.raises(ModelActionParseError, match="hydrate_next"):
+        parse_action_plan_response(json.dumps(payload), available_tool_ids=("noop",))
+
+
+def test_parse_action_plan_rejects_non_string_hydrate_next_entries() -> None:
+    payload = {
+        "action_type": "noop", "rationale": "t",
+        "hydrate_next": ["ok", 42],
+    }
+    with pytest.raises(ModelActionParseError, match="hydrate_next entries"):
+        parse_action_plan_response(json.dumps(payload), available_tool_ids=("noop",))
+
+
+def test_parse_action_plan_rejects_non_list_hydrate_next() -> None:
+    payload = {
+        "action_type": "noop", "rationale": "t",
+        "hydrate_next": "artifact://x",
+    }
+    with pytest.raises(ModelActionParseError, match="hydrate_next"):
+        parse_action_plan_response(json.dumps(payload), available_tool_ids=("noop",))
+
+
+def test_parse_action_plan_rejects_non_string_hydrate_next_reason() -> None:
+    payload = {
+        "action_type": "noop", "rationale": "t",
+        "hydrate_next_reason": 42,
+    }
+    with pytest.raises(ModelActionParseError, match="hydrate_next_reason"):
+        parse_action_plan_response(json.dumps(payload), available_tool_ids=("noop",))

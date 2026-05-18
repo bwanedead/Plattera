@@ -66,6 +66,12 @@ class ActionPlan:
     # or next-step understanding worth carrying forward.
     continuity_journal_entry: dict[str, Any] | None = None
     operator_progress_message: str | None = None
+    # Agent-authored hydration attention request for the NEXT turn.  Bounded
+    # list of literal refs or ``@result.*`` placeholders (resolved post-tool by
+    # ``orchestration/hydrate_next.py``).  Mechanical attention request only —
+    # never a deterministic truth override.  See ``hydrate_next.py``.
+    hydrate_next: tuple[str, ...] = ()
+    hydrate_next_reason: str | None = None
 
 
 @dataclass(frozen=True)

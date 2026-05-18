@@ -805,3 +805,139 @@ def test_parse_rejects_user_message_ledger_with_malformed_entry() -> None:
     }
     _, _, err = parse_kernel_resume_snapshot(base)
     assert err == "resume_snapshot_user_message_ledger_invalid"
+
+
+# ---------------------------------------------------------------------------
+# pending_agent_hydration round-trip (agent-authored hydrate_next)
+# ---------------------------------------------------------------------------
+
+def test_roundtrip_pending_agent_hydration_preserves_pending_record() -> None:
+    """A pending hydrate_next record survives the snapshot round-trip."""
+    executor = ExecutionExecutor()
+    sm = ExecutionSessionManager(executor=executor)
+    sm.start_session(ExecutionSessionStartRequest(run_id="run-hn", session_id="sess-hn"))
+    lm = LoopMemoryState()
+    lm.continuity.mission_state = new_mission_state(mission_id="m1", loop_family="orchestration_kernel")
+    lm.continuity.resolution_state = new_resolution_state()
+    lm.continuity.pending_agent_hydration = {
+        "source_turn_index": 41,
+        "requested_refs": ["@result.revision_ref"],
+        "resolved_refs": ["transcript_edit:working:rev:0001"],
+        "reason": "inspect saved payload",
+        "errors": [],
+        "hydrated_results": None,
+        "hydration_errors": None,
+        "status": "pending",
+        "surfaced_iteration": None,
+    }
+
+    snap = build_kernel_resume_snapshot(
+        loop_memory=lm, session_manager=sm, session_id="sess-hn", next_iteration=42,
+    )
+    mem2, _, err = parse_kernel_resume_snapshot(snap)
+    assert err is None
+    rec = mem2.continuity.pending_agent_hydration
+    assert rec is not None
+    assert rec["status"] == "pending"
+    assert rec["source_turn_index"] == 41
+    assert rec["resolved_refs"] == ["transcript_edit:working:rev:0001"]
+
+
+def test_roundtrip_pending_agent_hydration_surfaced_does_not_re_surface_forever() -> None:
+    """A surfaced record round-trips; orchestrator drops it on next iter, not the parser."""
+    executor = ExecutionExecutor()
+    sm = ExecutionSessionManager(executor=executor)
+    sm.start_session(ExecutionSessionStartRequest(run_id="run-hn", session_id="sess-hn"))
+    lm = LoopMemoryState()
+    lm.continuity.mission_state = new_mission_state(mission_id="m1", loop_family="orchestration_kernel")
+    lm.continuity.resolution_state = new_resolution_state()
+    lm.continuity.pending_agent_hydration = {
+        "source_turn_index": 41,
+        "requested_refs": ["@result.revision_ref"],
+        "resolved_refs": ["r-1"],
+        "reason": None,
+        "errors": [],
+        "hydrated_results": [{"ref_id": "r-1", "kind": "transcript_edit_draft", "payload": {}}],
+        "hydration_errors": None,
+        "status": "surfaced",
+        "surfaced_iteration": 42,
+    }
+
+    snap = build_kernel_resume_snapshot(
+        loop_memory=lm, session_manager=sm, session_id="sess-hn", next_iteration=43,
+    )
+    mem2, _, err = parse_kernel_resume_snapshot(snap)
+    assert err is None
+    rec = mem2.continuity.pending_agent_hydration
+    assert rec is not None
+    assert rec["status"] == "surfaced"
+    assert rec["surfaced_iteration"] == 42
+
+
+def test_roundtrip_pending_agent_hydration_absent_defaults_to_none() -> None:
+    """Old snapshots without the field restore to None (no pending request)."""
+    rs = new_resolution_state()
+    ms = new_mission_state(mission_id="m1", loop_family="orchestration_kernel", resolution_state=rs)
+    base = {
+        "schema_version": "kernel_resume.v1",
+        "next_iteration": 5,
+        "continuity": {
+            "latest_refs": {},
+            "mission_state": ms.model_dump(mode="json"),
+            "resolution_state": rs.model_dump(mode="json"),
+            "active_item_id": None,
+        },
+        "hitl": {"hitl_state": "no_prompt"},
+        "telemetry": {"llm_contact_count": 0, "prompt_event_count": 0},
+        "execution_session": None,
+    }
+    mem2, _, err = parse_kernel_resume_snapshot(base)
+    assert err is None
+    assert mem2.continuity.pending_agent_hydration is None
+
+
+def test_parse_rejects_pending_agent_hydration_wrong_type() -> None:
+    rs = new_resolution_state()
+    ms = new_mission_state(mission_id="m1", loop_family="orchestration_kernel", resolution_state=rs)
+    base = {
+        "schema_version": "kernel_resume.v1",
+        "next_iteration": 1,
+        "continuity": {
+            "latest_refs": {},
+            "mission_state": ms.model_dump(mode="json"),
+            "resolution_state": rs.model_dump(mode="json"),
+            "active_item_id": None,
+            "pending_agent_hydration": "not-a-dict",
+        },
+        "hitl": {"hitl_state": "no_prompt"},
+        "telemetry": {"llm_contact_count": 0, "prompt_event_count": 0},
+        "execution_session": None,
+    }
+    _, _, err = parse_kernel_resume_snapshot(base)
+    assert err == "resume_snapshot_pending_agent_hydration_invalid"
+
+
+def test_parse_rejects_pending_agent_hydration_unknown_status() -> None:
+    rs = new_resolution_state()
+    ms = new_mission_state(mission_id="m1", loop_family="orchestration_kernel", resolution_state=rs)
+    base = {
+        "schema_version": "kernel_resume.v1",
+        "next_iteration": 1,
+        "continuity": {
+            "latest_refs": {},
+            "mission_state": ms.model_dump(mode="json"),
+            "resolution_state": rs.model_dump(mode="json"),
+            "active_item_id": None,
+            "pending_agent_hydration": {
+                "source_turn_index": 1,
+                "requested_refs": ["a"],
+                "resolved_refs": ["a"],
+                "status": "weird",
+            },
+        },
+        "hitl": {"hitl_state": "no_prompt"},
+        "telemetry": {"llm_contact_count": 0, "prompt_event_count": 0},
+        "execution_session": None,
+    }
+    _, _, err = parse_kernel_resume_snapshot(base)
+    assert err == "resume_snapshot_pending_agent_hydration_invalid"

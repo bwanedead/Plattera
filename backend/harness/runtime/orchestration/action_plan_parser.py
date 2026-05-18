@@ -14,6 +14,11 @@ from typing import Any
 from ..hitl.request_shape import normalize_hitl_request, validate_hitl_consumed_prompt_ids
 from .continuity_journal_entry import normalize_continuity_journal_entry
 from .contracts import ActionPlan
+from .hydrate_next import (
+    HydrateNextValidationError,
+    normalize_hydrate_next,
+    normalize_hydrate_next_reason,
+)
 from .user_message_action_plan_shape import (
     validate_user_message_consumed_ids,
     validate_user_message_defers,
@@ -25,6 +30,7 @@ _ALLOWED_ACTION_PLAN_KEYS = {
     "rationale", "state_patch", "continuity_journal_entry",
     "operator_progress_message", "hitl_request", "hitl_consumed_prompt_ids",
     "user_message_consumed_ids", "user_message_defers",
+    "hydrate_next", "hydrate_next_reason",
 }
 
 
@@ -160,6 +166,26 @@ def parse_action_plan_response(
     except ValueError as exc:
         raise _parse_error(f"user_message_defers failed canonical validation: {exc}") from exc
 
+    try:
+        hydrate_next_refs, hydrate_next_parse_errors = normalize_hydrate_next(
+            payload.get("hydrate_next")
+        )
+    except HydrateNextValidationError as exc:
+        raise _parse_error(f"hydrate_next failed canonical validation: {exc}") from exc
+    if hydrate_next_parse_errors:
+        bad_indices = [str(e.get("index")) for e in hydrate_next_parse_errors]
+        raise _parse_error(
+            "hydrate_next entries must be non-empty strings "
+            f"(invalid at index {', '.join(bad_indices)})"
+        )
+
+    try:
+        hydrate_next_reason_out = normalize_hydrate_next_reason(
+            payload.get("hydrate_next_reason")
+        )
+    except HydrateNextValidationError as exc:
+        raise _parse_error(f"hydrate_next_reason failed canonical validation: {exc}") from exc
+
     state_patch_out = _json_object_or_null(payload.get("state_patch"), "state_patch")
 
     # A turn that only consumes/defers user messages (no state patch, no HITL,
@@ -243,4 +269,6 @@ def parse_action_plan_response(
         state_patch=state_patch_out,
         continuity_journal_entry=cje_out,
         operator_progress_message=opm_out,
+        hydrate_next=tuple(hydrate_next_refs),
+        hydrate_next_reason=hydrate_next_reason_out,
     )

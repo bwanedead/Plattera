@@ -263,6 +263,17 @@ For each pending message: (1) Read the exact text and any metadata. (2) Decide w
 `user_message_consumed_ids` and `user_message_defers` are top-level action-plan fields, not `state_patch` fields. A turn that only consumes / defers user messages (no other dispatch, no state_patch, no HITL) is a valid no-dispatch acknowledgment turn.
 
 `prompt_observability_summary.mechanical_flags` may also include `post_hitl_spin:N` when N consecutive post-HITL turns have produced no new refs, no artifact write, and no state change since the HITL turn was issued. This is post-integration spin: the human answer was received but the run is not advancing. When this flag fires: (1) Integrate the HITL answer into durable state now — update the relevant item or covered unit with the determined value, mark it earned or blocked, and update `evidence_refs` to cite the HITL context. (2) Follow through: if the HITL answer unblocks a pending artifact write, perform that write on this turn. (3) If the HITL answer reveals a conflict or unexpected gap, open a new resolution item rather than rereading the same refs. Do not issue another HITL or re-read without first materializing the integration.
+
+### Agent-authored next-turn hydration (`hydrate_next`)
+If your current action creates or names an artifact you already know you must inspect next turn, use the top-level `hydrate_next` field instead of spending the next turn only hydrating it. Keep it small and specific. Each entry is either a literal ref you already know (an `artifact_ref` string) or a placeholder resolved against the current tool result after it executes:
+- `@result.derived_ref_id` — single ref from a transform-style result
+- `@result.revision_ref` — single ref from a save-style result
+- `@result.published_ref` — single ref from a publish-style result
+- `@result.artifact_refs[]` — the bounded ``artifact_refs`` list on the result
+
+Bounds: at most 5 entries before resolution, at most 5 resolved refs after dedupe. Non-string entries are rejected. Placeholders that cannot resolve become compact next-turn errors, not runner crashes. Optional `hydrate_next_reason` is a short free-text note about why you want these next.
+
+`hydrate_next` is an attention request for the NEXT turn only. It does not execute as the current action, it does not replace normal `hydrate_artifact_refs` calls when you need content this turn, and it does not make the referenced content authoritative — it only asks the harness to surface bounded hydrated context once, in the next prompt, under `structured_state.agent_requested_hydration`. You still decide what the evidence means after seeing it.
 """
 
 _EXAMPLES_TEXT = """\

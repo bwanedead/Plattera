@@ -2105,3 +2105,125 @@ def test_kernel_resume_snapshot_preserves_turn_recovery_state() -> None:
     assert next_iteration == 19
     assert restored.turn_recovery.consecutive_failures == 1
     assert restored.turn_recovery.last_failure["provider_finish_reason"] == "length"
+
+
+# ---------------------------------------------------------------------------
+# Agent-authored ``hydrate_next`` — end-to-end regression
+# ---------------------------------------------------------------------------
+
+class _SaveThenInspectPack:
+    """Iter 1: save workspace artifact + hydrate_next on its revision_ref.
+    Iter 2: terminal.  Used to verify that the next turn sees the saved
+    revision without an intermediate hydrate_artifact_refs LLM turn.
+    """
+
+    def initialize(self, context: OrchestratorContext) -> None:
+        pass
+
+    def sync(self, context: OrchestratorContext) -> SharedStateProjection:
+        return SharedStateProjection(
+            mission_state=new_mission_state(mission_id="m-hn", loop_family="orchestration_kernel"),
+            resolution_state=new_resolution_state(),
+        )
+
+    def evaluate_terminal(self, context: OrchestratorContext, projection: SharedStateProjection | None) -> TerminalEvaluation | None:
+        return None
+
+    def choose_action(self, context: OrchestratorContext, projection: SharedStateProjection | None) -> ActionPlan:
+        if context.loop_memory.iterations == 1:
+            return ActionPlan(
+                action_type="save_workspace_artifact",
+                action_inputs={},
+                rationale="save and request next-turn inspection of the saved revision",
+                hydrate_next=("@result.revision_ref",),
+                hydrate_next_reason="inspect saved payload before publish",
+            )
+        return ActionPlan(
+            complete_run=True,
+            state_patch={"mission": {"work_universe_posture": "audited"}},
+            rationale="inspected; done",
+        )
+
+
+class _SaveAndHydrateFakeSessionManager(ExecutionSessionManager):
+    """Returns a save-style payload for ``save_workspace_artifact`` and
+    a results/errors payload for ``hydrate_artifact_refs``."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.steps: list[ExecutionStepRequest] = []
+
+    def step(self, request: ExecutionStepRequest) -> ExecutionStepResult:  # type: ignore[override]
+        from harness.execution.contracts import (
+            ActionDispatchResult,
+            SessionExecutionRecord,
+        )
+        self.steps.append(request)
+        if request.action_id == "save_workspace_artifact":
+            outputs = {"revision_ref": "transcript_edit:working:rev:0001"}
+            artifact_refs: tuple[str, ...] = ("transcript_edit:working:rev:0001",)
+        elif request.action_id == "hydrate_artifact_refs":
+            outputs = {
+                "results": [
+                    {"ref_id": rid, "kind": "transcript_edit_draft", "payload": {"body": "saved"}}
+                    for rid in (request.inputs.get("ref_ids") or [])
+                ],
+                "errors": [],
+            }
+            artifact_refs = ()
+        else:
+            outputs = {}
+            artifact_refs = ()
+        result = ActionDispatchResult(
+            action_id=request.action_id, executed=True,
+            outputs=outputs, artifact_refs=artifact_refs,
+        )
+        record = SessionExecutionRecord(
+            session_id=request.session_id, run_id="r", request=request, result=result,
+        )
+        return ExecutionStepResult(
+            session_id=request.session_id,
+            idempotency_key=request.idempotency_key,
+            execution_state=ExecutionState.EXECUTED,
+            dashboard=_dashboard(refs={"latest": f"artifact://{request.action_id}"}),
+            record=record,
+        )
+
+
+def test_hydrate_next_dispatches_hydration_on_next_iteration_without_agent_call() -> None:
+    """Regression: a save with ``hydrate_next: ['@result.revision_ref']`` causes
+    the harness to dispatch ``hydrate_artifact_refs`` on the next iteration
+    automatically — no extra agent turn is spent only hydrating."""
+    sm = _SaveAndHydrateFakeSessionManager()
+    result = run_orchestration_kernel_loop(
+        orchestration_adapter=_SaveThenInspectPack(),
+        session_manager=sm,
+        session_id="s-hn",
+        run_artifact_ref=None,
+        request_id_prefix="req-hn",
+        max_iterations=4,
+    )
+    assert result.terminal_class == "completed"
+    # Two dispatched steps: the agent's save, then the harness-driven hydrate.
+    action_ids = [s.action_id for s in sm.steps]
+    assert action_ids == ["save_workspace_artifact", "hydrate_artifact_refs"]
+    hydrate_step = sm.steps[1]
+    assert hydrate_step.inputs == {"ref_ids": ["transcript_edit:working:rev:0001"]}
+    # The pack only authored ONE choose_action plan that dispatched (iter 1);
+    # iter 2 terminated before any second authored hydrate plan was needed.
+
+
+def test_hydrate_next_with_no_request_leaves_orchestrator_unchanged() -> None:
+    """A normal plan without hydrate_next must not trigger any extra dispatch."""
+    sm = FakeSessionManager()
+    result = run_orchestration_kernel_loop(
+        orchestration_adapter=OneStepThenCompletePack(),
+        session_manager=sm,
+        session_id="s-hn-baseline",
+        run_artifact_ref=None,
+        request_id_prefix="req-hn-baseline",
+        max_iterations=4,
+    )
+    assert result.terminal_class == "completed"
+    # No extra ``hydrate_artifact_refs`` step beyond what the pack itself authored.
+    assert all(s.action_id != "hydrate_artifact_refs" for s in sm.steps)

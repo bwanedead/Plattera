@@ -731,3 +731,57 @@ def test_compaction_prompt_document_uses_explicit_mode_packet() -> None:
     assert "doctrine_blocks" not in doc.prompt_body
     assert "surface_packet" not in doc.prompt_body
     assert doc.prompt_body["compaction_context"]["target_compacted_summary_chars"] == 900
+
+
+def test_full_choose_action_prompt_includes_agent_requested_hydration_lane_when_pending() -> None:
+    """When a pending hydrate_next record exists, the prompt structured_state surfaces it."""
+    context = _context()
+    context.loop_memory.continuity.pending_agent_hydration = {
+        "source_turn_index": 2,
+        "requested_refs": ["@result.revision_ref"],
+        "resolved_refs": ["transcript_edit:working:rev:0001"],
+        "reason": "inspect saved payload before publish",
+        "errors": [],
+        "hydrated_results": [{"ref_id": "transcript_edit:working:rev:0001", "kind": "stub", "payload": {}}],
+        "hydration_errors": None,
+        "status": "surfaced",
+        "surfaced_iteration": 3,
+    }
+
+    doc = build_choose_action_prompt_document(
+        composed_input=_composed_input(),
+        opaque_launch_context={"run_id": "r-1"},
+        context=context,
+        projection=_projection(),
+        journal_verbatim_keep_n=2,
+    )
+
+    lane = doc.prompt_body["structured_state"].get("agent_requested_hydration")
+    assert lane is not None
+    assert lane["requested_refs"] == ["@result.revision_ref"]
+    assert lane["resolved_refs"] == ["transcript_edit:working:rev:0001"]
+    assert lane["reason"] == "inspect saved payload before publish"
+    assert lane["hydrated_results"][0]["ref_id"] == "transcript_edit:working:rev:0001"
+
+
+def test_full_choose_action_prompt_omits_lane_when_no_pending_record() -> None:
+    doc = build_choose_action_prompt_document(
+        composed_input=_composed_input(),
+        opaque_launch_context={"run_id": "r-1"},
+        context=_context(),
+        projection=_projection(),
+        journal_verbatim_keep_n=2,
+    )
+    assert "agent_requested_hydration" not in doc.prompt_body.get("structured_state", {})
+
+
+def test_full_choose_action_prompt_doctrine_mentions_hydrate_next() -> None:
+    """The choose-action doctrine must surface the hydrate_next contract."""
+    doc = build_choose_action_prompt_document(
+        composed_input=_composed_input(),
+        opaque_launch_context={"run_id": "r-1"},
+        context=_context(),
+        projection=_projection(),
+        journal_verbatim_keep_n=2,
+    )
+    assert "hydrate_next" in doc.prompt_text

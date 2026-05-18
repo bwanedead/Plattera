@@ -75,3 +75,9 @@ class OrchestrationContinuity:
     # Cumulative count of agent-declared ``user_message_consumed_ids`` entries
     # that did not match any ledger row (drift signal; never cleared).
     user_message_consumed_unknown_count: int = 0
+    # Agent-authored next-turn hydration attention request (or ``None`` when
+    # no request is pending).  Built by ``orchestration/hydrate_next.py`` after
+    # an action plan with ``hydrate_next`` executes; consumed by the orchestrator
+    # on the next iteration when it dispatches a bounded hydration step before
+    # the next choose-action.  Status lifecycle: ``pending`` → ``surfaced``.
+    pending_agent_hydration: dict[str, Any] | None = None

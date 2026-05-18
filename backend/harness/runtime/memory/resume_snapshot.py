@@ -19,6 +19,7 @@ from ...mission_state import MissionState, ResolutionState
 from ..hitl.transport import HitlTransportPosture
 from ..hitl.exchange_ledger import validate_stored_ledger_entry
 from ..user_messages.ledger import validate_stored_user_message
+from ..orchestration.hydrate_next import validate_stored_hydrate_next_record
 from .continuity import OrchestrationContinuity
 from .continuity_journal import (
     clamp_compacted_summary_text,
@@ -83,6 +84,11 @@ def build_kernel_resume_snapshot(
             "user_message_ledger": list(loop_memory.continuity.user_message_ledger),
             "user_message_consumed_unknown_count": int(
                 loop_memory.continuity.user_message_consumed_unknown_count
+            ),
+            "pending_agent_hydration": (
+                dict(loop_memory.continuity.pending_agent_hydration)
+                if loop_memory.continuity.pending_agent_hydration is not None
+                else None
             ),
         },
         "hitl": {
@@ -299,6 +305,17 @@ def parse_kernel_resume_snapshot(payload: Mapping[str, Any]) -> tuple[LoopMemory
             if user_message_consumed_unknown_count < 0:
                 return empty, 1, "resume_snapshot_user_message_consumed_unknown_count_invalid"
 
+    pending_agent_hydration_out: dict[str, Any] | None = None
+    if "pending_agent_hydration" in cont:
+        pah_raw = cont.get("pending_agent_hydration")
+        if pah_raw is not None:
+            if not isinstance(pah_raw, Mapping):
+                return empty, 1, "resume_snapshot_pending_agent_hydration_invalid"
+            normalized_pah = validate_stored_hydrate_next_record(pah_raw)
+            if normalized_pah is None:
+                return empty, 1, "resume_snapshot_pending_agent_hydration_invalid"
+            pending_agent_hydration_out = normalized_pah
+
     continuity = OrchestrationContinuity(
         latest_refs=latest_refs_out,
         mission_state=ms,
@@ -317,6 +334,7 @@ def parse_kernel_resume_snapshot(payload: Mapping[str, Any]) -> tuple[LoopMemory
         hitl_consumed_unknown_prompt_count=hitl_consumed_unknown_count,
         user_message_ledger=user_message_ledger_out,
         user_message_consumed_unknown_count=user_message_consumed_unknown_count,
+        pending_agent_hydration=pending_agent_hydration_out,
     )
 
     hitl_raw = payload.get("hitl")
