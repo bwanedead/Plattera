@@ -46,6 +46,19 @@ def _action_has_policy_role(
     return action_id in _policy_action_ids(policy, role_action_ids_key)
 
 
+def _latest_refs_contain_required_ref(
+    *,
+    latest_refs: dict[str, Any],
+    required_ref_id: str,
+) -> bool:
+    ref = str(required_ref_id or "").strip()
+    if not ref:
+        return True
+    if ref in latest_refs:
+        return True
+    return any(str(value).strip() == ref for value in latest_refs.values())
+
+
 def effective_resolution_state(
     *,
     loop_memory: LoopMemoryState,
@@ -256,5 +269,35 @@ def closure_enforcement_failure(
             "closure_complete_not_ready",
             "closure enforcement requires ready_to_close before complete_run",
         )
+
+    if is_complete:
+        required_complete_refs = tuple(
+            str(value).strip()
+            for value in (policy.get("required_latest_ref_ids_for_complete") or ())
+            if str(value).strip()
+        )
+        allow_missing_refs_when_blocked = bool(
+            policy.get("allow_complete_without_required_refs_when_no_further_progress")
+        )
+        if required_complete_refs and not (
+            allow_missing_refs_when_blocked and bool(getattr(cs, "no_further_progress", False))
+        ):
+            latest_refs = dict(loop_memory.continuity.latest_refs or {})
+            missing_refs = [
+                ref
+                for ref in required_complete_refs
+                if not _latest_refs_contain_required_ref(
+                    latest_refs=latest_refs,
+                    required_ref_id=ref,
+                )
+            ]
+            if missing_refs:
+                return (
+                    "closure_complete_required_refs_missing",
+                    (
+                        "closure enforcement requires latest output refs before complete_run: "
+                        f"{missing_refs}"
+                    ),
+                )
 
     return None

@@ -19,6 +19,7 @@ from .paths import (
     transcript_edit_working_dir,
     transcript_edit_workspace_root,
 )
+from .handoff_payload import build_output_handoff_metadata, validate_publish_handoff_payload
 
 _SCHEMA_VERSION = 1
 _WORKING_REV_REF_RE = re.compile(r"^transcript_edit:working:rev:(\d{4})$")
@@ -328,6 +329,28 @@ def publish_transcript_edit_output(
                 "outputs": {"error": str(rev_path), "code": "not_found"},
             }
 
+        payload = revision_doc.get("payload")
+        handoff_errors = validate_publish_handoff_payload(payload)
+        if handoff_errors:
+            return {
+                "executed": False,
+                "refusal": {
+                    "reason_code": "publish_handoff_payload_incomplete",
+                    "retryable": True,
+                },
+                "outputs": {
+                    "error": "source revision payload is missing required transcript-edit handoff lanes",
+                    "handoff_payload_errors": handoff_errors,
+                    "repair_hint": (
+                        "Save a new working revision whose draft_payload contains "
+                        "source_transcript_verbatim, normalized_or_mapping_transcript, "
+                        "issues, parcel_metadata, hitl_decisions, and evidence_refs. "
+                        "If issues, hitl_decisions, or evidence_refs are intentionally empty, "
+                        "also include the matching *_none_reason field."
+                    ),
+                },
+            }
+
         published_at = _utc_now_iso()
         output_doc: dict[str, Any] = {
             "schema_version": _SCHEMA_VERSION,
@@ -336,6 +359,7 @@ def publish_transcript_edit_output(
             "source_revision_ref": src_ref,
             "source_relative_path": f"working/rev_{rev_digits}.json",
             "revision_snapshot": revision_doc,
+            "handoff_metadata": build_output_handoff_metadata(payload),
         }
         out_path = transcript_edit_output_path(dossier_id, transcription_id, ws)
         _write_json(out_path, output_doc)

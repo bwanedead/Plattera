@@ -52,6 +52,19 @@ def _minimal_run_layout(root: Path, dossier_id: str, transcription_id: str) -> P
     return t0_path
 
 
+def _valid_handoff_payload(**overrides) -> dict:
+    payload = {
+        "source_transcript_verbatim": "source text",
+        "normalized_or_mapping_transcript": "mapping text",
+        "issues": [{"id": "issue-1", "status": "closed"}],
+        "parcel_metadata": {"parcel_count": 1, "forwardable_scope": "visible_source"},
+        "hitl_decisions": [{"prompt_id": "hitl-1", "choice": "accepted"}],
+        "evidence_refs": ["image:assoc:t1:original"],
+    }
+    payload.update(overrides)
+    return payload
+
+
 def test_save_returns_top_level_artifact_refs_for_harness_latest_refs(tmp_path, monkeypatch):
     root = _dossiers_root(tmp_path)
     monkeypatch.setattr(paths_mod, "dossiers_root", lambda: root)
@@ -130,7 +143,12 @@ def test_startup_inventory_surfaces_working_and_output_refs(tmp_path, monkeypatc
     d, tx, ws = "d1", "t1", "ws-3"
     _minimal_run_layout(root, d, tx)
 
-    s1 = save_transcript_edit(dossier_id=d, transcription_id=tx, run_id=ws, transcript_text="alpha")
+    s1 = save_transcript_edit(
+        dossier_id=d,
+        transcription_id=tx,
+        run_id=ws,
+        draft_payload=_valid_handoff_payload(source_transcript_verbatim="alpha"),
+    )
     ref1 = s1["outputs"]["working_draft_ref"]
     inv_mid = build_transcript_edit_startup_inventory(dossier_id=d, transcription_id=tx, run_id=ws)
     assert inv_mid.transcript_edit_drafts.working_draft_exists is True
@@ -183,7 +201,12 @@ def test_hydrate_output_after_publish(tmp_path, monkeypatch):
     monkeypatch.setattr(paths_mod, "dossiers_root", lambda: root)
     d, tx, ws = "d1", "t1", "ws-5"
     _minimal_run_layout(root, d, tx)
-    s = save_transcript_edit(dossier_id=d, transcription_id=tx, run_id=ws, transcript_text="to-publish")
+    s = save_transcript_edit(
+        dossier_id=d,
+        transcription_id=tx,
+        run_id=ws,
+        draft_payload=_valid_handoff_payload(source_transcript_verbatim="to-publish"),
+    )
     publish_transcript_edit_output(
         dossier_id=d,
         transcription_id=tx,
@@ -198,7 +221,10 @@ def test_hydrate_output_after_publish(tmp_path, monkeypatch):
     )
     assert ho["status"] == "ok"
     assert ho["payload"]["tool"] == "publish_transcript_edit_output"
-    assert ho["payload"]["revision_snapshot"]["payload"]["transcript"] == "to-publish"
+    assert ho["payload"]["revision_snapshot"]["payload"]["source_transcript_verbatim"] == "to-publish"
+    assert ho["payload"]["handoff_metadata"]["payload_path"] == "revision_snapshot.payload"
+    assert ho["payload"]["handoff_metadata"]["parcel_metadata"]["parcel_count"] == 1
+    assert ho["payload"]["handoff_metadata"]["evidence_refs"] == ["image:assoc:t1:original"]
 
 
 def test_invalid_publish_ref_and_missing_revision(tmp_path, monkeypatch):
@@ -224,6 +250,83 @@ def test_invalid_publish_ref_and_missing_revision(tmp_path, monkeypatch):
     )
     assert missing["executed"] is False
     assert missing["refusal"]["reason_code"] == "source_revision_not_found"
+
+
+def test_publish_refuses_unstructured_working_revision_for_handoff(tmp_path, monkeypatch):
+    root = _dossiers_root(tmp_path)
+    monkeypatch.setattr(paths_mod, "dossiers_root", lambda: root)
+    d, tx, ws = "d1", "t1", "ws-publish-shape"
+    _minimal_run_layout(root, d, tx)
+
+    saved = save_transcript_edit(dossier_id=d, transcription_id=tx, run_id=ws, transcript_text="plain")
+    result = publish_transcript_edit_output(
+        dossier_id=d,
+        transcription_id=tx,
+        run_id=ws,
+        source_revision_ref=saved["outputs"]["working_draft_ref"],
+    )
+
+    assert result["executed"] is False
+    assert result["refusal"]["reason_code"] == "publish_handoff_payload_incomplete"
+    assert result["refusal"]["retryable"] is True
+    error_paths = {row["path"] for row in result["outputs"]["handoff_payload_errors"]}
+    assert "payload.source_transcript_verbatim" in error_paths
+    assert "payload.parcel_metadata" in error_paths
+
+
+def test_publish_accepts_empty_optional_metadata_lanes_with_none_reasons(tmp_path, monkeypatch):
+    root = _dossiers_root(tmp_path)
+    monkeypatch.setattr(paths_mod, "dossiers_root", lambda: root)
+    d, tx, ws = "d1", "t1", "ws-publish-none-reasons"
+    _minimal_run_layout(root, d, tx)
+    payload = _valid_handoff_payload(
+        issues=[],
+        hitl_decisions=[],
+        evidence_refs=[],
+        issues_none_reason="No unresolved issues remain.",
+        hitl_decisions_none_reason="No HITL was needed.",
+        evidence_refs_none_reason="No separate evidence refs were produced.",
+    )
+
+    saved = save_transcript_edit(dossier_id=d, transcription_id=tx, run_id=ws, draft_payload=payload)
+    result = publish_transcript_edit_output(
+        dossier_id=d,
+        transcription_id=tx,
+        run_id=ws,
+        source_revision_ref=saved["outputs"]["working_draft_ref"],
+    )
+
+    assert result["executed"] is True
+    output_doc = json.loads(transcript_edit_output_path(d, tx, ws).read_text(encoding="utf-8"))
+    assert output_doc["handoff_metadata"]["none_reasons"] == {
+        "issues": "No unresolved issues remain.",
+        "hitl_decisions": "No HITL was needed.",
+        "evidence_refs": "No separate evidence refs were produced.",
+    }
+
+
+def test_publish_refuses_empty_optional_metadata_lanes_without_none_reasons(tmp_path, monkeypatch):
+    root = _dossiers_root(tmp_path)
+    monkeypatch.setattr(paths_mod, "dossiers_root", lambda: root)
+    d, tx, ws = "d1", "t1", "ws-publish-empty-lane"
+    _minimal_run_layout(root, d, tx)
+    payload = _valid_handoff_payload(hitl_decisions=[])
+
+    saved = save_transcript_edit(dossier_id=d, transcription_id=tx, run_id=ws, draft_payload=payload)
+    result = publish_transcript_edit_output(
+        dossier_id=d,
+        transcription_id=tx,
+        run_id=ws,
+        source_revision_ref=saved["outputs"]["working_draft_ref"],
+    )
+
+    assert result["executed"] is False
+    assert result["refusal"]["reason_code"] == "publish_handoff_payload_incomplete"
+    assert any(
+        row["path"] == "payload.hitl_decisions"
+        and row["code"] == "empty_handoff_lane_missing_none_reason"
+        for row in result["outputs"]["handoff_payload_errors"]
+    )
 
 
 def test_invalid_path_segment_refuses_save(tmp_path, monkeypatch):
@@ -256,7 +359,7 @@ def test_t0_raw_peer_unchanged_after_save_and_publish(tmp_path, monkeypatch):
     t0_path = _minimal_run_layout(root, d, tx)
     before = t0_path.read_bytes()
 
-    s = save_transcript_edit(dossier_id=d, transcription_id=tx, run_id=ws, transcript_text="edited")
+    s = save_transcript_edit(dossier_id=d, transcription_id=tx, run_id=ws, draft_payload=_valid_handoff_payload())
     publish_transcript_edit_output(
         dossier_id=d,
         transcription_id=tx,
@@ -287,7 +390,7 @@ def test_runtime_adapter_executor_runs_save_and_publish(tmp_path, monkeypatch):
         ExecutionStepRequest(
             session_id="s1",
             action_id="save_workspace_artifact",
-            inputs={"transcript_text": "via executor"},
+            inputs={"draft_payload": _valid_handoff_payload(source_transcript_verbatim="via executor")},
         )
     )
     assert r_save.executed is True

@@ -34,6 +34,8 @@ _PROMPT_VISIBLE_DOMAIN_CLOSURE_POLICY_KEYS = frozenset(
         "minimum_resolution_items_for_publish",
         "minimum_resolution_items_for_complete",
         "required_dimension_ids",
+        "required_latest_ref_ids_for_complete",
+        "allow_complete_without_required_refs_when_no_further_progress",
     }
 )
 

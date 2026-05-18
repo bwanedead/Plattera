@@ -37,6 +37,8 @@ def test_manifest_tool_ids_match_tool_specs() -> None:
     assert manifest.closure_policy.minimum_resolution_items_for_wait == 1
     assert manifest.closure_policy.minimum_resolution_items_for_publish == 1
     assert manifest.closure_policy.minimum_resolution_items_for_complete == 1
+    assert manifest.closure_policy.required_latest_ref_ids_for_complete == ("transcript_edit:output",)
+    assert manifest.closure_policy.allow_complete_without_required_refs_when_no_further_progress is True
     assert len(manifest.closure_policy.standards) == 4
 
 
@@ -362,6 +364,8 @@ def test_transcript_edit_closure_policy_stable_contract() -> None:
     assert policy.minimum_resolution_items_for_wait == 1
     assert policy.minimum_resolution_items_for_publish == 1
     assert policy.minimum_resolution_items_for_complete == 1
+    assert policy.required_latest_ref_ids_for_complete == ("transcript_edit:output",)
+    assert policy.allow_complete_without_required_refs_when_no_further_progress is True
     assert len(policy.required_dimension_ids) == 4
     assert len(policy.standards) == 4
     assert policy.standards[0].dimension_id == "layer_1_delta_convergence"
@@ -579,6 +583,9 @@ def test_branch_teaches_expected_saved_payload_shape() -> None:
     assert "parcel_metadata" in text
     assert "hitl_decisions" in text
     assert "evidence_refs" in text
+    assert "issues_none_reason" in text
+    assert "hitl_decisions_none_reason" in text
+    assert "evidence_refs_none_reason" in text
 
 
 def test_branch_teaches_full_visible_available_source_scope_and_lane_divergence_metadata() -> None:
@@ -604,6 +611,9 @@ def test_procedural_guidance_teaches_saved_payload_shape() -> None:
     assert "parcel_metadata" in text
     assert "hitl_decisions" in text
     assert "evidence_refs" in text
+    assert "issues_none_reason" in text
+    assert "hitl_decisions_none_reason" in text
+    assert "evidence_refs_none_reason" in text
     assert "first output obligation" in lowered
     assert "not silently mutated" in lowered or "do not omit" in lowered
 
@@ -632,6 +642,9 @@ def test_save_tool_spec_mentions_source_faithful_payload_shape() -> None:
     assert "parcel_metadata" in text
     assert "hitl_decisions" in text
     assert "evidence_refs" in text
+    assert "issues_none_reason" in text
+    assert "hitl_decisions_none_reason" in text
+    assert "evidence_refs_none_reason" in text
     assert "do not silently mutate the verbatim" in lowered
 
 
