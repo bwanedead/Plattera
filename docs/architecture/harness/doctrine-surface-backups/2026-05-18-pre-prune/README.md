@@ -6,12 +6,12 @@ Source commit at snapshot time: `cd3f386` (`enforce transcript edit output hando
 
 ## Files
 
-- `harness_runtime_prompting_surface.py` ← `backend/harness/runtime/prompting/surface.py`
-- `harness_runtime_orchestration_choose_action_instruction.py` ← `backend/harness/runtime/orchestration/choose_action_instruction.py`
-- `domains_mapping_prompting_family_branch.py` ← `backend/domains/mapping/prompting/family_branch.py`
-- `domains_mapping_transcript_edit_prompting_branch.py` ← `backend/domains/mapping/transcript_edit/prompting/branch.py`
-- `domains_mapping_transcript_edit_prompting_surfaces_procedural_guidance.py` ← `backend/domains/mapping/transcript_edit/prompting/surfaces/procedural_guidance.py`
-- `domains_mapping_transcript_edit_execution_tool_specs.py` ← `backend/domains/mapping/transcript_edit/execution/tool_specs.py`
+- `harness_runtime_prompting_surface.txt` ← `backend/harness/runtime/prompting/surface.txt`
+- `harness_runtime_orchestration_choose_action_instruction.txt` ← `backend/harness/runtime/orchestration/choose_action_instruction.txt`
+- `domains_mapping_prompting_family_branch.txt` ← `backend/domains/mapping/prompting/family_branch.txt`
+- `domains_mapping_transcript_edit_prompting_branch.txt` ← `backend/domains/mapping/transcript_edit/prompting/branch.txt`
+- `domains_mapping_transcript_edit_prompting_surfaces_procedural_guidance.txt` ← `backend/domains/mapping/transcript_edit/prompting/surfaces/procedural_guidance.txt`
+- `domains_mapping_transcript_edit_execution_tool_specs.txt` ← `backend/domains/mapping/transcript_edit/execution/tool_specs.txt`
 
 ## Purpose
 
