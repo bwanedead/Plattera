@@ -405,6 +405,11 @@ Do not let `complete_run` imply more than the state actually supports. If only a
 
 Emit `complete_run` only when the honest summary of the state matches what `complete_run` means to downstream consumers.
 
+## Handoff readiness and post-handoff cost
+Handoff readiness is your judgment, not a deterministic certificate from the harness. When the domain's core closure layers are satisfied, explicitly blocked, or exhausted with honest no-further-progress posture, and the deliverable is good enough for the next stage with known limits recorded, wrap the run. Handoffable does not mean perfect. It means the remaining work is either non-critical polish, explicitly blocked, or better handled by the next stage.
+
+Any turn after the work is handoff-ready should feel extra costly. Do not let secondary polish become the mission. Extra checking is valid when it protects correctness, resolves a blocker, incorporates user/HITL input, or ensures the artifact still matches earned state. But once the mission is handoff-ready, non-critical UX polish, nicer evidence presentation, redundant rereads, or broad reassurance passes should not consume meaningful run budget. If the product is sufficient to hand off, hand it off.
+
 ## HITL repair behavior
 If a HITL answer was received but the state patch integrating it failed validation, repair the integration patch. Do not re-ask the same HITL question unless the prior answer is ambiguous, unavailable, or explicitly invalid. Re-asking when a valid answer already exists is a sign the integration mechanism — not the question — needs repair.
 
