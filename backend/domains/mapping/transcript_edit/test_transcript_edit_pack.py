@@ -103,7 +103,13 @@ def test_prompt_branch_block_shape_and_doctrine_markers() -> None:
     assert "zoom is a source-reading move" in text.lower()
     assert "audit product" in text.lower()
     assert "do not let one salient conflict stand in for the full mapping-critical inventory" in text.lower()
+    assert "the work universe is not the set of places where peer t0 drafts disagree" in text.lower()
+    assert "peer drafts can be a useful entry point for inventorying" in text.lower()
+    assert "the atoms come from the operative legal-description structure" in text.lower()
+    assert "before starting serious resolution motion on individual legal-description values" in text.lower()
+    assert "explicit baseline-inventory audit" in text.lower()
     assert "visible operative call components represented as compact atoms or covered units" in text.lower()
+    assert "quiet values still count" in text.lower()
     assert "auditable call inventory" in text.lower()
 
 
@@ -135,6 +141,12 @@ def test_domain_pack_declares_semantic_prompt_blocks() -> None:
     assert "`mission.closure_state`" in guidance.text
     assert "`resolution_state.items`" in guidance.text
     assert "inventory the visible mapping-significant claims" in text
+    assert "the work inventory is defined by what the source document is doing for downstream mapping" in text
+    assert "the source's operative structure is the inventory driver" in text
+    assert "it is fine to use the peer drafts as the first inventory source" in text
+    assert "audit the baseline inventory before serious resolution motion" in text
+    assert "state that the baseline inventory is believed adequate" in text
+    assert "quiet geometry-bearing values that are not peer-disagreement points" in text
     assert "mission-essential conditions" in text
     assert "material claim or tightly scoped claim-group" in text
     assert "localize and enlarge the exact claim region" in text
