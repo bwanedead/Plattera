@@ -29,6 +29,4 @@ class DomainClosurePolicy:
     minimum_resolution_items_for_publish: int = 0
     minimum_resolution_items_for_complete: int = 0
     required_dimension_ids: tuple[str, ...] = ()
-    required_latest_ref_ids_for_complete: tuple[str, ...] = ()
-    allow_complete_without_required_refs_when_no_further_progress: bool = False
     standards: tuple[ClosureDimensionStandard, ...] = ()

@@ -299,11 +299,10 @@ def test_runner_executes_transcript_edit_tool_and_writes_artifacts(tmp_path: Pat
                         },
                         "mission": {
                             "work_universe_posture": "audited",
-                                "closure_state": {
-                                    "overall_status": "complete_ready",
-                                    "ready_to_close": True,
-                                    "no_further_progress": True,
-                                    "dimensions": [
+                            "closure_state": {
+                                "overall_status": "complete_ready",
+                                "ready_to_close": True,
+                                "dimensions": [
                                 {
                                     "dimension_id": "layer_1_delta_convergence",
                                     "title": "Layer 1",

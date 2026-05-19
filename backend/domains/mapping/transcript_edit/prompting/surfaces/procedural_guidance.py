@@ -142,10 +142,8 @@ When you call `save_workspace_artifact` with a transcript-edit working or output
 
 Minimum contract:
 - `source_transcript_verbatim` — the **first output obligation**. It should cover the full visible / available source scope, preserve source wording, and mark the unavailable portion explicitly rather than dropping it.
-- `normalized_or_mapping_transcript` — downstream / non-verbatim lane. It may be identical to the source lane when no separate normalization is needed; if it differs, explain what changed and why in metadata.
+- `normalized_or_mapping_transcript` — optional downstream / non-verbatim lane. If it differs from the source lane, explain what changed and why in metadata.
 - Supporting metadata as needed: `issues`, `parcel_metadata`, `hitl_decisions`, `evidence_refs`.
-
-For publish/output posture, the metadata lanes must be explicit. If `issues`, `hitl_decisions`, or `evidence_refs` is intentionally empty, include the matching reason field (`issues_none_reason`, `hitl_decisions_none_reason`, or `evidence_refs_none_reason`) so the empty lane is not silent.
 
 The domain branch owns the detailed lane contract. Follow it when you decide whether the two lanes should remain identical, how divergence is explained, and how unavailable source is marked. Do not omit `source_transcript_verbatim` as a convenience — saving scope notes without the verbatim transcript is not a legitimate transcript-edit artifact.
 

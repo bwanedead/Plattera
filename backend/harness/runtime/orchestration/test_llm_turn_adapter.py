@@ -1187,8 +1187,6 @@ def test_choose_action_prompt_compacts_domain_closure_policy_to_requirements_onl
                 "save_action_ids": ["save_workspace_artifact"],
                 "publish_action_ids": ["publish_workspace_artifact"],
                 "required_dimension_ids": ["layer_1"],
-                "required_latest_ref_ids_for_complete": ["transcript_edit:output"],
-                "allow_complete_without_required_refs_when_no_further_progress": True,
                 "standards": [{"dimension_id": "layer_1", "question": "long semantic text"}],
             },
         },
@@ -1199,8 +1197,6 @@ def test_choose_action_prompt_compacts_domain_closure_policy_to_requirements_onl
     prompt = captured[0]
     assert '"domain_closure_policy"' in prompt
     assert '"required_dimension_ids": ["layer_1"]' in prompt
-    assert '"required_latest_ref_ids_for_complete": ["transcript_edit:output"]' in prompt
-    assert '"allow_complete_without_required_refs_when_no_further_progress": true' in prompt
     assert '"save_action_ids"' not in prompt
     assert '"publish_action_ids"' not in prompt
     assert '"standards"' not in prompt

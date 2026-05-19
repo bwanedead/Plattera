@@ -32,10 +32,8 @@ def _loop_memory_with_closure(
     ready_to_close: bool = False,
     ready_to_publish: bool = False,
     requires_hitl: bool = False,
-    no_further_progress: bool = False,
     resolution_items: list[ResolutionItem] | None = None,
     work_universe_posture: str = "audited",
-    latest_refs: dict[str, object] | None = None,
 ) -> LoopMemoryState:
     ms = new_mission_state(mission_id="m-policy", loop_family="orchestration_kernel")
     ms = ms.model_copy(
@@ -46,7 +44,6 @@ def _loop_memory_with_closure(
                 ready_to_close=ready_to_close,
                 ready_to_publish=ready_to_publish,
                 requires_hitl=requires_hitl,
-                no_further_progress=no_further_progress,
             )
         }
     )
@@ -57,7 +54,6 @@ def _loop_memory_with_closure(
     mem = LoopMemoryState()
     mem.continuity.mission_state = ms
     mem.continuity.resolution_state = rs
-    mem.continuity.latest_refs = dict(latest_refs or {})
     return mem
 
 
@@ -180,72 +176,6 @@ def test_closure_enforcement_allows_complete_when_all_conditions_met() -> None:
     )
     plan = ActionPlan(complete_run=True)
     ctx = {"domain_closure_policy": _hard_enforced_policy()}
-    assert closure_enforcement_failure(run_ctx=ctx, loop_memory=mem, action_plan=plan) is None
-
-
-def test_closure_enforcement_blocks_complete_when_required_output_ref_missing() -> None:
-    mem = _loop_memory_with_closure(
-        dimensions=[_dim("layer_a")],
-        ready_to_close=True,
-        latest_refs={"transcript_edit:working": "transcript_edit:working:rev:0001"},
-    )
-    plan = ActionPlan(complete_run=True)
-    ctx = {
-        "domain_closure_policy": _hard_enforced_policy(
-            required_latest_ref_ids_for_complete=["transcript_edit:output"],
-        )
-    }
-    result = closure_enforcement_failure(run_ctx=ctx, loop_memory=mem, action_plan=plan)
-    assert result is not None
-    reason_code, message = result
-    assert reason_code == "closure_complete_required_refs_missing"
-    assert "transcript_edit:output" in message
-
-
-def test_closure_enforcement_allows_complete_when_required_output_ref_present_as_key() -> None:
-    mem = _loop_memory_with_closure(
-        dimensions=[_dim("layer_a")],
-        ready_to_close=True,
-        latest_refs={"transcript_edit:output": "transcript_edit:output"},
-    )
-    plan = ActionPlan(complete_run=True)
-    ctx = {
-        "domain_closure_policy": _hard_enforced_policy(
-            required_latest_ref_ids_for_complete=["transcript_edit:output"],
-        )
-    }
-    assert closure_enforcement_failure(run_ctx=ctx, loop_memory=mem, action_plan=plan) is None
-
-
-def test_closure_enforcement_allows_complete_when_required_output_ref_present_as_value() -> None:
-    mem = _loop_memory_with_closure(
-        dimensions=[_dim("layer_a")],
-        ready_to_close=True,
-        latest_refs={"final": "transcript_edit:output"},
-    )
-    plan = ActionPlan(complete_run=True)
-    ctx = {
-        "domain_closure_policy": _hard_enforced_policy(
-            required_latest_ref_ids_for_complete=["transcript_edit:output"],
-        )
-    }
-    assert closure_enforcement_failure(run_ctx=ctx, loop_memory=mem, action_plan=plan) is None
-
-
-def test_closure_enforcement_allows_missing_required_ref_when_complete_no_further_progress() -> None:
-    mem = _loop_memory_with_closure(
-        dimensions=[_dim("layer_a")],
-        ready_to_close=True,
-        no_further_progress=True,
-        latest_refs={"transcript_edit:working": "transcript_edit:working:rev:0001"},
-    )
-    plan = ActionPlan(complete_run=True)
-    ctx = {
-        "domain_closure_policy": _hard_enforced_policy(
-            required_latest_ref_ids_for_complete=["transcript_edit:output"],
-            allow_complete_without_required_refs_when_no_further_progress=True,
-        )
-    }
     assert closure_enforcement_failure(run_ctx=ctx, loop_memory=mem, action_plan=plan) is None
 
 

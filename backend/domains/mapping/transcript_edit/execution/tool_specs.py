@@ -207,13 +207,9 @@ def build_transcript_edit_tool_specs() -> tuple[SemanticToolSpec, ...]:
                 "evidence_refs: optional list of refs grounding this revision. "
                 "rationale: optional explanation. "
                 "For transcript-edit working/output drafts, prefer draft_payload structured with "
-                "`source_transcript_verbatim`, `normalized_or_mapping_transcript` "
-                "(which may match the source lane), and supporting metadata "
+                "source_transcript_verbatim plus any needed downstream lane such as "
+                "`normalized_or_mapping_transcript`, and supporting metadata "
                 "(`issues`, `parcel_metadata`, `hitl_decisions`, `evidence_refs`). "
-                "For publish-ready output, those metadata keys must be present; if "
-                "`issues`, `hitl_decisions`, or `evidence_refs` is intentionally empty, "
-                "include `issues_none_reason`, `hitl_decisions_none_reason`, or "
-                "`evidence_refs_none_reason` respectively. "
                 "Use the prompt-branch contract for the detailed lane rules."
             ),
             expected_request_json_shape={
@@ -334,10 +330,7 @@ def build_transcript_edit_tool_specs() -> tuple[SemanticToolSpec, ...]:
             category="write",
             purpose=(
                 "Publish a chosen working revision to the transcript-edit output. "
-                "Agent must pass an explicit source_revision_ref — no deterministic pick. "
-                "The source revision must satisfy the transcript-edit handoff payload "
-                "contract; incomplete metadata lanes are refused so output-tier handoff "
-                "does not silently lose decisions, blockers, or evidence context."
+                "Agent must pass an explicit source_revision_ref — no deterministic pick."
             ),
             expected_request_shape="source_revision_ref: required transcript_edit:working:rev:NNNN ref.",
             expected_request_json_shape={
@@ -354,8 +347,7 @@ def build_transcript_edit_tool_specs() -> tuple[SemanticToolSpec, ...]:
             example_request={"source_revision_ref": "transcript_edit:working:rev:0003"},
             expected_result_shape=(
                 "artifact_refs include output ref + source revision ref for harness latest_refs. "
-                "outputs carry published_at and paths. The persisted output wrapper carries "
-                "handoff_metadata copied from the source revision payload."
+                "outputs carry published_at and paths."
             ),
         ),
     )

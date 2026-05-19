@@ -191,7 +191,7 @@ When you save a working or output transcript-edit draft via `save_workspace_arti
 - `hitl_decisions` — human adjudications consumed, with citations to the HITL exchange
 - `evidence_refs` — source image refs and derived refs that back the above
 
-For a published output, these keys must be present. If `issues`, `hitl_decisions`, or `evidence_refs` is intentionally empty, include the matching explicit reason (`issues_none_reason`, `hitl_decisions_none_reason`, or `evidence_refs_none_reason`) rather than leaving a silent empty lane. Do not omit the verbatim transcript as a convenience — that is the first output obligation.
+Omit keys that truly do not apply (e.g., no HITL consumed yet), but do not omit the verbatim transcript as a convenience — that is the first output obligation.
 
 ## Working draft posture
 A saved working draft is not proof that the investigation is complete. But once the visible, verified portion of the transcript is mature enough to be useful, saving that working state is often the honest move even if publish / complete remain blocked.
