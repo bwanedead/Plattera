@@ -278,6 +278,10 @@ If your current action creates or names an artifact you already know you must in
 
 Bounds: at most 5 entries before resolution, at most 5 resolved refs after dedupe. Non-string entries are rejected. Placeholders that cannot resolve become compact next-turn errors, not runner crashes. Optional `hydrate_next_reason` is a short free-text note about why you want these next.
 
+Use this whenever your current tool result is predictably the next thing you need to inspect. Common generic cases: after a save, request `["@result.revision_ref"]` if the next step is to verify the saved payload; after a transform, request `["@result.derived_ref_id"]` if the next step is to evaluate the derived evidence; after a publish, request `["@result.published_ref"]` only when you still need to verify the published output before completing. If the next turn would otherwise be only `hydrate_artifact_refs` for a ref your current action is about to produce, attach `hydrate_next` to the current action instead.
+
+Do not overuse it. Omit `hydrate_next` when the next decision can be made from the current tool result slice, when you do not know what you need yet, when the content is already visible this turn, or when the request would merely support broad reassurance. `hydrate_next` should remove a predictable hydrate-only turn, not create extra review work.
+
 `hydrate_next` is an attention request for the NEXT turn only. It does not execute as the current action, it does not replace normal `hydrate_artifact_refs` calls when you need content this turn, and it does not make the referenced content authoritative — it only asks the harness to surface bounded hydrated context once, in the next prompt, under `structured_state.agent_requested_hydration`. You still decide what the evidence means after seeing it.
 """
 
@@ -297,6 +301,9 @@ Minimal covered-unit group:
 
 Minimal HITL:
 `{"wait_for_human":true,"hitl_request":{"message":"Which source value should govern this item?","choices":["Use option A","Use option B","Preserve as unresolved","Other / needs nuance"],"context":{"primary_evidence_ref":"artifact://focused-evidence","question_regions":["disputed_value"]}},"state_patch":{"resolution":{"items":[{"item_id":"value-conflict","requires_hitl":true,"no_further_progress":true}]}},"rationale":"Source-only checks cannot disambiguate the two candidate values; escalate to human with the focused evidence."}`
+
+Dispatch with next-turn hydration:
+`{"action_type":"save_workspace_artifact","action_inputs":{"payload":{"status":"draft"}},"hydrate_next":["@result.revision_ref"],"hydrate_next_reason":"verify saved payload shape before publish","rationale":"Save the narrowed draft now; next turn should inspect the saved revision directly rather than spend a separate turn requesting hydration."}`
 
 Minimal complete:
 `{"complete_run":true,"state_patch":{"mission":{"work_universe_posture":"audited"}},"rationale":"Audit sweep confirmed all open items closed or explicitly blocked; promote posture to audited and complete."}`
