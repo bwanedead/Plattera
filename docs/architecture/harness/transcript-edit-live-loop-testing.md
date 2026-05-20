@@ -165,6 +165,46 @@ Wait for either HITL or terminal completion:
 python -m harness.cli.watch --run-id $runId --timeout 60
 ```
 
+`watch` is a blocking poll, not a background monitor.  It returns exactly one
+JSON event, then exits:
+
+- `{"event":"hitl", ...}` — answer the returned `prompt_id`, then watch again
+- `{"event":"loop_done", ...}` — the run reached a terminal state; inspect it
+- `{"event":"timeout", ...}` — no event arrived inside this watch window; keep
+  watching the same run unless you intentionally want to stop monitoring
+- `{"event":"error", ...}` — inspect `status`, run-state files, and logs
+
+For live testing, the tester should stay in this monitor loop until `loop_done`
+or an explicit operator decision to pause/stop:
+
+```powershell
+while ($true) {
+  $event = python -m harness.cli.watch --run-id $runId --timeout 7200 --poll-interval 3 | ConvertFrom-Json
+
+  if ($event.event -eq "timeout") {
+    continue
+  }
+
+  if ($event.event -eq "hitl") {
+    # Choose an answer from $event.choices when choices are provided. Use
+    # $event.prompt_id exactly as returned by watch.
+    python -m harness.cli.answer --run-id $runId --prompt-id $event.prompt_id --choice "<operator answer>" --note "<optional note>"
+    continue
+  }
+
+  if ($event.event -eq "loop_done") {
+    break
+  }
+
+  break
+}
+```
+
+Important mechanical detail: when `watch` returns a HITL event, it consumes the
+operator-side pending prompt sidecar so the same prompt is not repeatedly shown.
+That is expected.  The prompt remains answerable using the `prompt_id` returned
+by `watch`; do not rely on a later `status` call to rediscover that same prompt.
+
 If `watch` returns a HITL prompt, answer it:
 
 ```powershell
