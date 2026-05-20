@@ -1,4 +1,4 @@
-"""Execution hook tests for action_batch."""
+"""Execution hook tests for canonical ``actions`` sequences."""
 
 from __future__ import annotations
 
@@ -14,13 +14,19 @@ from harness.execution.contracts import (
 )
 from harness.execution.session import ExecutionSessionManager
 from harness.runtime.memory import LoopMemoryState
-from harness.runtime.orchestration.action_batch_hooks import execute_action_batch
-from harness.runtime.orchestration.contracts import ActionPlan
-from harness.runtime.orchestration.action_batch import ActionBatchItem
+from harness.runtime.orchestration.action_sequence import (
+    ActionPlanAction,
+    action_plan_with_canonical_actions,
+)
+from harness.runtime.orchestration.action_sequence_hooks import (
+    _execute_sequence_items,
+    capture_hydrate_after_sequence,
+)
+from harness.runtime.orchestration.hydrate_next import MAX_HYDRATE_NEXT_REFS
 from harness.runtime.orchestration.tool_batch_policy import ToolBatchPolicy
 
 
-class _BatchFakeSessionManager(ExecutionSessionManager):
+class _SequenceFakeSessionManager(ExecutionSessionManager):
     def __init__(self) -> None:
         super().__init__()
         self.requests: list[ExecutionStepRequest] = []
@@ -93,77 +99,112 @@ def _policies() -> dict[str, ToolBatchPolicy]:
 
 
 def test_executes_two_read_only_items() -> None:
-    sm = _BatchFakeSessionManager()
+    sm = _SequenceFakeSessionManager()
     lm = LoopMemoryState()
-    plan = ActionPlan(
-        action_batch=(
-            ActionBatchItem("h1", "hydrate_artifact_refs", {"ref_ids": ["a"]}),
-            ActionBatchItem("h2", "hydrate_artifact_refs", {"ref_ids": ["b"]}),
-        ),
-        rationale="batch hydrate",
+    actions = (
+        ActionPlanAction("h1", "hydrate_artifact_refs", {"ref_ids": ["a"]}),
+        ActionPlanAction("h2", "hydrate_artifact_refs", {"ref_ids": ["b"]}),
     )
-    outcome = execute_action_batch(
+    sequence_result, _ = _execute_sequence_items(
         loop_memory=lm,
         session_manager=sm,
         session_id="s",
-        action_plan=plan,
+        actions=actions,
         iteration=2,
         request_id_prefix="req",
         run_id="r",
         tool_batch_policies=_policies(),
+        multi_action=True,
     )
     assert len(sm.requests) == 2
     assert all(r.action_id == "hydrate_artifact_refs" for r in sm.requests)
-    assert len(outcome.batch_result["items"]) == 2
+    assert len(sequence_result["items"]) == 2
 
 
-def test_transform_batch_collects_refs_and_idempotency_keys() -> None:
-    sm = _BatchFakeSessionManager()
+def test_transform_sequence_collects_refs_and_idempotency_keys() -> None:
+    sm = _SequenceFakeSessionManager()
     lm = LoopMemoryState()
-    plan = ActionPlan(
-        action_batch=(
-            ActionBatchItem("p1", "transform_artifact", {}),
-            ActionBatchItem("p2", "transform_artifact", {}),
-        ),
-        rationale="batch crops",
+    actions = (
+        ActionPlanAction("p1", "transform_artifact", {}),
+        ActionPlanAction("p2", "transform_artifact", {}),
     )
-    outcome = execute_action_batch(
+    sequence_result, _ = _execute_sequence_items(
         loop_memory=lm,
         session_manager=sm,
         session_id="s",
-        action_plan=plan,
+        actions=actions,
         iteration=3,
         request_id_prefix="req",
         run_id="r",
         tool_batch_policies=_policies(),
+        multi_action=True,
     )
     assert sm.requests[0].idempotency_key == "req:iter:3:batch:p1"
     assert sm.requests[1].idempotency_key == "req:iter:3:batch:p2"
-    items = outcome.batch_result["items"]
+    items = sequence_result["items"]
     assert items[0]["artifact_refs"] == ["image:derived:p1"]
     assert items[1]["artifact_refs"] == ["image:derived:p2"]
 
 
 def test_partial_failure_per_alias() -> None:
-    sm = _BatchFakeSessionManager()
+    sm = _SequenceFakeSessionManager()
     lm = LoopMemoryState()
-    plan = ActionPlan(
-        action_batch=(
-            ActionBatchItem("ok", "hydrate_artifact_refs", {}),
-            ActionBatchItem("bad", "fail_once", {}),
-        ),
-        rationale="partial",
+    actions = (
+        ActionPlanAction("ok", "hydrate_artifact_refs", {}),
+        ActionPlanAction("bad", "fail_once", {}),
     )
-    outcome = execute_action_batch(
+    sequence_result, _ = _execute_sequence_items(
         loop_memory=lm,
         session_manager=sm,
         session_id="s",
-        action_plan=plan,
+        actions=actions,
         iteration=1,
         request_id_prefix="req",
         run_id="r",
         tool_batch_policies=_policies(),
+        multi_action=True,
     )
-    by_alias = {row["alias"]: row for row in outcome.batch_result["items"]}
+    by_alias = {row["alias"]: row for row in sequence_result["items"]}
     assert by_alias["ok"]["execution_state"] == "executed"
     assert by_alias["bad"]["execution_state"] == "retryable_error"
+
+
+def test_capture_hydrate_after_sequence_caps_aggregate_resolved_refs() -> None:
+    lm = LoopMemoryState()
+    count = MAX_HYDRATE_NEXT_REFS + 3
+    actions = tuple(
+        ActionPlanAction(
+            f"a{i}",
+            "transform_artifact",
+            {},
+            hydrate_next=(f"image:derived:a{i}",),
+        )
+        for i in range(count)
+    )
+    plan = action_plan_with_canonical_actions(actions=actions, rationale="many hydrates")
+    sequence_result = {
+        "batch_id": "req:iter:1:actions",
+        "source_turn_index": 1,
+        "items": [
+            {
+                "alias": f"a{i}",
+                "action_type": "transform_artifact",
+                "execution_state": "executed",
+                "outputs_excerpt": {"derived_ref_id": f"image:derived:a{i}"},
+            }
+            for i in range(count)
+        ],
+    }
+    capture_hydrate_after_sequence(
+        loop_memory=lm,
+        action_plan=plan,
+        sequence_result=sequence_result,
+        iteration=1,
+    )
+    pending = lm.continuity.pending_agent_hydration
+    assert pending is not None
+    assert len(pending["resolved_refs"]) == MAX_HYDRATE_NEXT_REFS
+    assert any(
+        e.get("reason_code") == "aggregate_hydrate_next_cap_exceeded"
+        for e in pending.get("errors") or []
+    )

@@ -30,7 +30,7 @@ from ...execution.contracts import ExecutionState, ExecutionStepRequest
 from ...execution.session import ExecutionSessionManager
 from ..memory import LoopMemoryState
 from .contracts import ActionPlan
-from .action_batch import build_batch_results_snapshot
+from .action_sequence import build_sequence_results_snapshot, effective_actions
 from .hydrate_next import (
     HYDRATE_ARTIFACT_REFS_ACTION_ID,
     build_hydrate_next_record,
@@ -70,9 +70,11 @@ def capture_hydrate_next_after_step(
             )
 
     batch_snapshot = None
-    if action_plan.action_batch:
-        batch_snapshot = build_batch_results_snapshot(
-            loop_memory.continuity.recent_action_batch_result,
+    if len(effective_actions(action_plan)) > 1 or any(
+        str(ref).startswith("@batch.") for ref in action_plan.hydrate_next
+    ):
+        batch_snapshot = build_sequence_results_snapshot(
+            loop_memory.continuity.recent_action_sequence_result,
         )
 
     requested = list(action_plan.hydrate_next)

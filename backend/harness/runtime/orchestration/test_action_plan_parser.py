@@ -7,6 +7,12 @@ from harness.runtime.orchestration.action_plan_parser import (
     ModelActionParseError,
     parse_action_plan_response,
 )
+from harness.runtime.orchestration.contracts import ActionPlan
+
+
+def _sole_action(plan: ActionPlan):
+    assert len(plan.actions) == 1
+    return plan.actions[0]
 
 
 def test_parse_action_plan_unwraps_author_payload_continuity_wrapper() -> None:
@@ -44,8 +50,9 @@ def test_parse_action_plan_accepts_minimal_dispatch_without_booleans() -> None:
         available_tool_ids=("noop",),
     )
 
-    assert plan.action_type == "noop"
-    assert plan.action_inputs == {"x": 1}
+    item = _sole_action(plan)
+    assert item.action_type == "noop"
+    assert item.action_inputs == {"x": 1}
     assert plan.skip_execution is False
     assert plan.wait_for_human is False
     assert plan.complete_run is False
@@ -64,7 +71,7 @@ def test_parse_action_plan_accepts_minimal_state_only_patch_without_booleans() -
         available_tool_ids=("noop",),
     )
 
-    assert plan.action_type is None
+    assert not plan.actions
     assert plan.skip_execution is True
     assert plan.wait_for_human is False
     assert plan.complete_run is False
@@ -83,7 +90,7 @@ def test_parse_action_plan_accepts_async_hitl_without_wait_boolean() -> None:
         available_tool_ids=("noop",),
     )
 
-    assert plan.action_type is None
+    assert not plan.actions
     assert plan.skip_execution is True
     assert plan.wait_for_human is False
     assert plan.hitl_request is not None
@@ -134,7 +141,7 @@ def test_parse_action_plan_accepts_complete_turn_with_only_complete_run_and_stat
     )
 
     assert plan.complete_run is True
-    assert plan.action_type is None
+    assert not plan.actions
     assert plan.skip_execution is False
 
 
@@ -205,7 +212,7 @@ def test_parse_action_plan_preserves_legacy_full_payload() -> None:
         available_tool_ids=("noop",),
     )
 
-    assert plan.action_type == "noop"
+    assert _sole_action(plan).action_type == "noop"
     assert plan.idempotency_key == "ik-legacy"
     assert plan.skip_execution is False
 
@@ -304,8 +311,8 @@ def test_parse_action_plan_absent_hydrate_next_is_empty_tuple() -> None:
         json.dumps({"action_type": "noop", "rationale": "t"}),
         available_tool_ids=("noop",),
     )
-    assert plan.hydrate_next == ()
-    assert plan.hydrate_next_reason is None
+    assert _sole_action(plan).hydrate_next == ()
+    assert _sole_action(plan).hydrate_next_reason is None
 
 
 def test_parse_action_plan_accepts_literal_hydrate_next() -> None:
@@ -316,7 +323,7 @@ def test_parse_action_plan_accepts_literal_hydrate_next() -> None:
         }),
         available_tool_ids=("noop",),
     )
-    assert plan.hydrate_next == ("artifact://x", "artifact://y")
+    assert _sole_action(plan).hydrate_next == ("artifact://x", "artifact://y")
 
 
 def test_parse_action_plan_accepts_hydrate_next_placeholders() -> None:
@@ -327,7 +334,7 @@ def test_parse_action_plan_accepts_hydrate_next_placeholders() -> None:
         }),
         available_tool_ids=("save_workspace_artifact",),
     )
-    assert plan.hydrate_next == ("@result.revision_ref", "@result.artifact_refs[]")
+    assert _sole_action(plan).hydrate_next == ("@result.revision_ref", "@result.artifact_refs[]")
 
 
 def test_parse_action_plan_accepts_hydrate_next_reason() -> None:
@@ -339,7 +346,7 @@ def test_parse_action_plan_accepts_hydrate_next_reason() -> None:
         }),
         available_tool_ids=("noop",),
     )
-    assert plan.hydrate_next_reason == "inspect saved payload"
+    assert _sole_action(plan).hydrate_next_reason == "inspect saved payload"
 
 
 def test_parse_action_plan_clamps_overlong_hydrate_next_reason() -> None:
@@ -350,8 +357,8 @@ def test_parse_action_plan_clamps_overlong_hydrate_next_reason() -> None:
         }),
         available_tool_ids=("noop",),
     )
-    assert plan.hydrate_next_reason is not None
-    assert len(plan.hydrate_next_reason) == 400
+    assert _sole_action(plan).hydrate_next_reason is not None
+    assert len(_sole_action(plan).hydrate_next_reason) == 400
 
 
 def test_parse_action_plan_rejects_hydrate_next_over_max_length() -> None:

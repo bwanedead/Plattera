@@ -7,6 +7,7 @@ from typing import Any
 
 from ...execution.contracts import ExecutionStepRequest
 from ...mission_state import MissionState, ResolutionState
+from .action_sequence import effective_actions
 from .contracts import ActionPlan, SharedStateProjection, TerminalEvaluation
 
 
@@ -119,7 +120,7 @@ def _normalize_no_dispatch_action_plan(action_plan: ActionPlan) -> ActionPlan:
     if a turn omits ``action_type`` but authors durable state or HITL transport,
     it is mechanically a no-dispatch turn rather than a deferred patch.
     """
-    if action_plan.complete_run or action_plan.action_type is not None or action_plan.skip_execution:
+    if action_plan.complete_run or effective_actions(action_plan) or action_plan.skip_execution:
         return action_plan
     if action_plan.state_patch is None and action_plan.hitl_request is None:
         return action_plan

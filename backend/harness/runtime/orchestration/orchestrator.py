@@ -4,7 +4,6 @@ import logging
 from dataclasses import replace
 from typing import Any
 
-from ...execution.contracts import ExecutionState
 from ...execution.session import ExecutionSessionManager
 
 from .contracts import ActionPlan, KernelLoopResult, OrchestrationAdapter, OrchestratorContext
@@ -29,9 +28,10 @@ from .user_message_hooks import (
     poll_and_record_user_messages,
     record_consumed_and_deferred_user_messages,
 )
-from .action_batch_hooks import (
-    clear_stale_action_batch_result,
-    run_action_batch_turn_if_present,
+from .action_sequence import effective_actions
+from .action_sequence_hooks import (
+    clear_stale_action_sequence_result,
+    run_action_sequence_turn_if_present,
 )
 from .hydrate_next_hooks import (
     capture_hydrate_next_after_step,
@@ -41,7 +41,6 @@ from .hydrate_next_hooks import (
 from .orchestrator_coercion import (
     coerce_kernel_action_plan,
     coerce_projection,
-    coerce_step_request,
     coerce_terminal_evaluation,
 )
 from .orchestrator_policy import (
@@ -50,15 +49,9 @@ from .orchestrator_policy import (
 )
 from .run_control import build_kernel_loop_result, maybe_exit_for_run_control
 from .recoverable_turn_failure import RecoverableTurnFailure
-from .orchestrator_turn import (
-    accumulate_image_evidence,
-    append_kernel_step_result_continuity,
-    observe_turn_completed,
-    record_turn_continuity,
-)
+from .orchestrator_turn import observe_turn_completed, record_turn_continuity
 from .state_patch_apply import (
     sync_state_patch_after_committed_gate,
-    sync_state_patch_after_step_refusal,
     sync_state_patch_when_no_step_dispatched,
 )
 from .trace_collector import KernelTraceCollector
@@ -77,8 +70,11 @@ def _action_id_for_plan(action_plan: ActionPlan) -> str:
         return "complete_run"
     if action_plan.wait_for_human:
         return "wait_for_human"
-    if action_plan.action_batch:
-        return "action_batch"
+    actions = effective_actions(action_plan)
+    if len(actions) > 1:
+        return "action_sequence"
+    if len(actions) == 1:
+        return actions[0].action_type
     return str(action_plan.action_type or "no_action")
 
 
@@ -89,9 +85,10 @@ def _materialize_dispatch_idempotency_key(
     iteration: int,
 ) -> ActionPlan:
     """Host-own transport idempotency for real dispatch turns only."""
+    actions = effective_actions(action_plan)
     if (
-        action_plan.action_type is None
-        or action_plan.action_batch
+        not actions
+        or len(actions) != 1
         or action_plan.skip_execution
         or action_plan.wait_for_human
         or action_plan.complete_run
@@ -99,7 +96,7 @@ def _materialize_dispatch_idempotency_key(
         return action_plan
     if str(action_plan.idempotency_key).strip():
         return action_plan
-    generated = f"{request_id_prefix}:iter:{int(iteration)}:dispatch:{action_plan.action_type}"
+    generated = f"{request_id_prefix}:iter:{int(iteration)}:dispatch:{actions[0].action_type}"
     return replace(action_plan, idempotency_key=generated)
 
 
@@ -270,7 +267,7 @@ def run_orchestration_kernel_loop(
         # surfaced.  Keeps the lane strictly one-shot and prevents the same
         # hydrated payload from re-appearing in subsequent prompts.
         clear_surfaced_hydration(loop_memory=loop_memory)
-        clear_stale_action_batch_result(loop_memory=loop_memory, iteration=iterations)
+        clear_stale_action_sequence_result(loop_memory=loop_memory, iteration=iterations)
 
         hitl_poll_feedback_store(
             posture=loop_memory.hitl,
@@ -573,7 +570,7 @@ def run_orchestration_kernel_loop(
                 session_manager=session_manager,
             )
 
-        batch_handled, action_plan, batch_step = run_action_batch_turn_if_present(
+        seq_outcome = run_action_sequence_turn_if_present(
             loop_memory=loop_memory,
             session_manager=session_manager,
             session_id=session_id,
@@ -584,167 +581,62 @@ def run_orchestration_kernel_loop(
             run_ctx=run_ctx,
             tracer=tracer,
             turn_completion_observer=active_lifecycle.turn_completion_observer,
+            patch_present=patch_present,
         )
-        if batch_handled:
-            capture_hydrate_next_after_step(
-                loop_memory=loop_memory,
-                action_plan=action_plan,
-                step_result=batch_step,
-                iteration=iterations,
-            )
+        if seq_outcome.handled:
+            if seq_outcome.terminal_class:
+                _checkpoint(iterations)
+                return build_kernel_loop_result(
+                    loop_memory=loop_memory,
+                    terminal_class=seq_outcome.terminal_class,
+                    reason_code=str(seq_outcome.terminal_reason_code or "step_execution_refused"),
+                    iterations=iterations,
+                    session_id=session_id,
+                    run_artifact_ref=run_artifact_ref,
+                    tracer=tracer,
+                    session_manager=session_manager,
+                )
+            actions = effective_actions(action_plan)
+            if action_plan.hydrate_next and (
+                len(actions) > 1 or not any(item.hydrate_next for item in actions)
+            ):
+                capture_hydrate_next_after_step(
+                    loop_memory=loop_memory,
+                    action_plan=action_plan,
+                    step_result=None,
+                    iteration=iterations,
+                )
             _checkpoint(iterations)
             continue
 
-        step_request = coerce_step_request(action_plan, session_id=session_id)
-        if step_request is not None and not action_plan.skip_execution:
-            step_result = session_manager.step(step_request)
-            append_kernel_step_result_continuity(
-                loop_memory=loop_memory,
-                iteration=iterations,
-                action_type=action_plan.action_type,
-                step_result=step_result,
-            )
-            accumulate_image_evidence(loop_memory=loop_memory, step_result=step_result)
-            if step_result.execution_state != ExecutionState.EXECUTED:
-                refusal = step_result.refusal
-                reason = refusal.reason_code if refusal is not None else "step_execution_refused"
-                retryable = refusal.retryable if refusal is not None else False
-                tracer.emit_execution_result(
-                    iteration=iterations,
-                    action_type=str(step_request.action_id),
-                    execution_state="refused",
-                    reason_code=reason,
-                    retryable=retryable,
-                    refs_delta=None,
-                )
-                sync_state_patch_after_step_refusal(
-                    loop_memory=loop_memory,
-                    tracer=tracer,
-                    iteration=iterations,
-                    patch_present=patch_present,
-                    execution_reason_code=reason,
-                    action_plan=action_plan,
-                )
-                is_retryable = (
-                    refusal is not None
-                    and refusal.retryable
-                    and not refusal.blocked_by_budget
-                    and not refusal.blocked_by_invariant
-                )
-                if not is_retryable:
-                    record_turn_continuity(
-                        loop_memory=loop_memory,
-                        action_plan=action_plan,
-                        iteration=iterations,
-                        execution_state="refused",
-                        execution_reason_code=reason,
-                    )
-                    observe_turn_completed(
-                        active_lifecycle.turn_completion_observer,
-                        iterations,
-                        action_plan=action_plan, step_result=step_result,
-                        loop_memory=loop_memory, terminal_decision="refused",
-                    )
-                    _checkpoint(iterations)
-                    return build_kernel_loop_result(
-                        loop_memory=loop_memory,
-                        terminal_class="failed",
-                        reason_code=reason,
-                        iterations=iterations,
-                        session_id=session_id,
-                        run_artifact_ref=run_artifact_ref,
-                        tracer=tracer,
-                        session_manager=session_manager,
-                    )
-                record_turn_continuity(
-                    loop_memory=loop_memory,
-                    action_plan=action_plan,
-                    iteration=iterations,
-                    execution_state="refused",
-                    execution_reason_code=reason,
-                )
-                if step_result.dashboard is not None:
-                    loop_memory.continuity.latest_refs = step_result.dashboard.latest_refs.model_dump(mode="json")
-                observe_turn_completed(
-                    active_lifecycle.turn_completion_observer,
-                    iterations,
-                    action_plan=action_plan, step_result=step_result,
-                    loop_memory=loop_memory,
-                )
-                capture_hydrate_next_after_step(
-                    loop_memory=loop_memory,
-                    action_plan=action_plan,
-                    step_result=step_result,
-                    iteration=iterations,
-                )
-                _checkpoint(iterations)
-            else:
-                if step_result.dashboard is not None:
-                    loop_memory.continuity.latest_refs = step_result.dashboard.latest_refs.model_dump(mode="json")
-                tracer.emit_execution_result(
-                    iteration=iterations,
-                    action_type=str(step_request.action_id),
-                    execution_state="executed",
-                    reason_code=None,
-                    retryable=None,
-                    refs_delta=loop_memory.continuity.latest_refs,
-                )
-                sync_state_patch_after_committed_gate(
-                    loop_memory=loop_memory,
-                    action_plan=action_plan,
-                    tracer=tracer,
-                    iteration=iterations,
-                    gate="step_executed",
-                )
-                record_turn_continuity(
-                    loop_memory=loop_memory,
-                    action_plan=action_plan,
-                    iteration=iterations,
-                    execution_state="executed",
-                    execution_reason_code=None,
-                )
-                observe_turn_completed(
-                    active_lifecycle.turn_completion_observer,
-                    iterations,
-                    action_plan=action_plan, step_result=step_result,
-                    loop_memory=loop_memory,
-                )
-                capture_hydrate_next_after_step(
-                    loop_memory=loop_memory,
-                    action_plan=action_plan,
-                    step_result=step_result,
-                    iteration=iterations,
-                )
-                _checkpoint(iterations)
-        else:
-            sync_state_patch_when_no_step_dispatched(
-                loop_memory=loop_memory,
-                action_plan=action_plan,
-                tracer=tracer,
-                iteration=iterations,
-                patch_present=patch_present,
-                skip_execution=action_plan.skip_execution,
-            )
-            record_turn_continuity(
-                loop_memory=loop_memory,
-                action_plan=action_plan,
-                iteration=iterations,
-                execution_state="skipped" if action_plan.skip_execution else "not_dispatched",
-                execution_reason_code=None,
-            )
-            observe_turn_completed(
-                active_lifecycle.turn_completion_observer,
-                iterations,
-                action_plan=action_plan, step_result=None,
-                loop_memory=loop_memory,
-            )
-            capture_hydrate_next_after_step(
-                loop_memory=loop_memory,
-                action_plan=action_plan,
-                step_result=None,
-                iteration=iterations,
-            )
-            _checkpoint(iterations)
+        sync_state_patch_when_no_step_dispatched(
+            loop_memory=loop_memory,
+            action_plan=action_plan,
+            tracer=tracer,
+            iteration=iterations,
+            patch_present=patch_present,
+            skip_execution=action_plan.skip_execution,
+        )
+        record_turn_continuity(
+            loop_memory=loop_memory,
+            action_plan=action_plan,
+            iteration=iterations,
+            execution_state="skipped" if action_plan.skip_execution else "not_dispatched",
+            execution_reason_code=None,
+        )
+        observe_turn_completed(
+            active_lifecycle.turn_completion_observer,
+            iterations,
+            action_plan=action_plan, step_result=None,
+            loop_memory=loop_memory,
+        )
+        capture_hydrate_next_after_step(
+            loop_memory=loop_memory,
+            action_plan=action_plan,
+            step_result=None,
+            iteration=iterations,
+        )
+        _checkpoint(iterations)
 
     return build_kernel_loop_result(
         loop_memory=loop_memory,

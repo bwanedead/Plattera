@@ -36,11 +36,24 @@ class SharedStateProjection:
 
 
 @dataclass(frozen=True)
+class ActionPlanAction:
+    """One tool dispatch row in the canonical ``ActionPlan.actions`` sequence."""
+
+    alias: str
+    action_type: str
+    action_inputs: dict[str, Any]
+    hydrate_next: tuple[str, ...] = ()
+    hydrate_next_reason: str | None = None
+
+
+@dataclass(frozen=True)
 class ActionPlan:
     """Kernel action; optional ``state_patch`` is model-authored generic work-state (see ``state_patch_apply``)."""
 
+    # Canonical runtime dispatch shape (parser normalizes all spellings into this).
+    actions: tuple[ActionPlanAction, ...] = ()
     action_type: str | None = None
-    # Independent tool calls for one model turn (mutually exclusive with ``action_type``).
+    # Legacy input compatibility only; runtime reads ``actions`` via ``effective_actions``.
     action_batch: tuple["ActionBatchItem", ...] = ()
     action_inputs: dict[str, Any] = field(default_factory=dict)
     # Transport-only dispatch dedupe key. External seam may omit it; host fills it before execution.

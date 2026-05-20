@@ -48,12 +48,12 @@ def test_parse_accepts_valid_batch() -> None:
         available_tool_ids=("noop",),
         tool_batch_policies=_policies(),
     )
-    assert len(plan.action_batch) == 2
+    assert len(plan.actions) == 2
     assert plan.action_type is None
 
 
 def test_parse_rejects_action_type_plus_batch() -> None:
-    with pytest.raises(ModelActionParseError, match="mutually exclusive"):
+    with pytest.raises(ModelActionParseError, match="cannot be mixed"):
         parse_action_plan_response(
             json.dumps({
                 "action_type": "noop",

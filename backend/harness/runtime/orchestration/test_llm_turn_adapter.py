@@ -49,7 +49,7 @@ def test_coerce_action_plan_accepts_real_json_booleans() -> None:
     )
 
     assert isinstance(plan, ActionPlan)
-    assert plan.action_type == "select_tool"
+    assert plan.actions[0].action_type == "select_tool"
     assert plan.skip_execution is False
     assert plan.wait_for_human is True
     assert plan.complete_run is False
@@ -101,7 +101,7 @@ def test_coerce_action_plan_accepts_explicit_state_authoring_skip_turn() -> None
         ),
         available_tool_ids=("select_tool",),
     )
-    assert plan.action_type is None
+    assert not plan.actions
     assert plan.skip_execution is True
     assert plan.state_patch is not None
     assert plan.state_patch["mission"]["active_mode"] == "investigating"
@@ -135,7 +135,7 @@ def test_coerce_action_plan_accepts_null_action_type_with_state_patch_and_omitte
         "continuity_journal_entry": _LLM_CJ,
     }
     plan = _coerce_action_plan(json.dumps(payload), available_tool_ids=("select_tool",))
-    assert plan.action_type is None
+    assert not plan.actions
     assert plan.skip_execution is True
     assert plan.state_patch == {"mission": {"active_mode": "investigating"}}
 
@@ -152,7 +152,7 @@ def test_coerce_action_plan_rejects_null_action_type_without_state_patch() -> No
         "state_patch": None,
         "continuity_journal_entry": _LLM_CJ,
     }
-    with pytest.raises(ModelActionParseError, match="state_patch or hitl_request is required when action_type is null on a no-dispatch turn"):
+    with pytest.raises(ModelActionParseError, match="state_patch or hitl_request is required on a no-dispatch turn"):
         _coerce_action_plan(json.dumps(payload), available_tool_ids=("select_tool",))
 
 
@@ -168,7 +168,7 @@ def test_coerce_action_plan_rejects_action_inputs_on_state_authoring_skip_turn()
         "state_patch": {"mission": {"active_mode": "investigating"}},
         "continuity_journal_entry": _LLM_CJ,
     }
-    with pytest.raises(ModelActionParseError, match="action_inputs must be empty when action_type is null on a no-dispatch turn"):
+    with pytest.raises(ModelActionParseError, match="action_inputs must be empty on a no-dispatch turn"):
         _coerce_action_plan(json.dumps(payload), available_tool_ids=("select_tool",))
 
 
@@ -287,7 +287,7 @@ def test_llm_turn_adapter_emits_one_prompt_event_per_successful_choose_action() 
         prompt_event_observer=_PromptEventRecorder(payloads),
     )
     plan = adapter.choose_action(ctx, projection=None)
-    assert plan.action_type == "noop"
+    assert plan.actions[0].action_type == "noop"
     assert len(payloads) == 1
     assert payloads[0]["iteration"] == 2
     pe = payloads[0]["prompt_event"]
@@ -810,7 +810,7 @@ def test_choose_action_repair_succeeds_on_second_attempt() -> None:
     ctx = _orch_context(iterations=1)
     plan = adapter.choose_action(ctx, projection=None)
 
-    assert plan.action_type == "noop"
+    assert plan.actions[0].action_type == "noop"
     assert len(calls) == 2
     # Second call should include the original prompt content and the repair instruction.
     assert "reason_code" in calls[1]
@@ -830,7 +830,7 @@ def test_choose_action_repair_accepts_state_authoring_skip_turn() -> None:
     ctx = _orch_context(iterations=1)
     plan = adapter.choose_action(ctx, projection=None)
 
-    assert plan.action_type is None
+    assert not plan.actions
     assert plan.skip_execution is True
     assert plan.state_patch is not None
     assert plan.state_patch["mission"]["active_mode"] == "investigating"
@@ -1406,7 +1406,7 @@ def test_choose_action_json_failure_still_repairs() -> None:
     ctx = _orch_context(iterations=1)
     plan = adapter.choose_action(ctx, projection=None)
 
-    assert plan.action_type == "noop"
+    assert plan.actions[0].action_type == "noop"
     assert len(calls) == 2
     fb = ctx.loop_memory.contract_feedback
     assert fb["repair_attempted"] is True
@@ -1676,7 +1676,7 @@ def test_choose_action_works_with_no_raw_io_cb() -> None:
 
     adapter = _minimal_llm_adapter(caller=caller)
     plan = adapter.choose_action(_orch_context(iterations=1), projection=None)
-    assert plan.action_type == "noop"
+    assert plan.actions[0].action_type == "noop"
 
 
 def test_raw_io_cb_exception_does_not_break_choose_action() -> None:
@@ -1694,7 +1694,7 @@ def test_raw_io_cb_exception_does_not_break_choose_action() -> None:
         _orch_context(iterations=1, raw_llm_io_observer=_ExplodingObserver()),
         projection=None,
     )
-    assert plan.action_type == "noop"
+    assert plan.actions[0].action_type == "noop"
 
 
 # ---------------------------------------------------------------------------
@@ -1726,7 +1726,7 @@ def test_repair_audit_record_contains_prompt_and_response_texts() -> None:
     assert "repair_raw_response_text" in rr
     assert rr["repair_parse_ok"] is True
     assert rr["repair_parse_reason_code"] is None
-    assert rr["repair_parsed_action_plan"]["action_type"] == "noop"
+    assert rr["repair_parsed_action_plan"]["actions"][0]["action_type"] == "noop"
 
 
 def test_repair_failed_audit_record_contains_reason_code() -> None:

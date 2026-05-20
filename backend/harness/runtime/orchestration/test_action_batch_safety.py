@@ -1,4 +1,4 @@
-"""Safety and durability tests for action_batch (no b64 leak, resume, audit)."""
+"""Safety and durability tests for action sequences (no b64 leak, resume, audit)."""
 
 from __future__ import annotations
 
@@ -11,17 +11,17 @@ from harness.runtime.memory.resume_snapshot import (
     parse_kernel_resume_snapshot,
 )
 from harness.mission_state import new_mission_state, new_resolution_state
-from harness.runtime.orchestration.action_batch import (
-    build_batch_item_result_row,
-    build_batch_tool_request_summary,
-    build_batch_tool_result_summary,
-    project_batch_item_row,
-    validate_stored_action_batch_result,
+from harness.runtime.orchestration.action_batch import build_batch_item_result_row
+from harness.runtime.orchestration.action_sequence import (
+    ActionPlanAction,
+    action_plan_with_canonical_actions,
+    build_sequence_tool_request_summary,
+    build_sequence_tool_result_summary,
+    project_sequence_item_row,
+    validate_stored_action_sequence_result,
 )
-from harness.runtime.orchestration.action_batch import ActionBatchItem
-from harness.runtime.orchestration.contracts import ActionPlan
-from harness.runtime.orchestration.llm_prompt_builder import build_choose_action_prompt_document
 from harness.runtime.orchestration.contracts import OrchestratorContext
+from harness.runtime.orchestration.llm_prompt_builder import build_choose_action_prompt_document
 from harness.runtime.composition import ComposedTurnInput
 
 
@@ -45,7 +45,7 @@ def test_batch_item_row_never_stores_raw_b64() -> None:
 
 def test_prompt_projection_omits_b64_from_legacy_stored_rows() -> None:
     lm = LoopMemoryState()
-    lm.continuity.recent_action_batch_result = {
+    lm.continuity.recent_action_sequence_result = {
         "batch_id": "req:iter:1:batch",
         "source_turn_index": 1,
         "items": [
@@ -75,12 +75,12 @@ def test_prompt_projection_omits_b64_from_legacy_stored_rows() -> None:
     text = str(doc.prompt_body)
     assert "SECRET" not in text
     assert "b64" not in text
-    lane = doc.prompt_body["structured_state"]["recent_action_batch_result"]
+    lane = doc.prompt_body["structured_state"]["recent_action_sequence_result"]
     assert lane["items"][0].get("image_evidence_summary", {}).get("count") == 1
 
 
-def test_validate_stored_action_batch_result_strips_b64() -> None:
-    out = validate_stored_action_batch_result({
+def test_validate_stored_action_sequence_result_strips_b64() -> None:
+    out = validate_stored_action_sequence_result({
         "batch_id": "b-1",
         "source_turn_index": 2,
         "items": [
@@ -97,14 +97,14 @@ def test_validate_stored_action_batch_result_strips_b64() -> None:
     assert "image_evidence" not in out["items"][0]
 
 
-def test_roundtrip_recent_action_batch_result_in_resume_snapshot() -> None:
+def test_roundtrip_recent_action_sequence_result_in_resume_snapshot() -> None:
     executor = ExecutionExecutor()
     sm = ExecutionSessionManager(executor=executor)
     sm.start_session(ExecutionSessionStartRequest(run_id="run-batch", session_id="sess-batch"))
     lm = LoopMemoryState()
     lm.continuity.mission_state = new_mission_state(mission_id="m1", loop_family="orchestration_kernel")
     lm.continuity.resolution_state = new_resolution_state()
-    lm.continuity.recent_action_batch_result = {
+    lm.continuity.recent_action_sequence_result = {
         "batch_id": "req:iter:5:batch",
         "source_turn_index": 5,
         "items": [
@@ -125,32 +125,32 @@ def test_roundtrip_recent_action_batch_result_in_resume_snapshot() -> None:
     )
     mem2, _, err = parse_kernel_resume_snapshot(snap)
     assert err is None
-    rec = mem2.continuity.recent_action_batch_result
+    rec = mem2.continuity.recent_action_sequence_result
     assert rec is not None
     assert rec["batch_id"] == "req:iter:5:batch"
     assert rec["items"][0]["alias"] == "p1"
     assert "b64" not in str(rec)
 
 
-def test_batch_audit_summaries_cover_all_items() -> None:
-    plan = ActionPlan(
-        action_batch=(
-            ActionBatchItem("a", "noop", {"x": 1}),
-            ActionBatchItem("b", "noop", {"y": 2}),
+def test_sequence_audit_summaries_cover_all_items() -> None:
+    plan = action_plan_with_canonical_actions(
+        actions=(
+            ActionPlanAction("a", "noop", {"x": 1}),
+            ActionPlanAction("b", "noop", {"y": 2}),
         ),
         rationale="batch",
         idempotency_key="idem-batch",
     )
-    req = build_batch_tool_request_summary(plan)
-    assert len(req["action_batch"]) == 2
-    result = build_batch_tool_result_summary({
+    req = build_sequence_tool_request_summary(plan)
+    assert len(req["actions"]) == 2
+    result = build_sequence_tool_result_summary({
         "batch_id": "b-1",
         "source_turn_index": 1,
         "items": [
-            project_batch_item_row({
+            project_sequence_item_row({
                 "alias": "a", "action_type": "noop", "execution_state": "executed",
             }),
-            project_batch_item_row({
+            project_sequence_item_row({
                 "alias": "b", "action_type": "noop", "execution_state": "retryable_error",
                 "error": {"reason_code": "x", "retryable": True},
             }),

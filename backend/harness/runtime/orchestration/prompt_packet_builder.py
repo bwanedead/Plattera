@@ -221,24 +221,24 @@ def _build_structured_state(
     pending_hydration = _build_agent_requested_hydration(cont.pending_agent_hydration)
     if pending_hydration is not None:
         structured["agent_requested_hydration"] = pending_hydration
-    batch_lane = _build_recent_action_batch_result(cont.recent_action_batch_result)
-    if batch_lane is not None:
-        structured["recent_action_batch_result"] = batch_lane
+    sequence_lane = _build_recent_action_sequence_result(cont.recent_action_sequence_result)
+    if sequence_lane is not None:
+        structured["recent_action_sequence_result"] = sequence_lane
     return structured
 
 
-def _build_recent_action_batch_result(record: Mapping[str, Any] | None) -> dict[str, Any] | None:
+def _build_recent_action_sequence_result(record: Mapping[str, Any] | None) -> dict[str, Any] | None:
     if not record:
         return None
-    from .action_batch import project_batch_item_row
+    from .action_sequence import project_sequence_item_row
 
     items = record.get("items")
     if not isinstance(items, (list, tuple)) or not items:
         return None
     out: dict[str, Any] = {
-        "batch_id": str(record.get("batch_id") or ""),
+        "sequence_id": str(record.get("batch_id") or record.get("sequence_id") or ""),
         "items": [
-            project_batch_item_row(row)
+            project_sequence_item_row(row)
             for row in items[:5]
             if isinstance(row, Mapping)
         ],

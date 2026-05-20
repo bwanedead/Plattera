@@ -9,6 +9,7 @@ from __future__ import annotations
 from typing import Any
 
 from ..memory import LoopMemoryState
+from .action_sequence import effective_actions
 from .contracts import ActionPlan
 from .state_patch_apply import StatePatchError, apply_state_patch
 
@@ -40,10 +41,12 @@ def _action_has_policy_role(
     action_plan: ActionPlan,
     role_action_ids_key: str,
 ) -> bool:
-    action_id = _normalize_action_id(action_plan.action_type)
-    if not action_id:
-        return False
-    return action_id in _policy_action_ids(policy, role_action_ids_key)
+    actions = effective_actions(action_plan)
+    role_ids = _policy_action_ids(policy, role_action_ids_key)
+    if not actions:
+        action_id = _normalize_action_id(action_plan.action_type)
+        return bool(action_id) and action_id in role_ids
+    return any(_normalize_action_id(item.action_type) in role_ids for item in actions)
 
 
 def effective_resolution_state(
