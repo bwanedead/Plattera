@@ -21,8 +21,8 @@ Core rule: emit the smallest valid object.
 - Do not author transport-only ceremony such as `idempotency_key`; the host owns it.
 
 Minimal valid turn shapes (note `rationale` is required in every shape):
-- dispatch: `{"action_type": "tool_id", "action_inputs": {...}, "rationale": "..."}`
-- batch dispatch: `{"action_batch": [{"alias": "a", "action_type": "tool_id", "action_inputs": {...}}], "rationale": "..."}`
+- one action: `{"actions": [{"alias": "a", "action_type": "tool_id", "action_inputs": {...}}], "rationale": "..."}`
+- multiple actions: `{"actions": [{"alias": "a", "action_type": "tool_id", "action_inputs": {...}}, {"alias": "b", "action_type": "tool_id", "action_inputs": {...}}], "rationale": "..."}`
 - state-only delta: `{"state_patch": {...}, "rationale": "..."}`
 - async HITL: `{"hitl_request": {...}, "rationale": "..."}` or with a `state_patch`
 - blocking HITL: `{"wait_for_human": true, "hitl_request": {...}, "rationale": "..."}` or with a `state_patch`
@@ -36,9 +36,9 @@ _MECHANICAL_HEADER = (
 
 _TURN_CONTRACT_TEXT = """\
 ### Turn laws
-- Choose `action_type` only from the provided `tool_ids` when dispatching a tool.
+- Tool dispatch uses the top-level `actions` list. Choose each row's `action_type` only from the provided `tool_ids`.
 - No-dispatch state-authoring turns are valid.
-- If `action_type` is absent or null and `state_patch` or `hitl_request` is present, the host treats the turn as no-dispatch.
+- If `actions` is absent or empty and `state_patch` or `hitl_request` is present, the host treats the turn as no-dispatch.
 - `rationale`: REQUIRED on every turn. Short non-empty string (one to three sentences) that explains:
   - why this move now,
   - what new distinction or gain is expected from it,
@@ -270,31 +270,34 @@ For each pending message: (1) Read the exact text and any metadata. (2) Decide w
 
 `prompt_observability_summary.mechanical_flags` may also include `post_hitl_spin:N` when N consecutive post-HITL turns have produced no new refs, no artifact write, and no state change since the HITL turn was issued. This is post-integration spin: the human answer was received but the run is not advancing. When this flag fires: (1) Integrate the HITL answer into durable state now — update the relevant item or covered unit with the determined value, mark it earned or blocked, and update `evidence_refs` to cite the HITL context. (2) Follow through: if the HITL answer unblocks a pending artifact write, perform that write on this turn. (3) If the HITL answer reveals a conflict or unexpected gap, open a new resolution item rather than rereading the same refs. Do not issue another HITL or re-read without first materializing the integration.
 
-### Agent-authored next-turn hydration (`hydrate_next`)
-If your current action creates or names an artifact you already know you must inspect next turn, use the top-level `hydrate_next` field instead of spending the next turn only hydrating it. Keep it small and specific. Each entry is either a literal ref you already know (an `artifact_ref` string) or a placeholder resolved against the current tool result after it executes:
-- `@result.derived_ref_id` — single ref from a transform-style result
-- `@result.revision_ref` — single ref from a save-style result
-- `@result.published_ref` — single ref from a publish-style result
-- `@result.artifact_refs[]` — the bounded ``artifact_refs`` list on the result
+### Action execution
+Use `actions` for tool work. One row is one tool call; several rows are several tool calls in the same turn. Shape:
+`{"actions":[{"alias":"short_name","action_type":"tool_id","action_inputs":{},"hydrate_next":["@this.result.derived_ref_id"],"hydrate_next_reason":"inspect this result next turn"}],"rationale":"..."}`
 
-Bounds: at most 5 entries before resolution, at most 5 resolved refs after dedupe. Non-string entries are rejected. Placeholders that cannot resolve become compact next-turn errors, not runner crashes. Optional `hydrate_next_reason` is a short free-text note about why you want these next.
+Each action row:
+- `alias`: short unique handle for this turn's result. Use letters, digits, `_`, or `-`; no dots.
+- `action_type`: one value from `tool_ids`.
+- `action_inputs`: the exact tool input object; omit or use `{}` only when the tool needs no inputs.
+- `hydrate_next`: optional bounded list of literal refs or `@this.result.*` placeholders to surface next turn.
+- `hydrate_next_reason`: optional short reason for the next-turn attention request.
 
-Use this whenever your current tool result is predictably the next thing you need to inspect. Common generic cases: after a save, request `["@result.revision_ref"]` if the next step is to verify the saved payload; after a transform, request `["@result.derived_ref_id"]` if the next step is to evaluate the derived evidence; after a publish, request `["@result.published_ref"]` only when you still need to verify the published output before completing. If the next turn would otherwise be only `hydrate_artifact_refs` for a ref your current action is about to produce, attach `hydrate_next` to the current action instead.
+Use multiple rows only when every row is already justified before seeing the other rows' results: several known crops, several known read-only checks, or several known hydrations. Actions execute sequentially, but you do not inspect row A's result before authoring row B in the same turn. If B depends on interpreting A, do A now, request hydration if needed, then decide B on a later turn.
 
-Do not overuse it. Omit `hydrate_next` when the next decision can be made from the current tool result slice, when you do not know what you need yet, when the content is already visible this turn, or when the request would merely support broad reassurance. `hydrate_next` should remove a predictable hydrate-only turn, not create extra review work.
+Per-action `hydrate_next` removes predictable hydrate-only turns. Use it when this action will produce or name an artifact you already know you must inspect next turn. Supported placeholders:
+- `@this.result.derived_ref_id` — single ref from this row's transform-style result
+- `@this.result.revision_ref` — single ref from this row's save-style result
+- `@this.result.published_ref` — single ref from this row's publish-style result
+- `@this.result.artifact_refs[]` — this row's bounded artifact refs list
 
-`hydrate_next` is an attention request for the NEXT turn only. It does not execute as the current action, it does not replace normal `hydrate_artifact_refs` calls when you need content this turn, and it does not make the referenced content authoritative — it only asks the harness to surface bounded hydrated context once, in the next prompt, under `structured_state.agent_requested_hydration`. You still decide what the evidence means after seeing it.
+Bounds: at most 5 requested refs per row and at most 5 resolved refs after aggregate dedupe. Non-string entries are rejected. Unresolved placeholders become compact next-turn errors, not runner crashes. `hydrate_next` is attention routing for the NEXT turn only: it does not execute as the current action, does not replace a current-turn hydrate when you need content now, and does not make the referenced content authoritative. The next turn still decides what the hydrated content means after seeing `structured_state.agent_requested_hydration` and `structured_state.recent_action_sequence_result`.
 
-### Agent-authored action batching (`action_batch`)
-Use top-level `action_batch` when several tool calls are independently justified before seeing their results — for example multiple known crops, multiple known hydrations, or several read-only checks. `action_batch` and `action_type` are mutually exclusive. Each batch item needs a unique short `alias` (letters, digits, `_`, `-`; no dots), an `action_type` from `tool_ids`, and `action_inputs`. Only tools whose specs allow batching are accepted; HITL, completion, publish, and workspace writes are not batchable in the first pass.
-
-Good: two `transform_artifact` crops you already know you need, plus `hydrate_next` with `@batch.<alias>.result.derived_ref_id` for next-turn inspection. Bad: action B that depends on inspecting action A's output inside the same turn — run A, inspect, then author B on a later turn. A batch is not a semantic conclusion; inspect `structured_state.recent_action_batch_result` next turn and patch state yourself.
+Do not overuse actions or hydration. Omit `actions` for state-only/HITL/complete turns. Omit `hydrate_next` when the current result slice is enough, when the content is already visible, when you do not know what you need yet, or when the request would only support broad reassurance.
 """
 
 _EXAMPLES_TEXT = """\
 ### Tiny examples (rationale is required on every turn)
-Minimal dispatch:
-`{"action_type":"hydrate_artifact_refs","action_inputs":{"ref_ids":["artifact://1"]},"rationale":"Load artifact://1 to verify item-a's source value; if it matches the candidate record, close that covered unit, otherwise mark the conflict."}`
+Minimal one-action dispatch:
+`{"actions":[{"alias":"load_ref","action_type":"hydrate_artifact_refs","action_inputs":{"ref_ids":["artifact://1"]}}],"rationale":"Load artifact://1 to verify item-a's source value; if it matches the candidate record, close that covered unit, otherwise mark the conflict."}`
 
 Minimal existing-row update:
 `{"state_patch":{"resolution":{"items":[{"item_id":"value-conflict","status":"blocked","requires_hitl":true}]}},"rationale":"Mark value-conflict blocked pending HITL; in-run checks exhausted."}`
@@ -308,11 +311,11 @@ Minimal covered-unit group:
 Minimal HITL:
 `{"wait_for_human":true,"hitl_request":{"message":"Which source value should govern this item?","choices":["Use option A","Use option B","Preserve as unresolved","Other / needs nuance"],"context":{"primary_evidence_ref":"artifact://focused-evidence","question_regions":["disputed_value"]}},"state_patch":{"resolution":{"items":[{"item_id":"value-conflict","requires_hitl":true,"no_further_progress":true}]}},"rationale":"Source-only checks cannot disambiguate the two candidate values; escalate to human with the focused evidence."}`
 
-Dispatch with next-turn hydration:
-`{"action_type":"save_workspace_artifact","action_inputs":{"payload":{"status":"draft"}},"hydrate_next":["@result.revision_ref"],"hydrate_next_reason":"verify saved payload shape before publish","rationale":"Save the narrowed draft now; next turn should inspect the saved revision directly rather than spend a separate turn requesting hydration."}`
+One action with next-turn hydration:
+`{"actions":[{"alias":"save_draft","action_type":"save_workspace_artifact","action_inputs":{"payload":{"status":"draft"}},"hydrate_next":["@this.result.revision_ref"],"hydrate_next_reason":"verify saved payload shape before publish"}],"rationale":"Save the narrowed draft now; next turn should inspect the saved revision directly rather than spend a separate turn requesting hydration."}`
 
-Minimal action batch (when tool specs allow batching):
-`{"action_batch":[{"alias":"crop_a","action_type":"transform_artifact","action_inputs":{"ref_id":"image:assoc:tx-1:original","sub_action":"crop","params":{"box_norm":[0,0,0.5,0.5]}}},{"alias":"crop_b","action_type":"transform_artifact","action_inputs":{"ref_id":"image:assoc:tx-1:original","sub_action":"crop","params":{"box_norm":[0.5,0,1,0.5]}}}],"hydrate_next":["@batch.crop_a.result.derived_ref_id","@batch.crop_b.result.derived_ref_id"],"hydrate_next_reason":"inspect both crops next turn","rationale":"Create both independent region crops in one turn instead of serializing two transform-only turns."}`
+Multiple independent actions:
+`{"actions":[{"alias":"crop_a","action_type":"transform_artifact","action_inputs":{"ref_id":"image:assoc:tx-1:original","sub_action":"crop","params":{"box_norm":[0,0,0.5,0.5]}},"hydrate_next":["@this.result.derived_ref_id"]},{"alias":"crop_b","action_type":"transform_artifact","action_inputs":{"ref_id":"image:assoc:tx-1:original","sub_action":"crop","params":{"box_norm":[0.5,0,1,0.5]}},"hydrate_next":["@this.result.derived_ref_id"]}],"rationale":"Create both independent region crops in one turn instead of serializing two transform-only turns."}`
 
 Minimal complete:
 `{"complete_run":true,"state_patch":{"mission":{"work_universe_posture":"audited"}},"rationale":"Audit sweep confirmed all open items closed or explicitly blocked; promote posture to audited and complete."}`

@@ -57,13 +57,17 @@ def test_choose_action_instruction_omits_idempotency_from_model_facing_shapes() 
 
 def test_choose_action_instruction_includes_tiny_examples() -> None:
     text = CHOOSE_ACTION_INSTRUCTION
-    assert 'Minimal dispatch:' in text
+    assert 'Minimal one-action dispatch:' in text
     assert 'Minimal existing-row update:' in text
     assert 'Minimal new row:' in text
     assert 'Minimal covered-unit group:' in text
     assert 'Minimal HITL:' in text
     assert 'Minimal complete:' in text
-    assert '{"action_type":"hydrate_artifact_refs"' in text
+    assert '"actions":[{"alias":"load_ref","action_type":"hydrate_artifact_refs"' in text
+    assert 'One action with next-turn hydration:' in text
+    assert 'Multiple independent actions:' in text
+    assert '@this.result.revision_ref' in text
+    assert '@this.result.derived_ref_id' in text
     assert '{"complete_run":true' in text
     assert "Use option A" in text
     assert "Which source value should govern this item?" in text
