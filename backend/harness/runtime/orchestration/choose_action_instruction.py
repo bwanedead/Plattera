@@ -22,6 +22,7 @@ Core rule: emit the smallest valid object.
 
 Minimal valid turn shapes (note `rationale` is required in every shape):
 - dispatch: `{"action_type": "tool_id", "action_inputs": {...}, "rationale": "..."}`
+- batch dispatch: `{"action_batch": [{"alias": "a", "action_type": "tool_id", "action_inputs": {...}}], "rationale": "..."}`
 - state-only delta: `{"state_patch": {...}, "rationale": "..."}`
 - async HITL: `{"hitl_request": {...}, "rationale": "..."}` or with a `state_patch`
 - blocking HITL: `{"wait_for_human": true, "hitl_request": {...}, "rationale": "..."}` or with a `state_patch`
@@ -283,6 +284,11 @@ Use this whenever your current tool result is predictably the next thing you nee
 Do not overuse it. Omit `hydrate_next` when the next decision can be made from the current tool result slice, when you do not know what you need yet, when the content is already visible this turn, or when the request would merely support broad reassurance. `hydrate_next` should remove a predictable hydrate-only turn, not create extra review work.
 
 `hydrate_next` is an attention request for the NEXT turn only. It does not execute as the current action, it does not replace normal `hydrate_artifact_refs` calls when you need content this turn, and it does not make the referenced content authoritative — it only asks the harness to surface bounded hydrated context once, in the next prompt, under `structured_state.agent_requested_hydration`. You still decide what the evidence means after seeing it.
+
+### Agent-authored action batching (`action_batch`)
+Use top-level `action_batch` when several tool calls are independently justified before seeing their results — for example multiple known crops, multiple known hydrations, or several read-only checks. `action_batch` and `action_type` are mutually exclusive. Each batch item needs a unique short `alias` (letters, digits, `_`, `-`; no dots), an `action_type` from `tool_ids`, and `action_inputs`. Only tools whose specs allow batching are accepted; HITL, completion, publish, and workspace writes are not batchable in the first pass.
+
+Good: two `transform_artifact` crops you already know you need, plus `hydrate_next` with `@batch.<alias>.result.derived_ref_id` for next-turn inspection. Bad: action B that depends on inspecting action A's output inside the same turn — run A, inspect, then author B on a later turn. A batch is not a semantic conclusion; inspect `structured_state.recent_action_batch_result` next turn and patch state yourself.
 """
 
 _EXAMPLES_TEXT = """\
@@ -304,6 +310,9 @@ Minimal HITL:
 
 Dispatch with next-turn hydration:
 `{"action_type":"save_workspace_artifact","action_inputs":{"payload":{"status":"draft"}},"hydrate_next":["@result.revision_ref"],"hydrate_next_reason":"verify saved payload shape before publish","rationale":"Save the narrowed draft now; next turn should inspect the saved revision directly rather than spend a separate turn requesting hydration."}`
+
+Minimal action batch (when tool specs allow batching):
+`{"action_batch":[{"alias":"crop_a","action_type":"transform_artifact","action_inputs":{"ref_id":"image:assoc:tx-1:original","sub_action":"crop","params":{"box_norm":[0,0,0.5,0.5]}}},{"alias":"crop_b","action_type":"transform_artifact","action_inputs":{"ref_id":"image:assoc:tx-1:original","sub_action":"crop","params":{"box_norm":[0.5,0,1,0.5]}}}],"hydrate_next":["@batch.crop_a.result.derived_ref_id","@batch.crop_b.result.derived_ref_id"],"hydrate_next_reason":"inspect both crops next turn","rationale":"Create both independent region crops in one turn instead of serializing two transform-only turns."}`
 
 Minimal complete:
 `{"complete_run":true,"state_patch":{"mission":{"work_universe_posture":"audited"}},"rationale":"Audit sweep confirmed all open items closed or explicitly blocked; promote posture to audited and complete."}`

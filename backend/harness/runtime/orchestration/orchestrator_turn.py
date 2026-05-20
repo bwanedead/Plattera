@@ -11,6 +11,11 @@ from typing import Any
 from ...execution.contracts import ExecutionStepResult
 from ..memory import LoopMemoryState
 from ..memory.continuity_journal import apply_kernel_turn_continuity_carriage, build_kernel_step_result_record
+from .action_batch import (
+    build_batch_tool_request_summary,
+    build_batch_tool_result_summary,
+    summarize_image_evidence_for_projection,
+)
 from .contracts import ActionPlan
 from .lifecycle import TurnCompletionObserver, lifecycle_jsonable
 
@@ -81,7 +86,9 @@ def record_turn_continuity(
         loop_memory=loop_memory,
         continuity_journal_entry=action_plan.continuity_journal_entry,
         operator_progress_message=action_plan.operator_progress_message,
-        action_type=action_plan.action_type,
+        action_type=action_plan.action_type or (
+            "action_batch" if action_plan.action_batch else None
+        ),
         action_inputs=dict(action_plan.action_inputs),
         idempotency_key=action_plan.idempotency_key,
         rationale=action_plan.rationale,
@@ -103,12 +110,15 @@ def observe_turn_completed(
     step_result: "ExecutionStepResult | None",
     loop_memory: LoopMemoryState,
     terminal_decision: str | None = None,
+    batch_result: dict[str, Any] | None = None,
 ) -> None:
     """Send an explicit post-turn mechanical record to the lifecycle observer."""
     if observer is None:
         return
     tool_request: dict[str, Any] | None = None
-    if not action_plan.complete_run and not action_plan.wait_for_human and action_plan.action_type is not None:
+    if action_plan.action_batch and not action_plan.complete_run and not action_plan.wait_for_human:
+        tool_request = build_batch_tool_request_summary(action_plan)
+    elif not action_plan.complete_run and not action_plan.wait_for_human and action_plan.action_type is not None:
         tool_request = {
             "action_type": action_plan.action_type,
             "action_inputs": dict(action_plan.action_inputs),
@@ -119,7 +129,9 @@ def observe_turn_completed(
             "rationale": action_plan.rationale,
         }
     tool_result_raw: dict[str, Any] | None = None
-    if step_result is not None:
+    if action_plan.action_batch:
+        tool_result_raw = build_batch_tool_result_summary(batch_result)
+    elif step_result is not None:
         rec = step_result.record
         tool_result_raw = {
             "execution_state": step_result.execution_state.value,
@@ -141,10 +153,10 @@ def observe_turn_completed(
                 if rec is not None and rec.result is not None
                 else []
             ),
-            "image_evidence": (
-                list(rec.result.image_evidence)
+            "image_evidence_summary": (
+                summarize_image_evidence_for_projection(rec.result.image_evidence)
                 if rec is not None and rec.result is not None and rec.result.image_evidence
-                else []
+                else None
             ),
         }
     record = lifecycle_jsonable(

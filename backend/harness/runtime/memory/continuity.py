@@ -81,3 +81,5 @@ class OrchestrationContinuity:
     # on the next iteration when it dispatches a bounded hydration step before
     # the next choose-action.  Status lifecycle: ``pending`` → ``surfaced``.
     pending_agent_hydration: dict[str, Any] | None = None
+    # Bounded per-turn batch execution summary for prompt projection (host-owned).
+    recent_action_batch_result: dict[str, Any] | None = None

@@ -11,6 +11,7 @@ from services.llm.call_options import LlmCallOptions
 
 from .action_plan_parser import ModelActionParseError, parse_action_plan_response
 from .contracts import ActionPlan
+from .tool_batch_policy import DomainActionBatchPolicy, ToolBatchPolicy
 from .llm_prompt_builder import build_repair_prompt_document
 
 TextModelCaller = Callable[..., Mapping[str, Any] | str]
@@ -102,6 +103,8 @@ def attempt_repair(
     original_exc: ModelActionParseError,
     available_tool_ids: tuple[str, ...],
     original_image_attachments: tuple[dict[str, Any], ...] = (),
+    tool_batch_policies: Mapping[str, ToolBatchPolicy] | None = None,
+    domain_batch_policy: DomainActionBatchPolicy | None = None,
 ) -> RepairAttempt:
     previous_response_object, repair_targets = _derive_repair_context(
         previous_response_text, str(original_exc)
@@ -124,7 +127,12 @@ def attempt_repair(
     raw_repair: Any = None
     try:
         raw_repair = model_caller(repair_prompt_text, model_name, call_options=repair_opts)
-        plan = parse_action_plan_response(raw_repair, available_tool_ids=available_tool_ids)
+        plan = parse_action_plan_response(
+            raw_repair,
+            available_tool_ids=available_tool_ids,
+            tool_batch_policies=tool_batch_policies,
+            domain_batch_policy=domain_batch_policy,
+        )
         return RepairAttempt(
             repair_prompt_text=repair_prompt_text,
             repair_raw_response_text=extract_audit_text(raw_repair),

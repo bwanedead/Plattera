@@ -36,6 +36,12 @@ _SINGLE_PLACEHOLDERS: dict[str, str] = {
     "@result.published_ref": "published_ref",
 }
 _LIST_PLACEHOLDER = "@result.artifact_refs[]"
+_BATCH_LIST_SUFFIX = ".result.artifact_refs[]"
+_BATCH_SINGLE_SUFFIXES: dict[str, str] = {
+    ".result.derived_ref_id": "derived_ref_id",
+    ".result.revision_ref": "revision_ref",
+    ".result.published_ref": "published_ref",
+}
 
 
 class HydrateNextValidationError(ValueError):
@@ -112,10 +118,63 @@ def normalize_hydrate_next_reason(raw: Any) -> str | None:
     return text
 
 
+def _resolve_batch_placeholder(
+    entry: str,
+    *,
+    batch_results: Mapping[str, Mapping[str, Any]] | None,
+    resolved: list[str],
+    errors: list[dict[str, Any]],
+) -> None:
+    if batch_results is None:
+        errors.append({"requested_ref": entry, "reason_code": "batch_result_not_found"})
+        return
+    if entry.endswith(_BATCH_LIST_SUFFIX):
+        alias = entry[len("@batch.") : -len(_BATCH_LIST_SUFFIX)]
+        if not alias or "." in alias:
+            errors.append({"requested_ref": entry, "reason_code": "unknown_placeholder"})
+            return
+        snap = batch_results.get(alias)
+        if not snap:
+            errors.append({"requested_ref": entry, "reason_code": "batch_alias_not_found"})
+            return
+        artifact_refs = snap.get("artifact_refs")
+        if not isinstance(artifact_refs, (list, tuple)) or not artifact_refs:
+            errors.append({"requested_ref": entry, "reason_code": "placeholder_not_found"})
+            return
+        for ref in artifact_refs:
+            if len(resolved) >= MAX_HYDRATE_NEXT_REFS:
+                break
+            if isinstance(ref, str) and ref.strip() and ref.strip() not in resolved:
+                resolved.append(ref.strip())
+        return
+    for suffix, outputs_key in _BATCH_SINGLE_SUFFIXES.items():
+        if not entry.endswith(suffix):
+            continue
+        alias = entry[len("@batch.") : -len(suffix)]
+        if not alias or "." in alias:
+            errors.append({"requested_ref": entry, "reason_code": "unknown_placeholder"})
+            return
+        snap = batch_results.get(alias)
+        if not snap:
+            errors.append({"requested_ref": entry, "reason_code": "batch_alias_not_found"})
+            return
+        outputs = snap.get("outputs")
+        outputs_map = outputs if isinstance(outputs, Mapping) else {}
+        value = outputs_map.get(outputs_key)
+        if not isinstance(value, str) or not value.strip():
+            errors.append({"requested_ref": entry, "reason_code": "placeholder_not_found"})
+            return
+        if value.strip() not in resolved:
+            resolved.append(value.strip())
+        return
+    errors.append({"requested_ref": entry, "reason_code": "unknown_placeholder"})
+
+
 def resolve_hydrate_next_refs(
     requested: list[str] | tuple[str, ...],
     *,
     tool_result: Mapping[str, Any] | None,
+    batch_results: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> tuple[list[str], list[dict[str, Any]]]:
     """Resolve placeholders to concrete refs against the current tool result.
 
@@ -151,6 +210,16 @@ def resolve_hydrate_next_refs(
             continue
         if not entry.startswith("@"):
             _append(entry)
+            continue
+        if entry.startswith("@batch."):
+            _resolve_batch_placeholder(
+                entry,
+                batch_results=batch_results,
+                resolved=resolved,
+                errors=errors,
+            )
+            if len(resolved) >= MAX_HYDRATE_NEXT_REFS:
+                break
             continue
         if entry == _LIST_PLACEHOLDER:
             if not artifact_refs:

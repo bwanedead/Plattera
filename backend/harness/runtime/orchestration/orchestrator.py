@@ -29,6 +29,10 @@ from .user_message_hooks import (
     poll_and_record_user_messages,
     record_consumed_and_deferred_user_messages,
 )
+from .action_batch_hooks import (
+    clear_stale_action_batch_result,
+    run_action_batch_turn_if_present,
+)
 from .hydrate_next_hooks import (
     capture_hydrate_next_after_step,
     clear_surfaced_hydration,
@@ -73,6 +77,8 @@ def _action_id_for_plan(action_plan: ActionPlan) -> str:
         return "complete_run"
     if action_plan.wait_for_human:
         return "wait_for_human"
+    if action_plan.action_batch:
+        return "action_batch"
     return str(action_plan.action_type or "no_action")
 
 
@@ -85,6 +91,7 @@ def _materialize_dispatch_idempotency_key(
     """Host-own transport idempotency for real dispatch turns only."""
     if (
         action_plan.action_type is None
+        or action_plan.action_batch
         or action_plan.skip_execution
         or action_plan.wait_for_human
         or action_plan.complete_run
@@ -263,6 +270,7 @@ def run_orchestration_kernel_loop(
         # surfaced.  Keeps the lane strictly one-shot and prevents the same
         # hydrated payload from re-appearing in subsequent prompts.
         clear_surfaced_hydration(loop_memory=loop_memory)
+        clear_stale_action_batch_result(loop_memory=loop_memory, iteration=iterations)
 
         hitl_poll_feedback_store(
             posture=loop_memory.hitl,
@@ -564,6 +572,28 @@ def run_orchestration_kernel_loop(
                 tracer=tracer,
                 session_manager=session_manager,
             )
+
+        batch_handled, action_plan, batch_step = run_action_batch_turn_if_present(
+            loop_memory=loop_memory,
+            session_manager=session_manager,
+            session_id=session_id,
+            action_plan=action_plan,
+            iteration=iterations,
+            request_id_prefix=request_id_prefix,
+            run_id=run_id,
+            run_ctx=run_ctx,
+            tracer=tracer,
+            turn_completion_observer=active_lifecycle.turn_completion_observer,
+        )
+        if batch_handled:
+            capture_hydrate_next_after_step(
+                loop_memory=loop_memory,
+                action_plan=action_plan,
+                step_result=batch_step,
+                iteration=iterations,
+            )
+            _checkpoint(iterations)
+            continue
 
         step_request = coerce_step_request(action_plan, session_id=session_id)
         if step_request is not None and not action_plan.skip_execution:

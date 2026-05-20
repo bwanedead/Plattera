@@ -1553,10 +1553,14 @@ def test_image_evidence_in_tool_result_raw_via_turn_completion_observer() -> Non
     tool_turn = next(r for r in observer.records if r["turn_index"] == 1)
     tool_result = tool_turn["tool_result_raw"]
     assert tool_result is not None
-    evidence = tool_result["image_evidence"]
-    assert len(evidence) == 2
-    assert evidence[0]["ref_id"] == "image:assoc:tx1:original"
-    assert evidence[1]["ref_id"] == "image:assoc:tx1:processed"
+    summary = tool_result["image_evidence_summary"]
+    assert summary is not None
+    assert summary["count"] == 2
+    assert summary["ref_ids"] == [
+        "image:assoc:tx1:original",
+        "image:assoc:tx1:processed",
+    ]
+    assert "b64" not in str(tool_result)
 
 
 def test_turn_completion_observer_receives_normalized_state_records() -> None:
@@ -1762,7 +1766,7 @@ def test_retryable_refusal_info_is_visible_in_next_turn_step_records() -> None:
 
 
 def test_image_evidence_empty_list_when_no_evidence() -> None:
-    """When image_evidence is empty, tool_result_raw.image_evidence should be []."""
+    """When image_evidence is empty, tool_result_raw.image_evidence_summary should be None."""
     observer = _TurnCompletionRecorder()
 
     sm = FakeSessionManager()
@@ -1783,7 +1787,7 @@ def test_image_evidence_empty_list_when_no_evidence() -> None:
 
     tool_turn = next((r for r in observer.records if r.get("tool_request") is not None), None)
     assert tool_turn is not None
-    assert tool_turn["tool_result_raw"]["image_evidence"] == []
+    assert tool_turn["tool_result_raw"]["image_evidence_summary"] is None
 
 
 class _MissingIdempotencyDispatchPack:
@@ -2211,6 +2215,126 @@ def test_hydrate_next_dispatches_hydration_on_next_iteration_without_agent_call(
     assert hydrate_step.inputs == {"ref_ids": ["transcript_edit:working:rev:0001"]}
     # The pack only authored ONE choose_action plan that dispatched (iter 1);
     # iter 2 terminated before any second authored hydrate plan was needed.
+
+
+class _BatchTransformThenCompletePack:
+    """Iter 1: two transform batch items + hydrate_next batch placeholders.
+    Iter 2: complete after harness hydrates both derived refs on next iteration.
+    """
+
+    def initialize(self, context: OrchestratorContext) -> None:
+        pass
+
+    def sync(self, context: OrchestratorContext) -> SharedStateProjection:
+        return SharedStateProjection(
+            mission_state=new_mission_state(mission_id="m-batch", loop_family="orchestration_kernel"),
+            resolution_state=new_resolution_state(),
+        )
+
+    def evaluate_terminal(self, context: OrchestratorContext, projection: SharedStateProjection | None) -> TerminalEvaluation | None:
+        return None
+
+    def choose_action(self, context: OrchestratorContext, projection: SharedStateProjection | None) -> ActionPlan:
+        from harness.runtime.orchestration.action_batch import ActionBatchItem
+
+        if context.loop_memory.iterations == 1:
+            return ActionPlan(
+                action_batch=(
+                    ActionBatchItem("p1", "transform_artifact", {}),
+                    ActionBatchItem("p2", "transform_artifact", {}),
+                ),
+                hydrate_next=(
+                    "@batch.p1.result.derived_ref_id",
+                    "@batch.p2.result.derived_ref_id",
+                ),
+                hydrate_next_reason="inspect both crops",
+                rationale="batch two crops and request next-turn hydration",
+            )
+        return ActionPlan(
+            complete_run=True,
+            state_patch={"mission": {"work_universe_posture": "audited"}},
+            rationale="inspected both hydrated crops; done",
+        )
+
+
+class _BatchTransformFakeSessionManager(_SaveAndHydrateFakeSessionManager):
+    def step(self, request: ExecutionStepRequest) -> ExecutionStepResult:  # type: ignore[override]
+        from harness.execution.contracts import (
+            ActionDispatchResult,
+            SessionExecutionRecord,
+        )
+
+        self.steps.append(request)
+        if request.action_id == "hydrate_artifact_refs":
+            outputs = {
+                "results": [
+                    {"ref_id": rid, "kind": "image", "payload": {}}
+                    for rid in (request.inputs.get("ref_ids") or [])
+                ],
+                "errors": [],
+            }
+            artifact_refs: tuple[str, ...] = ()
+        elif request.action_id == "transform_artifact":
+            alias = request.idempotency_key.rsplit(":", 1)[-1]
+            derived = f"image:derived:{alias}"
+            outputs = {"derived_ref_id": derived}
+            artifact_refs = (derived,)
+        else:
+            outputs = {}
+            artifact_refs = ()
+
+        result = ActionDispatchResult(
+            action_id=request.action_id,
+            executed=True,
+            outputs=outputs,
+            artifact_refs=artifact_refs,
+        )
+        record = SessionExecutionRecord(
+            session_id=request.session_id,
+            run_id="r",
+            request=request,
+            result=result,
+        )
+        return ExecutionStepResult(
+            session_id=request.session_id,
+            idempotency_key=request.idempotency_key,
+            execution_state=ExecutionState.EXECUTED,
+            dashboard=_dashboard(refs={"latest": "artifact://batch"}),
+            record=record,
+        )
+
+
+def test_action_batch_hydrate_next_surfaces_both_refs_without_intermediate_hydrate_turn() -> None:
+    """Regression: batch transforms + batch hydrate_next placeholders → next iteration
+    dispatches hydrate_artifact_refs for both derived refs without an agent hydrate turn."""
+    sm = _BatchTransformFakeSessionManager()
+    result = run_orchestration_kernel_loop(
+        orchestration_adapter=_BatchTransformThenCompletePack(),
+        session_manager=sm,
+        session_id="s-batch-hn",
+        run_artifact_ref=None,
+        request_id_prefix="req-batch-hn",
+        max_iterations=4,
+        opaque_run_context={
+            "__tool_batch_policies": {
+                "transform_artifact": {
+                    "allowed": True,
+                    "max_calls_per_batch": 4,
+                    "side_effect_class": "derived_artifact",
+                    "can_run_parallel": False,
+                    "conflict_key": None,
+                },
+            },
+        },
+    )
+    assert result.terminal_class == "completed"
+    transform_steps = [s for s in sm.steps if s.action_id == "transform_artifact"]
+    assert len(transform_steps) == 2
+    hydrate_step = next(s for s in sm.steps if s.action_id == "hydrate_artifact_refs")
+    assert set(hydrate_step.inputs.get("ref_ids") or []) == {
+        "image:derived:p1",
+        "image:derived:p2",
+    }
 
 
 def test_hydrate_next_with_no_request_leaves_orchestrator_unchanged() -> None:

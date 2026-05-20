@@ -19,6 +19,7 @@ from ...mission_state import MissionState, ResolutionState
 from ..hitl.transport import HitlTransportPosture
 from ..hitl.exchange_ledger import validate_stored_ledger_entry
 from ..user_messages.ledger import validate_stored_user_message
+from ..orchestration.action_batch import validate_stored_action_batch_result
 from ..orchestration.hydrate_next import validate_stored_hydrate_next_record
 from .continuity import OrchestrationContinuity
 from .continuity_journal import (
@@ -88,6 +89,11 @@ def build_kernel_resume_snapshot(
             "pending_agent_hydration": (
                 dict(loop_memory.continuity.pending_agent_hydration)
                 if loop_memory.continuity.pending_agent_hydration is not None
+                else None
+            ),
+            "recent_action_batch_result": (
+                dict(loop_memory.continuity.recent_action_batch_result)
+                if loop_memory.continuity.recent_action_batch_result is not None
                 else None
             ),
         },
@@ -316,6 +322,17 @@ def parse_kernel_resume_snapshot(payload: Mapping[str, Any]) -> tuple[LoopMemory
                 return empty, 1, "resume_snapshot_pending_agent_hydration_invalid"
             pending_agent_hydration_out = normalized_pah
 
+    recent_action_batch_result_out: dict[str, Any] | None = None
+    if "recent_action_batch_result" in cont:
+        rab_raw = cont.get("recent_action_batch_result")
+        if rab_raw is not None:
+            if not isinstance(rab_raw, Mapping):
+                return empty, 1, "resume_snapshot_recent_action_batch_result_invalid"
+            normalized_rab = validate_stored_action_batch_result(rab_raw)
+            if normalized_rab is None:
+                return empty, 1, "resume_snapshot_recent_action_batch_result_invalid"
+            recent_action_batch_result_out = normalized_rab
+
     continuity = OrchestrationContinuity(
         latest_refs=latest_refs_out,
         mission_state=ms,
@@ -335,6 +352,7 @@ def parse_kernel_resume_snapshot(payload: Mapping[str, Any]) -> tuple[LoopMemory
         user_message_ledger=user_message_ledger_out,
         user_message_consumed_unknown_count=user_message_consumed_unknown_count,
         pending_agent_hydration=pending_agent_hydration_out,
+        recent_action_batch_result=recent_action_batch_result_out,
     )
 
     hitl_raw = payload.get("hitl")

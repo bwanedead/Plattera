@@ -268,3 +268,56 @@ def test_build_tool_result_snapshot_handles_none() -> None:
 
 def test_canonical_hydrate_action_id() -> None:
     assert HYDRATE_ARTIFACT_REFS_ACTION_ID == "hydrate_artifact_refs"
+
+
+# ---------------------------------------------------------------------------
+# @batch.* placeholders
+# ---------------------------------------------------------------------------
+
+def test_resolve_batch_derived_ref_id() -> None:
+    batch = {
+        "crop_a": {
+            "outputs": {"derived_ref_id": "image:derived:a"},
+            "artifact_refs": ["image:derived:a"],
+        },
+    }
+    resolved, errors = resolve_hydrate_next_refs(
+        ["@batch.crop_a.result.derived_ref_id"],
+        tool_result=None,
+        batch_results=batch,
+    )
+    assert resolved == ["image:derived:a"]
+    assert errors == []
+
+
+def test_resolve_batch_artifact_refs_list() -> None:
+    batch = {
+        "h1": {"outputs": {}, "artifact_refs": ["r1", "r2"]},
+    }
+    resolved, errors = resolve_hydrate_next_refs(
+        ["@batch.h1.result.artifact_refs[]"],
+        tool_result=None,
+        batch_results=batch,
+    )
+    assert resolved == ["r1", "r2"]
+    assert errors == []
+
+
+def test_resolve_batch_unresolved_alias_produces_error() -> None:
+    resolved, errors = resolve_hydrate_next_refs(
+        ["@batch.missing.result.derived_ref_id"],
+        tool_result=None,
+        batch_results={},
+    )
+    assert resolved == []
+    assert errors[0]["reason_code"] == "batch_alias_not_found"
+
+
+def test_resolve_batch_dedupes_with_literals() -> None:
+    batch = {"a": {"outputs": {"derived_ref_id": "x"}, "artifact_refs": ["x"]}}
+    resolved, _ = resolve_hydrate_next_refs(
+        ["x", "@batch.a.result.derived_ref_id"],
+        tool_result=None,
+        batch_results=batch,
+    )
+    assert resolved == ["x"]

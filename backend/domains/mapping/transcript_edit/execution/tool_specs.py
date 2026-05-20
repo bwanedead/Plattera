@@ -19,6 +19,7 @@ class SemanticToolSpec:
     expected_request_json_shape: dict[str, Any]
     expected_result_shape: str
     example_request: dict[str, Any]
+    batching: dict[str, Any] | None = None
 
 
 def build_transcript_edit_tool_specs() -> tuple[SemanticToolSpec, ...]:
@@ -58,6 +59,12 @@ def build_transcript_edit_tool_specs() -> tuple[SemanticToolSpec, ...]:
             example_request={
                 "ref_ids": ["t0:raw:gpt4o_pass1", "image:assoc:tx-1:original"],
                 "max_refs": 4,
+            },
+            batching={
+                "allowed": True,
+                "max_calls_per_batch": 3,
+                "side_effect_class": "read_only",
+                "can_run_parallel": True,
             },
             expected_result_shape=(
                 "outputs.results: list of {ref_id, kind, ...kind-specific fields}. "
@@ -166,6 +173,13 @@ def build_transcript_edit_tool_specs() -> tuple[SemanticToolSpec, ...]:
                 "ref_id": "image:assoc:tx-1:original",
                 "sub_action": "reference_overlay",
                 "params": {"cols": 4, "rows": 6},
+            },
+            batching={
+                "allowed": True,
+                "max_calls_per_batch": 4,
+                "side_effect_class": "derived_artifact",
+                "can_run_parallel": True,
+                "conflict_key": "source_ref_id",
             },
             expected_result_shape=(
                 "outputs.derived_ref_id: new image:derived:* ref for later reuse or HITL payloads. "

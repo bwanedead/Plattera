@@ -18,8 +18,14 @@ _LOG = logging.getLogger(__name__)
 
 from services.llm.call_options import LlmCallOptions
 
+from collections.abc import Mapping
+
 from ..composition import ComposedTurnInput
 from .action_plan_parser import ModelActionParseError, is_repairable_action_plan_error, parse_action_plan_response
+from .tool_batch_policy import (
+    resolve_domain_action_batch_policy,
+    resolve_tool_batch_policies,
+)
 from .contracts import ActionPlan, OrchestrationAdapter, OrchestratorContext, SharedStateProjection
 from .lifecycle import lifecycle_jsonable
 from .llm_prompt_builder import (
@@ -184,7 +190,16 @@ class LlmTurnOrchestrationAdapter(OrchestrationAdapter):
         raw_response: Any = None
         try:
             raw_response = self.text_model_caller(prompt, self.model_name, call_options=call_opts)
-            plan = parse_action_plan_response(raw_response, available_tool_ids=available_tool_ids)
+            plan = parse_action_plan_response(
+                raw_response,
+                available_tool_ids=available_tool_ids,
+                tool_batch_policies=_tool_batch_policies_for_turn(
+                    self.composed_input, self.opaque_launch_context,
+                ),
+                domain_batch_policy=resolve_domain_action_batch_policy(
+                    self.opaque_launch_context,
+                ),
+            )
         except ModelActionParseError as exc:
             parse_exc = exc
         except Exception:
@@ -232,6 +247,12 @@ class LlmTurnOrchestrationAdapter(OrchestrationAdapter):
                 original_exc=parse_exc,
                 available_tool_ids=available_tool_ids,
                 original_image_attachments=call_opts.image_attachments,
+                tool_batch_policies=_tool_batch_policies_for_turn(
+                    self.composed_input, self.opaque_launch_context,
+                ),
+                domain_batch_policy=resolve_domain_action_batch_policy(
+                    self.opaque_launch_context,
+                ),
             )
             _repair_rec = {
                 "repair_prompt_mode": "repair",
@@ -282,6 +303,14 @@ class LlmTurnOrchestrationAdapter(OrchestrationAdapter):
     ):
         del context, projection
         return None
+
+
+def _tool_batch_policies_for_turn(
+    composed_input: ComposedTurnInput,
+    opaque_launch_context: Mapping[str, Any],
+):
+    del opaque_launch_context
+    return resolve_tool_batch_policies(composed_input.surface_payloads)
 
 
 def _serialize_state(state: Any) -> Any:

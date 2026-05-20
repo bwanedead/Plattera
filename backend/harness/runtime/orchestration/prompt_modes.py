@@ -68,6 +68,7 @@ _FULL_STRUCTURED_STATE_FIELDS = (
     "recent_turn_timeline",
     "recent_tool_result_slices",
     "agent_requested_hydration",
+    "recent_action_batch_result",
     "prompt_observability_summary",
 )
 _STATE_REPAIR_STRUCTURED_STATE_FIELDS = (
@@ -76,6 +77,7 @@ _STATE_REPAIR_STRUCTURED_STATE_FIELDS = (
     "recent_turn_timeline",
     "recent_tool_result_slices",
     "agent_requested_hydration",
+    "recent_action_batch_result",
     "prompt_observability_summary",
 )
 _RESUME_RUN_CONTEXT_FIELDS = (
@@ -93,6 +95,7 @@ _RESUME_STRUCTURED_STATE_FIELDS = (
     "recent_turn_timeline",
     "recent_tool_result_slices",
     "agent_requested_hydration",
+    "recent_action_batch_result",
     "prompt_observability_summary",
 )
 _TURN_RECOVERY_RUN_CONTEXT_FIELDS = (
@@ -109,6 +112,7 @@ _TURN_RECOVERY_STRUCTURED_STATE_FIELDS = (
     "recent_turn_timeline",
     "recent_tool_result_slices",
     "agent_requested_hydration",
+    "recent_action_batch_result",
     "prompt_observability_summary",
 )
 

@@ -30,6 +30,7 @@ from ...execution.contracts import ExecutionState, ExecutionStepRequest
 from ...execution.session import ExecutionSessionManager
 from ..memory import LoopMemoryState
 from .contracts import ActionPlan
+from .action_batch import build_batch_results_snapshot
 from .hydrate_next import (
     HYDRATE_ARTIFACT_REFS_ACTION_ID,
     build_hydrate_next_record,
@@ -68,8 +69,18 @@ def capture_hydrate_next_after_step(
                 artifact_refs=getattr(result, "artifact_refs", None),
             )
 
+    batch_snapshot = None
+    if action_plan.action_batch:
+        batch_snapshot = build_batch_results_snapshot(
+            loop_memory.continuity.recent_action_batch_result,
+        )
+
     requested = list(action_plan.hydrate_next)
-    resolved, errors = resolve_hydrate_next_refs(requested, tool_result=tool_snapshot)
+    resolved, errors = resolve_hydrate_next_refs(
+        requested,
+        tool_result=tool_snapshot,
+        batch_results=batch_snapshot,
+    )
     record_payload = build_hydrate_next_record(
         requested_refs=requested,
         resolved_refs=resolved,

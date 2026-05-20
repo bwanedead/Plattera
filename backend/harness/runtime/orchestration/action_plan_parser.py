@@ -19,13 +19,15 @@ from .hydrate_next import (
     normalize_hydrate_next,
     normalize_hydrate_next_reason,
 )
+from .action_batch_plan_shape import parse_action_batch_fields
+from .tool_batch_policy import DomainActionBatchPolicy, ToolBatchPolicy
 from .user_message_action_plan_shape import (
     validate_user_message_consumed_ids,
     validate_user_message_defers,
 )
 
 _ALLOWED_ACTION_PLAN_KEYS = {
-    "action_type", "action_inputs", "idempotency_key",
+    "action_type", "action_inputs", "action_batch", "idempotency_key",
     "skip_execution", "wait_for_human", "complete_run",
     "rationale", "state_patch", "continuity_journal_entry",
     "operator_progress_message", "hitl_request", "hitl_consumed_prompt_ids",
@@ -102,6 +104,8 @@ def parse_action_plan_response(
     raw_response: Mapping[str, Any] | str,
     *,
     available_tool_ids: tuple[str, ...],
+    tool_batch_policies: Mapping[str, ToolBatchPolicy] | None = None,
+    domain_batch_policy: DomainActionBatchPolicy | None = None,
 ) -> ActionPlan:
     """Parse and validate a raw model response into an ``ActionPlan``.
 
@@ -125,6 +129,18 @@ def parse_action_plan_response(
         action_inputs = {}
     if not isinstance(action_inputs, Mapping):
         raise _parse_error("action_inputs must be an object")
+
+    try:
+        action_batch_out = parse_action_batch_fields(
+            payload,
+            action_type=action_type,
+            action_inputs=action_inputs,
+            available_tool_ids=available_tool_ids,
+            tool_batch_policies=dict(tool_batch_policies or {}),
+            domain_batch_policy=domain_batch_policy,
+        )
+    except ValueError as exc:
+        raise _parse_error(f"action_batch failed canonical validation: {exc}") from exc
 
     # Omitted low-information control flags default to false on the external seam.
     # Internal normalization may still promote no-dispatch shapes to skip_execution=True
@@ -207,11 +223,15 @@ def parse_action_plan_response(
     if implicit_no_dispatch_turn:
         skip_execution = True
 
+    if action_batch_out and skip_execution:
+        raise _parse_error("skip_execution is incompatible with action_batch")
+
     if not complete_run and not wait_for_human:
-        if not action_type:
+        if not action_batch_out and not action_type:
             if not skip_execution:
                 raise _parse_error(
-                    "action_type is required unless completing, waiting, or authoring an explicit state/HITL-only turn",
+                    "action_type is required unless completing, waiting, authoring action_batch, "
+                    "or authoring an explicit state/HITL-only turn",
                 )
             if action_inputs:
                 raise _parse_error("action_inputs must be empty when action_type is null on a no-dispatch turn")
@@ -220,7 +240,7 @@ def parse_action_plan_response(
                     "state_patch or hitl_request is required when action_type is null on a no-dispatch turn "
                     "(a user_message_consumed_ids or user_message_defers acknowledgment also satisfies this)",
                 )
-        elif available_tool_ids and action_type not in available_tool_ids:
+        elif action_type and available_tool_ids and action_type not in available_tool_ids:
             raise _parse_error(f"unknown action_type: {action_type}")
 
     rationale_raw = payload.get("rationale")
@@ -256,6 +276,7 @@ def parse_action_plan_response(
 
     return ActionPlan(
         action_type=action_type or None,
+        action_batch=action_batch_out,
         action_inputs=dict(action_inputs),
         idempotency_key=_optional_text(payload.get("idempotency_key")) or "",
         skip_execution=skip_execution,

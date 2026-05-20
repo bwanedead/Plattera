@@ -3,6 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
+if TYPE_CHECKING:
+    from .action_batch import ActionBatchItem
+
 from ...execution.session import ExecutionSessionManager
 
 from ...mission_state import MissionState, ResolutionState
@@ -37,6 +40,8 @@ class ActionPlan:
     """Kernel action; optional ``state_patch`` is model-authored generic work-state (see ``state_patch_apply``)."""
 
     action_type: str | None = None
+    # Independent tool calls for one model turn (mutually exclusive with ``action_type``).
+    action_batch: tuple["ActionBatchItem", ...] = ()
     action_inputs: dict[str, Any] = field(default_factory=dict)
     # Transport-only dispatch dedupe key. External seam may omit it; host fills it before execution.
     idempotency_key: str = ""
