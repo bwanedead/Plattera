@@ -86,6 +86,8 @@ def build_kernel_loop_result(
     session_manager: ExecutionSessionManager,
     terminal_summary: str | None = None,
     control_request: RunControlRequest | None = None,
+    resumable: bool = False,
+    resume_hint: str | None = None,
 ) -> KernelLoopResult:
     tracer.emit_terminal(
         iteration=iterations,
@@ -111,6 +113,8 @@ def build_kernel_loop_result(
             loop_memory=loop_memory,
             iterations=iterations,
             control_request=control_request,
+            resumable=resumable,
+            resume_hint=resume_hint,
         ),
         trace_events=tracer.build_raw_events(),
         kernel_resume_snapshot=snap,
@@ -122,6 +126,8 @@ def _build_runtime_state(
     loop_memory: LoopMemoryState,
     iterations: int,
     control_request: RunControlRequest | None,
+    resumable: bool = False,
+    resume_hint: str | None = None,
 ) -> dict[str, Any]:
     runtime_state = {
         "hitl_state": loop_memory.hitl.hitl_state,
@@ -148,4 +154,9 @@ def _build_runtime_state(
         runtime_state["control_request"] = control_request.to_json_dict()
         runtime_state["resumable"] = True
         runtime_state["interrupted_at_iteration"] = int(iterations)
+    elif resumable:
+        runtime_state["resumable"] = True
+        runtime_state["interrupted_at_iteration"] = int(iterations)
+        if resume_hint:
+            runtime_state["resume_hint"] = str(resume_hint)
     return runtime_state

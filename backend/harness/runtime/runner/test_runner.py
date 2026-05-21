@@ -371,8 +371,8 @@ def test_runner_executes_transcript_edit_tool_and_writes_artifacts(tmp_path: Pat
     assert state.status == "completed"
 
 
-def test_audit_writer_finalize_called_even_when_loop_raises(tmp_path: Path, monkeypatch) -> None:
-    """P1: audit artifacts must be written even if the orchestration loop raises."""
+def test_audit_writer_finalize_called_on_resumable_model_interruption(tmp_path: Path, monkeypatch) -> None:
+    """Audit artifacts must be written when a resumable model interruption pauses the run."""
     import json as _json
     import os
 
@@ -406,15 +406,18 @@ def test_audit_writer_finalize_called_even_when_loop_raises(tmp_path: Path, monk
         targets=_targets(tmp_path),
     )
 
-    with pytest.raises(Exception):
-        runner.run(launch_context={"max_iterations": 2, "run_id": run_id})
+    result = runner.run(launch_context={"max_iterations": 2, "run_id": run_id})
+    assert result.status == "paused"
+    assert result.reason_code == "model_connection_interrupted"
+    assert bool(result.result_payload.get("resumable"))
 
     # The audit dir should exist and have at least the index.json written.
     audit_dir = cli_run_dir / "audit"
     assert audit_dir.exists(), "audit dir must be created even on failed run"
     assert (audit_dir / "index.json").exists(), "index.json must be written even on failed run"
     index = _json.loads((audit_dir / "index.json").read_text())
-    assert index["terminal_class"] == "failed"
+    assert index["terminal_class"] == "paused"
+    assert index["reason_code"] == "model_connection_interrupted"
 
     # Turn file for the connection-error turn should also be present.
     turn_files = list(audit_dir.glob("turn_*.json"))

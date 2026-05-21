@@ -26,12 +26,13 @@ from harness.runtime.memory.resume_snapshot import (
     load_kernel_resume_snapshot_from_path,
     parse_kernel_resume_snapshot,
 )
+from harness.runtime.model_failure_classifier import MODEL_RESUMABLE_REASON_CODES
 
 
 RESUME_CHECKPOINT_FILENAME = "kernel_resume.json"
 RESUME_ATTEMPTS_DIRNAME = "resume_attempts"
-_RESULT_RESUMABLE_REASON_CODES = {
-    "model_call_failed",
+
+_RESULT_RESUMABLE_REASON_CODES = set(MODEL_RESUMABLE_REASON_CODES) | {
     "provider_connection_error",
     "provider_error",
     "rate_limit",

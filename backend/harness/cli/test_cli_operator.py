@@ -229,6 +229,38 @@ def test_watch_accepts_done_newer_than_resume_attempt(isolated_harness_root, iso
     assert ev["terminal"] == "fresh"
 
 
+def test_watch_loop_interrupted_resumable(isolated_harness_root, isolated_dossiers_artifacts, tmp_path):
+    rid = "interrupt-1"
+    done = tmp_path / "done.json"
+    done.write_text(
+        json.dumps(
+            {
+                "status": "paused",
+                "terminal_class": "paused",
+                "reason_code": "api_quota_exhausted",
+                "resumable": True,
+                "resume_hint": "Refill credits, then resume.",
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    st = rs.new_run_state(
+        run_id=rid,
+        pid=1,
+        loop_kind="harness_cli",
+        mode="x",
+        spawn_argv=["x"],
+    )
+    st.paths.done_file = str(done.resolve())
+    rs.write_state(st)
+
+    ev = watch_run(run_id=rid, timeout_seconds=5, poll_interval=0.05)
+    assert ev["event"] == "loop_interrupted"
+    assert ev["resumable"] is True
+    assert ev["reason_code"] == "api_quota_exhausted"
+
+
 def test_watch_timeout(isolated_harness_root, isolated_dossiers_artifacts):
     rid = "to-1"
     st = rs.new_run_state(run_id=rid, pid=1, loop_kind="harness_cli", mode="x", spawn_argv=["x"])

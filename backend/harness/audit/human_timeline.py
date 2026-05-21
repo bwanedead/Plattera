@@ -165,10 +165,13 @@ def _render_turn(turn: Mapping[str, Any]) -> list[str]:
     out: list[str] = [_SECTION_BAR, header, _SECTION_BAR, ""]
 
     out.extend(_render_operator_progress(turn))
+    out.extend(_render_host_hydration_before_turn(turn))
     out.extend(_render_llm_authored_text(turn))
     out.extend(_render_repair(turn))
     out.extend(_render_action(turn))
+    out.extend(_render_action_sequence_lane(turn))
     out.extend(_render_pinned_refs(turn))
+    out.extend(_render_required_output_gate(turn))
     out.extend(_render_tool_result(turn))
     out.extend(_render_saved_artifact(turn))
     out.extend(_render_state_patch(turn))
@@ -365,7 +368,7 @@ def _render_action(turn: Mapping[str, Any]) -> list[str]:
     if actions:
         lines.append(f"  actions: {len(actions)}")
         for row in actions:
-            lines.extend(_render_action_row(row))
+            lines.extend(_render_action_row(row, turn=turn))
     else:
         action_type = tool_request.get("action_type") or parsed.get("action_type")
         lines.append(f"  action_type: {action_type or 'none'}")
@@ -405,6 +408,100 @@ def _render_action(turn: Mapping[str, Any]) -> list[str]:
     return lines
 
 
+def _render_host_hydration_before_turn(turn: Mapping[str, Any]) -> list[str]:
+    host = _coerce_mapping(turn.get("host_hydration_before_turn"))
+    if not host:
+        return []
+    lines = ["Host Hydration (before choose_action)"]
+    agent_lane = _coerce_mapping(host.get("agent_requested_hydration"))
+    if agent_lane:
+        lines.extend(_render_hydration_lane(agent_lane, indent="  ", title="agent_requested_hydration"))
+    pinned_lane = _coerce_mapping(host.get("pinned_refs_auto_hydration"))
+    if pinned_lane:
+        lines.extend(_render_hydration_lane(pinned_lane, indent="  ", title="pinned_refs_auto_hydration"))
+    lines.append("")
+    return lines
+
+
+def _render_hydration_lane(
+    lane: Mapping[str, Any],
+    *,
+    indent: str,
+    title: str,
+) -> list[str]:
+    lines = [f"{indent}{title}:"]
+    for key in ("requested_refs", "resolved_refs", "refs"):
+        refs = lane.get(key)
+        if isinstance(refs, list) and refs:
+            lines.append(f"{indent}  {key}:")
+            for ref in refs[:8]:
+                lines.append(f"{indent}    - {ref}")
+    for key in ("status", "source_turn_index", "surfaced_iteration"):
+        if key in lane and lane.get(key) is not None:
+            lines.append(f"{indent}  {key}: {lane.get(key)}")
+    reason = lane.get("reason")
+    if reason:
+        lines.append(f"{indent}  reason:")
+        lines.extend(_indented_prose(str(reason), indent=f"{indent}    "))
+    errors = lane.get("hydration_errors")
+    if isinstance(errors, list) and errors:
+        lines.append(f"{indent}  hydration_errors:")
+        for row in errors[:5]:
+            if isinstance(row, Mapping):
+                lines.append(f"{indent}    - {row.get('reason_code') or row}")
+            else:
+                lines.append(f"{indent}    - {row}")
+    hydrated_count = lane.get("hydrated_result_count")
+    if hydrated_count is not None:
+        lines.append(f"{indent}  hydrated_result_count: {hydrated_count}")
+    ref_ids = lane.get("hydrated_ref_ids")
+    if isinstance(ref_ids, list) and ref_ids:
+        lines.append(f"{indent}  hydrated_ref_ids:")
+        for ref in ref_ids[:8]:
+            lines.append(f"{indent}    - {ref}")
+    return lines
+
+
+def _render_action_sequence_lane(turn: Mapping[str, Any]) -> list[str]:
+    sequence = _coerce_mapping(turn.get("recent_action_sequence_result"))
+    if not sequence:
+        return []
+    items = sequence.get("items")
+    if not isinstance(items, list) or not items:
+        return []
+    lines = ["Action Sequence Results"]
+    seq_id = str(sequence.get("sequence_id") or "").strip()
+    if seq_id:
+        lines.append(f"  sequence_id: {seq_id}")
+    if sequence.get("source_turn_index") is not None:
+        lines.append(f"  source_turn_index: {sequence.get('source_turn_index')}")
+    for row in items[:8]:
+        if not isinstance(row, Mapping):
+            continue
+        alias = str(row.get("alias") or "?")
+        action_type = str(row.get("action_type") or "none")
+        exec_state = str(row.get("execution_state") or "unknown")
+        reason = row.get("reason_code")
+        line = f"    - {alias}: {action_type} | {exec_state}"
+        if reason:
+            line = f"{line} | {reason}"
+        lines.append(line)
+    lines.append("")
+    return lines
+
+
+def _render_required_output_gate(turn: Mapping[str, Any]) -> list[str]:
+    gate = _coerce_mapping(turn.get("required_output_gate"))
+    if not gate:
+        return []
+    lines = ["Required Output Gate"]
+    for key in ("reason_code", "strike_count", "max_strikes", "outcome"):
+        if key in gate and gate.get(key) is not None:
+            lines.append(f"  {key}: {gate.get(key)}")
+    lines.append("")
+    return lines
+
+
 def _render_pinned_refs(turn: Mapping[str, Any]) -> list[str]:
     pinned = _coerce_mapping(turn.get("pinned_refs"))
     pin_this_turn = turn.get("pin_refs_this_turn") or []
@@ -420,6 +517,10 @@ def _render_pinned_refs(turn: Mapping[str, Any]) -> list[str]:
         lines.append("  unpinned_this_turn:")
         for ref in unpin_this_turn[:16]:
             lines.append(f"    - {ref}")
+    host = _coerce_mapping(turn.get("host_hydration_before_turn"))
+    pinned_auto = _coerce_mapping(host.get("pinned_refs_auto_hydration")) if host else None
+    if pinned_auto:
+        lines.extend(_render_hydration_lane(pinned_auto, indent="  ", title="auto_hydrated_before_turn"))
     active = pinned.get("active") if pinned else None
     if isinstance(active, list) and active:
         lines.append("  active:")
@@ -440,7 +541,7 @@ def _render_pinned_refs(turn: Mapping[str, Any]) -> list[str]:
     return lines
 
 
-def _render_action_row(row: Mapping[str, Any]) -> list[str]:
+def _render_action_row(row: Mapping[str, Any], *, turn: Mapping[str, Any]) -> list[str]:
     alias = str(row.get("alias") or "").strip() or "?"
     action_type = str(row.get("action_type") or "").strip() or "none"
     lines = [f"    - {alias}: {action_type}"]
@@ -467,6 +568,22 @@ def _render_action_row(row: Mapping[str, Any]) -> list[str]:
         )
     else:
         lines.append("      action_inputs: none")
+    sequence = _coerce_mapping(turn.get("recent_action_sequence_result"))
+    if sequence:
+        items = sequence.get("items")
+        if isinstance(items, list):
+            for item in items:
+                if not isinstance(item, Mapping):
+                    continue
+                if str(item.get("alias") or "") != alias:
+                    continue
+                exec_state = str(item.get("execution_state") or "").strip()
+                if exec_state:
+                    lines.append(f"      execution_state: {exec_state}")
+                item_reason = item.get("reason_code")
+                if item_reason:
+                    lines.append(f"      execution_reason_code: {item_reason}")
+                break
     return lines
 
 

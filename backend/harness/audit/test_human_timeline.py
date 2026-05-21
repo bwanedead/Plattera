@@ -13,6 +13,71 @@ def _timeline_path(run_dir: Path) -> Path:
     return run_dir.joinpath(*TIMELINE_REL)
 
 
+def test_timeline_renders_host_hydration_and_output_gate(tmp_path: Path) -> None:
+    writer = RunAuditWriter(tmp_path / "run-hydration-gate")
+    writer.observe_llm_io(
+        {
+            "turn_index": 4,
+            "parse_ok": True,
+            "host_hydration_before_turn": {
+                "agent_requested_hydration": {
+                    "requested_refs": ["transcript_edit:working:rev:0002"],
+                    "resolved_refs": ["transcript_edit:working:rev:0002"],
+                    "status": "surfaced",
+                    "source_turn_index": 3,
+                    "hydrated_result_count": 1,
+                },
+                "pinned_refs_auto_hydration": {
+                    "refs": ["transcript_edit:working:rev:0002"],
+                    "status": "surfaced",
+                    "hydrated_result_count": 1,
+                },
+            },
+            "tool_request": {
+                "actions": [
+                    {
+                        "alias": "save",
+                        "action_type": "save_workspace_artifact",
+                        "action_inputs": {"transcript_text": "line 1"},
+                        "hydrate_next": ["@result.revision_ref"],
+                    }
+                ],
+                "rationale": "save working copy",
+            },
+        }
+    )
+    writer.observe_turn_completed(
+        {
+            "turn_index": 4,
+            "required_output_gate": {
+                "reason_code": "missing_required_output_artifact:transcript_edit:output",
+                "strike_count": 2,
+                "max_strikes": 3,
+                "outcome": "repairable_continue",
+            },
+            "recent_action_sequence_result": {
+                "sequence_id": "seq-4",
+                "items": [
+                    {
+                        "alias": "save",
+                        "action_type": "save_workspace_artifact",
+                        "execution_state": "executed",
+                    }
+                ],
+            },
+        }
+    )
+    body = _timeline_path(tmp_path / "run-hydration-gate").read_text(encoding="utf-8")
+    assert "Host Hydration (before choose_action)" in body
+    assert "agent_requested_hydration" in body
+    assert "pinned_refs_auto_hydration" in body
+    assert "Required Output Gate" in body
+    assert "missing_required_output_artifact:transcript_edit:output" in body
+    assert "Action Sequence Results" in body
+    assert "save: save_workspace_artifact | executed" in body
+    assert "b64" not in body.lower()
+
+
 def test_timeline_renders_pinned_refs_section(tmp_path: Path) -> None:
     writer = RunAuditWriter(tmp_path / "run-pins")
     writer.observe_llm_io(

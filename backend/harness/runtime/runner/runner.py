@@ -48,6 +48,10 @@ from harness.runtime.orchestration.llm_turn_lifecycle import LlmTurnPreChooseAct
 from harness.runtime.orchestration.orchestrator import run_orchestration_kernel_loop
 from harness.runtime.orchestration.tool_batch_policy import enrich_run_context_with_tool_batch_policies
 from harness.runtime.orchestration.trace_collector import KernelTraceCollector
+from harness.runtime.model_failure_classifier import (
+    MODEL_RESUMABLE_REASON_CODES,
+    resume_hint_for_reason_code,
+)
 from services.llm.openai import OpenAIService
 from .contracts import RuntimeAdapter, RuntimeArtifactTargets, RuntimeRunResult
 
@@ -442,6 +446,28 @@ def run_runtime_from_env(
 
 
 _OPERATOR_INTERRUPTED_CLASSES = {"paused", "stopped"}
+
+
+def _apply_resumable_interruption_metadata(payload: dict[str, Any], loop_result: Any) -> None:
+    runtime_state = getattr(loop_result, "runtime_state", None)
+    if isinstance(runtime_state, Mapping) and bool(runtime_state.get("resumable")):
+        payload["resumable"] = True
+        payload["interrupted_at_iteration"] = int(
+            runtime_state.get("interrupted_at_iteration") or loop_result.iterations
+        )
+        resume_hint = runtime_state.get("resume_hint")
+        if resume_hint:
+            payload["resume_hint"] = str(resume_hint)
+        return
+    reason_code = str(getattr(loop_result, "reason_code", "") or "")
+    if reason_code in MODEL_RESUMABLE_REASON_CODES:
+        payload["resumable"] = True
+        payload["interrupted_at_iteration"] = int(loop_result.iterations)
+        hint = resume_hint_for_reason_code(reason_code)
+        if hint:
+            payload["resume_hint"] = hint
+
+
 _RUN_CONTROL_TERMINALS: dict[str, tuple[str, str]] = {
     "pause": ("paused", "paused_by_operator"),
     "stop": ("stopped", "stopped_by_operator"),
@@ -485,6 +511,7 @@ def _build_loop_result_payload(loop_result: Any) -> dict[str, Any]:
         control = _extract_operator_control(loop_result)
         if control is not None:
             payload["control_request"] = control
+    _apply_resumable_interruption_metadata(payload, loop_result)
     return payload
 
 
@@ -505,6 +532,7 @@ def _build_loop_done_payload(loop_result: Any) -> dict[str, Any]:
         control = _extract_operator_control(loop_result)
         if control is not None:
             payload["control_request"] = control
+    _apply_resumable_interruption_metadata(payload, loop_result)
     return payload
 
 

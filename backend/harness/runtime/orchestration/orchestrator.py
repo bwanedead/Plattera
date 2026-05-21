@@ -61,6 +61,7 @@ from .orchestrator_policy import (
 )
 from .run_control import build_kernel_loop_result, maybe_exit_for_run_control
 from .recoverable_turn_failure import RecoverableTurnFailure
+from .resumable_model_interruption import ResumableModelInterruption
 from .orchestrator_turn import observe_turn_completed, record_turn_continuity
 from .state_patch_apply import (
     sync_state_patch_after_committed_gate,
@@ -168,6 +169,7 @@ def _handle_policy_block(
     lifecycle: OrchestrationLifecycle,
     session_manager: ExecutionSessionManager,
     session_id: str,
+    required_output_gate_outcome: str | None = None,
 ) -> None:
     tracer.emit_execution_result(
         iteration=iteration,
@@ -191,6 +193,16 @@ def _handle_policy_block(
         execution_state="refused",
         execution_reason_code=reason_code,
     )
+    mechanical_audit: dict[str, Any] | None = None
+    if reason_code.startswith("missing_required_output_artifact:"):
+        mechanical_audit = {
+            "required_output_gate": {
+                "reason_code": reason_code,
+                "strike_count": int(loop_memory.continuity.missing_required_output_complete_attempts),
+                "max_strikes": MAX_CONSECUTIVE_MISSING_OUTPUT_COMPLETE_ATTEMPTS,
+                "outcome": required_output_gate_outcome or "repairable_continue",
+            }
+        }
     observe_turn_completed(
         turn_completion_observer,
         iteration,
@@ -198,6 +210,7 @@ def _handle_policy_block(
         step_result=None,
         loop_memory=loop_memory,
         terminal_decision="closure_enforcement_blocked",
+        mechanical_audit=mechanical_audit,
     )
     _write_resume_checkpoint(
         lifecycle=lifecycle,
@@ -389,6 +402,26 @@ def run_orchestration_kernel_loop(
 
         try:
             action_plan = coerce_kernel_action_plan(orchestration_adapter.choose_action(context, projection))
+        except ResumableModelInterruption as exc:
+            _LOG.warning(
+                "KERNEL resumable_model_interruption ► iteration=%s reason_code=%s",
+                iterations,
+                exc.reason_code,
+            )
+            _checkpoint(iterations)
+            return build_kernel_loop_result(
+                loop_memory=loop_memory,
+                terminal_class="paused",
+                reason_code=exc.reason_code,
+                terminal_summary=exc.terminal_summary,
+                iterations=iterations,
+                session_id=session_id,
+                run_artifact_ref=run_artifact_ref,
+                tracer=tracer,
+                session_manager=session_manager,
+                resumable=True,
+                resume_hint=exc.user_guidance,
+            )
         except RecoverableTurnFailure as exc:
             failure_record = dict(exc.failure_record)
             loop_memory.turn_recovery.record_failure(failure_record)
@@ -570,6 +603,12 @@ def run_orchestration_kernel_loop(
             _LOG.info("KERNEL closure_enforcement_blocked ► reason_code=%s message=%s", reason_code, message)
             if is_missing_required_output_reason(reason_code):
                 loop_memory.continuity.missing_required_output_complete_attempts += 1
+                strike_count = int(loop_memory.continuity.missing_required_output_complete_attempts)
+                gate_outcome = (
+                    "terminal_blocked"
+                    if strike_count >= MAX_CONSECUTIVE_MISSING_OUTPUT_COMPLETE_ATTEMPTS
+                    else "repairable_continue"
+                )
                 _handle_policy_block(
                     turn_completion_observer=active_lifecycle.turn_completion_observer,
                     tracer=tracer,
@@ -580,6 +619,7 @@ def run_orchestration_kernel_loop(
                     lifecycle=active_lifecycle,
                     session_manager=session_manager,
                     session_id=session_id,
+                    required_output_gate_outcome=gate_outcome,
                 )
                 if (
                     loop_memory.continuity.missing_required_output_complete_attempts

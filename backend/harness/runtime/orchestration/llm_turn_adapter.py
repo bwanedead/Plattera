@@ -41,7 +41,21 @@ from .llm_turn_lifecycle import (
     resolve_choose_action_prompt_mode,
 )
 from .repair_lane import TextModelCaller, attempt_repair, extract_audit_text
+from ..model_failure_classifier import classify_model_failure
+from .audit_turn_mechanics import build_host_hydration_before_turn
 from .recoverable_turn_failure import RecoverableTurnFailure, is_recoverable_output_failure
+from .resumable_model_interruption import ResumableModelInterruption
+
+
+def _restore_drained_image_evidence(
+    context: OrchestratorContext,
+    drained: list[dict[str, Any]],
+) -> None:
+    """Re-queue image pixels drained before a resumable model-call interruption."""
+    if not drained:
+        return
+    pending = context.loop_memory.pending_image_evidence
+    context.loop_memory.pending_image_evidence = list(drained) + list(pending)
 
 
 @dataclass(frozen=True)
@@ -152,6 +166,10 @@ class LlmTurnOrchestrationAdapter(OrchestrationAdapter):
                     "resolution_state_before": _rs_before,
                     "latest_refs_before": _refs_before,
                     "contract_feedback": dict(context.loop_memory.contract_feedback),
+                    "host_hydration_before_turn": build_host_hydration_before_turn(
+                        pending_agent_hydration=context.loop_memory.continuity.pending_agent_hydration,
+                        pinned_refs_hydration=context.loop_memory.continuity.pinned_refs_hydration,
+                    ),
                 }
             )
             try:
@@ -202,17 +220,44 @@ class LlmTurnOrchestrationAdapter(OrchestrationAdapter):
             )
         except ModelActionParseError as exc:
             parse_exc = exc
-        except Exception:
-            _emit_observability(parse_ok=False, parse_reason_code="model_caller_exception")
+        except Exception as exc:
+            classification = classify_model_failure(exception=exc)
+            parse_rc = (
+                classification.reason_code
+                if classification.resumable
+                else "model_caller_exception"
+            )
+            _emit_observability(parse_ok=False, parse_reason_code=parse_rc)
+            if classification.resumable:
+                _restore_drained_image_evidence(context, image_evidence)
+                raise ResumableModelInterruption(
+                    classification=classification,
+                    iteration=int(context.loop_memory.iterations),
+                    prompt_mode=prompt_mode,
+                ) from exc
             raise
         if parse_exc is not None:
             if not is_repairable_action_plan_error(parse_exc.reason_code):
-                # Provider / transport failure — the LLM cannot repair this by reformatting.
-                # Emit observability for the original failure and surface it immediately.
-                _emit_observability(parse_ok=False, parse_reason_code=parse_exc.reason_code)
-                _audit(parse_ok=False, parse_rc=parse_exc.reason_code, repair_records=None)
                 raw_response_text = extract_audit_text(raw_response)
                 provider_audit = _provider_audit_fields(raw_response, raw_response_text=raw_response_text)
+                classification = classify_model_failure(
+                    raw_response=raw_response if isinstance(raw_response, Mapping) else None,
+                )
+                parse_rc = (
+                    classification.reason_code
+                    if classification.resumable
+                    else parse_exc.reason_code
+                )
+                _emit_observability(parse_ok=False, parse_reason_code=parse_rc)
+                _audit(parse_ok=False, parse_rc=parse_rc, repair_records=None)
+                if classification.resumable:
+                    _restore_drained_image_evidence(context, image_evidence)
+                    raise ResumableModelInterruption(
+                        classification=classification,
+                        iteration=int(context.loop_memory.iterations),
+                        prompt_mode=prompt_mode,
+                        extra=provider_audit,
+                    ) from parse_exc
                 if is_recoverable_output_failure(
                     reason_code=parse_exc.reason_code,
                     raw_response=raw_response,

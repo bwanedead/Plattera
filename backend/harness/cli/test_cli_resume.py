@@ -102,8 +102,8 @@ def test_classify_terminal_done_refuses(isolated_harness_root):
     assert res["resumability"] == "terminal_done"
 
 
-def test_classify_failed_model_call_result_with_checkpoint_is_resumable(isolated_harness_root):
-    rid = "failed-resumable-run"
+def test_classify_failed_model_call_result_with_checkpoint_is_not_resumable(isolated_harness_root):
+    rid = "failed-non-resumable-run"
     _write_dead_run(rid, with_checkpoint=True)
     _write_result(
         rid,
@@ -114,8 +114,25 @@ def test_classify_failed_model_call_result_with_checkpoint_is_resumable(isolated
         },
     )
     res = classify_resumability(rid)
-    assert res["resumability"] in {"resumable", "failed_resumable"}
+    assert res["resumability"] == "terminal_result"
     assert res["reason_code"] == "model_call_failed"
+
+
+def test_classify_quota_exhausted_result_with_checkpoint_is_resumable(isolated_harness_root):
+    rid = "quota-resumable-run"
+    _write_dead_run(rid, with_checkpoint=True)
+    _write_result(
+        rid,
+        {
+            "status": "paused",
+            "reason_code": "api_quota_exhausted",
+            "terminal_class": "paused",
+            "resumable": True,
+        },
+    )
+    res = classify_resumability(rid)
+    assert res["resumability"] in {"resumable", "failed_resumable"}
+    assert res["reason_code"] == "api_quota_exhausted"
     assert res["resume_command"].endswith(rid)
 
 
@@ -304,9 +321,10 @@ def test_resume_run_accepts_failed_resumable_classification(isolated_harness_roo
     _write_result(
         rid,
         {
-            "status": "failed",
-            "reason_code": "model_call_failed",
-            "terminal_class": "failed",
+            "status": "paused",
+            "reason_code": "model_connection_interrupted",
+            "terminal_class": "paused",
+            "resumable": True,
         },
     )
 
@@ -326,11 +344,12 @@ def test_resume_run_accepts_failed_resumable_classification(isolated_harness_roo
 def test_resume_run_archives_stale_terminal_artifacts_before_respawn(isolated_harness_root, monkeypatch):
     rid = "archive-stale-terminal"
     st = _write_dead_run(rid, with_checkpoint=True)
-    done_payload = {"status": "failed", "reason_code": "model_call_failed"}
+    done_payload = {"status": "paused", "reason_code": "api_quota_exhausted"}
     result_payload = {
-        "status": "failed",
-        "reason_code": "model_call_failed",
-        "terminal_class": "failed",
+        "status": "paused",
+        "reason_code": "api_quota_exhausted",
+        "terminal_class": "paused",
+        "resumable": True,
     }
     Path(st.paths.done_file).write_text(json.dumps(done_payload), encoding="utf-8")
     Path(st.paths.result_file).write_text(json.dumps(result_payload), encoding="utf-8")
@@ -365,9 +384,10 @@ def test_resume_spawn_failure_preserves_archive_lineage(isolated_harness_root, m
     Path(st.paths.result_file).write_text(
         json.dumps(
             {
-                "status": "failed",
-                "reason_code": "model_call_failed",
-                "terminal_class": "failed",
+                "status": "paused",
+                "reason_code": "model_connection_interrupted",
+                "terminal_class": "paused",
+                "resumable": True,
             }
         ),
         encoding="utf-8",

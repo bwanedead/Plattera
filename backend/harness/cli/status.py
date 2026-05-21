@@ -10,6 +10,7 @@ from typing import Any
 
 from harness.runtime.control import read_run_control_request
 from harness.runtime.hitl.watch import hitl_pending_path
+from harness.runtime.model_failure_classifier import resume_hint_for_reason_code
 
 from ._process_util import is_pid_alive
 from .run_state import read_state, run_dir
@@ -116,6 +117,19 @@ def status_run(*, run_id: str) -> dict[str, Any]:
         out["interrupted"] = interrupted_classification
     if control_classification is not None:
         out["control"] = control_classification
+    if result_payload is not None:
+        if bool(result_payload.get("resumable")):
+            out["resumable"] = True
+        reason_code = str(result_payload.get("reason_code") or "").strip()
+        if reason_code:
+            out["reason_code"] = reason_code
+        resume_hint = result_payload.get("resume_hint")
+        if isinstance(resume_hint, str) and resume_hint.strip():
+            out["resume_hint"] = resume_hint.strip()
+        elif reason_code:
+            guided = resume_hint_for_reason_code(reason_code)
+            if guided:
+                out["resume_hint"] = guided
     return out
 
 

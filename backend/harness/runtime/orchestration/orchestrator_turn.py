@@ -12,6 +12,7 @@ from ...execution.contracts import ExecutionStepResult
 from ..memory import LoopMemoryState
 from ..memory.continuity_journal import apply_kernel_turn_continuity_carriage, build_kernel_step_result_record
 from .action_sequence import build_sequence_tool_request_summary, build_sequence_tool_result_summary, effective_actions
+from .audit_turn_mechanics import project_action_sequence_for_audit
 from .pinned_refs import build_pinned_refs_projection
 from .action_batch import summarize_image_evidence_for_projection
 from .contracts import ActionPlan
@@ -120,6 +121,7 @@ def observe_turn_completed(
     terminal_decision: str | None = None,
     batch_result: dict[str, Any] | None = None,
     sequence_result: dict[str, Any] | None = None,
+    mechanical_audit: dict[str, Any] | None = None,
 ) -> None:
     """Send an explicit post-turn mechanical record to the lifecycle observer."""
     if observer is None:
@@ -183,8 +185,13 @@ def observe_turn_completed(
                 loop_memory.continuity.user_message_consumed_unknown_count
             ),
             "terminal_decision": terminal_decision,
+            "recent_action_sequence_result": project_action_sequence_for_audit(
+                loop_memory.continuity.recent_action_sequence_result,
+            ),
         }
     )
+    if mechanical_audit:
+        record.update(mechanical_audit)
     try:
         observer.observe_turn_completed(record)
     except Exception:

@@ -111,11 +111,23 @@ def _poll(
                 payload = json.loads(done_file.read_text(encoding="utf-8"))
             except Exception:
                 payload = {}
+            reason_code = payload.get("reason_code")
+            resumable = bool(payload.get("resumable"))
+            if resumable:
+                return {
+                    "event": "loop_interrupted",
+                    "status": payload.get("status") or payload.get("terminal_class"),
+                    "terminal": payload.get("terminal") or payload.get("terminal_class"),
+                    "reason_code": reason_code,
+                    "resumable": True,
+                    "resume_hint": payload.get("resume_hint"),
+                }
             return {
                 "event": "loop_done",
                 "status": payload.get("status"),
-                "terminal": payload.get("terminal"),
-                "reason_code": payload.get("reason_code"),
+                "terminal": payload.get("terminal") or payload.get("terminal_class"),
+                "reason_code": reason_code,
+                "resumable": False,
             }
 
         time.sleep(poll_interval)

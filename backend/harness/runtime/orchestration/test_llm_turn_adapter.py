@@ -22,6 +22,7 @@ from harness.runtime.orchestration.contracts import OrchestratorContext
 from harness.runtime.orchestration.llm_turn_adapter import LlmTurnOrchestrationAdapter
 from harness.runtime.orchestration.llm_turn_lifecycle import LlmTurnPreChooseActionParticipant
 from harness.runtime.orchestration.recoverable_turn_failure import RecoverableTurnFailure
+from harness.runtime.orchestration.resumable_model_interruption import ResumableModelInterruption
 from harness.runtime.orchestration.trace_collector import KernelTraceCollector
 from harness.execution.session import ExecutionSessionManager
 
@@ -1339,7 +1340,7 @@ def _provider_failure_response(error: str = "Connection error.") -> dict[str, An
 
 
 def test_choose_action_provider_failure_does_not_trigger_repair() -> None:
-    """model_call_failed must NOT issue a repair call — only one provider call is made."""
+    """Connection failures become resumable interruptions without a repair call."""
     calls: list[Any] = []
 
     def caller(prompt: str, model: str, **_kwargs: Any) -> dict[str, Any]:
@@ -1349,11 +1350,32 @@ def test_choose_action_provider_failure_does_not_trigger_repair() -> None:
     adapter = _minimal_llm_adapter(caller=caller)
     ctx = _orch_context(iterations=1)
 
-    with pytest.raises(ModelActionParseError) as exc_info:
+    with pytest.raises(ResumableModelInterruption) as exc_info:
         adapter.choose_action(ctx, projection=None)
 
-    assert exc_info.value.reason_code == "model_call_failed"
+    assert exc_info.value.reason_code == "model_connection_interrupted"
     assert len(calls) == 1  # repair call must NOT have been issued
+
+
+def test_choose_action_resumable_interruption_restores_pending_image_evidence() -> None:
+    """Drained image evidence must survive resumable transport failures for the next turn."""
+    evidence = {
+        "ref_id": "image:assoc:tx-1:original",
+        "b64": "abc",
+        "media_type": "image/png",
+    }
+
+    def caller(prompt: str, model: str, **_kwargs: Any) -> dict[str, Any]:
+        return _provider_failure_response()
+
+    adapter = _minimal_llm_adapter(caller=caller)
+    ctx = _orch_context(iterations=1)
+    ctx.loop_memory.pending_image_evidence.append(dict(evidence))
+
+    with pytest.raises(ResumableModelInterruption):
+        adapter.choose_action(ctx, projection=None)
+
+    assert ctx.loop_memory.pending_image_evidence == [evidence]
 
 
 def test_choose_action_provider_failure_does_not_set_repair_contract_feedback() -> None:
@@ -1365,7 +1387,7 @@ def test_choose_action_provider_failure_does_not_set_repair_contract_feedback() 
     adapter = _minimal_llm_adapter(caller=caller)
     ctx = _orch_context(iterations=1)
 
-    with pytest.raises(ModelActionParseError):
+    with pytest.raises(ResumableModelInterruption):
         adapter.choose_action(ctx, projection=None)
 
     fb = ctx.loop_memory.contract_feedback
@@ -1385,13 +1407,23 @@ def test_choose_action_provider_failure_emits_correct_observability() -> None:
         prompt_event_observer=_PromptEventRecorder(payloads),
     )
 
-    with pytest.raises(ModelActionParseError):
+    with pytest.raises(ResumableModelInterruption):
         adapter.choose_action(ctx, projection=None)
 
     assert len(payloads) == 1
     pe = payloads[0]["prompt_event"]
     assert pe["outcome_kind"] == "kernel_action_plan_parse_failed"
-    assert pe["outcome_ref"] == "model_call_failed"
+    assert pe["outcome_ref"] == "model_connection_interrupted"
+
+
+def test_choose_action_quota_failure_raises_resumable_interruption() -> None:
+    adapter = _minimal_llm_adapter(
+        caller=lambda _p, _m, **_k: {"success": False, "error": "insufficient_quota", "status_code": 429},
+    )
+    ctx = _orch_context(iterations=1)
+    with pytest.raises(ResumableModelInterruption) as exc_info:
+        adapter.choose_action(ctx, projection=None)
+    assert exc_info.value.reason_code == "api_quota_exhausted"
 
 
 def test_choose_action_json_failure_still_repairs() -> None:
@@ -1481,7 +1513,7 @@ def test_choose_action_emits_raw_io_on_provider_failure() -> None:
 
     adapter = _minimal_llm_adapter(caller=caller)
 
-    with pytest.raises(ModelActionParseError):
+    with pytest.raises(ResumableModelInterruption):
         adapter.choose_action(
             _orch_context(iterations=1, raw_llm_io_observer=_RawIoRecorder(records)),
             projection=None,
@@ -1490,7 +1522,7 @@ def test_choose_action_emits_raw_io_on_provider_failure() -> None:
     assert len(records) == 1
     rec = records[0]
     assert rec["parse_ok"] is False
-    assert rec["parse_reason_code"] == "model_call_failed"
+    assert rec["parse_reason_code"] == "model_connection_interrupted"
     assert rec["repair_attempted"] is False
 
 
