@@ -12,6 +12,7 @@ from ...execution.contracts import ExecutionStepResult
 from ..memory import LoopMemoryState
 from ..memory.continuity_journal import apply_kernel_turn_continuity_carriage, build_kernel_step_result_record
 from .action_sequence import build_sequence_tool_request_summary, build_sequence_tool_result_summary, effective_actions
+from .pinned_refs import build_pinned_refs_projection
 from .action_batch import summarize_image_evidence_for_projection
 from .contracts import ActionPlan
 from .lifecycle import TurnCompletionObserver, lifecycle_jsonable
@@ -127,6 +128,8 @@ def observe_turn_completed(
     tool_request: dict[str, Any] | None = None
     if actions and not action_plan.complete_run and not action_plan.wait_for_human:
         tool_request = build_sequence_tool_request_summary(action_plan)
+    elif action_plan.pin_refs or action_plan.unpin_refs:
+        tool_request = build_sequence_tool_request_summary(action_plan)
     tool_result_raw: dict[str, Any] | None = None
     seq_payload = sequence_result if sequence_result is not None else batch_result
     if actions and len(actions) > 1:
@@ -159,10 +162,17 @@ def observe_turn_completed(
                 else None
             ),
         }
+    pinned_refs_snapshot = build_pinned_refs_projection(
+        loop_memory.continuity.pinned_refs,
+        current_turn=iteration,
+    )
     record = lifecycle_jsonable(
         {
             "turn_index": iteration,
             "tool_request": tool_request,
+            "pin_refs_this_turn": list(action_plan.pin_refs),
+            "unpin_refs_this_turn": list(action_plan.unpin_refs),
+            "pinned_refs": pinned_refs_snapshot,
             "tool_result_raw": tool_result_raw,
             "mission_state_after": loop_memory.continuity.mission_state,
             "resolution_state_after": loop_memory.continuity.resolution_state,

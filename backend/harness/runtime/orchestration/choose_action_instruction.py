@@ -46,7 +46,7 @@ _TURN_CONTRACT_TEXT = """\
   Keep it compact and decision-focused. Do not pad with restated doctrine or restated mission text. A missing or blank rationale will fail parsing and force a repair turn.
   Good example: "Hydrate saved revision once to check whether closure layers match the saved draft; if no mismatch appears, stop rereading and either patch closure or mark audit exhausted."
 - `continuity_journal_entry`: optional non-empty JSON object for genuinely new durable insight beyond what the rationale captured. Author only the raw payload you want stored; do not wrap it inside `author_payload`, `kernel_turn_index`, or other host-shaped keys. The host always records a canonical per-turn continuity record derived from your rationale and the turn outcome, so omitting this field does not erase continuity.
-- `operator_progress_message`: optional short user-facing status line. Omit it unless the user-facing status actually changed.
+- `operator_progress_message`: short user-facing intent line for timeline/UI visibility. Include it on every normal choose-action turn. Say what you are doing now or about to do next in one concise sentence (present tense is fine). This is for humans skimming the run, not internal reasoning — keep detailed reasoning in `rationale`. Do not duplicate the full rationale here.
 """
 
 _STATE_PATCH_MECHANICS_TEXT = """\
@@ -297,7 +297,7 @@ Do not overuse actions or hydration. Omit `actions` for state-only/HITL/complete
 _EXAMPLES_TEXT = """\
 ### Tiny examples (rationale is required on every turn)
 Minimal one-action dispatch:
-`{"actions":[{"alias":"load_ref","action_type":"hydrate_artifact_refs","action_inputs":{"ref_ids":["artifact://1"]}}],"rationale":"Load artifact://1 to verify item-a's source value; if it matches the candidate record, close that covered unit, otherwise mark the conflict."}`
+`{"actions":[{"alias":"load_ref","action_type":"hydrate_artifact_refs","action_inputs":{"ref_ids":["artifact://1"]}}],"operator_progress_message":"Loading the referenced artifact to verify the disputed value.","rationale":"Load artifact://1 to verify item-a's source value; if it matches the candidate record, close that covered unit, otherwise mark the conflict."}`
 
 Minimal existing-row update:
 `{"state_patch":{"resolution":{"items":[{"item_id":"value-conflict","status":"blocked","requires_hitl":true}]}},"rationale":"Mark value-conflict blocked pending HITL; in-run checks exhausted."}`

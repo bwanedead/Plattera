@@ -83,3 +83,13 @@ class OrchestrationContinuity:
     pending_agent_hydration: dict[str, Any] | None = None
     # Bounded per-turn action-sequence execution summary for prompt projection (host-owned).
     recent_action_sequence_result: dict[str, Any] | None = None
+    # Agent-authored pinned artifact refs (mechanical attention only).
+    pinned_refs: list[dict[str, Any]] = field(default_factory=list)
+    # Last turn's auto-hydration payload for active pins (surfaced once in prompts).
+    pinned_refs_hydration: dict[str, Any] | None = None
+    # Consecutive complete_run blocks for missing required output-tier ref.
+    missing_required_output_complete_attempts: int = 0
+    # Light observability: action-sequence turn shape counters (not batching policy).
+    multi_action_turn_count: int = 0
+    single_action_turn_count: int = 0
+    max_actions_in_turn: int = 0

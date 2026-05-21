@@ -13,6 +13,37 @@ def _timeline_path(run_dir: Path) -> Path:
     return run_dir.joinpath(*TIMELINE_REL)
 
 
+def test_timeline_renders_pinned_refs_section(tmp_path: Path) -> None:
+    writer = RunAuditWriter(tmp_path / "run-pins")
+    writer.observe_llm_io(
+        {
+            "turn_index": 3,
+            "parse_ok": True,
+            "tool_request": {
+                "actions": [{"alias": "a", "action_type": "noop", "action_inputs": {}}],
+                "pin_refs": ["transcript_edit:working:rev:0002"],
+                "unpin_refs": ["transcript_edit:working:rev:0001"],
+                "rationale": "keep latest working revision visible",
+            },
+        }
+    )
+    writer.observe_turn_completed(
+        {
+            "turn_index": 3,
+            "pin_refs_this_turn": ["transcript_edit:working:rev:0002"],
+            "unpin_refs_this_turn": ["transcript_edit:working:rev:0001"],
+            "pinned_refs": {
+                "active": [{"ref": "transcript_edit:working:rev:0002", "pinned_at_turn": 3}],
+            },
+        }
+    )
+    body = _timeline_path(tmp_path / "run-pins").read_text(encoding="utf-8")
+    assert "Pinned Refs" in body
+    assert "pinned_this_turn" in body
+    assert "transcript_edit:working:rev:0002" in body
+    assert "active:" in body
+
+
 def test_timeline_created_under_audit_human_after_llm_io(tmp_path: Path) -> None:
     writer = RunAuditWriter(tmp_path / "run1")
     writer.observe_llm_io(
@@ -91,6 +122,102 @@ def test_timeline_updates_after_turn_completed(tmp_path: Path) -> None:
     assert "parcel1-call-sequence-audit" in second
 
 
+def test_timeline_renders_operator_progress_near_top_and_none_when_absent(
+    tmp_path: Path,
+) -> None:
+    writer = RunAuditWriter(tmp_path / "run1")
+    writer.observe_llm_io(
+        {
+            "turn_index": 2,
+            "parse_ok": True,
+            "tool_request": {
+                "actions": [{"alias": "crop_a", "action_type": "transform_artifact", "action_inputs": {}}],
+                "rationale": "INTERNAL_RATIONALE_TEXT",
+                "operator_progress_message": "USER_FACING_PROGRESS_LINE",
+            },
+            "parsed_action_plan": {
+                "actions": [{"alias": "crop_a", "action_type": "transform_artifact", "action_inputs": {}}],
+                "rationale": "INTERNAL_RATIONALE_TEXT",
+                "operator_progress_message": "USER_FACING_PROGRESS_LINE",
+            },
+        }
+    )
+    body = _timeline_path(tmp_path / "run1").read_text(encoding="utf-8")
+    progress_idx = body.index("Operator Progress")
+    rationale_idx = body.index("  rationale:")
+    assert progress_idx < rationale_idx
+    assert "USER_FACING_PROGRESS_LINE" in body
+    assert "actions:1 (crop_a:transform_artifact)" in body
+    assert "  action_type: none" not in body
+
+    writer.observe_llm_io(
+        {
+            "turn_index": 3,
+            "parse_ok": True,
+            "tool_request": {
+                "state_patch": {"resolution": {"active_item_id": "item-1"}},
+                "rationale": "state only",
+            },
+            "parsed_action_plan": {
+                "state_patch": {"resolution": {"active_item_id": "item-1"}},
+                "rationale": "state only",
+            },
+        }
+    )
+    body2 = _timeline_path(tmp_path / "run1").read_text(encoding="utf-8")
+    assert "operator_progress_message: none" in body2
+
+
+def test_timeline_renders_native_action_details_and_hydrate_next(
+    tmp_path: Path,
+) -> None:
+    writer = RunAuditWriter(tmp_path / "run1")
+    writer.observe_llm_io(
+        {
+            "turn_index": 4,
+            "parse_ok": True,
+            "tool_request": {
+                "actions": [
+                    {
+                        "alias": "crop_opening",
+                        "action_type": "transform_artifact",
+                        "action_inputs": {
+                            "ref_id": "image:source:1",
+                            "sub_action": "crop",
+                            "box": [10, 20, 110, 80],
+                        },
+                        "hydrate_next": ["@this.result.derived_ref_id"],
+                        "hydrate_next_reason": "Inspect the crop before determining the value.",
+                    },
+                    {
+                        "alias": "crop_calls",
+                        "action_type": "transform_artifact",
+                        "action_inputs": {
+                            "ref_id": "image:source:1",
+                            "sub_action": "crop",
+                            "box": [100, 200, 400, 300],
+                        },
+                    },
+                ],
+                "rationale": "Create two crops in one turn.",
+                "operator_progress_message": "Creating two localized crops to inspect next.",
+            },
+            "parsed_action_plan": {},
+        }
+    )
+    body = _timeline_path(tmp_path / "run1").read_text(encoding="utf-8")
+    assert "actions:2 (transform_artifact, transform_artifact)" in body
+    assert "    - crop_opening: transform_artifact" in body
+    assert "      hydrate_next:" in body
+    assert "        - @this.result.derived_ref_id" in body
+    assert "      hydrate_next_reason:" in body
+    assert "Inspect the crop before determining the value." in body
+    assert "      action_inputs:" in body
+    assert '"sub_action": "crop"' in body
+    assert "    - crop_calls: transform_artifact" in body
+    assert "      hydrate_next: none" in body
+
+
 def test_timeline_shows_all_llm_authored_prose_fields(tmp_path: Path) -> None:
     writer = RunAuditWriter(tmp_path / "run1")
     writer.observe_llm_io(
@@ -116,6 +243,8 @@ def test_timeline_shows_all_llm_authored_prose_fields(tmp_path: Path) -> None:
         }
     )
     body = _timeline_path(tmp_path / "run1").read_text(encoding="utf-8")
+    assert "Operator Progress" in body
+    assert body.index("Operator Progress") < body.index("LLM Authored Text")
     assert "RATIONALE_PROSE" in body
     assert "OPERATOR_STATUS_LINE" in body
     assert "CONT_JOURNAL_TEXT" in body

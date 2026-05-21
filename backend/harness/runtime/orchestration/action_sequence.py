@@ -86,6 +86,8 @@ def action_plan_with_canonical_actions(
     operator_progress_message: str | None = None,
     hydrate_next: tuple[str, ...] = (),
     hydrate_next_reason: str | None = None,
+    pin_refs: tuple[str, ...] = (),
+    unpin_refs: tuple[str, ...] = (),
 ) -> ActionPlan:
     """Build an ``ActionPlan`` whose runtime dispatch uses only ``actions``."""
     return ActionPlan(
@@ -95,6 +97,8 @@ def action_plan_with_canonical_actions(
         action_inputs={},
         hydrate_next=hydrate_next,
         hydrate_next_reason=hydrate_next_reason,
+        pin_refs=pin_refs,
+        unpin_refs=unpin_refs,
         idempotency_key=idempotency_key,
         skip_execution=skip_execution,
         wait_for_human=wait_for_human,
@@ -238,6 +242,9 @@ def build_sequence_tool_request_summary(action_plan: ActionPlan) -> dict[str, An
         "wait_for_human": bool(action_plan.wait_for_human),
         "complete_run": bool(action_plan.complete_run),
         "rationale": action_plan.rationale,
+        "operator_progress_message": action_plan.operator_progress_message,
+        "pin_refs": list(action_plan.pin_refs),
+        "unpin_refs": list(action_plan.unpin_refs),
     }
 
 

@@ -90,6 +90,8 @@ class ActionPlan:
     # never a deterministic truth override.  See ``hydrate_next.py``.
     hydrate_next: tuple[str, ...] = ()
     hydrate_next_reason: str | None = None
+    pin_refs: tuple[str, ...] = ()
+    unpin_refs: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)

@@ -2941,6 +2941,26 @@ def test_covered_unit_not_answerable_with_reason_suppressed() -> None:
 # Typed projection — new counters surface via _prompt_observability_summary_from_payload
 # ---------------------------------------------------------------------------
 
+def test_action_turn_shape_counters_typed_projection() -> None:
+    """Action-sequence turn-shape counters surface in typed PromptObservabilitySummary."""
+    from harness.observability.summary.prompt_observability import (
+        _prompt_observability_summary_from_payload,
+    )
+
+    summary = _prompt_observability_summary_from_payload(
+        {
+            "prompt_observability_summary": {
+                "multi_action_turn_count": 2,
+                "single_action_turn_count": 7,
+                "max_actions_in_turn": 3,
+            }
+        }
+    )
+    assert summary.multi_action_turn_count == 2
+    assert summary.single_action_turn_count == 7
+    assert summary.max_actions_in_turn == 3
+
+
 def test_earned_before_local_evidence_count_typed_projection() -> None:
     """earned_before_local_evidence_count surfaces in the typed PromptObservabilitySummary."""
     from harness.observability.summary.prompt_observability import (

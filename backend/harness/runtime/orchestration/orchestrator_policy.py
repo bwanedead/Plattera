@@ -11,6 +11,7 @@ from typing import Any
 from ..memory import LoopMemoryState
 from .action_sequence import effective_actions
 from .contracts import ActionPlan
+from .required_output_gate import required_output_artifact_enforcement_failure
 from .state_patch_apply import StatePatchError, apply_state_patch
 
 def closure_policy(run_ctx: dict[str, Any]) -> dict[str, Any] | None:
@@ -259,5 +260,13 @@ def closure_enforcement_failure(
             "closure_complete_not_ready",
             "closure enforcement requires ready_to_close before complete_run",
         )
+
+    output_failure = required_output_artifact_enforcement_failure(
+        run_ctx=run_ctx,
+        loop_memory=loop_memory,
+        action_plan=action_plan,
+    )
+    if output_failure is not None:
+        return output_failure
 
     return None

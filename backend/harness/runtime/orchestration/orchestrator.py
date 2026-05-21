@@ -38,6 +38,18 @@ from .hydrate_next_hooks import (
     clear_surfaced_hydration,
     surface_pending_hydration_before_choose_action,
 )
+from .pinned_refs_hooks import (
+    apply_pin_refs_from_action_plan,
+    clear_surfaced_pinned_hydration,
+    surface_active_pinned_refs_before_choose_action,
+)
+from .required_output_gate import (
+    MAX_CONSECUTIVE_MISSING_OUTPUT_COMPLETE_ATTEMPTS,
+    is_missing_required_output_reason,
+    maybe_reset_missing_required_output_counter,
+    missing_output_terminal_summary,
+    required_output_ref_from_policy,
+)
 from .orchestrator_coercion import (
     coerce_kernel_action_plan,
     coerce_projection,
@@ -76,6 +88,20 @@ def _action_id_for_plan(action_plan: ActionPlan) -> str:
     if len(actions) == 1:
         return actions[0].action_type
     return str(action_plan.action_type or "no_action")
+
+
+def _record_action_turn_observability(*, loop_memory: LoopMemoryState, action_plan: ActionPlan) -> None:
+    action_count = len(effective_actions(action_plan))
+    if action_count <= 0:
+        return
+    if action_count == 1:
+        loop_memory.continuity.single_action_turn_count += 1
+    else:
+        loop_memory.continuity.multi_action_turn_count += 1
+    loop_memory.continuity.max_actions_in_turn = max(
+        loop_memory.continuity.max_actions_in_turn,
+        action_count,
+    )
 
 
 def _materialize_dispatch_idempotency_key(
@@ -267,6 +293,7 @@ def run_orchestration_kernel_loop(
         # surfaced.  Keeps the lane strictly one-shot and prevents the same
         # hydrated payload from re-appearing in subsequent prompts.
         clear_surfaced_hydration(loop_memory=loop_memory)
+        clear_surfaced_pinned_hydration(loop_memory=loop_memory)
         clear_stale_action_sequence_result(loop_memory=loop_memory, iteration=iterations)
 
         hitl_poll_feedback_store(
@@ -311,6 +338,10 @@ def run_orchestration_kernel_loop(
             loop_memory.continuity.resolution_state = projection.resolution_state
             if projection.latest_refs:
                 loop_memory.continuity.latest_refs = dict(projection.latest_refs)
+            maybe_reset_missing_required_output_counter(
+                run_ctx=run_ctx,
+                loop_memory=loop_memory,
+            )
             loop_memory.continuity.active_item_id = (
                 projection.active_item_id
                 or projection.resolution_state.active_item_id
@@ -336,6 +367,14 @@ def run_orchestration_kernel_loop(
         # via the session manager, attaches the result to the pending record,
         # and flips status to ``surfaced`` so the prompt builder includes it.
         surface_pending_hydration_before_choose_action(
+            loop_memory=loop_memory,
+            session_manager=session_manager,
+            session_id=session_id,
+            request_id_prefix=request_id_prefix,
+            run_id=run_id,
+            iteration=iterations,
+        )
+        surface_active_pinned_refs_before_choose_action(
             loop_memory=loop_memory,
             session_manager=session_manager,
             session_id=session_id,
@@ -397,6 +436,12 @@ def run_orchestration_kernel_loop(
         )
 
         patch_present = bool(action_plan.state_patch)
+        apply_pin_refs_from_action_plan(
+            loop_memory=loop_memory,
+            action_plan=action_plan,
+            iteration=iterations,
+        )
+        _record_action_turn_observability(loop_memory=loop_memory, action_plan=action_plan)
 
         try:
             consumed_ids = validate_hitl_consumed_prompt_ids(action_plan.hitl_consumed_prompt_ids)
@@ -523,6 +568,40 @@ def run_orchestration_kernel_loop(
         if closure_failure is not None:
             reason_code, message = closure_failure
             _LOG.info("KERNEL closure_enforcement_blocked ► reason_code=%s message=%s", reason_code, message)
+            if is_missing_required_output_reason(reason_code):
+                loop_memory.continuity.missing_required_output_complete_attempts += 1
+                _handle_policy_block(
+                    turn_completion_observer=active_lifecycle.turn_completion_observer,
+                    tracer=tracer,
+                    loop_memory=loop_memory,
+                    action_plan=action_plan,
+                    iteration=iterations,
+                    reason_code=reason_code,
+                    lifecycle=active_lifecycle,
+                    session_manager=session_manager,
+                    session_id=session_id,
+                )
+                if (
+                    loop_memory.continuity.missing_required_output_complete_attempts
+                    >= MAX_CONSECUTIVE_MISSING_OUTPUT_COMPLETE_ATTEMPTS
+                ):
+                    required_ref = required_output_ref_from_policy(run_ctx) or "output"
+                    _checkpoint(iterations)
+                    return build_kernel_loop_result(
+                        loop_memory=loop_memory,
+                        terminal_class="blocked",
+                        reason_code="required_output_artifact_unavailable",
+                        terminal_summary=missing_output_terminal_summary(
+                            required_ref=required_ref,
+                            attempts=loop_memory.continuity.missing_required_output_complete_attempts,
+                        ),
+                        iterations=iterations,
+                        session_id=session_id,
+                        run_artifact_ref=run_artifact_ref,
+                        tracer=tracer,
+                        session_manager=session_manager,
+                    )
+                continue
             _handle_policy_block(
                 turn_completion_observer=active_lifecycle.turn_completion_observer,
                 tracer=tracer,
@@ -584,6 +663,12 @@ def run_orchestration_kernel_loop(
             patch_present=patch_present,
         )
         if seq_outcome.handled:
+            maybe_reset_missing_required_output_counter(
+                run_ctx=run_ctx,
+                loop_memory=loop_memory,
+                action_plan=action_plan,
+                executed_meaningful_dispatch=True,
+            )
             if seq_outcome.terminal_class:
                 _checkpoint(iterations)
                 return build_kernel_loop_result(

@@ -374,6 +374,7 @@ def test_transcript_edit_closure_policy_stable_contract() -> None:
     assert policy.minimum_resolution_items_for_wait == 1
     assert policy.minimum_resolution_items_for_publish == 1
     assert policy.minimum_resolution_items_for_complete == 1
+    assert policy.required_output_ref_for_complete == "transcript_edit:output"
     assert len(policy.required_dimension_ids) == 4
     assert len(policy.standards) == 4
     assert policy.standards[0].dimension_id == "layer_1_delta_convergence"

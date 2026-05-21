@@ -643,6 +643,69 @@ def _closure_policy_ctx() -> dict[str, Any]:
     }
 
 
+def _required_output_policy_ctx() -> dict[str, Any]:
+    ctx = dict(_closure_policy_ctx())
+    policy = dict(ctx["domain_closure_policy"])
+    policy["required_output_ref_for_complete"] = "transcript_edit:output"
+    policy["minimum_resolution_items_for_complete"] = 1
+    ctx["domain_closure_policy"] = policy
+    return ctx
+
+
+class RequiredOutputMissingCompletePack:
+    """Repeated complete_run attempts without output-tier ref in latest_refs."""
+
+    def initialize(self, context: OrchestratorContext) -> None:
+        pass
+
+    def sync(self, context: OrchestratorContext) -> SharedStateProjection:
+        projection = _inherit_projection_from_context(context)
+        return SharedStateProjection(
+            mission_state=projection.mission_state,
+            resolution_state=projection.resolution_state,
+            latest_refs={"working": "transcript_edit:working:rev:0001"},
+            active_item_id=projection.active_item_id,
+        )
+
+    def evaluate_terminal(
+        self,
+        context: OrchestratorContext,
+        projection: SharedStateProjection | None,
+    ) -> TerminalEvaluation | None:
+        return None
+
+    def choose_action(
+        self,
+        context: OrchestratorContext,
+        projection: SharedStateProjection | None,
+    ) -> ActionPlan:
+        return ActionPlan(
+            complete_run=True,
+            idempotency_key=f"ik-req-out-{context.loop_memory.iterations}",
+            rationale="attempt complete without output-tier ref",
+            continuity_journal_entry=_PACK_CJ,
+            state_patch={
+                "mission": {
+                    "work_universe_posture": "audited",
+                    "closure_state": {
+                        "ready_to_close": True,
+                        "dimensions": _closure_dimensions(layer4_status="non_blocking"),
+                    },
+                },
+                "resolution": {
+                    "items": [
+                        {
+                            "item_id": "claim-1",
+                            "title": "Transcript edit complete",
+                            "kind": "work_unit",
+                            "status": "closed",
+                        }
+                    ],
+                },
+            },
+        )
+
+
 def _resolution_items_policy_ctx(*, save: int = 0, wait: int = 0, publish: int = 0, complete: int = 0) -> dict[str, Any]:
     return {
         "domain_closure_policy": {
@@ -979,6 +1042,32 @@ def test_complete_run_uses_short_reason_code_and_preserves_summary() -> None:
     terminal_event = next(e for e in result.trace_events if e.get("event_kind") == "terminal_outcome")
     assert terminal_event["reason_code"] == "complete_run"
     assert terminal_event["payload"]["terminal_summary"] == result.terminal_summary
+
+
+def test_missing_required_output_terminal_records_third_refused_turn() -> None:
+    sm = FakeSessionManager()
+    observer = _TurnCompletionRecorder()
+    result = run_orchestration_kernel_loop(
+        orchestration_adapter=RequiredOutputMissingCompletePack(),
+        session_manager=sm,
+        session_id="s-req-out",
+        run_artifact_ref=None,
+        request_id_prefix="r-req-out",
+        opaque_run_context=_required_output_policy_ctx(),
+        max_iterations=10,
+        lifecycle=OrchestrationLifecycle(turn_completion_observer=observer),
+    )
+
+    assert result.terminal_class == "blocked"
+    assert result.reason_code == "required_output_artifact_unavailable"
+    refusal_events = [
+        event
+        for event in result.trace_events
+        if event.get("event_kind") == "tool_execution"
+        and str(event.get("reason_code") or "").startswith("missing_required_output_artifact:")
+    ]
+    assert len(refusal_events) == 3
+    assert len(observer.records) >= 3
 
 
 def test_complete_run_is_blocked_until_closure_state_is_ready() -> None:

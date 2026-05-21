@@ -174,25 +174,28 @@ JSON event, then exits:
   watching the same run unless you intentionally want to stop monitoring
 - `{"event":"error", ...}` — inspect `status`, run-state files, and logs
 
-For live testing, the tester should stay in this monitor loop until `loop_done`
-or an explicit operator decision to pause/stop:
+For live testing, the tester should keep `watch` in the foreground and stay in
+this monitor loop until `loop_done` or an explicit operator decision to
+pause/stop.  Do not launch the watcher in a detached/background shell; the
+testing agent needs the foreground JSON event so it can answer HITL promptly and
+then continue watching the same run.
 
 ```powershell
 while ($true) {
-  $event = python -m harness.cli.watch --run-id $runId --timeout 7200 --poll-interval 3 | ConvertFrom-Json
+  $watchEvent = python -m harness.cli.watch --run-id $runId --timeout 7200 --poll-interval 3 | ConvertFrom-Json
 
-  if ($event.event -eq "timeout") {
+  if ($watchEvent.event -eq "timeout") {
     continue
   }
 
-  if ($event.event -eq "hitl") {
-    # Choose an answer from $event.choices when choices are provided. Use
-    # $event.prompt_id exactly as returned by watch.
-    python -m harness.cli.answer --run-id $runId --prompt-id $event.prompt_id --choice "<operator answer>" --note "<optional note>"
+  if ($watchEvent.event -eq "hitl") {
+    # Choose an answer from $watchEvent.choices when choices are provided. Use
+    # $watchEvent.prompt_id exactly as returned by watch.
+    python -m harness.cli.answer --run-id $runId --prompt-id $watchEvent.prompt_id --choice "<operator answer>" --note "<optional note>"
     continue
   }
 
-  if ($event.event -eq "loop_done") {
+  if ($watchEvent.event -eq "loop_done") {
     break
   }
 
@@ -339,11 +342,11 @@ Normal blocking-HITL testing flow (current implementation):
 # 1. Start run
 python -m harness.cli.start --run-id $runId --loop-kind transcript_edit ...
 
-# 2. Wait for HITL prompt (background process stays alive while waiting)
+# 2. Wait for HITL prompt in the foreground; do not background this command
 python -m harness.cli.watch --run-id $runId --timeout 120
 
-# 3. If event=hitl: answer — the background process detects the answer and
-#    resumes the run automatically
+# 3. If event=hitl: answer — the live runner detects the answer and resumes
+#    automatically
 python -m harness.cli.answer --run-id $runId --prompt-id <prompt_id> --choice "74"
 
 # 4. Watch again for the resumed run to reach its next terminal state
@@ -351,7 +354,7 @@ python -m harness.cli.watch --run-id $runId --timeout 120
 ```
 
 The harness owns the resume: answering the active blocking prompt triggers
-auto-resume in the background process.  The CLI `answer` command is only an
+auto-resume in the live runner process.  The CLI `answer` command is only an
 ingress surface; it does not decide whether or when to resume.
 
 Normal operator-control testing flow:
@@ -386,7 +389,7 @@ Expected control behavior:
   run-level audit surfaces may show a separate terminal override for the
   operator interruption
 
-HITL wait timeout: the background process polls for feedback for up to
+HITL wait timeout: the live runner process polls for feedback for up to
 `hitl_wait_timeout_seconds` (default: 7200 s / 2 h).  If the timeout expires
 without an answer, the run returns `waiting_human` as the terminal state.
 `result.json` will include `kernel_resume_snapshot` so a fresh process restart

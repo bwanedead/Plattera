@@ -17,10 +17,14 @@ from .contracts import ActionPlan
 from .action_sequence import action_plan_with_canonical_actions
 from .action_sequence_plan_shape import canonicalize_actions_from_payload
 from .tool_batch_policy import DomainActionBatchPolicy, ToolBatchPolicy
+from .pinned_refs import PinnedRefsValidationError, normalize_pin_ref_list
 from .user_message_action_plan_shape import (
     validate_user_message_consumed_ids,
     validate_user_message_defers,
 )
+
+MAX_OPERATOR_PROGRESS_MESSAGE_CHARS = 240
+
 
 _ALLOWED_ACTION_PLAN_KEYS = {
     "actions", "action_type", "action_inputs", "action_batch", "idempotency_key",
@@ -29,6 +33,7 @@ _ALLOWED_ACTION_PLAN_KEYS = {
     "operator_progress_message", "hitl_request", "hitl_consumed_prompt_ids",
     "user_message_consumed_ids", "user_message_defers",
     "hydrate_next", "hydrate_next_reason",
+    "pin_refs", "unpin_refs",
 }
 
 
@@ -240,8 +245,19 @@ def parse_action_plan_response(
         opm_out: str | None = None
     elif isinstance(opm_raw, str):
         opm_out = _optional_text(opm_raw)
+        if opm_out is not None and len(opm_out) > MAX_OPERATOR_PROGRESS_MESSAGE_CHARS:
+            raise _parse_error(
+                "operator_progress_message exceeds max length "
+                f"({MAX_OPERATOR_PROGRESS_MESSAGE_CHARS} chars)"
+            )
     else:
         raise _parse_error("operator_progress_message must be a string or null")
+
+    try:
+        pin_refs_out = normalize_pin_ref_list(payload.get("pin_refs"), field_name="pin_refs")
+        unpin_refs_out = normalize_pin_ref_list(payload.get("unpin_refs"), field_name="unpin_refs")
+    except PinnedRefsValidationError as exc:
+        raise _parse_error(str(exc)) from exc
 
     return action_plan_with_canonical_actions(
         actions=actions_out,
@@ -259,4 +275,6 @@ def parse_action_plan_response(
         operator_progress_message=opm_out,
         hydrate_next=tuple(hydrate_next_refs),
         hydrate_next_reason=hydrate_next_reason_out,
+        pin_refs=pin_refs_out,
+        unpin_refs=unpin_refs_out,
     )

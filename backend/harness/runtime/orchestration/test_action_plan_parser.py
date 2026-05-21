@@ -15,6 +15,44 @@ def _sole_action(plan: ActionPlan):
     return plan.actions[0]
 
 
+def test_parse_action_plan_accepts_operator_progress_message() -> None:
+    plan = parse_action_plan_response(
+        json.dumps({
+            "actions": [{"alias": "a", "action_type": "noop", "action_inputs": {}}],
+            "operator_progress_message": "  Checking localized evidence before updating the graph.  ",
+            "rationale": "dispatch",
+        }),
+        available_tool_ids=("noop",),
+    )
+    assert plan.operator_progress_message == "Checking localized evidence before updating the graph."
+
+
+def test_parse_action_plan_empty_operator_progress_message_becomes_none() -> None:
+    plan = parse_action_plan_response(
+        json.dumps({
+            "actions": [{"alias": "a", "action_type": "noop", "action_inputs": {}}],
+            "operator_progress_message": "   ",
+            "rationale": "dispatch",
+        }),
+        available_tool_ids=("noop",),
+    )
+    assert plan.operator_progress_message is None
+
+
+def test_parse_action_plan_rejects_overlong_operator_progress_message() -> None:
+    from harness.runtime.orchestration.action_plan_parser import MAX_OPERATOR_PROGRESS_MESSAGE_CHARS
+
+    with pytest.raises(ModelActionParseError, match="operator_progress_message exceeds max length"):
+        parse_action_plan_response(
+            json.dumps({
+                "actions": [{"alias": "a", "action_type": "noop", "action_inputs": {}}],
+                "operator_progress_message": "x" * (MAX_OPERATOR_PROGRESS_MESSAGE_CHARS + 1),
+                "rationale": "dispatch",
+            }),
+            available_tool_ids=("noop",),
+        )
+
+
 def test_parse_action_plan_unwraps_author_payload_continuity_wrapper() -> None:
     plan = parse_action_plan_response(
         json.dumps(
@@ -394,4 +432,38 @@ def test_parse_action_plan_rejects_non_string_hydrate_next_reason() -> None:
         "hydrate_next_reason": 42,
     }
     with pytest.raises(ModelActionParseError, match="hydrate_next_reason"):
+        parse_action_plan_response(json.dumps(payload), available_tool_ids=("noop",))
+
+
+def test_parse_action_plan_accepts_pin_and_unpin_refs() -> None:
+    plan = parse_action_plan_response(
+        json.dumps({
+            "actions": [{"alias": "a", "action_type": "noop", "action_inputs": {}}],
+            "pin_refs": ["transcript_edit:working:rev:0002", "  transcript_edit:working:rev:0002 "],
+            "unpin_refs": ["transcript_edit:working:rev:0001"],
+            "rationale": "keep working rev hot",
+        }),
+        available_tool_ids=("noop",),
+    )
+    assert plan.pin_refs == ("transcript_edit:working:rev:0002",)
+    assert plan.unpin_refs == ("transcript_edit:working:rev:0001",)
+
+
+def test_parse_action_plan_rejects_over_cap_pin_refs() -> None:
+    payload = {
+        "actions": [{"alias": "a", "action_type": "noop", "action_inputs": {}}],
+        "pin_refs": [f"ref:{i}" for i in range(6)],
+        "rationale": "t",
+    }
+    with pytest.raises(ModelActionParseError, match="pin_refs"):
+        parse_action_plan_response(json.dumps(payload), available_tool_ids=("noop",))
+
+
+def test_parse_action_plan_rejects_invalid_pin_refs_shape() -> None:
+    payload = {
+        "actions": [{"alias": "a", "action_type": "noop", "action_inputs": {}}],
+        "pin_refs": "not-a-list",
+        "rationale": "t",
+    }
+    with pytest.raises(ModelActionParseError, match="pin_refs"):
         parse_action_plan_response(json.dumps(payload), available_tool_ids=("noop",))

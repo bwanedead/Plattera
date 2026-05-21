@@ -15,6 +15,16 @@ def test_choose_action_instruction_teaches_minimality_and_sparse_updates() -> No
     assert 'async hitl: `{"hitl_request": {...}, "rationale": "..."}`' in text
 
 
+def test_choose_action_instruction_teaches_operator_progress_message() -> None:
+    text = CHOOSE_ACTION_INSTRUCTION
+    lowered = text.lower()
+    assert "operator_progress_message" in lowered
+    assert "include it on every normal choose-action turn" in lowered
+    assert "timeline/ui visibility" in lowered
+    assert "keep detailed reasoning in `rationale`" in lowered
+    assert "not internal reasoning" in lowered or "not internal reasoning" in text
+
+
 def test_choose_action_instruction_requires_rationale_on_every_turn() -> None:
     text = CHOOSE_ACTION_INSTRUCTION
     assert "REQUIRED on every turn" in text

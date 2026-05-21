@@ -30,3 +30,5 @@ class DomainClosurePolicy:
     minimum_resolution_items_for_complete: int = 0
     required_dimension_ids: tuple[str, ...] = ()
     standards: tuple[ClosureDimensionStandard, ...] = ()
+    # Optional output-tier ref key/value required in latest_refs before complete_run.
+    required_output_ref_for_complete: str | None = None

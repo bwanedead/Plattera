@@ -384,6 +384,9 @@ def build_prompt_observability_summary(
         "notebook_shaped_graph_rows_count": notebook_shaped_graph_rows_count,
         "artifact_claim_inventory_suspect_count": artifact_claim_inventory_suspect_count,
         "closure_readiness_projection": closure_readiness_projection,
+        "multi_action_turn_count": int(getattr(cont, "multi_action_turn_count", 0) or 0),
+        "single_action_turn_count": int(getattr(cont, "single_action_turn_count", 0) or 0),
+        "max_actions_in_turn": int(getattr(cont, "max_actions_in_turn", 0) or 0),
     }
     reread_after_failed_persist = _reread_after_failed_persist(
         feedback=feedback, step_records=step_records

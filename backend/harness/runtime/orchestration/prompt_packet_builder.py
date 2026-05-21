@@ -224,7 +224,34 @@ def _build_structured_state(
     sequence_lane = _build_recent_action_sequence_result(cont.recent_action_sequence_result)
     if sequence_lane is not None:
         structured["recent_action_sequence_result"] = sequence_lane
+    from .pinned_refs import build_pinned_refs_projection
+
+    pinned_projection = build_pinned_refs_projection(
+        cont.pinned_refs,
+        current_turn=int(context.loop_memory.iterations),
+    )
+    if pinned_projection.get("active") or pinned_projection.get("expired"):
+        structured["pinned_refs"] = pinned_projection
+    pinned_hydration = _build_pinned_refs_hydration(cont.pinned_refs_hydration)
+    if pinned_hydration is not None:
+        structured["pinned_refs_hydration"] = pinned_hydration
     return structured
+
+
+def _build_pinned_refs_hydration(record: Mapping[str, Any] | None) -> dict[str, Any] | None:
+    if not record:
+        return None
+    out: dict[str, Any] = {
+        "refs": list(record.get("refs") or []),
+        "status": str(record.get("status") or ""),
+    }
+    hydrated = record.get("hydrated_results")
+    if isinstance(hydrated, list) and hydrated:
+        out["hydrated_results"] = hydrated[:5]
+    errors = record.get("hydration_errors")
+    if isinstance(errors, list) and errors:
+        out["hydration_errors"] = errors[:5]
+    return out
 
 
 def _build_recent_action_sequence_result(record: Mapping[str, Any] | None) -> dict[str, Any] | None:
@@ -414,6 +441,9 @@ _OPTIONAL_OBSERVABILITY_COUNTERS: tuple[str, ...] = (
     "complete_with_unconsumed_hitl_count",
     "hitl_consumed_unknown_prompt_count",
     "artifact_state_dirty_since_write_count",
+    "multi_action_turn_count",
+    "single_action_turn_count",
+    "max_actions_in_turn",
 )
 
 

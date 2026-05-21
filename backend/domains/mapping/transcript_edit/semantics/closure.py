@@ -34,6 +34,7 @@ def build_transcript_edit_closure_policy() -> DomainClosurePolicy:
             "layer_3_external_dependency_completeness",
             "layer_4_mapping_blocking_relevance",
         ),
+        required_output_ref_for_complete="transcript_edit:output",
         standards=(
             ClosureDimensionStandard(
                 dimension_id="layer_1_delta_convergence",

@@ -941,3 +941,51 @@ def test_parse_rejects_pending_agent_hydration_unknown_status() -> None:
     }
     _, _, err = parse_kernel_resume_snapshot(base)
     assert err == "resume_snapshot_pending_agent_hydration_invalid"
+
+
+def test_resume_round_trips_pinned_refs() -> None:
+    mem = LoopMemoryState()
+    mem.continuity.pinned_refs = [
+        {
+            "ref": "transcript_edit:working:rev:0002",
+            "pinned_at_turn": 4,
+            "last_refreshed_turn": 4,
+            "ttl_turns": 8,
+        }
+    ]
+    mem.continuity.missing_required_output_complete_attempts = 2
+    mem.continuity.multi_action_turn_count = 3
+    mem.continuity.single_action_turn_count = 7
+    mem.continuity.max_actions_in_turn = 2
+    snap = build_kernel_resume_snapshot(
+        loop_memory=mem,
+        session_manager=ExecutionSessionManager(ExecutionExecutor()),
+        session_id="s1",
+        next_iteration=5,
+    )
+    restored, _, err = parse_kernel_resume_snapshot(snap)
+    assert err is None
+    assert restored.continuity.pinned_refs[0]["ref"] == "transcript_edit:working:rev:0002"
+    assert restored.continuity.missing_required_output_complete_attempts == 2
+    assert restored.continuity.multi_action_turn_count == 3
+
+
+def test_parse_rejects_malformed_pinned_refs() -> None:
+    rs = new_resolution_state()
+    ms = new_mission_state(mission_id="m1", loop_family="orchestration_kernel", resolution_state=rs)
+    base = {
+        "schema_version": "kernel_resume.v1",
+        "next_iteration": 1,
+        "continuity": {
+            "latest_refs": {},
+            "mission_state": ms.model_dump(mode="json"),
+            "resolution_state": rs.model_dump(mode="json"),
+            "active_item_id": None,
+            "pinned_refs": [{"ref": ""}],
+        },
+        "hitl": {"hitl_state": "no_prompt"},
+        "telemetry": {"llm_contact_count": 0, "prompt_event_count": 0},
+        "execution_session": None,
+    }
+    _, _, err = parse_kernel_resume_snapshot(base)
+    assert err == "resume_snapshot_pinned_refs_invalid"

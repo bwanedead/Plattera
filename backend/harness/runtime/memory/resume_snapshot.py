@@ -21,6 +21,7 @@ from ..hitl.exchange_ledger import validate_stored_ledger_entry
 from ..user_messages.ledger import validate_stored_user_message
 from ..orchestration.action_batch import validate_stored_action_batch_result as validate_stored_action_sequence_result
 from ..orchestration.hydrate_next import validate_stored_hydrate_next_record
+from ..orchestration.pinned_refs import validate_stored_pinned_ref_row
 from .continuity import OrchestrationContinuity
 from .continuity_journal import (
     clamp_compacted_summary_text,
@@ -96,6 +97,18 @@ def build_kernel_resume_snapshot(
                 if loop_memory.continuity.recent_action_sequence_result is not None
                 else None
             ),
+            "pinned_refs": list(loop_memory.continuity.pinned_refs),
+            "pinned_refs_hydration": (
+                dict(loop_memory.continuity.pinned_refs_hydration)
+                if loop_memory.continuity.pinned_refs_hydration is not None
+                else None
+            ),
+            "missing_required_output_complete_attempts": int(
+                loop_memory.continuity.missing_required_output_complete_attempts
+            ),
+            "multi_action_turn_count": int(loop_memory.continuity.multi_action_turn_count),
+            "single_action_turn_count": int(loop_memory.continuity.single_action_turn_count),
+            "max_actions_in_turn": int(loop_memory.continuity.max_actions_in_turn),
         },
         "hitl": {
             "hitl_state": loop_memory.hitl.hitl_state,
@@ -334,6 +347,70 @@ def parse_kernel_resume_snapshot(payload: Mapping[str, Any]) -> tuple[LoopMemory
             return empty, 1, "resume_snapshot_recent_action_sequence_result_invalid"
         recent_action_sequence_result_out = normalized_ras
 
+    pinned_refs_out: list[dict[str, Any]] = []
+    if "pinned_refs" in cont:
+        pr_raw = cont.get("pinned_refs")
+        if pr_raw is not None:
+            if not isinstance(pr_raw, list):
+                return empty, 1, "resume_snapshot_pinned_refs_invalid"
+            for row in pr_raw:
+                norm = validate_stored_pinned_ref_row(row)
+                if norm is None:
+                    return empty, 1, "resume_snapshot_pinned_refs_invalid"
+                pinned_refs_out.append(norm)
+
+    pinned_refs_hydration_out: dict[str, Any] | None = None
+    if "pinned_refs_hydration" in cont:
+        prh_raw = cont.get("pinned_refs_hydration")
+        if prh_raw is not None:
+            if not isinstance(prh_raw, Mapping):
+                return empty, 1, "resume_snapshot_pinned_refs_hydration_invalid"
+            pinned_refs_hydration_out = dict(prh_raw)
+
+    missing_required_output_complete_attempts = 0
+    if "missing_required_output_complete_attempts" in cont:
+        mro_raw = cont.get("missing_required_output_complete_attempts")
+        if mro_raw is not None:
+            try:
+                missing_required_output_complete_attempts = int(mro_raw)
+            except (TypeError, ValueError):
+                return empty, 1, "resume_snapshot_missing_required_output_complete_attempts_invalid"
+            if missing_required_output_complete_attempts < 0:
+                return empty, 1, "resume_snapshot_missing_required_output_complete_attempts_invalid"
+
+    multi_action_turn_count = 0
+    if "multi_action_turn_count" in cont:
+        mat_raw = cont.get("multi_action_turn_count")
+        if mat_raw is not None:
+            try:
+                multi_action_turn_count = int(mat_raw)
+            except (TypeError, ValueError):
+                return empty, 1, "resume_snapshot_multi_action_turn_count_invalid"
+            if multi_action_turn_count < 0:
+                return empty, 1, "resume_snapshot_multi_action_turn_count_invalid"
+
+    single_action_turn_count = 0
+    if "single_action_turn_count" in cont:
+        sat_raw = cont.get("single_action_turn_count")
+        if sat_raw is not None:
+            try:
+                single_action_turn_count = int(sat_raw)
+            except (TypeError, ValueError):
+                return empty, 1, "resume_snapshot_single_action_turn_count_invalid"
+            if single_action_turn_count < 0:
+                return empty, 1, "resume_snapshot_single_action_turn_count_invalid"
+
+    max_actions_in_turn = 0
+    if "max_actions_in_turn" in cont:
+        mai_raw = cont.get("max_actions_in_turn")
+        if mai_raw is not None:
+            try:
+                max_actions_in_turn = int(mai_raw)
+            except (TypeError, ValueError):
+                return empty, 1, "resume_snapshot_max_actions_in_turn_invalid"
+            if max_actions_in_turn < 0:
+                return empty, 1, "resume_snapshot_max_actions_in_turn_invalid"
+
     continuity = OrchestrationContinuity(
         latest_refs=latest_refs_out,
         mission_state=ms,
@@ -354,6 +431,12 @@ def parse_kernel_resume_snapshot(payload: Mapping[str, Any]) -> tuple[LoopMemory
         user_message_consumed_unknown_count=user_message_consumed_unknown_count,
         pending_agent_hydration=pending_agent_hydration_out,
         recent_action_sequence_result=recent_action_sequence_result_out,
+        pinned_refs=pinned_refs_out,
+        pinned_refs_hydration=pinned_refs_hydration_out,
+        missing_required_output_complete_attempts=missing_required_output_complete_attempts,
+        multi_action_turn_count=multi_action_turn_count,
+        single_action_turn_count=single_action_turn_count,
+        max_actions_in_turn=max_actions_in_turn,
     )
 
     hitl_raw = payload.get("hitl")

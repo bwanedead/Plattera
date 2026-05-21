@@ -176,6 +176,9 @@ class PromptObservabilitySummary(BaseModel):
     explicit_non_blocking_without_notes_count: int = Field(default=0, ge=0)
     notebook_shaped_graph_rows_count: int = Field(default=0, ge=0)
     artifact_claim_inventory_suspect_count: int = Field(default=0, ge=0)
+    multi_action_turn_count: int = Field(default=0, ge=0)
+    single_action_turn_count: int = Field(default=0, ge=0)
+    max_actions_in_turn: int = Field(default=0, ge=0)
     closure_readiness_projection: ClosureReadinessProjection = Field(
         default_factory=ClosureReadinessProjection
     )

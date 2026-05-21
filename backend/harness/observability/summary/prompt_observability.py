@@ -76,6 +76,9 @@ _ZERO_INT_FIELDS = (
     "explicit_non_blocking_without_notes_count",
     "notebook_shaped_graph_rows_count",
     "artifact_claim_inventory_suspect_count",
+    "multi_action_turn_count",
+    "single_action_turn_count",
+    "max_actions_in_turn",
 )
 _OPTIONAL_INT_FIELDS = ("turns_since_last_tool_execution", "turns_since_latest_refs_change", "turns_since_last_state_patch_applied", "turns_since_resolution_item_count_change")
 _STR_FIELDS = ("last_prompt_event_id", "last_state_patch_outcome", "last_state_patch_reason_code", "work_universe_posture")

@@ -30,6 +30,7 @@ _LOG = logging.getLogger(__name__)
 
 WRAP_COLUMNS = 100
 PROSE_MAX_CHARS = 4000
+ACTION_INPUTS_MAX_CHARS = 1200
 OUTPUTS_EXCERPT_MAX_CHARS = 2000
 RAW_RESPONSE_EXCERPT_MAX_CHARS = 2000
 CONTINUITY_JOURNAL_MAX_CHARS = 3000
@@ -153,19 +154,21 @@ def _render_run_projection(
 
 def _render_turn(turn: Mapping[str, Any]) -> list[str]:
     turn_index = _safe_turn_index(turn)
-    action_type = _pick_action_type(turn)
+    dispatch_summary = _pick_dispatch_summary(turn)
     patch_outcome = _nested_get(turn, "state_patch_feedback", "outcome") or "no_patch"
     header = (
-        f"TURN {turn_index:04d} | choose_action | {action_type} | patch:{patch_outcome}"
+        f"TURN {turn_index:04d} | choose_action | {dispatch_summary} | patch:{patch_outcome}"
     )
     duration = _turn_duration_seconds(turn)
     if duration is not None:
         header = f"{header} | duration:{_format_duration(duration)}"
     out: list[str] = [_SECTION_BAR, header, _SECTION_BAR, ""]
 
+    out.extend(_render_operator_progress(turn))
     out.extend(_render_llm_authored_text(turn))
     out.extend(_render_repair(turn))
     out.extend(_render_action(turn))
+    out.extend(_render_pinned_refs(turn))
     out.extend(_render_tool_result(turn))
     out.extend(_render_saved_artifact(turn))
     out.extend(_render_state_patch(turn))
@@ -189,7 +192,6 @@ def _render_llm_authored_text(turn: Mapping[str, Any]) -> list[str]:
     tool_request = _coerce_mapping(turn.get("tool_request"))
 
     rationale = _pick_prose(parsed, tool_request, key="rationale")
-    progress = _pick_prose(parsed, tool_request, key="operator_progress_message")
     continuity = _pick_continuity_entry(parsed, tool_request)
     hitl_req = _coerce_mapping(parsed.get("hitl_request")) or _coerce_mapping(
         tool_request.get("hitl_request")
@@ -197,7 +199,6 @@ def _render_llm_authored_text(turn: Mapping[str, Any]) -> list[str]:
 
     lines: list[str] = ["LLM Authored Text"]
     lines.extend(_labeled_prose_block("  rationale:", rationale))
-    lines.extend(_labeled_prose_block("  operator_progress_message:", progress))
     lines.extend(_labeled_json_block("  continuity_journal_entry:", continuity, CONTINUITY_JOURNAL_MAX_CHARS))
 
     if hitl_req:
@@ -212,7 +213,7 @@ def _render_llm_authored_text(turn: Mapping[str, Any]) -> list[str]:
         if context:
             lines.extend(_labeled_json_block("  hitl_request.context:", context, HITL_CONTEXT_MAX_CHARS))
 
-    raw_needed = not turn.get("parse_ok", True) or not (rationale or progress or continuity or hitl_req)
+    raw_needed = not turn.get("parse_ok", True) or not (rationale or continuity or hitl_req)
     if raw_needed:
         reason = turn.get("parse_reason_code")
         finish_reason = turn.get("provider_finish_reason")
@@ -341,25 +342,131 @@ def _render_repair(turn: Mapping[str, Any]) -> list[str]:
     return lines
 
 
+def _render_operator_progress(turn: Mapping[str, Any]) -> list[str]:
+    parsed = _coerce_mapping(turn.get("parsed_action_plan"))
+    tool_request = _coerce_mapping(turn.get("tool_request"))
+    progress = _pick_prose(parsed, tool_request, key="operator_progress_message")
+    lines: list[str] = ["Operator Progress"]
+    if progress:
+        lines.extend(_indented_prose(progress, indent="  "))
+    else:
+        lines.append("  operator_progress_message: none")
+    lines.append("")
+    return lines
+
+
 def _render_action(turn: Mapping[str, Any]) -> list[str]:
     tool_request = _coerce_mapping(turn.get("tool_request"))
     parsed = _coerce_mapping(turn.get("parsed_action_plan"))
-    action_type = tool_request.get("action_type") or parsed.get("action_type")
-    if not action_type and not tool_request and not parsed:
+    actions = _extract_actions(tool_request, parsed)
+    if not actions and not tool_request and not parsed:
         return []
-    inputs = tool_request.get("action_inputs") or parsed.get("action_inputs") or {}
-    lines = ["Action", f"  action_type: {action_type or 'none'}"]
-    if inputs:
-        lines.extend(_labeled_json_block("  action_inputs:", inputs, PROSE_MAX_CHARS))
+    lines = ["Action"]
+    if actions:
+        lines.append(f"  actions: {len(actions)}")
+        for row in actions:
+            lines.extend(_render_action_row(row))
     else:
-        lines.append("  action_inputs: none")
+        action_type = tool_request.get("action_type") or parsed.get("action_type")
+        lines.append(f"  action_type: {action_type or 'none'}")
+        inputs = tool_request.get("action_inputs") or parsed.get("action_inputs") or {}
+        if inputs:
+            lines.extend(_labeled_json_block("  action_inputs:", inputs, ACTION_INPUTS_MAX_CHARS))
+        else:
+            lines.append("  action_inputs: none")
+        hydrate_next = tool_request.get("hydrate_next") or parsed.get("hydrate_next") or []
+        if isinstance(hydrate_next, list) and hydrate_next:
+            lines.append("  hydrate_next:")
+            for ref in hydrate_next[:16]:
+                lines.append(f"    - {ref}")
+        hydrate_next_reason = (
+            tool_request.get("hydrate_next_reason") or parsed.get("hydrate_next_reason")
+        )
+        if hydrate_next_reason:
+            lines.append("  hydrate_next_reason:")
+            lines.extend(_indented_prose(str(hydrate_next_reason), indent="    "))
     for flag_key in ("skip_execution", "wait_for_human", "complete_run"):
         value = tool_request.get(flag_key)
         if value is None:
             value = parsed.get(flag_key)
         if value:
             lines.append(f"  {flag_key}: true")
+    pin_refs = tool_request.get("pin_refs") or parsed.get("pin_refs") or []
+    unpin_refs = tool_request.get("unpin_refs") or parsed.get("unpin_refs") or []
+    if isinstance(pin_refs, list) and pin_refs:
+        lines.append("  pin_refs:")
+        for ref in pin_refs[:16]:
+            lines.append(f"    - {ref}")
+    if isinstance(unpin_refs, list) and unpin_refs:
+        lines.append("  unpin_refs:")
+        for ref in unpin_refs[:16]:
+            lines.append(f"    - {ref}")
     lines.append("")
+    return lines
+
+
+def _render_pinned_refs(turn: Mapping[str, Any]) -> list[str]:
+    pinned = _coerce_mapping(turn.get("pinned_refs"))
+    pin_this_turn = turn.get("pin_refs_this_turn") or []
+    unpin_this_turn = turn.get("unpin_refs_this_turn") or []
+    if not pinned and not pin_this_turn and not unpin_this_turn:
+        return []
+    lines = ["Pinned Refs"]
+    if isinstance(pin_this_turn, list) and pin_this_turn:
+        lines.append("  pinned_this_turn:")
+        for ref in pin_this_turn[:16]:
+            lines.append(f"    - {ref}")
+    if isinstance(unpin_this_turn, list) and unpin_this_turn:
+        lines.append("  unpinned_this_turn:")
+        for ref in unpin_this_turn[:16]:
+            lines.append(f"    - {ref}")
+    active = pinned.get("active") if pinned else None
+    if isinstance(active, list) and active:
+        lines.append("  active:")
+        for row in active[:8]:
+            if isinstance(row, Mapping):
+                ref = str(row.get("ref") or "").strip()
+                if ref:
+                    lines.append(f"    - {ref}")
+    expired = pinned.get("expired") if pinned else None
+    if isinstance(expired, list) and expired:
+        lines.append("  expired:")
+        for row in expired[:8]:
+            if isinstance(row, Mapping):
+                ref = str(row.get("ref") or "").strip()
+                if ref:
+                    lines.append(f"    - {ref}")
+    lines.append("")
+    return lines
+
+
+def _render_action_row(row: Mapping[str, Any]) -> list[str]:
+    alias = str(row.get("alias") or "").strip() or "?"
+    action_type = str(row.get("action_type") or "").strip() or "none"
+    lines = [f"    - {alias}: {action_type}"]
+    hydrate_next = row.get("hydrate_next")
+    if isinstance(hydrate_next, list) and hydrate_next:
+        lines.append("      hydrate_next:")
+        for ref in hydrate_next[:16]:
+            lines.append(f"        - {ref}")
+    else:
+        lines.append("      hydrate_next: none")
+    hydrate_next_reason = row.get("hydrate_next_reason")
+    if hydrate_next_reason:
+        lines.append("      hydrate_next_reason:")
+        lines.extend(_indented_prose(str(hydrate_next_reason), indent="        "))
+    inputs = _coerce_mapping(row.get("action_inputs"))
+    if inputs:
+        lines.extend(
+            _labeled_json_block(
+                "      action_inputs:",
+                inputs,
+                ACTION_INPUTS_MAX_CHARS,
+                indent="        ",
+            )
+        )
+    else:
+        lines.append("      action_inputs: none")
     return lines
 
 
@@ -901,11 +1008,51 @@ def _render_observability(turn: Mapping[str, Any]) -> list[str]:
 # ---------------------------------------------------------------------------
 
 
+def _extract_actions(
+    tool_request: Mapping[str, Any],
+    parsed: Mapping[str, Any],
+) -> list[Mapping[str, Any]]:
+    for source in (tool_request, parsed):
+        raw = source.get("actions")
+        if isinstance(raw, list) and raw:
+            return [_coerce_mapping(row) for row in raw if isinstance(row, Mapping)]
+    legacy_batch = tool_request.get("action_batch") or parsed.get("action_batch")
+    if isinstance(legacy_batch, list) and legacy_batch:
+        return [_coerce_mapping(row) for row in legacy_batch if isinstance(row, Mapping)]
+    return []
+
+
+def _pick_dispatch_summary(turn: Mapping[str, Any]) -> str:
+    tool_request = _coerce_mapping(turn.get("tool_request"))
+    parsed = _coerce_mapping(turn.get("parsed_action_plan"))
+    actions = _extract_actions(tool_request, parsed)
+    if len(actions) == 1:
+        row = actions[0]
+        alias = str(row.get("alias") or "").strip()
+        action_type = str(row.get("action_type") or "").strip() or "none"
+        if alias and alias != "action":
+            return f"actions:1 ({alias}:{action_type})"
+        return f"actions:1 ({action_type})"
+    if len(actions) > 1:
+        types = [
+            str(row.get("action_type") or "").strip() or "?"
+            for row in actions[:4]
+        ]
+        suffix = ", ..." if len(actions) > 4 else ""
+        return f"actions:{len(actions)} ({', '.join(types)}{suffix})"
+    return _pick_action_type(turn)
+
+
 def _pick_action_type(turn: Mapping[str, Any]) -> str:
     tool_request = _coerce_mapping(turn.get("tool_request"))
+    parsed = _coerce_mapping(turn.get("parsed_action_plan"))
+    actions = _extract_actions(tool_request, parsed)
+    if len(actions) == 1:
+        return str(actions[0].get("action_type") or "none")
+    if len(actions) > 1:
+        return "action_sequence"
     if tool_request.get("action_type"):
         return str(tool_request["action_type"])
-    parsed = _coerce_mapping(turn.get("parsed_action_plan"))
     if parsed.get("action_type"):
         return str(parsed["action_type"])
     terminal = turn.get("terminal_decision")
