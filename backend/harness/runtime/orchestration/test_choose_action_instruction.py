@@ -25,6 +25,45 @@ def test_choose_action_instruction_teaches_operator_progress_message() -> None:
     assert "not internal reasoning" in lowered or "not internal reasoning" in text
 
 
+def test_choose_action_instruction_teaches_native_turn_contract() -> None:
+    text = CHOOSE_ACTION_INSTRUCTION
+    lowered = text.lower()
+    assert "### action execution" in lowered
+    assert "one coherent plan" in lowered
+    assert "what tools should run now (`actions`)" in lowered
+    assert "what should be visible next turn (`hydrate_next`, `pin_refs`, `unpin_refs`)" in lowered
+    assert "what durable state changed" in lowered
+    assert "operator_progress_message` is the short user-facing intent line" in text
+    assert "rationale` is the compact internal reason" in text
+
+
+def test_choose_action_instruction_teaches_efficiency_reminders() -> None:
+    text = CHOOSE_ACTION_INSTRUCTION
+    lowered = text.lower()
+    assert "### important reminders: efficient motion density" in lowered
+    assert "each turn is expensive" in lowered
+    assert "make the turn quality-dense" in lowered
+    assert "batch actions when batching is the natural expression of the work" in lowered
+    assert "not as theater" in lowered
+    assert "leave the next turn at the most practical decision point" in lowered
+    assert "avoid a full turn whose only purpose is asking to hydrate what you just created" in lowered
+
+
+def test_choose_action_instruction_teaches_pin_refs_as_attention_support() -> None:
+    text = CHOOSE_ACTION_INSTRUCTION
+    lowered = text.lower()
+    assert "pin_refs" in text
+    assert "unpin_refs" in text
+    assert "small number of refs that should stay hot across turns" in lowered
+    assert "attention support, not proof" in lowered
+    assert "prefer `hydrate_next` for one-shot next-turn visibility" in lowered
+    assert "prefer `pin_refs` only when the same ref will likely matter across multiple turns" in lowered
+
+
+def test_choose_action_instruction_does_not_teach_legacy_action_batch() -> None:
+    assert "action_batch" not in CHOOSE_ACTION_INSTRUCTION
+
+
 def test_choose_action_instruction_requires_rationale_on_every_turn() -> None:
     text = CHOOSE_ACTION_INSTRUCTION
     assert "REQUIRED on every turn" in text

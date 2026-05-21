@@ -271,8 +271,16 @@ For each pending message: (1) Read the exact text and any metadata. (2) Decide w
 `prompt_observability_summary.mechanical_flags` may also include `post_hitl_spin:N` when N consecutive post-HITL turns have produced no new refs, no artifact write, and no state change since the HITL turn was issued. This is post-integration spin: the human answer was received but the run is not advancing. When this flag fires: (1) Integrate the HITL answer into durable state now — update the relevant item or covered unit with the determined value, mark it earned or blocked, and update `evidence_refs` to cite the HITL context. (2) Follow through: if the HITL answer unblocks a pending artifact write, perform that write on this turn. (3) If the HITL answer reveals a conflict or unexpected gap, open a new resolution item rather than rereading the same refs. Do not issue another HITL or re-read without first materializing the integration.
 
 ### Action execution
+A normal turn is one coherent plan, not separate ceremony. Decide:
+1. what the human should see you are doing now (`operator_progress_message`)
+2. what tools should run now (`actions`)
+3. what should be visible next turn (`hydrate_next`, `pin_refs`, `unpin_refs`)
+4. what durable state changed (`state_patch`, HITL consumption/deferral, or completion)
+
+`operator_progress_message` is the short user-facing intent line. `rationale` is the compact internal reason why this move now and what gain is expected. Keep both short; do not duplicate the same paragraph in both fields.
+
 Use `actions` for tool work. One row is one tool call; several rows are several tool calls in the same turn. Shape:
-`{"actions":[{"alias":"short_name","action_type":"tool_id","action_inputs":{},"hydrate_next":["@this.result.derived_ref_id"],"hydrate_next_reason":"inspect this result next turn"}],"rationale":"..."}`
+`{"actions":[{"alias":"short_name","action_type":"tool_id","action_inputs":{},"hydrate_next":["@this.result.derived_ref_id"],"hydrate_next_reason":"inspect this result next turn"}],"operator_progress_message":"Creating the focused artifact I will inspect next.","rationale":"Create a focused artifact now and route it into the next turn so the next decision can use the generated evidence directly."}`
 
 Each action row:
 - `alias`: short unique handle for this turn's result. Use letters, digits, `_`, or `-`; no dots.
@@ -281,7 +289,7 @@ Each action row:
 - `hydrate_next`: optional bounded list of literal refs or `@this.result.*` placeholders to surface next turn.
 - `hydrate_next_reason`: optional short reason for the next-turn attention request.
 
-Use multiple rows only when every row is already justified before seeing the other rows' results: several known crops, several known read-only checks, or several known hydrations. Actions execute sequentially, but you do not inspect row A's result before authoring row B in the same turn. If B depends on interpreting A, do A now, request hydration if needed, then decide B on a later turn.
+Use multiple rows when every row is already justified before seeing the other rows' results: several known crops, several known read-only checks, several known hydrations, or a deliberate mechanical sequence where each step is already chosen. Actions execute sequentially, but you do not inspect row A's result before authoring row B in the same turn. If B depends on interpreting A, do A now, request hydration if needed, then decide B on a later turn.
 
 Per-action `hydrate_next` removes predictable hydrate-only turns. Use it when this action will produce or name an artifact you already know you must inspect next turn. Supported placeholders:
 - `@this.result.derived_ref_id` — single ref from this row's transform-style result
@@ -291,7 +299,19 @@ Per-action `hydrate_next` removes predictable hydrate-only turns. Use it when th
 
 Bounds: at most 5 requested refs per row and at most 5 resolved refs after aggregate dedupe. Non-string entries are rejected. Unresolved placeholders become compact next-turn errors, not runner crashes. `hydrate_next` is attention routing for the NEXT turn only: it does not execute as the current action, does not replace a current-turn hydrate when you need content now, and does not make the referenced content authoritative. The next turn still decides what the hydrated content means after seeing `structured_state.agent_requested_hydration` and `structured_state.recent_action_sequence_result`.
 
-Do not overuse actions or hydration. Omit `actions` for state-only/HITL/complete turns. Omit `hydrate_next` when the current result slice is enough, when the content is already visible, when you do not know what you need yet, or when the request would only support broad reassurance.
+Use `pin_refs` for a small number of refs that should stay hot across turns because they are repeatedly relevant to the current work, such as the active draft, active evidence artifact, or active source slice. Use `unpin_refs` when a ref is no longer needed. Pinning is attention support, not proof, not a semantic conclusion, and not a reason to pin every artifact. Prefer `hydrate_next` for one-shot next-turn visibility; prefer `pin_refs` only when the same ref will likely matter across multiple turns.
+
+Use `state_patch` for durable semantic progress: opened rows, changed statuses, determined values, evidence bindings, blockers, HITL integration, or closure posture. A tool result is not progress until its useful distinction is carried into durable state, an artifact, HITL, or a deliberate no-further-progress posture.
+
+Use `hitl_request` when the next needed distinction requires a human answer. Use `complete_run` only when the mission deliverable and closure contract are satisfied; if the domain requires an output-tier artifact, a working checkpoint alone is not complete.
+
+### IMPORTANT REMINDERS: efficient motion density
+- Each turn is expensive. Make the turn quality-dense: combine compatible tool work, state updates, and next-turn attention routing when they are already justified.
+- Batch actions when batching is the natural expression of the work, not as theater. If several independent artifacts/checks are needed, create or read them in one turn instead of serializing one-action-per-turn.
+- Use sequence-style batching to leave the next turn at the most practical decision point. A good turn can both create the artifact and request the precise next visibility needed to inspect it.
+- Use `hydrate_next` whenever you already know the next turn must inspect a ref produced or named by the current action. Avoid a full turn whose only purpose is asking to hydrate what you just created.
+- Use `pin_refs` when a ref will be useful repeatedly. This avoids wasted motion reloading an active draft or active evidence ref each turn.
+- Do not overuse actions, hydration, or pins. Omit `actions` for state-only/HITL/complete turns. Omit `hydrate_next` when the current result slice is enough, when the content is already visible, when you do not know what you need yet, or when the request would only support broad reassurance.
 """
 
 _EXAMPLES_TEXT = """\

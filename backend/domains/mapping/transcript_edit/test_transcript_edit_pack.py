@@ -102,6 +102,13 @@ def test_prompt_branch_block_shape_and_doctrine_markers() -> None:
     assert "material claim" in text.lower()
     assert "zoom is a source-reading move" in text.lower()
     assert "audit product" in text.lower()
+    assert "visual source-reading audit" in text.lower()
+    assert "bounded source-shape audit" in text.lower()
+    assert "inspect the evidence as a physical mark" in text.lower()
+    assert "orientation, baseline, neighboring characters, and local handwriting style" in text.lower()
+    assert "tight claim-local crop" in text.lower()
+    assert "slightly wider local phrase or line crop" in text.lower()
+    assert "do not keep rereading indefinitely" in text.lower()
     assert "do not let one salient conflict stand in for the full mapping-critical inventory" in text.lower()
     assert "the work universe is not the set of places where peer t0 drafts disagree" in text.lower()
     assert "peer drafts can be a useful entry point for inventorying" in text.lower()
@@ -677,6 +684,17 @@ def test_transcript_edit_output_contract_sections_have_no_current_deed_examples(
     )
     for banned in ("range 75", "range 74", "parcel 1", "parcel 2", "nw corner", "1638"):
         assert banned not in combined, f"Found banned current-deed example {banned!r} in transcript-edit contract text"
+
+
+def test_visual_source_reading_audit_has_no_current_deed_examples() -> None:
+    branch = build_transcript_edit_branch_blocks()[0].text.lower()
+    audit_start = branch.find("## visual source-reading audit")
+    audit_end = branch.find("for legal-description handoff")
+    assert audit_start >= 0 and audit_end > audit_start
+    audit_text = branch[audit_start:audit_end]
+
+    for banned in ("range 75", "range 74", "parcel 1", "parcel 2", "nw corner", "1638", "n. 2", "n. 4"):
+        assert banned not in audit_text, f"Found banned current-deed example {banned!r} in visual audit doctrine"
 
 
 def test_procedural_guidance_discourages_fresh_transform_rehydrate_waste() -> None:
