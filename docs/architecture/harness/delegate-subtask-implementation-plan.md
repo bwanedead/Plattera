@@ -120,36 +120,16 @@ Acceptance:
 
 ---
 
-## Required Follow-Up Before Phase 5 (Profile-Specific Result Schemas)
+## Required Follow-Up Before Phase 5 (Profile-Specific Result Schemas) — COMPLETE
 
-Phases 1–3 ship with an intentional v1 contract: **all profiles must return the generic observation
-result shape** (`reading`, `ambiguity`, `observations`, `limits`). Child prompts already include
-`profile.result_schema` as the required JSON shape, but normalization does not yet preserve custom
-result fields.
+Implemented in `backend/harness/runtime/orchestration/subtasks/result_schema.py`:
 
-Current behavior (acceptable for Phase 1–3):
+- profile `result_schema` validation at registration time
+- schema-driven child result normalization in `runner.py`
+- schema-driven bounded projection in `projection.py`
+- dynamic timeline rendering for profile-specific result fields
 
-- `build_child_prompt()` surfaces `profile.result_schema` to the child model.
-- `normalize_child_output()` / `_normalize_result()` in
-  `backend/harness/runtime/orchestration/subtasks/runner.py` always normalizes `result` into only
-  the generic observation fields.
-- A profile with `result_schema: {"result": {"domain_notes": [...]}}` will prompt for `domain_notes`
-  and then silently drop that field on normalization.
-- `project_subtask_output()` in `projection.py` also projects only the generic observation fields.
-
-Required before any domain profile depends on custom result payloads (especially Phase 5
-`transcript_edit.visual_source_observation`):
-
-- teach `_normalize_result()` to derive bounded field extraction from `profile.result_schema`
-  (string, nullable string, string lists; reject unknown/extra top-level keys per profile policy)
-- update `_cap_result_size()` to cap profile-specific fields, not only hardcoded observation keys
-- update `project_subtask_output()` (and timeline helpers if needed) to project schema-defined
-  fields instead of hardcoding observation keys
-- add tests proving a composed domain profile preserves custom result fields end-to-end
-  (prompt → normalize → parent projection)
-
-Until this follow-up lands, domain profiles may customize prompts and ref kinds but must not rely on
-custom `result` payload fields reaching the parent.
+Phase 5 (`transcript_edit.visual_source_observation`) can now depend on custom result payload fields.
 
 ---
 

@@ -17,12 +17,16 @@ from .contracts import (
     SubtaskProfile,
 )
 from .prompting import build_child_prompt, prompt_ref_summary
+from .result_schema import (
+    SubtaskResultSchemaError,
+    empty_result_for_profile,
+    normalize_result_payload,
+)
 
 TextModelCaller = Callable[..., Mapping[str, Any] | str]
 HydrationHandler = Callable[[Any], Any]
 
 _MAX_FIELD_CHARS = 240
-_MAX_LIST_ITEMS = 6
 
 
 def run_delegate_subtask(
@@ -65,6 +69,7 @@ def run_delegate_subtask(
             model_name=model_name,
             image_attachment_count=len(context.image_attachments),
             hydration_errors=context.errors,
+            profile=profile,
         )
 
     normalized = normalize_child_output(
@@ -165,6 +170,7 @@ def normalize_child_output(
             request=request,
             reason_code="subtask_output_malformed",
             message="Child output was not a JSON object.",
+            profile=profile,
         )
     status = str(parsed.get("status") or "").strip()
     if status not in SUBTASK_STATUSES:
@@ -173,9 +179,22 @@ def normalize_child_output(
             request=request,
             reason_code="subtask_status_invalid",
             message="Child output status was missing or invalid.",
+            profile=profile,
         )
     result_raw = parsed.get("result")
-    result = _normalize_result(result_raw if isinstance(result_raw, Mapping) else {}, profile=profile)
+    try:
+        result = normalize_result_payload(
+            result_raw if isinstance(result_raw, Mapping) else {},
+            profile=profile,
+        )
+    except SubtaskResultSchemaError as exc:
+        return _failed_output(
+            subtask_id=subtask_id,
+            request=request,
+            reason_code=exc.reason_code,
+            message=str(exc),
+            profile=profile,
+        )
     normalized = {
         "action_type": DELEGATE_SUBTASK_ACTION_TYPE,
         "subtask_id": str(subtask_id or DELEGATE_SUBTASK_ACTION_TYPE),
@@ -183,6 +202,7 @@ def normalize_child_output(
         "status": status,
         "input_refs": list(request.context_refs),
         "result": result,
+        "result_schema": dict(profile.result_schema),
     }
     if profile.result_validator is not None:
         try:
@@ -193,6 +213,7 @@ def normalize_child_output(
                 request=request,
                 reason_code="subtask_result_validator_failed",
                 message=str(exc),
+                profile=profile,
             )
     return normalized
 
@@ -234,16 +255,6 @@ def _parse_raw_child_output(raw: Any) -> Mapping[str, Any] | None:
     return None
 
 
-def _normalize_result(raw: Mapping[str, Any], *, profile: SubtaskProfile) -> dict[str, Any]:
-    result = {
-        "reading": _nullable_bounded_text(raw.get("reading"), profile=profile),
-        "ambiguity": _bounded_text(raw.get("ambiguity"), profile=profile),
-        "observations": _bounded_text_list(raw.get("observations"), profile=profile),
-        "limits": _bounded_text_list(raw.get("limits"), profile=profile),
-    }
-    return _cap_result_size(result, max_chars=profile.max_result_chars)
-
-
 def _failed_output(
     *,
     subtask_id: str,
@@ -254,19 +265,25 @@ def _failed_output(
     model_name: str | None = None,
     image_attachment_count: int | None = None,
     hydration_errors: tuple[Mapping[str, Any], ...] = (),
+    profile: SubtaskProfile | None = None,
 ) -> dict[str, Any]:
+    failed_result = (
+        empty_result_for_profile(profile, message=message)
+        if profile is not None
+        else {
+            "reading": None,
+            "ambiguity": "",
+            "observations": [],
+            "limits": [_bound_text(message, _MAX_FIELD_CHARS)],
+        }
+    )
     out: dict[str, Any] = {
         "action_type": DELEGATE_SUBTASK_ACTION_TYPE,
         "subtask_id": str(subtask_id or DELEGATE_SUBTASK_ACTION_TYPE),
         "profile": request.profile,
         "status": "failed",
         "input_refs": list(request.context_refs),
-        "result": {
-            "reading": None,
-            "ambiguity": "",
-            "observations": [],
-            "limits": [_bound_text(message, _MAX_FIELD_CHARS)],
-        },
+        "result": failed_result,
         "errors": [{"reason_code": reason_code, "message": _bound_text(message, _MAX_FIELD_CHARS)}],
     }
     if hydration_errors:
@@ -281,40 +298,6 @@ def _failed_output(
     if trace:
         out["subtask_trace"] = trace
     return out
-
-
-def _nullable_bounded_text(value: Any, *, profile: SubtaskProfile) -> str | None:
-    if value is None:
-        return None
-    return _bounded_text(value, profile=profile)
-
-
-def _bounded_text(value: Any, *, profile: SubtaskProfile) -> str:
-    del profile
-    return _bound_text(value, _MAX_FIELD_CHARS)
-
-
-def _bounded_text_list(value: Any, *, profile: SubtaskProfile) -> list[str]:
-    if not isinstance(value, (list, tuple)):
-        return []
-    return [
-        _bounded_text(item, profile=profile)
-        for item in value[:_MAX_LIST_ITEMS]
-        if str(item or "").strip()
-    ]
-
-
-def _cap_result_size(result: dict[str, Any], *, max_chars: int) -> dict[str, Any]:
-    text = json.dumps(result, separators=(",", ":"), default=str)
-    if len(text) <= int(max_chars):
-        return result
-    capped = dict(result)
-    capped["observations"] = list(capped.get("observations") or [])[:2]
-    capped["limits"] = list(capped.get("limits") or [])[:2]
-    for key in ("reading", "ambiguity"):
-        if isinstance(capped.get(key), str):
-            capped[key] = capped[key][:120]
-    return capped
 
 
 def _bound_text(value: Any, limit: int) -> str:

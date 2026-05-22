@@ -194,3 +194,32 @@ def test_child_prompt_uses_profile_result_schema() -> None:
     )
 
     assert "domain_notes" in prompt
+
+
+def test_custom_profile_preserves_fields_end_to_end() -> None:
+    profile = SubtaskProfile(
+        profile_id="domain.observation",
+        owner="domain",
+        description="custom",
+        allowed_ref_kinds=("artifact",),
+        prompt_preamble="observe",
+        result_schema={
+            "status": ["completed", "ambiguous", "insufficient_input", "failed"],
+            "result": {"domain_notes": ["string"]},
+        },
+    )
+    SubtaskProfileRegistry().register(profile)
+
+    output = normalize_child_output(
+        json.dumps({"status": "completed", "result": {"domain_notes": ["visible mark"]}}),
+        subtask_id="s1",
+        request=DelegateSubtaskRequest(
+            profile="domain.observation",
+            task="Inspect supplied artifact.",
+            context_refs=("artifact:sample",),
+        ),
+        profile=profile,
+    )
+
+    assert output["result"]["domain_notes"] == ["visible mark"]
+    assert "reading" not in output["result"]

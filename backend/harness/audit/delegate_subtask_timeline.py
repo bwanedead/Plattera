@@ -47,18 +47,7 @@ def render_delegate_subtask_result(item: Mapping[str, Any]) -> list[str]:
         for ref in input_refs[:8]:
             lines.append(f"          - {ref}")
     result = projected.get("result") if isinstance(projected.get("result"), Mapping) else {}
-    reading = result.get("reading")
-    if reading is not None:
-        lines.append(f"        reading: {reading}")
-    ambiguity = result.get("ambiguity")
-    if ambiguity:
-        lines.append(f"        ambiguity: {ambiguity}")
-    for key in ("observations", "limits"):
-        rows = result.get(key)
-        if isinstance(rows, list) and rows:
-            lines.append(f"        {key}:")
-            for row in rows[:4]:
-                lines.append(f"          - {row}")
+    lines.extend(_render_result_fields(result, indent="        "))
     errors = projected.get("errors")
     if isinstance(errors, list) and errors:
         lines.append("        errors:")
@@ -70,6 +59,30 @@ def render_delegate_subtask_result(item: Mapping[str, Any]) -> list[str]:
     trace = projected.get("subtask_trace")
     if isinstance(trace, Mapping) and trace:
         lines.append(f"        subtask_trace: {_bounded_mapping_text(trace)}")
+    return lines
+
+
+def _render_result_fields(result: Mapping[str, Any], *, indent: str) -> list[str]:
+    lines: list[str] = []
+    for key, value in result.items():
+        if value is None:
+            continue
+        if isinstance(value, list):
+            if not value:
+                continue
+            lines.append(f"{indent}{key}:")
+            for row in value[:4]:
+                lines.append(f"{indent}  - {row}")
+            continue
+        if isinstance(value, Mapping):
+            nested = _render_result_fields(value, indent=f"{indent}  ")
+            if nested:
+                lines.append(f"{indent}{key}:")
+                lines.extend(nested)
+            continue
+        text = str(value).strip()
+        if text:
+            lines.append(f"{indent}{key}: {text}")
     return lines
 
 

@@ -15,6 +15,7 @@ from .contracts import (
     SubtaskProfile,
 )
 from .errors import SubtaskRegistryError
+from .result_schema import SubtaskProfileSchemaError, validate_profile_result_schema
 
 
 class SubtaskProfileRegistry:
@@ -33,7 +34,12 @@ class SubtaskProfileRegistry:
             raise ValueError("subtask profile_id is required")
         if int(profile.max_turns) != 1:
             raise ValueError("delegate_subtask v1 profiles must have max_turns=1")
-        self._profiles[profile_id] = replace(profile, profile_id=profile_id)
+        try:
+            schema = dict(profile.result_schema) if profile.result_schema else dict(_OBSERVATION_SCHEMA)
+            validate_profile_result_schema(schema)
+        except SubtaskProfileSchemaError as exc:
+            raise ValueError(str(exc)) from exc
+        self._profiles[profile_id] = replace(profile, profile_id=profile_id, result_schema=schema)
 
     def get(self, profile_id: str) -> SubtaskProfile | None:
         normalized = str(profile_id or "").strip()
