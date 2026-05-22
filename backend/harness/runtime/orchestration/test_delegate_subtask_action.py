@@ -10,6 +10,7 @@ from harness.runtime.orchestration.action_plan_parser import (
 )
 from harness.runtime.orchestration.subtasks.contracts import DELEGATE_SUBTASK_ACTION_TYPE
 from harness.runtime.orchestration.subtasks.registry import build_composed_subtask_registry
+from harness.runtime.orchestration.tool_batch_policy import ToolBatchPolicy
 
 
 def _payload(action_inputs: dict) -> str:
@@ -137,3 +138,45 @@ def test_parser_accepts_composed_domain_profile() -> None:
     )
 
     assert plan.actions[0].action_inputs["profile"] == "domain.visual_observation"
+
+
+def test_parser_rejects_second_delegate_when_batching_disabled() -> None:
+    payload = json.dumps(
+        {
+            "actions": [
+                {
+                    "alias": "read_a",
+                    "action_type": DELEGATE_SUBTASK_ACTION_TYPE,
+                    "action_inputs": {
+                        "profile": "harness.observation",
+                        "task": "Inspect the supplied input.",
+                        "context_refs": ["artifact:a"],
+                    },
+                },
+                {
+                    "alias": "read_b",
+                    "action_type": DELEGATE_SUBTASK_ACTION_TYPE,
+                    "action_inputs": {
+                        "profile": "harness.observation",
+                        "task": "Inspect the supplied input.",
+                        "context_refs": ["artifact:b"],
+                    },
+                },
+            ],
+            "rationale": "Run two observations.",
+        }
+    )
+    with pytest.raises(ModelActionParseError) as excinfo:
+        parse_action_plan_response(
+            payload,
+            available_tool_ids=(DELEGATE_SUBTASK_ACTION_TYPE,),
+            tool_batch_policies={
+                DELEGATE_SUBTASK_ACTION_TYPE: ToolBatchPolicy(
+                    tool_id=DELEGATE_SUBTASK_ACTION_TYPE,
+                    allowed=False,
+                    max_calls_per_batch=0,
+                    side_effect_class="read_only",
+                )
+            },
+        )
+    assert excinfo.value.reason_code == "invalid_model_action_json"

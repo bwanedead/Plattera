@@ -47,6 +47,7 @@ from harness.runtime.orchestration.llm_turn_adapter import LlmTurnOrchestrationA
 from harness.runtime.orchestration.llm_turn_lifecycle import LlmTurnPreChooseActionParticipant
 from harness.runtime.orchestration.orchestrator import run_orchestration_kernel_loop
 from harness.runtime.orchestration.subtasks.contracts import DELEGATE_SUBTASK_ACTION_TYPE
+from harness.runtime.orchestration.subtasks.batch_policy import delegate_subtask_tool_batch_spec
 from harness.runtime.orchestration.subtasks.handler import make_delegate_subtask_handler
 from harness.runtime.orchestration.subtasks.registry import build_composed_subtask_registry
 from harness.runtime.orchestration.tool_batch_policy import enrich_run_context_with_tool_batch_policies
@@ -483,10 +484,7 @@ def _with_delegate_subtask_tool(
                         "isolation": "optional known boolean flags",
                         "output_contract": "optional bounded object",
                     },
-                    "batching": {
-                        "allowed": False,
-                        "side_effect_class": "read_only",
-                    },
+                    "batching": delegate_subtask_tool_batch_spec(),
                 }
             ]
         },

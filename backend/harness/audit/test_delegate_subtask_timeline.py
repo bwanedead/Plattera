@@ -71,3 +71,92 @@ def test_timeline_renders_delegate_subtask_mechanics_without_raw_media() -> None
     assert "prompt_char_count" in body
     assert "SHOULD_NOT_RENDER" not in body
     assert "b64" not in body.lower()
+
+
+def test_timeline_renders_two_delegate_rows_with_custom_fields_and_no_b64() -> None:
+    body = render_timeline(
+        [
+            {
+                "turn_index": 3,
+                "parse_ok": True,
+                "tool_request": {
+                    "actions": [
+                        {
+                            "alias": "read_a",
+                            "action_type": DELEGATE_SUBTASK_ACTION_TYPE,
+                            "action_inputs": {
+                                "profile": "transcript_edit.visual_source_observation",
+                                "task": "Read bearing text in crop A.",
+                                "context_refs": ["image:derived:a"],
+                            },
+                        },
+                        {
+                            "alias": "read_b",
+                            "action_type": DELEGATE_SUBTASK_ACTION_TYPE,
+                            "action_inputs": {
+                                "profile": "transcript_edit.visual_source_observation",
+                                "task": "Read bearing text in crop B.",
+                                "context_refs": ["image:derived:b"],
+                            },
+                        },
+                    ],
+                    "rationale": "delegate two localized reads",
+                },
+                "recent_action_sequence_result": {
+                    "sequence_id": "seq-3",
+                    "source_turn_index": 3,
+                    "items": [
+                        {
+                            "alias": "read_a",
+                            "action_type": DELEGATE_SUBTASK_ACTION_TYPE,
+                            "execution_state": "executed",
+                            "delegate_subtask": {
+                                "subtask_id": "read_a",
+                                "profile": "transcript_edit.visual_source_observation",
+                                "status": "completed",
+                                "input_refs": ["image:derived:a"],
+                                "result": {
+                                    "task_response": "Crop A reads N. 4° 00' W.",
+                                    "source_visible_text": "N. 4° 00' W.",
+                                    "visual_basis": ["numeral resembles 4"],
+                                    "ambiguity": "",
+                                    "limits": [],
+                                },
+                            },
+                        },
+                        {
+                            "alias": "read_b",
+                            "action_type": DELEGATE_SUBTASK_ACTION_TYPE,
+                            "execution_state": "executed",
+                            "delegate_subtask": {
+                                "subtask_id": "read_b",
+                                "profile": "transcript_edit.visual_source_observation",
+                                "status": "failed",
+                                "input_refs": ["image:derived:b"],
+                                "result": {},
+                                "errors": [
+                                    {
+                                        "reason_code": "subtask_output_malformed",
+                                        "message": "Child output was not a JSON object.",
+                                    }
+                                ],
+                            },
+                        },
+                    ],
+                },
+                "tool_result_raw": {
+                    "execution_state": "executed",
+                    "outputs": {"image_b64": "SHOULD_NOT_RENDER"},
+                },
+            }
+        ]
+    )
+
+    assert "read_a" in body
+    assert "read_b" in body
+    assert body.count("subtask_profile: transcript_edit.visual_source_observation") == 2
+    assert "source_visible_text:" in body
+    assert "N. 4° 00' W." in body
+    assert "subtask_output_malformed" in body
+    assert "SHOULD_NOT_RENDER" not in body
+    assert "b64" not in body.lower()

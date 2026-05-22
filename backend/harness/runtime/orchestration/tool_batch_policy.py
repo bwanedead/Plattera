@@ -12,7 +12,9 @@ from typing import Any
 
 _RUN_CONTEXT_POLICIES_KEY = "__tool_batch_policies"
 
-ALLOWED_SIDE_EFFECT_CLASSES: frozenset[str] = frozenset({"read_only", "derived_artifact"})
+ALLOWED_SIDE_EFFECT_CLASSES: frozenset[str] = frozenset(
+    {"read_only", "derived_artifact", "model_observation"}
+)
 DISALLOWED_SIDE_EFFECT_CLASSES: frozenset[str] = frozenset({
     "workspace_write", "publish", "terminal", "hitl",
 })

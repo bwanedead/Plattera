@@ -68,6 +68,21 @@ def test_choose_action_instruction_teaches_pin_refs_as_attention_support() -> No
     assert "prefer `pin_refs` only when the same ref will likely matter across multiple turns" in lowered
 
 
+def test_choose_action_instruction_teaches_delegate_subtask_sensibly() -> None:
+    text = CHOOSE_ACTION_INSTRUCTION
+    lowered = text.lower()
+    assert "`delegate_subtask` is a generic observation tool" in text
+    assert "buys isolated attention" in lowered
+    assert "the parent curates the child work universe" in lowered
+    assert "keep the child mission neutral" in lowered
+    assert "improve signal quality or token efficiency" in lowered
+    assert "only an observation" in lowered
+    assert "does not update durable state" in lowered
+    assert "delegation is batch-capable" in lowered
+    assert "multiple `delegate_subtask` rows in one `actions` list" in lowered
+    assert "broad planning, closure judgment, graph authorship, and mission strategy stay with the parent" in lowered
+
+
 def test_choose_action_instruction_does_not_teach_legacy_action_batch() -> None:
     assert "action_batch" not in CHOOSE_ACTION_INSTRUCTION
 

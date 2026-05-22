@@ -108,6 +108,26 @@ def test_visual_source_observation_profile_registers_through_composed_registry()
     }
 
 
+def test_visual_source_observation_profile_registers_from_nested_runtime_surface_payload() -> None:
+    from harness.runtime.orchestration.subtasks.registry import build_composed_subtask_registry
+
+    payload = build_transcript_edit_domain_pack().build_surface_payload()
+    registry = build_composed_subtask_registry(
+        surface_payloads={"transcript_edit": {"transcript_edit": payload}},
+    )
+    assert registry.get(TRANSCRIPT_EDIT_VISUAL_SOURCE_OBSERVATION_PROFILE_ID) is not None
+
+
+def test_visual_source_observation_profile_registers_from_nested_list_payload() -> None:
+    from harness.runtime.orchestration.subtasks.registry import build_composed_subtask_registry
+
+    payload = build_transcript_edit_domain_pack().build_surface_payload()
+    registry = build_composed_subtask_registry(
+        surface_payloads={"transcript_edit": {"payloads": [payload]}},
+    )
+    assert registry.get(TRANSCRIPT_EDIT_VISUAL_SOURCE_OBSERVATION_PROFILE_ID) is not None
+
+
 def test_visual_source_observation_profile_normalizes_and_projects_end_to_end() -> None:
     import json
 
@@ -159,9 +179,15 @@ def test_procedural_guidance_teaches_delegate_subtask_lightly() -> None:
     text = guidance.text.lower()
     assert "delegate_subtask" in text
     assert "transcript_edit.visual_source_observation" in text
-    assert "isolated attention" in text or "isolated visual" in text
-    assert "observation returned" in text or "observation returned to you" in text
-    assert "graph" in text or "hitl" in text
+    assert "fresh isolated attention" in text
+    assert "curated local evidence" in text
+    assert "higher-signal and more token-efficient" in text
+    assert "clean-room observation pass" in text
+    assert "parent decides" in text
+    assert "keep delegate tasks neutral" in text
+    assert "what the source visibly says" in text
+    assert "delegation can be batched" in text
+    assert "independent focused reads together" in text
     assert "must delegate" not in text
     assert "always delegate" not in text
     assert "required to delegate" not in text

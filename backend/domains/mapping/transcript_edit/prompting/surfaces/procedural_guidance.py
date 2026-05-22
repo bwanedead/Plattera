@@ -10,7 +10,7 @@ from ..branch import TRANSCRIPT_EDIT_DOMAIN_ID
 TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_SOURCE_REF = (
     "backend/domains/mapping/transcript_edit/prompting/surfaces/procedural_guidance.py"
 )
-TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_VERSION = "v23"
+TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_VERSION = "v24"
 
 TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_TEXT = """\
 Use this guidance to shape your movement through transcript-edit work. This is **guidance**, not a hard script. The harness still owns orchestration. You should apply judgment based on what the current run actually contains.
@@ -125,13 +125,13 @@ Concretely:
 - If the image is not legible enough for the claim in question, record what was attempted and what stronger move remains.
 
 ## Isolated visual source observation (`delegate_subtask`)
-When a narrow visual or source-reading question would benefit from isolated attention, you may use `delegate_subtask` with the registered profile `transcript_edit.visual_source_observation`.
+For transcript-edit, delegation is a way to get a cleaner source read after you have curated the local work universe. The parent should find the relevant source area, create or choose a satisfactory crop/artifact, and then use `delegate_subtask` with `transcript_edit.visual_source_observation` when an exact reading deserves fresh isolated attention. This is especially valuable for critical determinations where a small mark, digit, word, bearing, distance, acreage, name, range/reference, or direction letter can change downstream correctness.
 
-Use this for narrow visual/source observation, not general mission planning. Prefer delegating over a localized crop or tightly relevant artifact when an exact mark, word, numeral, bearing, distance, name, or short phrase is critical and broad parent context, peer drafts, or candidate values could bias the read.
+The reason is practical: the parent turn carries peer drafts, candidate values, graph state, prior impressions, closure pressure, and a large prompt. Those things are useful for managing the mission, but they can contaminate a visual read. A delegated child can receive a much smaller prompt and only the curated local evidence, which is often a higher-signal and more token-efficient way to answer a narrow source question. Treat delegation as a clean-room observation pass: the child reports what the source visibly supports; the parent decides what that observation means for the work graph, evidence notes, draft, HITL, blockers, or final output.
 
-When candidate imprinting is a risk, ask the child to read what is visible before supplying candidate options in the task. Treat the child result as an observation returned to you. You still decide how to update the graph, evidence notes, draft, HITL, or blockers through normal actions.
+Keep delegate tasks neutral unless a comparison is truly needed. Prefer asking what the source visibly says before giving candidate values or explaining the parent-side dispute. Do not hand the child the accumulated theory of the case unless the local task requires it. If a blind observation is insufficient, a later discriminative task can ask about a specific ambiguity, but the first pass should preserve the delegate's freshness as much as possible.
 
-Do not delegate every routine value. Use isolated delegation when it is likely to improve correctness or efficiency for a focused source-reading question.
+Delegation can be batched. Once several local crops or tightly relevant artifacts are ready, send the independent focused reads together when that is sensible instead of spending one full parent turn per value. The parent should do setup and integration; delegates should provide clean local observations. Do not delegate every routine value, but for critical or ambiguity-prone determinations, prefer delegation once the evidence packet is good enough for a focused child read.
 
 ## Critical exact readings: full-page source view is not enough
 For transcript-edit source reading, the full source image is orientation evidence. It helps you find where to work. It is **not resolute enough** to earn a critical detail whose truth can turn on the shape of one character, one word, one digit, one degree mark, one direction letter, or one small handwritten squiggle.

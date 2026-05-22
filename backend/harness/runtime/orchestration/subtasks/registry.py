@@ -17,6 +17,9 @@ from .contracts import (
 from .errors import SubtaskRegistryError
 from .result_schema import SubtaskProfileSchemaError, validate_profile_result_schema
 
+_MAX_PROFILE_SPEC_TRAVERSAL_DEPTH = 8
+_MAX_PROFILE_SPEC_ROWS = 128
+
 
 class SubtaskProfileRegistry:
     """In-memory registry for profile metadata.
@@ -176,12 +179,38 @@ def _iter_profile_specs(
             specs.extend(item for item in raw if isinstance(item, Mapping))
     if isinstance(surface_payloads, Mapping):
         for payload in surface_payloads.values():
-            if not isinstance(payload, Mapping):
-                continue
-            raw = payload.get("subtask_profiles")
-            if isinstance(raw, (list, tuple)):
-                specs.extend(item for item in raw if isinstance(item, Mapping))
+            if isinstance(payload, Mapping):
+                _collect_profile_specs(payload, specs, depth=0)
     return tuple(specs)
+
+
+def _collect_profile_specs(
+    node: Mapping[str, Any],
+    specs: list[Mapping[str, Any]],
+    *,
+    depth: int,
+) -> None:
+    if depth > _MAX_PROFILE_SPEC_TRAVERSAL_DEPTH or len(specs) >= _MAX_PROFILE_SPEC_ROWS:
+        return
+    raw = node.get("subtask_profiles")
+    if isinstance(raw, (list, tuple)):
+        for item in raw:
+            if len(specs) >= _MAX_PROFILE_SPEC_ROWS:
+                return
+            if isinstance(item, Mapping):
+                specs.append(item)
+    for value in node.values():
+        if len(specs) >= _MAX_PROFILE_SPEC_ROWS:
+            return
+        if isinstance(value, Mapping):
+            _collect_profile_specs(value, specs, depth=depth + 1)
+            continue
+        if isinstance(value, (list, tuple)):
+            for item in value:
+                if len(specs) >= _MAX_PROFILE_SPEC_ROWS:
+                    return
+                if isinstance(item, Mapping):
+                    _collect_profile_specs(item, specs, depth=depth + 1)
 
 
 def _positive_int(value: Any, default: int) -> int:
