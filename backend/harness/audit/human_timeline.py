@@ -219,12 +219,21 @@ def _render_llm_authored_text(turn: Mapping[str, Any]) -> list[str]:
     raw_needed = not turn.get("parse_ok", True) or not (rationale or continuity or hitl_req)
     if raw_needed:
         reason = turn.get("parse_reason_code")
+        parse_detail = turn.get("parse_error_detail")
+        orig_count = turn.get("original_action_count_attempted")
+        native_actions = turn.get("native_actions_attempted")
         finish_reason = turn.get("provider_finish_reason")
         provider_error = turn.get("provider_error")
-        if reason or finish_reason or provider_error:
-            lines.append("  model_failure:")
+        if reason or parse_detail or finish_reason or provider_error:
+            lines.append("  action_parse_failure:")
             if reason:
                 lines.append(f"    parse_reason_code: {reason}")
+            if isinstance(parse_detail, str) and parse_detail.strip():
+                lines.extend(_labeled_prose_block("    parse_error_detail:", parse_detail))
+            if orig_count is not None:
+                lines.append(f"    original_action_count_attempted: {orig_count}")
+            if native_actions is not None:
+                lines.append(f"    native_actions_attempted: {bool(native_actions)}")
             if finish_reason:
                 lines.append(f"    provider_finish_reason: {finish_reason}")
             if provider_error:
@@ -333,7 +342,18 @@ def _render_repair(turn: Mapping[str, Any]) -> list[str]:
         lines.append(f"    parse_ok: {bool(rec.get('repair_parse_ok'))}")
         reason = rec.get("repair_parse_reason_code")
         if reason:
-            lines.append(f"    parse_reason_code: {reason}")
+            lines.append(f"    repair_parse_reason_code: {reason}")
+        repaired_count = rec.get("repaired_action_count")
+        if repaired_count is not None:
+            lines.append(f"    repaired_action_count: {repaired_count}")
+        orig_count = turn.get("original_action_count_attempted")
+        if orig_count is not None:
+            lines.append(f"    original_action_count_attempted: {orig_count}")
+            if repaired_count is not None and int(repaired_count) != int(orig_count):
+                if int(repaired_count) < int(orig_count):
+                    lines.append("    repair_action_count: reduced_to_cap_or_valid_rows")
+                else:
+                    lines.append("    repair_action_count: changed_from_original")
         raw = rec.get("repair_raw_response_text")
         if isinstance(raw, str) and raw.strip():
             lines.append("    raw_response_excerpt:")

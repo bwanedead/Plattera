@@ -9,7 +9,6 @@ from ...execution.session import ExecutionSessionManager
 from .contracts import ActionPlan, KernelLoopResult, OrchestrationAdapter, OrchestratorContext
 from .lifecycle import OrchestrationLifecycle, TurnCompletionObserver
 from ..memory import LoopMemoryState
-from ..memory.resume_snapshot import build_kernel_resume_snapshot
 from ..hitl.request_shape import normalize_hitl_request, validate_hitl_consumed_prompt_ids
 from ..hitl.transport import (
     apply_hitl_consumed_prompt_ids,
@@ -59,6 +58,7 @@ from .orchestrator_policy import (
     closure_enforcement_failure,
     resolution_inventory_enforcement_failure,
 )
+from .resume_checkpointing import write_resume_checkpoint
 from .run_control import build_kernel_loop_result, maybe_exit_for_run_control
 from .recoverable_turn_failure import RecoverableTurnFailure
 from .resumable_model_interruption import ResumableModelInterruption
@@ -134,30 +134,6 @@ def _recoverable_turn_failure_budget(run_ctx: dict[str, Any]) -> int:
         return _DEFAULT_RECOVERABLE_TURN_FAILURE_BUDGET
 
 
-def _write_resume_checkpoint(
-    *,
-    lifecycle: OrchestrationLifecycle,
-    loop_memory: LoopMemoryState,
-    session_manager: ExecutionSessionManager,
-    session_id: str,
-    iteration: int,
-) -> None:
-    """Best-effort per-turn ``kernel_resume.json`` snapshot; never raises."""
-    writer = lifecycle.resume_checkpoint_writer
-    if writer is None:
-        return
-    try:
-        snap = build_kernel_resume_snapshot(
-            loop_memory=loop_memory,
-            session_manager=session_manager,
-            session_id=session_id,
-            next_iteration=iteration + 1,
-        )
-        writer(snap)
-    except Exception:
-        _LOG.warning("resume_checkpoint_write_failed", exc_info=True)
-
-
 def _handle_policy_block(
     *,
     turn_completion_observer: TurnCompletionObserver | None,
@@ -212,7 +188,7 @@ def _handle_policy_block(
         terminal_decision="closure_enforcement_blocked",
         mechanical_audit=mechanical_audit,
     )
-    _write_resume_checkpoint(
+    write_resume_checkpoint(
         lifecycle=lifecycle,
         loop_memory=loop_memory,
         session_manager=session_manager,
@@ -279,7 +255,7 @@ def run_orchestration_kernel_loop(
     orchestration_adapter.initialize(context)
 
     def _checkpoint(iter_idx: int) -> None:
-        _write_resume_checkpoint(
+        write_resume_checkpoint(
             lifecycle=active_lifecycle, loop_memory=loop_memory,
             session_manager=session_manager, session_id=session_id, iteration=iter_idx,
         )

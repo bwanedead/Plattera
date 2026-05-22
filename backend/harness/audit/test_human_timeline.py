@@ -318,6 +318,50 @@ def test_timeline_shows_all_llm_authored_prose_fields(tmp_path: Path) -> None:
     assert "HITL_CONTEXT_NOTES" in body
 
 
+def test_timeline_shows_parse_error_detail_and_action_counts(tmp_path: Path) -> None:
+    writer = RunAuditWriter(tmp_path / "run1")
+    writer.observe_llm_io(
+        {
+            "turn_index": 2,
+            "parse_ok": False,
+            "parse_reason_code": "invalid_model_action_json",
+            "parse_error_detail": (
+                "invalid_model_action_json: actions failed canonical validation: "
+                "action_batch exceeds per-tool cap for transform_artifact (4)"
+            ),
+            "original_action_count_attempted": 5,
+            "native_actions_attempted": True,
+            "repair_attempted": True,
+            "repair_records": [
+                {
+                    "repair_parse_ok": True,
+                    "repaired_action_count": 4,
+                    "repair_parsed_action_plan": {
+                        "actions": [{"alias": f"c{i}", "action_type": "transform_artifact"} for i in range(4)],
+                    },
+                }
+            ],
+        }
+    )
+    writer.finalize(
+        terminal_class="failed",
+        reason_code="invalid_model_action_json",
+        iterations=2,
+        latest_refs={},
+        trace_events=[],
+    )
+    body = _timeline_path(tmp_path / "run1").read_text(encoding="utf-8")
+    assert "action_parse_failure" in body
+    assert "parse_error_detail:" in body
+    assert "exceeds per-tool" in body
+    assert "transform_artifact (4)" in body
+    assert "original_action_count_attempted: 5" in body
+    assert "native_actions_attempted: True" in body
+    assert "repaired_action_count: 4" in body
+    assert "repair_action_count: reduced_to_cap_or_valid_rows" in body
+    assert "b64" not in body.lower()
+
+
 def test_timeline_shows_raw_response_excerpt_when_parse_failed(tmp_path: Path) -> None:
     writer = RunAuditWriter(tmp_path / "run1")
     writer.observe_llm_io(
@@ -350,7 +394,7 @@ def test_timeline_shows_model_failure_provider_metadata(tmp_path: Path) -> None:
     )
 
     body = _timeline_path(tmp_path / "run1").read_text(encoding="utf-8")
-    assert "model_failure" in body
+    assert "action_parse_failure" in body
     assert "parse_reason_code: model_call_failed" in body
     assert "provider_finish_reason: length" in body
     assert "provider_completion_tokens: 16000" in body

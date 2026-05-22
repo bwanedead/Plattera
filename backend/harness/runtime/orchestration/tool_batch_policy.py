@@ -168,6 +168,17 @@ def enrich_run_context_with_tool_batch_policies(
     return out
 
 
+def resolve_policies_for_action_plan_parse(
+    *,
+    surface_payloads: Mapping[str, Mapping[str, Any]] | None,
+    opaque_run_context: Mapping[str, Any] | None = None,
+) -> dict[str, ToolBatchPolicy]:
+    """Merge run-context cached policies with surface ``tool_specs`` (surface wins on overlap)."""
+    policies = dict(tool_batch_policies_from_run_context(opaque_run_context))
+    policies.update(resolve_tool_batch_policies(surface_payloads))
+    return policies
+
+
 def tool_batch_policies_from_run_context(
     context: Mapping[str, Any] | None,
 ) -> dict[str, ToolBatchPolicy]:

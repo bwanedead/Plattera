@@ -27,6 +27,29 @@ class RepairAttempt:
     repair_error: ModelActionParseError | None
 
 
+def count_attempted_actions_in_object(payload: Mapping[str, Any]) -> int | None:
+    """Mechanical count of authored dispatch rows for audit/timeline (no semantic inference)."""
+    actions = payload.get("actions")
+    if isinstance(actions, list):
+        return len(actions)
+    batch = payload.get("action_batch")
+    if isinstance(batch, list):
+        return len(batch)
+    if payload.get("action_type"):
+        return 1
+    return None
+
+
+def count_attempted_actions_in_text(previous_response_text: str) -> int | None:
+    try:
+        parsed = json.loads(previous_response_text)
+    except Exception:
+        return None
+    if isinstance(parsed, dict):
+        return count_attempted_actions_in_object(parsed)
+    return None
+
+
 def _derive_repair_context(
     previous_response_text: str,
     parse_error_detail: str,
@@ -78,6 +101,20 @@ def _derive_repair_context(
     # unexpected action plan keys, not other "unknown" errors (e.g. unknown action_type).
     if "unexpected action plan keys" in error_lower:
         repair_targets.append("remove_unknown_top_level_keys")
+
+    if isinstance(parsed.get("actions"), list):
+        repair_targets.append("preserve_native_actions_array")
+        action_count = len(parsed["actions"])
+        if action_count > 1:
+            repair_targets.append("preserve_multi_action_intent")
+        if "exceeds per-tool cap" in error_lower or "exceeds max batch size" in error_lower:
+            repair_targets.append("reduce_actions_to_tool_cap_not_single_action")
+        if "cannot be mixed" in error_lower and (
+            parsed.get("hydrate_next") is not None or parsed.get("hydrate_next_reason") is not None
+        ):
+            repair_targets.append("remove_top_level_hydrate_when_using_per_action_hydrate")
+        if "actions[" in error_lower and action_count > 1:
+            repair_targets.append("repair_or_drop_malformed_action_rows_preserve_valid_rows")
 
     return previous_response_object, repair_targets
 

@@ -212,7 +212,7 @@ def resolve_hydrate_next_refs(
             _append(entry)
             continue
         if entry.startswith("@this."):
-            entry = "@result." + entry[len("@this.") :]
+            entry = "@" + entry[len("@this.") :]
         if entry.startswith("@batch."):
             _resolve_batch_placeholder(
                 entry,

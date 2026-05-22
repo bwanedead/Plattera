@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
 from harness.runtime.orchestration.hydrate_next import (
@@ -122,6 +124,68 @@ def test_resolve_derived_ref_id_from_outputs() -> None:
     )
     assert resolved == ["transcript_edit:derived:abc"]
     assert errors == []
+
+
+def test_resolve_this_result_derived_ref_id() -> None:
+    resolved, errors = resolve_hydrate_next_refs(
+        ["@this.result.derived_ref_id"],
+        tool_result={"outputs": {"derived_ref_id": "image:derived:crop-a"}},
+    )
+    assert resolved == ["image:derived:crop-a"]
+    assert errors == []
+    assert "@result.result" not in str(errors)
+
+
+def test_resolve_this_result_artifact_refs_list() -> None:
+    resolved, errors = resolve_hydrate_next_refs(
+        ["@this.result.artifact_refs[]"],
+        tool_result={"artifact_refs": ["image:derived:a", "image:derived:b"]},
+    )
+    assert resolved == ["image:derived:a", "image:derived:b"]
+    assert errors == []
+
+
+def test_resolve_four_rows_each_this_result_derived_ref() -> None:
+    snapshots = {
+        f"crop_{i}": {
+            "outputs": {"derived_ref_id": f"image:derived:crop-{i}"},
+            "artifact_refs": [],
+        }
+        for i in range(4)
+    }
+    resolved_all: list[str] = []
+    errors_all: list[dict[str, Any]] = []
+    for alias, snap in snapshots.items():
+        resolved, errors = resolve_hydrate_next_refs(
+            ["@this.result.derived_ref_id"],
+            tool_result=snap,
+        )
+        for row in errors:
+            tagged = dict(row)
+            tagged["action_alias"] = alias
+            errors_all.append(tagged)
+        for ref in resolved:
+            if ref not in resolved_all:
+                resolved_all.append(ref)
+    assert resolved_all == [f"image:derived:crop-{i}" for i in range(4)]
+    assert errors_all == []
+
+
+def test_resolve_bad_placeholder_preserves_other_rows() -> None:
+    good, good_err = resolve_hydrate_next_refs(
+        ["@this.result.derived_ref_id"],
+        tool_result={"outputs": {"derived_ref_id": "image:derived:ok"}},
+    )
+    bad, bad_err = resolve_hydrate_next_refs(
+        ["@this.result.what_is_this"],
+        tool_result={"outputs": {}},
+    )
+    assert good == ["image:derived:ok"]
+    assert good_err == []
+    assert bad == []
+    assert len(bad_err) == 1
+    assert bad_err[0]["reason_code"] == "unknown_placeholder"
+    assert "@result.result.derived_ref_id" not in str(bad_err)
 
 
 def test_resolve_revision_ref_from_outputs() -> None:

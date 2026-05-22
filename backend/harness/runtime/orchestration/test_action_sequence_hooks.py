@@ -169,6 +169,49 @@ def test_partial_failure_per_alias() -> None:
     assert by_alias["bad"]["execution_state"] == "retryable_error"
 
 
+def test_capture_hydrate_resolves_this_result_derived_ref_per_row() -> None:
+    lm = LoopMemoryState()
+    aliases = ("crop_surname", "crop_p1_bearing", "crop_p1_acreage", "crop_p2_bearing")
+    actions = tuple(
+        ActionPlanAction(
+            alias,
+            "transform_artifact",
+            {},
+            hydrate_next=("@this.result.derived_ref_id",),
+            hydrate_next_reason=f"inspect {alias}",
+        )
+        for alias in aliases
+    )
+    plan = action_plan_with_canonical_actions(actions=actions, rationale="four crops")
+    sequence_result = {
+        "batch_id": "req:iter:4:actions",
+        "source_turn_index": 4,
+        "items": [
+            {
+                "alias": alias,
+                "action_type": "transform_artifact",
+                "execution_state": "executed",
+                "outputs_excerpt": {"derived_ref_id": f"image:derived:{alias}"},
+            }
+            for alias in aliases
+        ],
+    }
+    capture_hydrate_after_sequence(
+        loop_memory=lm,
+        action_plan=plan,
+        sequence_result=sequence_result,
+        iteration=4,
+    )
+    pending = lm.continuity.pending_agent_hydration
+    assert pending is not None
+    assert pending["resolved_refs"] == [f"image:derived:{a}" for a in aliases]
+    assert "@result.result.derived_ref_id" not in str(pending.get("requested_refs"))
+    assert not any(
+        e.get("reason_code") == "unknown_placeholder"
+        for e in pending.get("errors") or []
+    )
+
+
 def test_capture_hydrate_after_sequence_caps_aggregate_resolved_refs() -> None:
     lm = LoopMemoryState()
     count = MAX_HYDRATE_NEXT_REFS + 3
