@@ -106,6 +106,8 @@ class LlmTurnOrchestrationAdapter(OrchestrationAdapter):
         rs_before = serialize_state(context.loop_memory.continuity.resolution_state)
         refs_before = dict(context.loop_memory.continuity.latest_refs)
 
+        prompt_budget_holder: dict[str, Any] | None = None
+
         def _emit_observability(*, parse_ok: bool, parse_reason_code: str | None) -> None:
             emit_prompt_event_observability(
                 prompt_event_observer=context.prompt_event_observer,
@@ -120,6 +122,7 @@ class LlmTurnOrchestrationAdapter(OrchestrationAdapter):
                 parse_reason_code=parse_reason_code,
                 prompt_mode=prompt_mode,
                 log_label="kernel llm",
+                prompt_budget=prompt_budget_holder,
             )
 
         def _audit(
@@ -172,6 +175,7 @@ class LlmTurnOrchestrationAdapter(OrchestrationAdapter):
         )
         prompt = prompt_doc.prompt_text
         prompt_char_count = len(prompt)
+        prompt_budget_holder = prompt_doc.prompt_budget
         image_evidence = list(context.loop_memory.pending_image_evidence)
         context.loop_memory.pending_image_evidence.clear()
         call_opts = LlmCallOptions(

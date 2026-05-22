@@ -7,18 +7,21 @@ prompt view without mutating, truncating, or deleting checkpoint/audit state.
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import Any
 
 from ...mission_state import ResolutionState
 from .prompt_utils import jsonable
+from .ref_window_projection import project_ref_list_for_prompt
 
 PROJECTION_KIND = "work_graph_projection.v1"
 COMPACT_TEXT_MAX_CHARS = 180
-MAX_EVIDENCE_REFS = 8
+MAX_COLD_EVIDENCE_REFS = 2
 _OPAQUE_KEYS_STRIPPED_FROM_PROMPT = frozenset({"launch_context", "turn_snapshot"})
 
 _CLOSED_STATUSES = frozenset({"closed", "resolved", "done", "complete", "completed"})
 _EARNED_DETERMINATIONS = frozenset({"earned", "resolved", "verified"})
+_OPEN_STATUSES = frozenset({"open", "active", "blocked", "in_review", "failed", "rejected"})
 _REPAIR_FEEDBACK_KEYS = (
     "outcome",
     "reason_code",
@@ -31,10 +34,19 @@ _REPAIR_FEEDBACK_KEYS = (
 )
 
 
+@dataclass(frozen=True)
+class PromptWorkGraphProjectionPolicy:
+    """Mechanical hot/cold rules for prompt-only work graph projection."""
+
+    active_item_id: str | None
+    hot_refs: frozenset[str]
+
+
 def build_prompt_work_graph_projection(
     resolution_state: ResolutionState,
     *,
     state_patch_feedback: Mapping[str, Any] | None = None,
+    hot_refs: frozenset[str] | None = None,
 ) -> dict[str, Any]:
     """Return a compact prompt view of the work graph.
 
@@ -42,12 +54,16 @@ def build_prompt_work_graph_projection(
     or repair-adjacent rows keep richer continuation fields.
     """
     active_item_id = resolution_state.active_item_id
+    policy = PromptWorkGraphProjectionPolicy(
+        active_item_id=active_item_id,
+        hot_refs=hot_refs or frozenset(),
+    )
     repair_feedback = _compact_repair_feedback(state_patch_feedback)
     projection: dict[str, Any] = {
         "projection_kind": PROJECTION_KIND,
         "active_item_id": active_item_id,
         "items": [
-            _project_item(item, active_item_id=active_item_id)
+            _project_item(item, policy=policy)
             for item in resolution_state.items
         ],
     }
@@ -69,93 +85,148 @@ def build_prompt_work_graph_projection(
     return projection
 
 
-def _project_item(item: Any, *, active_item_id: str | None) -> dict[str, Any]:
-    payload = jsonable(item)
-    if not isinstance(payload, dict):
-        return {}
-    compact = _is_closed(payload) and not _needs_detail(payload, active_item_id=active_item_id)
+def is_hot_resolution_item(
+    payload: Mapping[str, Any],
+    *,
+    policy: PromptWorkGraphProjectionPolicy,
+) -> bool:
+    if _needs_detail(payload, active_item_id=policy.active_item_id):
+        return True
+    if _item_has_hot_evidence(payload, policy.hot_refs):
+        return True
+    return False
+
+
+def project_cold_resolution_item(payload: Mapping[str, Any]) -> dict[str, Any]:
     row: dict[str, Any] = {
         "item_id": payload.get("item_id"),
         "title": payload.get("title"),
         "kind": payload.get("kind"),
         "status": payload.get("status"),
     }
-    _copy_if_present(row, payload, "determination")
-    for key in (
-        "label",
-        "value_kind",
-        "candidate_values",
-        "determined_value",
-        "materiality",
-    ):
+    for key in ("label", "determination", "value_kind", "determined_value", "materiality"):
         _copy_if_present(row, payload, key)
-    _copy_if_present(row, payload, "structure_kind")
-    _copy_if_present(row, payload, "blocking")
-    _copy_if_present(row, payload, "requires_hitl")
-    _copy_if_present(row, payload, "no_further_progress")
-    _copy_if_present(row, payload, "dependencies")
-    _copy_if_present(row, payload, "closure_summary")
+    if payload.get("determined_value") not in (None, "", [], {}):
+        pass
+    else:
+        _copy_if_present(row, payload, "candidate_values")
     _copy_if_present(row, payload, "reopen_triggers")
     _copy_sequence_fields(row, payload)
-    _copy_evidence(row, payload)
+    return row
 
-    verification_basis = payload.get("verification_basis")
-    if compact:
-        compact_basis = _compact_text(verification_basis)
-        if compact_basis is not None:
-            row["verification_basis"] = compact_basis
-    else:
-        for key in (
-            "summary",
-            "verification_basis",
-            "next_needed_step",
-            "completion_criteria",
-            "notes",
-            "context_notes",
-        ):
-            _copy_if_present(row, payload, key)
 
+def project_cold_covered_unit(payload: Mapping[str, Any], *, hot_refs: frozenset[str]) -> dict[str, Any]:
+    row: dict[str, Any] = {
+        "unit_id": payload.get("unit_id"),
+        "label": payload.get("label") or payload.get("title"),
+        "status": payload.get("status"),
+    }
+    for key in ("kind", "determination", "value_kind", "determined_value", "materiality"):
+        _copy_if_present(row, payload, key)
+    if payload.get("determined_value") in (None, "", [], {}):
+        _copy_if_present(row, payload, "candidate_values")
+    _copy_if_present(row, payload, "reopen_triggers")
+    _copy_cold_evidence(row, payload, hot_refs=hot_refs)
+    return {key: value for key, value in row.items() if value not in (None, "", [], {})}
+
+
+def _project_item(item: Any, *, policy: PromptWorkGraphProjectionPolicy) -> dict[str, Any]:
+    payload = jsonable(item)
+    if not isinstance(payload, dict):
+        return {}
+    if is_hot_resolution_item(payload, policy=policy):
+        return _project_hot_item(payload, policy=policy)
+    row = project_cold_resolution_item(payload)
+    _copy_cold_evidence(row, payload, hot_refs=policy.hot_refs)
     covered_units = payload.get("covered_units")
     if isinstance(covered_units, list) and covered_units:
         row["covered_units"] = [
-            _project_covered_unit(
-                unit,
-                compact=_is_closed(unit) and not _needs_unit_detail(unit),
-            )
+            _project_covered_unit(unit, policy=policy)
             for unit in covered_units
             if isinstance(unit, Mapping)
         ]
     return {key: value for key, value in row.items() if value not in (None, "", [], {})}
 
 
-def _project_covered_unit(unit: Mapping[str, Any], *, compact: bool) -> dict[str, Any]:
-    payload = dict(unit)
+def _project_hot_item(payload: Mapping[str, Any], *, policy: PromptWorkGraphProjectionPolicy) -> dict[str, Any]:
     row: dict[str, Any] = {
-        "unit_id": payload.get("unit_id"),
-        "label": payload.get("label") or payload.get("title"),
+        "item_id": payload.get("item_id"),
+        "title": payload.get("title"),
+        "kind": payload.get("kind"),
         "status": payload.get("status"),
     }
     for key in (
-        "kind",
-        "determination",
+        "label",
         "value_kind",
         "candidate_values",
         "determined_value",
         "materiality",
+        "determination",
+        "structure_kind",
+        "blocking",
+        "requires_hitl",
+        "no_further_progress",
+        "dependencies",
         "closure_summary",
         "reopen_triggers",
     ):
         _copy_if_present(row, payload, key)
-    _copy_evidence(row, payload)
-    verification_basis = payload.get("verification_basis")
-    if compact:
-        compact_basis = _compact_text(verification_basis)
-        if compact_basis is not None:
-            row["verification_basis"] = compact_basis
-    else:
+    _copy_sequence_fields(row, payload)
+    _copy_hot_evidence(row, payload, hot_refs=policy.hot_refs)
+    for key in (
+        "summary",
+        "verification_basis",
+        "next_needed_step",
+        "completion_criteria",
+        "notes",
+        "context_notes",
+    ):
+        _copy_if_present(row, payload, key)
+    covered_units = payload.get("covered_units")
+    if isinstance(covered_units, list) and covered_units:
+        row["covered_units"] = [
+            _project_covered_unit(unit, policy=policy)
+            for unit in covered_units
+            if isinstance(unit, Mapping)
+        ]
+    return {key: value for key, value in row.items() if value not in (None, "", [], {})}
+
+
+def _project_covered_unit(unit: Mapping[str, Any], *, policy: PromptWorkGraphProjectionPolicy) -> dict[str, Any]:
+    payload = dict(unit)
+    if _is_hot_covered_unit(payload, policy=policy):
+        row: dict[str, Any] = {
+            "unit_id": payload.get("unit_id"),
+            "label": payload.get("label") or payload.get("title"),
+            "status": payload.get("status"),
+        }
+        for key in (
+            "kind",
+            "determination",
+            "value_kind",
+            "candidate_values",
+            "determined_value",
+            "materiality",
+            "closure_summary",
+            "reopen_triggers",
+        ):
+            _copy_if_present(row, payload, key)
+        _copy_hot_evidence(row, payload, hot_refs=policy.hot_refs)
         for key in ("summary", "verification_basis", "next_needed_step", "opaque_payload"):
             _copy_if_present(row, payload, key)
-    return {key: value for key, value in row.items() if value not in (None, "", [], {})}
+        return {key: value for key, value in row.items() if value not in (None, "", [], {})}
+    return project_cold_covered_unit(payload, hot_refs=policy.hot_refs)
+
+
+def _is_hot_covered_unit(payload: Mapping[str, Any], *, policy: PromptWorkGraphProjectionPolicy) -> bool:
+    if _needs_unit_detail(payload):
+        return True
+    refs = payload.get("evidence_refs")
+    if isinstance(refs, list):
+        for entry in refs:
+            if isinstance(entry, str) and entry.strip() in policy.hot_refs:
+                return True
+    return False
 
 
 def _project_relation(relation: Any) -> dict[str, Any]:
@@ -184,23 +255,48 @@ def _needs_detail(payload: Mapping[str, Any], *, active_item_id: str | None) -> 
     if active_item_id and item_id == active_item_id:
         return True
     status = str(payload.get("status") or "").strip().lower()
-    if status in {"open", "active", "blocked", "in_review", "failed", "rejected"}:
+    if status in _OPEN_STATUSES:
         return True
     return bool(payload.get("blocking") or payload.get("requires_hitl") or payload.get("no_further_progress"))
 
 
 def _needs_unit_detail(payload: Mapping[str, Any]) -> bool:
     status = str(payload.get("status") or "").strip().lower()
-    if status in {"open", "active", "blocked", "in_review", "failed", "rejected"}:
+    if status in _OPEN_STATUSES:
         return True
     return bool(payload.get("next_needed_step"))
 
 
-def _copy_evidence(row: dict[str, Any], payload: Mapping[str, Any]) -> None:
+def _item_has_hot_evidence(payload: Mapping[str, Any], hot_refs: frozenset[str]) -> bool:
+    if not hot_refs:
+        return False
+    refs = payload.get("evidence_refs")
+    if isinstance(refs, list):
+        for entry in refs:
+            if isinstance(entry, str) and entry.strip() in hot_refs:
+                return True
+    return False
+
+
+def _copy_hot_evidence(row: dict[str, Any], payload: Mapping[str, Any], *, hot_refs: frozenset[str]) -> None:
     refs = payload.get("evidence_refs")
     if isinstance(refs, list) and refs:
-        row["evidence_refs"] = [str(ref) for ref in refs[:MAX_EVIDENCE_REFS]]
+        row["evidence_refs"] = [str(ref) for ref in refs[:MAX_COLD_EVIDENCE_REFS * 4]]
         row["evidence_ref_count"] = len(refs)
+    locators = payload.get("evidence_locators")
+    if isinstance(locators, list) and locators:
+        row["evidence_locator_count"] = len(locators)
+
+
+def _copy_cold_evidence(row: dict[str, Any], payload: Mapping[str, Any], *, hot_refs: frozenset[str]) -> None:
+    refs = payload.get("evidence_refs")
+    if not isinstance(refs, list) or not refs:
+        locators = payload.get("evidence_locators")
+        if isinstance(locators, list) and locators:
+            row["evidence_locator_count"] = len(locators)
+        return
+    windowed = project_ref_list_for_prompt(refs, hot_refs=hot_refs, max_exact=MAX_COLD_EVIDENCE_REFS)
+    row.update(windowed)
     locators = payload.get("evidence_locators")
     if isinstance(locators, list) and locators:
         row["evidence_locator_count"] = len(locators)

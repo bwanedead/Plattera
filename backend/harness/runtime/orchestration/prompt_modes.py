@@ -35,6 +35,7 @@ class PromptBuildDocument:
     instruction_text: str
     prompt_body: dict[str, Any]
     prompt_text: str
+    prompt_budget: dict[str, Any] | None = None
 
 
 _FULL_RUN_CONTEXT_FIELDS = (
@@ -68,6 +69,8 @@ _FULL_STRUCTURED_STATE_FIELDS = (
     "recent_turn_timeline",
     "recent_tool_result_slices",
     "agent_requested_hydration",
+    "pinned_refs",
+    "pinned_refs_hydration",
     "recent_action_sequence_result",
     "prompt_observability_summary",
 )
@@ -77,6 +80,8 @@ _STATE_REPAIR_STRUCTURED_STATE_FIELDS = (
     "recent_turn_timeline",
     "recent_tool_result_slices",
     "agent_requested_hydration",
+    "pinned_refs",
+    "pinned_refs_hydration",
     "recent_action_sequence_result",
     "prompt_observability_summary",
 )
@@ -95,6 +100,8 @@ _RESUME_STRUCTURED_STATE_FIELDS = (
     "recent_turn_timeline",
     "recent_tool_result_slices",
     "agent_requested_hydration",
+    "pinned_refs",
+    "pinned_refs_hydration",
     "recent_action_sequence_result",
     "prompt_observability_summary",
 )
@@ -112,6 +119,8 @@ _TURN_RECOVERY_STRUCTURED_STATE_FIELDS = (
     "recent_turn_timeline",
     "recent_tool_result_slices",
     "agent_requested_hydration",
+    "pinned_refs",
+    "pinned_refs_hydration",
     "recent_action_sequence_result",
     "prompt_observability_summary",
 )

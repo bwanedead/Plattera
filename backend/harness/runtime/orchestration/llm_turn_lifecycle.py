@@ -52,17 +52,21 @@ def emit_prompt_event_observability(
     parse_reason_code: str | None,
     prompt_mode: str,
     log_label: str,
+    prompt_budget: Mapping[str, Any] | None = None,
 ) -> None:
     it = int(context.loop_memory.iterations)
     prompt_event_id = f"{context.request_id_prefix}:iter{it}:{pe_id_suffix}"
+    metadata: dict[str, Any] = {
+        "prompt_event_id": prompt_event_id,
+        "surface": surface,
+        "model": model_name,
+        "prompt_char_count": prompt_char_count,
+        "prompt_mode": prompt_mode,
+    }
+    if prompt_budget:
+        metadata["prompt_budget"] = dict(prompt_budget)
     prompt_event: dict[str, Any] = {
-        "metadata": {
-            "prompt_event_id": prompt_event_id,
-            "surface": surface,
-            "model": model_name,
-            "prompt_char_count": prompt_char_count,
-            "prompt_mode": prompt_mode,
-        },
+        "metadata": metadata,
         "outcome_kind": outcome_kind_parsed if parse_ok else outcome_kind_failed,
         "outcome_ref": parse_reason_code,
     }

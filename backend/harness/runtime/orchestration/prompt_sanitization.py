@@ -11,6 +11,7 @@ from typing import Any
 from ..composition import ComposedTurnInput, TurnBlock
 from .contracts import SharedStateProjection
 from .prompt_utils import jsonable
+from .ref_window_projection import project_refs_map_for_prompt
 from .work_graph_projection import build_prompt_work_graph_projection
 
 _PROJECTION_OPAQUE_KEYS_STRIPPED_FROM_PROMPT = frozenset({"launch_context", "turn_snapshot"})
@@ -22,19 +23,28 @@ def projection_document(
     projection: SharedStateProjection | None,
     *,
     state_patch_feedback: Mapping[str, Any] | None = None,
+    hot_refs: frozenset[str] | None = None,
+    hot_latest_ref_keys: frozenset[str] | None = None,
 ) -> dict[str, Any]:
     if projection is None:
         return {}
     mission_state_visible = prompt_visible_projection_state(projection.mission_state)
     if isinstance(mission_state_visible, dict):
         mission_state_visible.pop("resolution_state", None)
+    hot = hot_refs or frozenset()
+    latest_refs = project_refs_map_for_prompt(
+        projection.latest_refs,
+        hot_refs=hot,
+        hot_latest_ref_keys=hot_latest_ref_keys,
+    )
     return {
         "mission_state": mission_state_visible,
         "resolution_state": build_prompt_work_graph_projection(
             projection.resolution_state,
             state_patch_feedback=state_patch_feedback,
+            hot_refs=hot,
         ),
-        "latest_refs": dict(projection.latest_refs),
+        "latest_refs": latest_refs,
         "active_item_id": projection.active_item_id,
     }
 
@@ -128,7 +138,16 @@ def _is_stable_doctrine_block(block: Mapping[str, Any]) -> bool:
     metadata = block.get("metadata")
     if not isinstance(metadata, Mapping):
         return True
-    return _block_layer(metadata) in _STABLE_DOCTRINE_LAYERS
+    layer = doctrine_block_layer(block)
+    return layer in _STABLE_DOCTRINE_LAYERS if layer is not None else True
+
+
+def doctrine_block_layer(block: Mapping[str, Any]) -> str | None:
+    """Return nested doctrine layer metadata when present on a block document."""
+    metadata = block.get("metadata")
+    if not isinstance(metadata, Mapping):
+        return None
+    return _block_layer(metadata)
 
 
 def _block_layer(metadata: Mapping[str, Any]) -> str | None:

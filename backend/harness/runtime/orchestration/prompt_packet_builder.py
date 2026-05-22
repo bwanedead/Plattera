@@ -18,8 +18,18 @@ from ..memory.tool_result_slices import build_recent_tool_result_slices
 from .contracts import OrchestratorContext, SharedStateProjection
 from .loop_health_summary import build_prompt_observability_summary
 from .prompt_modes import PromptBuildDocument, PromptMode, PromptModeSpec, require_prompt_mode_spec
+from .prompt_budget import build_prompt_budget_report
 from .prompt_sanitization import doctrine_blocks_document, projection_document, surface_packet_document
 from .prompt_utils import jsonable
+from .ref_window_projection import (
+    build_hot_latest_ref_keys,
+    collect_hot_refs_for_prompt,
+    project_refs_map_for_prompt,
+)
+from .recent_result_projection import (
+    project_recent_action_sequence_for_prompt,
+    project_recent_tool_result_slices_for_prompt,
+)
 
 _HIDDEN_LAUNCH_CONTEXT_KEYS = frozenset(
     {"max_iterations", "kernel_resume_snapshot", "kernel_resume_snapshot_path"}
@@ -34,8 +44,19 @@ _PROMPT_VISIBLE_DOMAIN_CLOSURE_POLICY_KEYS = frozenset(
         "minimum_resolution_items_for_publish",
         "minimum_resolution_items_for_complete",
         "required_dimension_ids",
+        "required_output_ref_for_complete",
     }
 )
+
+
+def domain_closure_policy_for_ref_projection(
+    opaque_launch_context: Mapping[str, Any],
+) -> dict[str, Any] | None:
+    """Unfiltered closure policy for mechanical hot-ref derivation only."""
+    raw = opaque_launch_context.get("domain_closure_policy")
+    if not isinstance(raw, Mapping):
+        return None
+    return dict(raw)
 
 
 def build_turn_prompt_document(
@@ -48,15 +69,27 @@ def build_turn_prompt_document(
     journal_verbatim_keep_n: int,
 ) -> PromptBuildDocument:
     visible_launch_context = prompt_visible_launch_context(opaque_launch_context)
+    hot_refs, hot_latest_ref_keys = _prompt_ref_projection_context(
+        context,
+        projection,
+        domain_closure_policy=domain_closure_policy_for_ref_projection(opaque_launch_context),
+    )
     return _assemble_prompt_document(
         mode=mode,
         doctrine_blocks=doctrine_blocks_document(composed_input),
         surface_packet=surface_packet_document(composed_input),
-        run_context=_build_run_context(visible_launch_context, context, projection),
+        run_context=_build_run_context(
+            visible_launch_context,
+            context,
+            projection,
+            hot_refs=hot_refs,
+            hot_latest_ref_keys=hot_latest_ref_keys,
+        ),
         structured_state=_build_structured_state(
             context,
             journal_verbatim_keep_n,
             closure_policy=visible_launch_context.get("domain_closure_policy"),
+            hot_refs=hot_refs,
         ),
     )
 
@@ -140,6 +173,9 @@ def _build_run_context(
     visible_launch_context: Mapping[str, Any],
     context: OrchestratorContext,
     projection: SharedStateProjection | None,
+    *,
+    hot_refs: frozenset[str],
+    hot_latest_ref_keys: frozenset[str],
 ) -> dict[str, Any]:
     cont = context.loop_memory.continuity
     hitl_pend, hitl_ans, hitl_st = hitl_prompt_visible_slice(context.loop_memory.hitl)
@@ -148,13 +184,19 @@ def _build_run_context(
         "session_id": context.session_id,
         "request_id_prefix": context.request_id_prefix,
         "launch_context": dict(visible_launch_context),
-        "latest_refs": dict(cont.latest_refs),
+        "latest_refs": project_refs_map_for_prompt(
+            cont.latest_refs,
+            hot_refs=hot_refs,
+            hot_latest_ref_keys=hot_latest_ref_keys,
+        ),
         "active_item_id": cont.active_item_id,
         "state_patch_feedback": dict(cont.state_patch_feedback),
         "hitl_state": hitl_st,
         "projection": projection_document(
             projection,
             state_patch_feedback=cont.state_patch_feedback,
+            hot_refs=hot_refs,
+            hot_latest_ref_keys=hot_latest_ref_keys,
         ),
     }
     contract_feedback = jsonable(context.loop_memory.contract_feedback)
@@ -171,11 +213,51 @@ def _build_run_context(
     return run_context
 
 
+def _prompt_ref_projection_context(
+    context: OrchestratorContext,
+    projection: SharedStateProjection | None,
+    *,
+    domain_closure_policy: Mapping[str, Any] | None,
+) -> tuple[frozenset[str], frozenset[str]]:
+    cont = context.loop_memory.continuity
+    from .pinned_refs import build_pinned_refs_projection
+
+    pinned_projection = build_pinned_refs_projection(
+        cont.pinned_refs,
+        current_turn=int(context.loop_memory.iterations),
+    )
+    resolution_items: list[dict[str, Any]] = []
+    active_item_id = cont.active_item_id
+    latest_refs = dict(cont.latest_refs)
+    if projection is not None:
+        active_item_id = projection.active_item_id or active_item_id
+        latest_refs = dict(projection.latest_refs)
+        for item in projection.resolution_state.items:
+            payload = jsonable(item)
+            if isinstance(payload, dict):
+                resolution_items.append(payload)
+    hot_latest_ref_keys = build_hot_latest_ref_keys(
+        domain_closure_policy=domain_closure_policy,
+        latest_refs=latest_refs,
+    )
+    hot_refs = collect_hot_refs_for_prompt(
+        latest_refs=latest_refs,
+        pinned_refs_projection=pinned_projection,
+        agent_requested_hydration=_build_agent_requested_hydration(cont.pending_agent_hydration),
+        recent_action_sequence_result=cont.recent_action_sequence_result,
+        resolution_items=resolution_items,
+        active_item_id=active_item_id,
+        hot_latest_ref_keys=hot_latest_ref_keys,
+    )
+    return hot_refs, hot_latest_ref_keys
+
+
 def _build_structured_state(
     context: OrchestratorContext,
     journal_verbatim_keep_n: int,
     *,
     closure_policy: Mapping[str, Any] | None,
+    hot_refs: frozenset[str],
 ) -> dict[str, Any]:
     cont = context.loop_memory.continuity
     structured: dict[str, Any] = {
@@ -217,11 +299,19 @@ def _build_structured_state(
         cont.kernel_step_result_records,
     )
     if tool_result_slices:
-        structured["recent_tool_result_slices"] = tool_result_slices
+        structured["recent_tool_result_slices"] = project_recent_tool_result_slices_for_prompt(
+            tool_result_slices,
+            current_turn=int(context.loop_memory.iterations),
+            hot_refs=hot_refs,
+        )
     pending_hydration = _build_agent_requested_hydration(cont.pending_agent_hydration)
     if pending_hydration is not None:
         structured["agent_requested_hydration"] = pending_hydration
-    sequence_lane = _build_recent_action_sequence_result(cont.recent_action_sequence_result)
+    sequence_lane = project_recent_action_sequence_for_prompt(
+        cont.recent_action_sequence_result,
+        current_turn=int(context.loop_memory.iterations),
+        hot_refs=hot_refs,
+    )
     if sequence_lane is not None:
         structured["recent_action_sequence_result"] = sequence_lane
     from .pinned_refs import build_pinned_refs_projection
@@ -251,29 +341,6 @@ def _build_pinned_refs_hydration(record: Mapping[str, Any] | None) -> dict[str, 
     errors = record.get("hydration_errors")
     if isinstance(errors, list) and errors:
         out["hydration_errors"] = errors[:5]
-    return out
-
-
-def _build_recent_action_sequence_result(record: Mapping[str, Any] | None) -> dict[str, Any] | None:
-    if not record:
-        return None
-    from .action_sequence import project_sequence_item_row
-
-    items = record.get("items")
-    if not isinstance(items, (list, tuple)) or not items:
-        return None
-    out: dict[str, Any] = {
-        "sequence_id": str(record.get("batch_id") or record.get("sequence_id") or ""),
-        "items": [
-            project_sequence_item_row(row)
-            for row in items[:5]
-            if isinstance(row, Mapping)
-        ],
-    }
-    try:
-        out["source_turn_index"] = int(record.get("source_turn_index", 0))
-    except (TypeError, ValueError):
-        out["source_turn_index"] = 0
     return out
 
 
@@ -535,12 +602,17 @@ def _assemble_prompt_document(
     if spec.mode_packet_key is not None:
         prompt_body[spec.mode_packet_key] = jsonable(dict(mode_packet or {}))
     prompt_text = spec.instruction_text + "\n\n" + json.dumps(prompt_body, ensure_ascii=False)
+    prompt_budget = build_prompt_budget_report(
+        instruction_text=spec.instruction_text,
+        prompt_body=prompt_body,
+    )
     return PromptBuildDocument(
         mode=mode,
         call_phase=spec.call_phase,
         instruction_text=spec.instruction_text,
         prompt_body=prompt_body,
         prompt_text=prompt_text,
+        prompt_budget=prompt_budget,
     )
 
 

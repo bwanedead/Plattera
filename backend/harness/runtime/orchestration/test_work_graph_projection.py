@@ -21,6 +21,8 @@ LONG_NOTEBOOK_PROSE = (
     "This is a long notebook-style paragraph with many details that may be useful in durable audit state, "
     "but it should not stay hot in the prompt once the item is closed. "
 ) * 2
+LONG_VERIFICATION_TEXT_SHOULD_NOT_BE_HOT = "LONG_VERIFICATION_TEXT_SHOULD_NOT_BE_HOT " * 40
+LONG_COVERED_UNIT_NOTE_SHOULD_NOT_BE_HOT = "LONG_COVERED_UNIT_NOTE_SHOULD_NOT_BE_HOT " * 40
 
 
 def test_closed_item_projects_compactly_and_omits_long_prose() -> None:
@@ -82,20 +84,20 @@ def test_closed_item_projects_compactly_and_omits_long_prose() -> None:
     assert "id" not in item
     assert item["label"] == "Closed value"
     assert item["value_kind"] == "identifier"
-    assert item["candidate_values"] == ["A", "B"]
+    assert "candidate_values" not in item
     assert item["determined_value"] == "A"
-    assert item["closure_summary"] == "Verified by direct evidence."
+    assert "closure_summary" not in item
     assert item["reopen_triggers"] == ["conflicting source appears"]
-    assert item["evidence_refs"] == ["artifact://evidence-a"]
+    assert item["evidence_ref_count"] == 1
     assert item["evidence_locator_count"] == 1
     assert "summary" not in item
     assert "notes" not in item
     assert "verification_basis" not in item
-    assert unit["candidate_values"] == ["A", "B"]
+    assert "candidate_values" not in unit
     assert unit["determined_value"] == "A"
     assert unit["unit_id"] == "closed-a-value"
     assert "id" not in unit
-    assert unit["closure_summary"] == "A was verified."
+    assert "closure_summary" not in unit
     assert unit["evidence_ref_count"] == 1
     assert unit["evidence_locator_count"] == 1
     assert open_unit["unit_id"] == "closed-a-open-subunit"
@@ -313,3 +315,58 @@ def test_prompt_packet_includes_compact_projection_in_run_context() -> None:
     assert projected_resolution["repair_feedback"]["semantic_repair_debt"] == ["evidence_refs"]
     assert "summary" not in projected_resolution["items"][0]
     assert LONG_NOTEBOOK_PROSE not in doc.prompt_text
+
+
+def test_closed_rows_drop_sentinel_graph_text() -> None:
+    resolution = new_resolution_state(
+        items=[
+            {
+                "item_id": "closed-sentinel",
+                "title": "Closed sentinel row",
+                "kind": "group",
+                "status": "closed",
+                "structure_kind": "group",
+                "determined_value": "group-value",
+                "verification_basis": LONG_VERIFICATION_TEXT_SHOULD_NOT_BE_HOT,
+                "notes": LONG_COVERED_UNIT_NOTE_SHOULD_NOT_BE_HOT,
+                "closure_summary": LONG_NOTEBOOK_PROSE,
+                "covered_units": [
+                    {
+                        "unit_id": "closed-sentinel-unit",
+                        "title": "Closed covered unit",
+                        "status": "closed",
+                        "determined_value": "unit-value",
+                        "verification_basis": LONG_VERIFICATION_TEXT_SHOULD_NOT_BE_HOT,
+                        "notes": LONG_COVERED_UNIT_NOTE_SHOULD_NOT_BE_HOT,
+                        "candidate_values": ["old-a", "old-b"],
+                    }
+                ],
+            }
+        ]
+    )
+    projection = build_prompt_work_graph_projection(resolution)
+    dumped = json.dumps(projection)
+    assert LONG_VERIFICATION_TEXT_SHOULD_NOT_BE_HOT not in dumped
+    assert LONG_COVERED_UNIT_NOTE_SHOULD_NOT_BE_HOT not in dumped
+    assert LONG_NOTEBOOK_PROSE not in dumped
+
+
+def test_hot_refs_keep_closed_evidence_exact() -> None:
+    resolution = new_resolution_state(
+        items=[
+            {
+                "item_id": "closed-hot-evidence",
+                "title": "Closed with hot evidence",
+                "kind": "claim",
+                "status": "closed",
+                "determined_value": "X",
+                "evidence_refs": ["artifact://hot-evidence"],
+            }
+        ]
+    )
+    projection = build_prompt_work_graph_projection(
+        resolution,
+        hot_refs=frozenset({"artifact://hot-evidence"}),
+    )
+    item = projection["items"][0]
+    assert item["evidence_refs"] == ["artifact://hot-evidence"]
