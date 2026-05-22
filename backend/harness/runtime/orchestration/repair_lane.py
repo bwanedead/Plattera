@@ -11,6 +11,7 @@ from services.llm.call_options import LlmCallOptions
 
 from .action_plan_parser import ModelActionParseError, parse_action_plan_response
 from .contracts import ActionPlan
+from .subtasks.registry import DEFAULT_SUBTASK_REGISTRY, SubtaskProfileRegistry
 from .tool_batch_policy import DomainActionBatchPolicy, ToolBatchPolicy
 from .llm_prompt_builder import build_repair_prompt_document
 
@@ -142,6 +143,7 @@ def attempt_repair(
     original_image_attachments: tuple[dict[str, Any], ...] = (),
     tool_batch_policies: Mapping[str, ToolBatchPolicy] | None = None,
     domain_batch_policy: DomainActionBatchPolicy | None = None,
+    subtask_profile_registry: SubtaskProfileRegistry = DEFAULT_SUBTASK_REGISTRY,
 ) -> RepairAttempt:
     previous_response_object, repair_targets = _derive_repair_context(
         previous_response_text, str(original_exc)
@@ -169,6 +171,7 @@ def attempt_repair(
             available_tool_ids=available_tool_ids,
             tool_batch_policies=tool_batch_policies,
             domain_batch_policy=domain_batch_policy,
+            subtask_profile_registry=subtask_profile_registry,
         )
         return RepairAttempt(
             repair_prompt_text=repair_prompt_text,

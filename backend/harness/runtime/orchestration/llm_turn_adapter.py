@@ -45,6 +45,7 @@ from .llm_turn_lifecycle import (
 from .recoverable_turn_failure import RecoverableTurnFailure, is_recoverable_output_failure
 from .repair_lane import TextModelCaller, attempt_repair, count_attempted_actions_in_text, extract_audit_text
 from .resumable_model_interruption import ResumableModelInterruption
+from .subtasks.registry import build_composed_subtask_registry
 from .tool_batch_policy import resolve_domain_action_batch_policy
 
 
@@ -189,6 +190,10 @@ class LlmTurnOrchestrationAdapter(OrchestrationAdapter):
             opaque_run_context=context.opaque_run_context,
         )
         domain_batch_policy = resolve_domain_action_batch_policy(self.opaque_launch_context)
+        subtask_registry = build_composed_subtask_registry(
+            surface_payloads=self.composed_input.surface_payloads,
+            opaque_run_context=context.opaque_run_context,
+        )
         parse_exc: ModelActionParseError | None = None
         raw_response: Any = None
         try:
@@ -198,6 +203,7 @@ class LlmTurnOrchestrationAdapter(OrchestrationAdapter):
                 available_tool_ids=available_tool_ids,
                 tool_batch_policies=tool_batch_policies,
                 domain_batch_policy=domain_batch_policy,
+                subtask_profile_registry=subtask_registry,
             )
         except ModelActionParseError as exc:
             parse_exc = exc
@@ -279,6 +285,7 @@ class LlmTurnOrchestrationAdapter(OrchestrationAdapter):
                 original_image_attachments=call_opts.image_attachments,
                 tool_batch_policies=tool_batch_policies,
                 domain_batch_policy=domain_batch_policy,
+                subtask_profile_registry=subtask_registry,
             )
             repair_rec = build_repair_audit_record(repair_attempt)
             repaired_plan = repair_attempt.repair_parsed_action_plan

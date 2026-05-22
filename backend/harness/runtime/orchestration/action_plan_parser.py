@@ -18,6 +18,7 @@ from .action_sequence import action_plan_with_canonical_actions
 from .action_sequence_plan_shape import canonicalize_actions_from_payload
 from .tool_batch_policy import DomainActionBatchPolicy, ToolBatchPolicy
 from .pinned_refs import PinnedRefsValidationError, normalize_pin_ref_list
+from .subtasks.registry import DEFAULT_SUBTASK_REGISTRY, SubtaskProfileRegistry
 from .user_message_action_plan_shape import (
     validate_user_message_consumed_ids,
     validate_user_message_defers,
@@ -107,6 +108,7 @@ def parse_action_plan_response(
     available_tool_ids: tuple[str, ...],
     tool_batch_policies: Mapping[str, ToolBatchPolicy] | None = None,
     domain_batch_policy: DomainActionBatchPolicy | None = None,
+    subtask_profile_registry: SubtaskProfileRegistry = DEFAULT_SUBTASK_REGISTRY,
 ) -> ActionPlan:
     """Parse and validate a raw model response into an ``ActionPlan``.
 
@@ -130,6 +132,7 @@ def parse_action_plan_response(
             available_tool_ids=available_tool_ids,
             tool_batch_policies=dict(tool_batch_policies or {}),
             domain_batch_policy=domain_batch_policy,
+            subtask_profile_registry=subtask_profile_registry,
         )
     except ValueError as exc:
         raise _parse_error(f"actions failed canonical validation: {exc}") from exc

@@ -305,6 +305,8 @@ Use `pin_refs` for a small number of refs that should stay hot across turns beca
 
 Use `state_patch` for durable semantic progress: opened rows, changed statuses, determined values, evidence bindings, blockers, HITL integration, or closure posture. A tool result is not progress until its useful distinction is carried into durable state, an artifact, HITL, or a deliberate no-further-progress posture.
 
+`delegate_subtask` is a generic observation tool when available in `tool_ids`. Use it only for a narrow isolated local question that benefits from fresh attention. Shape: `{"profile":"harness.observation","task":"...","context_refs":["artifact:..."],"isolation":{"omit_parent_graph":true,"omit_peer_candidates":true},"output_contract":{"kind":"observation"}}`. Treat its result as an observation only; integrate anything meaningful later through normal `state_patch`, artifact, or HITL actions.
+
 Use `hitl_request` when the next needed distinction requires a human answer. Use `complete_run` only when the mission deliverable and closure contract are satisfied; if the domain requires an output-tier artifact, a working checkpoint alone is not complete.
 
 ### IMPORTANT REMINDERS: efficient motion density

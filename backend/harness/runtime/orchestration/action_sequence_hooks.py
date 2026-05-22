@@ -35,6 +35,7 @@ from .state_patch_apply import (
     sync_state_patch_after_step_refusal,
     sync_state_patch_when_no_step_dispatched,
 )
+from .subtasks.contracts import DELEGATE_SUBTASK_ACTION_TYPE
 from .tool_batch_policy import ToolBatchPolicy
 
 _LOG = logging.getLogger(__name__)
@@ -162,10 +163,13 @@ def _execute_sequence_items(
             if multi_action
             else f"{request_id_prefix}:iter:{int(iteration)}:dispatch:{item.action_type}"
         )
+        step_inputs = dict(item.action_inputs)
+        if item.action_type == DELEGATE_SUBTASK_ACTION_TYPE:
+            step_inputs["_subtask_alias"] = item.alias
         req = ExecutionStepRequest(
             session_id=session_id,
             action_id=item.action_type,
-            inputs=dict(item.action_inputs),
+            inputs=step_inputs,
             idempotency_key=idem_key,
             run_id=run_id or None,
         )

@@ -25,6 +25,10 @@ from .action_batch import (
     validate_stored_action_batch_result,
 )
 from .contracts import ActionPlan, ActionPlanAction
+from .subtasks.contracts import DELEGATE_SUBTASK_ACTION_TYPE
+from .subtasks.errors import SubtaskValidationError
+from .subtasks.registry import DEFAULT_SUBTASK_REGISTRY, SubtaskProfileRegistry
+from .subtasks.validation import validate_delegate_subtask_inputs
 from .tool_batch_policy import DomainActionBatchPolicy, ToolBatchPolicy
 
 DEFAULT_SINGLE_ACTION_ALIAS = "action"
@@ -174,6 +178,7 @@ def validate_action_sequence_policy(
     available_tool_ids: tuple[str, ...],
     tool_batch_policies: Mapping[str, ToolBatchPolicy],
     domain_batch_policy: DomainActionBatchPolicy | None,
+    subtask_profile_registry: SubtaskProfileRegistry = DEFAULT_SUBTASK_REGISTRY,
 ) -> None:
     if not actions:
         return
@@ -181,7 +186,10 @@ def validate_action_sequence_policy(
         item = actions[0]
         if available_tool_ids and item.action_type not in available_tool_ids:
             raise ActionSequenceValidationError(f"unknown action_type: {item.action_type}")
+        _validate_delegate_subtask_item(item, registry=subtask_profile_registry)
         return
+    for item in actions:
+        _validate_delegate_subtask_item(item, registry=subtask_profile_registry)
     batch_items = tuple(
         ActionBatchItem(alias=a.alias, action_type=a.action_type, action_inputs=dict(a.action_inputs))
         for a in actions
@@ -194,6 +202,19 @@ def validate_action_sequence_policy(
             domain_batch_policy=domain_batch_policy,
         )
     except ActionBatchValidationError as exc:
+        raise ActionSequenceValidationError(str(exc)) from exc
+
+
+def _validate_delegate_subtask_item(
+    item: ActionPlanAction,
+    *,
+    registry: SubtaskProfileRegistry,
+) -> None:
+    if item.action_type != DELEGATE_SUBTASK_ACTION_TYPE:
+        return
+    try:
+        validate_delegate_subtask_inputs(item.action_inputs, registry=registry)
+    except SubtaskValidationError as exc:
         raise ActionSequenceValidationError(str(exc)) from exc
 
 

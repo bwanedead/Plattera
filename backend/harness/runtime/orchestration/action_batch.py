@@ -15,6 +15,7 @@ from .tool_batch_policy import (
     effective_max_batch_size,
     effective_tool_cap,
 )
+from .subtasks.projection import project_subtask_output
 
 DEFAULT_MAX_BATCH_SIZE = 5
 DEFAULT_MAX_RESOLVED_ACTIONS = 5
@@ -26,6 +27,7 @@ _ALIAS_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9_-]{0,63}$")
 _MAX_OUTPUTS_EXCERPT_CHARS = 800
 _MAX_ARTIFACT_REFS_PER_ITEM = 8
 _MAX_IMAGE_EVIDENCE_SUMMARY_REFS = 8
+_BINARY_KEY_PARTS = ("b64", "base64", "bytes", "binary")
 
 
 @dataclass(frozen=True)
@@ -213,7 +215,11 @@ def project_batch_item_row(row: Mapping[str, Any]) -> dict[str, Any]:
         ][:_MAX_ARTIFACT_REFS_PER_ITEM]
     outputs_excerpt = row.get("outputs_excerpt")
     if isinstance(outputs_excerpt, Mapping) and outputs_excerpt:
-        out["outputs_excerpt"] = _bounded_outputs_excerpt(outputs_excerpt)
+        subtask_projection = project_subtask_output(outputs_excerpt)
+        if subtask_projection:
+            out["delegate_subtask"] = subtask_projection
+        else:
+            out["outputs_excerpt"] = _bounded_outputs_excerpt(outputs_excerpt)
     error = row.get("error")
     if isinstance(error, Mapping) and error:
         out["error"] = dict(error)
@@ -308,10 +314,27 @@ def validate_stored_action_batch_result(row: Any) -> dict[str, Any] | None:
 def _bounded_outputs_excerpt(outputs: Mapping[str, Any] | None) -> dict[str, Any]:
     if not isinstance(outputs, Mapping) or not outputs:
         return {}
-    text = json.dumps(dict(outputs), separators=(",", ":"), default=str)
+    safe_outputs = _strip_binary(dict(outputs))
+    text = json.dumps(safe_outputs, separators=(",", ":"), default=str)
     if len(text) <= _MAX_OUTPUTS_EXCERPT_CHARS:
-        return dict(outputs)
+        return dict(safe_outputs)
     return {"_truncated": True, "preview": text[:_MAX_OUTPUTS_EXCERPT_CHARS]}
+
+
+def _strip_binary(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        out: dict[str, Any] = {}
+        for key, inner in value.items():
+            lowered = str(key).lower()
+            if any(part in lowered for part in _BINARY_KEY_PARTS):
+                continue
+            out[str(key)] = _strip_binary(inner)
+        return out
+    if isinstance(value, list):
+        return [_strip_binary(item) for item in value]
+    if isinstance(value, tuple):
+        return [_strip_binary(item) for item in value]
+    return value
 
 
 def build_batch_item_result_row(

@@ -46,6 +46,9 @@ from harness.runtime.prompting import build_harness_turn_surface
 from harness.runtime.orchestration.llm_turn_adapter import LlmTurnOrchestrationAdapter
 from harness.runtime.orchestration.llm_turn_lifecycle import LlmTurnPreChooseActionParticipant
 from harness.runtime.orchestration.orchestrator import run_orchestration_kernel_loop
+from harness.runtime.orchestration.subtasks.contracts import DELEGATE_SUBTASK_ACTION_TYPE
+from harness.runtime.orchestration.subtasks.handler import make_delegate_subtask_handler
+from harness.runtime.orchestration.subtasks.registry import build_composed_subtask_registry
 from harness.runtime.orchestration.tool_batch_policy import enrich_run_context_with_tool_batch_policies
 from harness.runtime.orchestration.trace_collector import KernelTraceCollector
 from harness.runtime.model_failure_classifier import (
@@ -306,6 +309,12 @@ class RuntimeRunner:
     def _run_orchestration(self, *, context: Mapping[str, Any], composed: ComposedTurnInput) -> Any:
         model_name = _select_model_name(context)
         model_caller = self._model_caller or _build_default_model_caller(model_name=model_name)
+        composed = _with_delegate_subtask_tool(
+            composed,
+            model_caller=model_caller,
+            model_name=model_name,
+            opaque_run_context=context,
+        )
         executor = ExecutionExecutor()
         for tool_id, handler in composed.tool_handlers.items():
             executor.register(tool_id, handler)
@@ -427,6 +436,66 @@ class RuntimeRunner:
         finally:
             _maybe_update_cli_run_state(result.status)
             _maybe_finalize_retention_and_cleanup(targets)
+
+
+def _with_delegate_subtask_tool(
+    composed: ComposedTurnInput,
+    *,
+    model_caller: Callable[..., Mapping[str, Any] | str],
+    model_name: str,
+    opaque_run_context: Mapping[str, Any] | None = None,
+) -> ComposedTurnInput:
+    """Register harness-native delegate_subtask as a normal tool binding."""
+
+    if not composed.tool_handlers:
+        # Preserve the legacy "no allowlist" test/runtime mode where action_type
+        # validation is intentionally open because no tool surface was supplied.
+        return composed
+    if DELEGATE_SUBTASK_ACTION_TYPE in composed.tool_handlers:
+        return composed
+    tool_handlers = dict(composed.tool_handlers)
+    hydration_handler = tool_handlers.get("hydrate_artifact_refs")
+    subtask_registry = build_composed_subtask_registry(
+        surface_payloads=composed.surface_payloads,
+        opaque_run_context=opaque_run_context,
+    )
+    tool_handlers[DELEGATE_SUBTASK_ACTION_TYPE] = make_delegate_subtask_handler(
+        model_caller=model_caller,
+        model_name=model_name,
+        hydration_handler=hydration_handler,
+        registry=subtask_registry,
+    )
+    surface_payloads = dict(composed.surface_payloads)
+    surface_payloads.setdefault(
+        "harness_delegate_subtask",
+        {
+            "tool_specs": [
+                {
+                    "tool_id": DELEGATE_SUBTASK_ACTION_TYPE,
+                    "description": (
+                        "Run one isolated, registered subtask profile and return a bounded "
+                        "observation result to the parent."
+                    ),
+                    "input_shape": {
+                        "profile": "required registered profile id",
+                        "task": "required bounded parent-authored task",
+                        "context_refs": "required non-empty bounded ref list",
+                        "isolation": "optional known boolean flags",
+                        "output_contract": "optional bounded object",
+                    },
+                    "batching": {
+                        "allowed": False,
+                        "side_effect_class": "read_only",
+                    },
+                }
+            ]
+        },
+    )
+    return ComposedTurnInput(
+        blocks=composed.blocks,
+        surface_payloads=surface_payloads,
+        tool_handlers=tool_handlers,
+    )
 
 
 def run_runtime_from_env(

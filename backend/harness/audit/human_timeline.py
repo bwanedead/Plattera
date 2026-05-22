@@ -26,6 +26,12 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from harness.audit.delegate_subtask_timeline import (
+    render_delegate_subtask_request,
+    render_delegate_subtask_result,
+)
+from harness.runtime.orchestration.subtasks.contracts import DELEGATE_SUBTASK_ACTION_TYPE
+
 _LOG = logging.getLogger(__name__)
 
 WRAP_COLUMNS = 100
@@ -588,6 +594,8 @@ def _render_action_row(row: Mapping[str, Any], *, turn: Mapping[str, Any]) -> li
         )
     else:
         lines.append("      action_inputs: none")
+    if action_type == DELEGATE_SUBTASK_ACTION_TYPE:
+        lines.extend(render_delegate_subtask_request(inputs))
     sequence = _coerce_mapping(turn.get("recent_action_sequence_result"))
     if sequence:
         items = sequence.get("items")
@@ -603,6 +611,8 @@ def _render_action_row(row: Mapping[str, Any], *, turn: Mapping[str, Any]) -> li
                 item_reason = item.get("reason_code")
                 if item_reason:
                     lines.append(f"      execution_reason_code: {item_reason}")
+                if action_type == DELEGATE_SUBTASK_ACTION_TYPE:
+                    lines.extend(render_delegate_subtask_result(item))
                 break
     return lines
 

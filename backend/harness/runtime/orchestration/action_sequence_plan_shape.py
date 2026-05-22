@@ -16,6 +16,7 @@ from .action_sequence import (
     validate_action_sequence_policy,
 )
 from .hydrate_next import HydrateNextValidationError, normalize_hydrate_next, normalize_hydrate_next_reason
+from .subtasks.registry import DEFAULT_SUBTASK_REGISTRY, SubtaskProfileRegistry
 from .tool_batch_policy import DomainActionBatchPolicy, ToolBatchPolicy
 
 
@@ -32,6 +33,7 @@ def canonicalize_actions_from_payload(
     available_tool_ids: tuple[str, ...],
     tool_batch_policies: Mapping[str, ToolBatchPolicy],
     domain_batch_policy: DomainActionBatchPolicy | None,
+    subtask_profile_registry: SubtaskProfileRegistry = DEFAULT_SUBTASK_REGISTRY,
 ) -> CanonicalActionParse:
     """Parse native ``actions`` or lower legacy forms; reject mixed native/legacy spellings."""
     has_actions = payload.get("actions") is not None
@@ -129,6 +131,7 @@ def canonicalize_actions_from_payload(
                 available_tool_ids=available_tool_ids,
                 tool_batch_policies=tool_batch_policies,
                 domain_batch_policy=domain_batch_policy,
+                subtask_profile_registry=subtask_profile_registry,
             )
         except ActionSequenceValidationError as exc:
             raise ValueError(str(exc)) from exc

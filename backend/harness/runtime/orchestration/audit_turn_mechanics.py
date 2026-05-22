@@ -5,6 +5,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
+from .subtasks.projection import project_subtask_row
+
 
 def _coerce_list(value: Any, *, limit: int) -> list[Any]:
     if not isinstance(value, (list, tuple)):
@@ -85,14 +87,16 @@ def project_action_sequence_for_audit(record: Mapping[str, Any] | None) -> dict[
     for raw in items[:8]:
         if not isinstance(raw, Mapping):
             continue
-        rows.append(
-            {
-                "alias": str(raw.get("alias") or "")[:64],
-                "action_type": str(raw.get("action_type") or "")[:128],
-                "execution_state": str(raw.get("execution_state") or "")[:64],
-                "reason_code": str(raw.get("reason_code") or "")[:128] or None,
-            }
-        )
+        row = {
+            "alias": str(raw.get("alias") or "")[:64],
+            "action_type": str(raw.get("action_type") or "")[:128],
+            "execution_state": str(raw.get("execution_state") or "")[:64],
+            "reason_code": str(raw.get("reason_code") or "")[:128] or None,
+        }
+        subtask = project_subtask_row(raw)
+        if subtask:
+            row["delegate_subtask"] = subtask
+        rows.append(row)
     if not rows:
         return None
     return {
