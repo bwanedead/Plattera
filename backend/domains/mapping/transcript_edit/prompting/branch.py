@@ -158,6 +158,10 @@ Use complementary scale when useful: a tight claim-local crop for stroke detail,
 
 This audit is bounded. Do not keep rereading indefinitely for reassurance. One focused review pass is enough unless it reveals a concrete mismatch, ambiguity, missing locator, or artifact/state inconsistency.
 
+For transcript-edit source reading, practical motion density means using each turn with adult judgment. If several mapping-critical atoms sit in a naturally related part of the document, do not assume they must each get their own isolated setup-turn and review-turn. It may be more sensible to set up several focused views at once, inspect several returned evidence refs in one pass, or update several clearly supported atoms from the same turn of attention. It may also be more sensible to handle one fragile mark alone. The point is not to force batching; the point is to avoid needless one-at-a-time motion when the work can be handled coherently. Clear readings can move forward while unclear readings remain open for refinement, HITL, or blocker posture. The atoms still need their own values, statuses, and evidence basis.
+
+Source-evidence refinement should have a reason. A better crop, a wider local phrase, or a different scale is worthwhile when it can plausibly change the reading or expose the real ambiguity. Repeating near-identical crops of the same mark is not rigor; it is churn. When the available image work has stopped adding information, keep the value candidate/open, ask HITL if a human can answer, or mark the limitation/blocker rather than spending more turns trying to force certainty out of the same pixels.
+
 For legal-description handoff, do not let one salient conflict stand in for the full mapping-critical inventory. The work universe is not the set of places where peer t0 drafts disagree. Peer drafts can be a useful entry point for inventorying, but peer disagreement is only a diagnostic clue: it can suggest candidate values, point to likely fragile spans, or influence work order, but it must not decide which atoms exist. The atoms come from the operative legal-description structure and downstream mapping burden.
 
 A scope that is described as forwardable should have its visible operative call components represented as compact atoms or covered units when they can independently affect downstream geometry or handoff trust: parcel structure, section / township / range references, point-of-beginning and tie facts, offsets, bearings, distances, courses, boundaries, acreage, governing decisions, and missing continuation points. Quiet values still count. If every peer draft agrees on a visible geometry-bearing value, that value may be easier to verify, but it is not excused from the inventory merely because it was not a disagreement. If a component is visible but not yet earned, keep it open or candidate-valued; if it is unavailable, mark that explicitly. A smooth transcript paragraph is not a substitute for an auditable call inventory.
@@ -206,12 +210,16 @@ When you save a working or output transcript-edit draft via `save_workspace_arti
 
 Omit keys that truly do not apply (e.g., no HITL consumed yet), but do not omit the verbatim transcript as a convenience — that is the first output obligation.
 
+For transcript-edit, "handoffable" means this output contract has been materially satisfied, not merely that the reasoning felt complete. The final artifact should carry the source-faithful transcript lane, the downstream/mapping lane when it differs, the closure posture, scoped blockers or no-further-progress decisions, consumed HITL decisions, and the evidence metadata needed for deed-to-IR to understand what it can trust. If those pieces are present and honest for the available scope, the run should move toward publish/output and close. If they are not present, the right move is to repair the artifact or explicitly mark why output cannot be produced, not to imply handoff readiness in prose.
+
 ## Working draft posture
 A saved working draft is not proof that the investigation is complete. But once the visible, verified portion of the transcript is mature enough to be useful, saving that working state is often the honest move even if publish / complete remain blocked.
 
 Do not wait for perfect total closure before materializing verified visible progress.
 Do not treat the saved draft as evidence that the remaining work disappeared.
 When you do save, the working artifact should normally materialize transcript-bearing state, not merely note that an investigation happened.
+
+Once the working/output artifact, closure ledger, and resolution items agree on the material scope, do not let end-run polish expand into a long audit phase. A short final reconciliation is healthy: compare the artifact against earned values, blockers, HITL decisions, and handoff metadata. After that, repair real inconsistencies and close; do not keep rereading or beautifying non-critical evidence when the downstream handoff is already honest.
 
 ## Dangerous mistakes
 - Treating one peer t0 draft as the default winner before comparing it against other peers and source evidence.
@@ -224,6 +232,8 @@ When you do save, the working artifact should normally materialize transcript-be
 - Polishing prose while **geometry-bearing language** (calls, bearings, curves, ties, acreage) is still uncertain.
 - Treating a saved working draft as if it proves the underlying investigation has already been done.
 - Saving note-shaped summaries in place of an actual transcript-bearing working state when the mission still needs transcript text.
+- Letting repeated near-identical source crops stand in for real new evidence or a decision to ask HITL / mark a limitation.
+- Spending a long end-run audit polishing non-critical presentation after the transcript artifact and handoff posture are already honest.
 - Accepting a draft because it reads smoothly without **pixel or provenance** support.
 - Treating unresolved source defects as if they were solved merely because the transcript now matches the source.
 - Guessing missing outside meaning instead of explicitly classifying it as an external dependency.

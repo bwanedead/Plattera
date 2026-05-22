@@ -109,6 +109,15 @@ def test_prompt_branch_block_shape_and_doctrine_markers() -> None:
     assert "tight claim-local crop" in text.lower()
     assert "slightly wider local phrase or line crop" in text.lower()
     assert "do not keep rereading indefinitely" in text.lower()
+    assert "practical motion density" in text.lower()
+    assert "using each turn with adult judgment" in text.lower()
+    assert "set up several focused views at once" in text.lower()
+    assert "not to force batching" in text.lower()
+    assert "clear readings can move forward while unclear readings remain open" in text.lower()
+    assert "the atoms still need their own values, statuses, and evidence basis" in text.lower()
+    assert "source-evidence refinement should have a reason" in text.lower()
+    assert "repeating near-identical crops" in text.lower()
+    assert "force certainty out of the same pixels" in text.lower()
     assert "do not let one salient conflict stand in for the full mapping-critical inventory" in text.lower()
     assert "the work universe is not the set of places where peer t0 drafts disagree" in text.lower()
     assert "peer drafts can be a useful entry point for inventorying" in text.lower()
@@ -159,6 +168,12 @@ def test_domain_pack_declares_semantic_prompt_blocks() -> None:
     assert "localize and enlarge the exact claim region" in text
     assert "layer 2 issue, a layer 3 issue, or an item that now warrants hitl" in text
     assert "verified transcript state" in text
+    assert "use the turn sensibly" in text
+    assert "if related crops, hydrations, or state updates can be handled together" in text
+    assert "record and close those readings while leaving the unclear ones open" in text
+    assert "setup-turn/review-turn cycle by default" in text
+    assert "refinement should earn its keep" in text
+    assert "same visual question" in text
     assert "`unassessed`, `in_review`, or `open`" in guidance.text
     assert "verified visible portion" in text
     assert "use `determination`" in text
@@ -577,6 +592,10 @@ def test_branch_teaches_verbatim_first_output_contract() -> None:
     assert "unavailable portion" in lowered and "inline" in lowered
     assert "corrected / mapping view" in lowered
     assert "must not overwrite the verbatim" in lowered
+    assert "handoffable" in lowered
+    assert "output contract has been materially satisfied" in lowered
+    assert "source-faithful transcript lane" in lowered
+    assert "the right move is to repair the artifact" in lowered
 
 
 def test_branch_teaches_no_silent_verbatim_mutation_rule() -> None:
@@ -626,6 +645,8 @@ def test_procedural_guidance_teaches_saved_payload_shape() -> None:
     assert "evidence_refs" in text
     assert "first output obligation" in lowered
     assert "not silently mutated" in lowered or "do not omit" in lowered
+    assert "review as reconciliation rather than a fresh investigation" in lowered
+    assert "publish/complete instead of stretching the run" in lowered
 
 
 def test_procedural_guidance_teaches_full_visible_available_source_scope() -> None:

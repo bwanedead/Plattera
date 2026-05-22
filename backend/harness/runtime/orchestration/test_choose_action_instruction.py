@@ -47,6 +47,14 @@ def test_choose_action_instruction_teaches_efficiency_reminders() -> None:
     assert "not as theater" in lowered
     assert "leave the next turn at the most practical decision point" in lowered
     assert "avoid a full turn whose only purpose is asking to hydrate what you just created" in lowered
+    assert "do not work one tiny tile at a time" in lowered
+    assert "several related moves can naturally be done together" in lowered
+    assert "update the clear parts while leaving unclear parts open" in lowered
+    assert "practical motion density" in lowered
+    assert "do not force artificial batching" in lowered
+    assert "concrete expected gain" in lowered
+    assert "near-identical retries" in lowered
+    assert "preserve the residual uncertainty honestly" in lowered
 
 
 def test_choose_action_instruction_teaches_pin_refs_as_attention_support() -> None:

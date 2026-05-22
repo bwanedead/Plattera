@@ -10,7 +10,7 @@ from ..branch import TRANSCRIPT_EDIT_DOMAIN_ID
 TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_SOURCE_REF = (
     "backend/domains/mapping/transcript_edit/prompting/surfaces/procedural_guidance.py"
 )
-TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_VERSION = "v21"
+TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_VERSION = "v22"
 
 TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_TEXT = """\
 Use this guidance to shape your movement through transcript-edit work. This is **guidance**, not a hard script. The harness still owns orchestration. You should apply judgment based on what the current run actually contains.
@@ -115,6 +115,10 @@ During the audit sweep before close or publish, if you discover that mission-ess
 ## Image evidence: record what you see before moving on
 The domain branch already tells you that tool-returned image evidence is turn-local. Apply that rule mechanically: if the inspection reveals a legible call, an ambiguity, a cutoff, a contradiction, or a verification result, record it in the item ledger, closure posture, and/or continuity journal during that same turn. A turn that inspects an image and then moves on without recording what was observed is a wasted verification opportunity.
 
+When source-reading targets are already known, use the turn sensibly. If related crops, hydrations, or state updates can be handled together without diluting attention, do that. If only some returned evidence is clear, record and close those readings while leaving the unclear ones open for refinement, HITL, or blocker posture. Avoid turning every atom into its own setup-turn/review-turn cycle by default, but do not force a combined pass when the evidence or attention really needs to be narrower.
+
+Refinement should earn its keep. If a crop, zoom, or re-hydration does not make the reading clearer, do not keep asking the same visual question in slightly different ways. Record the limitation, ask HITL when a human can decide, or leave the unit open/blocked with an honest posture while you move the rest of the mission forward.
+
 Concretely:
 - If the image confirms a call, update the relevant item to reflect the verified reading and its evidence basis.
 - If the image reveals an ambiguity or cutoff, create or update an item to capture the specific nature of the uncertainty.
@@ -152,6 +156,8 @@ Minimum contract:
 
 The domain branch owns the detailed lane contract. Follow it when you decide whether the two lanes should remain identical, how divergence is explained, and how unavailable source is marked. Do not omit `source_transcript_verbatim` as a convenience — saving scope notes without the verbatim transcript is not a legitimate transcript-edit artifact.
 
+Near the end of the run, treat review as reconciliation rather than a fresh investigation. Check that the artifact, closure ledger, resolution items, HITL decisions, blockers, and evidence metadata tell the same story. Repair any real mismatch. If the artifact is handoffable for the available scope and only non-critical polish remains, publish/complete instead of stretching the run.
+
 ## What not to do
 - Do not treat one peer draft as the implicit winner because it reads best.
 - Do not inventory only the disagreements while leaving agreed-but-operative deed content effectively unreviewed.
@@ -166,6 +172,8 @@ The domain branch owns the detailed lane contract. Follow it when you decide whe
 - Do not let generic posture maintenance replace transcript-edit-specific evidence work on peer drafts, source imagery, or closure layers.
 - Do not hydrate an image and then move to the next turn without recording what the image actually showed about the claim under review.
 - Do not spend a separate turn hydrating a freshly transformed crop or overlay when `transform_artifact` has already attached that generated image as next-turn evidence; inspect the attached evidence and then act, narrow, escalate, or record insufficiency.
+- Do not let repeated refinement of the same unclear reading replace an honest open/blocker/HITL posture.
+- Do not turn final review into a broad second investigation once the artifact and handoff posture are already honest.
 """
 
 

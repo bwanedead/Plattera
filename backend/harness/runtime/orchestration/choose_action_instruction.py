@@ -237,6 +237,8 @@ Handoff readiness is your authored judgment, not a host certificate. When the mi
 
 Any turn after the work is handoff-ready is extra costly. Double-check when it protects correctness, resolves a blocker, integrates user/HITL input, or ensures the artifact still matches earned state. Do not let secondary polish, nicer presentation, redundant rereads, or broad reassurance passes take over the run after the product is sufficient to hand off.
 
+Good runs do most quality control while the work is happening. A final review should be a bounded reconciliation pass: check that the deliverable, durable state, evidence posture, and closure story still agree. If that pass finds a material mismatch, repair it. If it only finds non-critical polish or nicer-to-have presentation work, record known limits where useful and close rather than starting a second investigation.
+
 ### Save/complete shape preflight
 Before authoring `complete_run`, treat artifact shape as machine-checkable, not human-checkable. `recent_tool_result_slices` always carries `latest_artifact_ref`, the bounded `outputs_excerpt`, and truncation markers; when needed or available it also carries `outputs_structural_metadata` (top-level keys, nested key paths, field presence/length signals). Use the excerpt first when it is complete, and use structural metadata when truncation or payload size would otherwise hide the needed shape. If keys are missing or fields are empty when they should not be, the next move is to repair and save again — not to ask HITL whether the artifact is complete. If the artifact keeps both a source-observed lane and a downstream-usable lane, preserve both when they differ, do not silently overwrite the source lane, mark the unavailable portion explicitly when the source is partial, and carry metadata explaining the divergence. HITL is for semantic adjudication, not for structural completeness checks the host already exposes.
 """
@@ -312,6 +314,10 @@ Use `hitl_request` when the next needed distinction requires a human answer. Use
 - Use `hydrate_next` whenever you already know the next turn must inspect a ref produced or named by the current action. Avoid a full turn whose only purpose is asking to hydrate what you just created.
 - Use `pin_refs` when a ref will be useful repeatedly. This avoids wasted motion reloading an active draft or active evidence ref each turn.
 - Do not overuse actions, hydration, or pins. Omit `actions` for state-only/HITL/complete turns. Omit `hydrate_next` when the current result slice is enough, when the content is already visible, when you do not know what you need yet, or when the request would only support broad reassurance.
+
+Be sensible about turn productivity. Do not work one tiny tile at a time when several related moves can naturally be done together. If several actions are already justified and serve the same practical next step, an `actions` list can express that in one turn. If the next turn will need their results, use per-action `hydrate_next`. If one observation clearly supports several state updates, update the clear parts while leaving unclear parts open. Keep the turn coherent, but do not force artificial batching or bounce across unrelated parts of the mission just to use multiple actions. The goal is practical motion density: enough work per turn that the run moves efficiently, while still keeping attention, correctness, and evidence quality sane.
+
+Refine when the next attempt has a concrete expected gain. Do not turn a missed crop, incomplete read, failed parse, or weak check into a loop of near-identical retries. If the next move is unlikely to change the answer, preserve the residual uncertainty honestly: keep the item open, mark the blocker/no-further-progress posture, ask HITL when a human can resolve it, or move on to other material work.
 """
 
 _EXAMPLES_TEXT = """\
