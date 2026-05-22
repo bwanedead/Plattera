@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from domains.mapping.transcript_edit.domain_pack import build_transcript_edit_domain_pack
 from harness.runtime.orchestration.action_batch import ActionBatchItem
 from harness.runtime.orchestration.action_batch import validate_action_batch_policy
 from harness.runtime.orchestration.action_batch import ActionBatchValidationError
@@ -131,3 +132,17 @@ def test_resolve_tool_batch_policies_from_surface_payloads() -> None:
     })
     assert "hydrate_artifact_refs" in policies
     assert policies["hydrate_artifact_refs"].side_effect_class == "read_only"
+
+
+def test_resolve_tool_batch_policies_finds_nested_runtime_shape() -> None:
+    pack = build_transcript_edit_domain_pack()
+    inner = pack.build_surface_payload()
+    policies = resolve_tool_batch_policies({
+        "transcript_edit": {"transcript_edit": inner},
+    })
+    assert "hydrate_artifact_refs" in policies
+    assert "transform_artifact" in policies
+    transform = policies["transform_artifact"]
+    assert transform.allowed is True
+    assert transform.max_calls_per_batch == 4
+    assert transform.side_effect_class == "derived_artifact"

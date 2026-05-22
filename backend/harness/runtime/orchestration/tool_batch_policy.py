@@ -16,6 +16,8 @@ ALLOWED_SIDE_EFFECT_CLASSES: frozenset[str] = frozenset({"read_only", "derived_a
 DISALLOWED_SIDE_EFFECT_CLASSES: frozenset[str] = frozenset({
     "workspace_write", "publish", "terminal", "hitl",
 })
+_MAX_TOOL_SPEC_TRAVERSAL_DEPTH = 8
+_MAX_TOOL_SPEC_ROWS = 128
 
 
 @dataclass(frozen=True)
@@ -116,19 +118,64 @@ def resolve_tool_batch_policies(
     policies: dict[str, ToolBatchPolicy] = {}
     if not surface_payloads:
         return policies
+    rows_seen = 0
     for payload in surface_payloads.values():
         if not isinstance(payload, Mapping):
             continue
-        specs = payload.get("tool_specs")
-        if not isinstance(specs, (list, tuple)):
-            continue
+        rows_seen = _collect_tool_spec_policies(
+            payload,
+            policies=policies,
+            depth=0,
+            rows_seen=rows_seen,
+        )
+    return policies
+
+
+def _collect_tool_spec_policies(
+    node: Mapping[str, Any],
+    *,
+    policies: dict[str, ToolBatchPolicy],
+    depth: int,
+    rows_seen: int,
+) -> int:
+    if depth > _MAX_TOOL_SPEC_TRAVERSAL_DEPTH or rows_seen >= _MAX_TOOL_SPEC_ROWS:
+        return rows_seen
+
+    specs = node.get("tool_specs")
+    if isinstance(specs, (list, tuple)):
         for row in specs:
+            if rows_seen >= _MAX_TOOL_SPEC_ROWS:
+                return rows_seen
             if not isinstance(row, Mapping):
                 continue
+            rows_seen += 1
             policy = policy_from_tool_spec_row(row)
             if policy is not None:
                 policies[policy.tool_id] = policy
-    return policies
+
+    for value in node.values():
+        if rows_seen >= _MAX_TOOL_SPEC_ROWS:
+            return rows_seen
+        if isinstance(value, Mapping):
+            rows_seen = _collect_tool_spec_policies(
+                value,
+                policies=policies,
+                depth=depth + 1,
+                rows_seen=rows_seen,
+            )
+            continue
+        if isinstance(value, (list, tuple)):
+            for item in value:
+                if rows_seen >= _MAX_TOOL_SPEC_ROWS:
+                    return rows_seen
+                if isinstance(item, Mapping):
+                    rows_seen = _collect_tool_spec_policies(
+                        item,
+                        policies=policies,
+                        depth=depth + 1,
+                        rows_seen=rows_seen,
+                    )
+    return rows_seen
 
 
 def resolve_domain_action_batch_policy(

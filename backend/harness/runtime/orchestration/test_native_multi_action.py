@@ -29,9 +29,53 @@ from harness.runtime.orchestration.tool_batch_policy import (
 )
 
 
-def _transcript_edit_policies() -> dict[str, ToolBatchPolicy]:
+def _transcript_edit_policies(*, nested_runtime_shape: bool = False) -> dict[str, ToolBatchPolicy]:
     pack = build_transcript_edit_domain_pack()
-    return resolve_tool_batch_policies({"transcript_edit": pack.build_surface_payload()})
+    inner = pack.build_surface_payload()
+    if nested_runtime_shape:
+        surface = {"transcript_edit": {TRANSCRIPT_EDIT_RUNTIME_SURFACE_ID: inner}}
+    else:
+        surface = {"transcript_edit": inner}
+    return resolve_tool_batch_policies(surface)
+
+
+TRANSCRIPT_EDIT_RUNTIME_SURFACE_ID = "transcript_edit"
+
+
+def _live_two_transform_payload() -> dict:
+    return {
+        "actions": [
+            {
+                "alias": "crop_parcel1_opening_phrase",
+                "action_type": "transform_artifact",
+                "action_inputs": {
+                    "ref_id": "image:assoc:draft_legal_text_image:original",
+                    "sub_action": "crop",
+                    "params": {"box_norm": [0.41, 0.5, 0.84, 0.62]},
+                },
+                "hydrate_next": ["@this.result.derived_ref_id"],
+                "hydrate_next_reason": "Inspect the parcel-opening line next turn.",
+            },
+            {
+                "alias": "zoom_parcel1_range_phrase",
+                "action_type": "transform_artifact",
+                "action_inputs": {
+                    "ref_id": "image:assoc:draft_legal_text_image:original",
+                    "sub_action": "zoom",
+                    "params": {"box_norm": [0.56, 0.52, 0.79, 0.6]},
+                },
+                "hydrate_next": ["@this.result.derived_ref_id"],
+                "hydrate_next_reason": "Inspect the exact range phrase next turn.",
+            },
+        ],
+        "rationale": "Create two focused views for parcel 1 phrasing.",
+    }
+
+
+def _live_nested_runtime_surface() -> dict[str, dict]:
+    pack = build_transcript_edit_domain_pack()
+    inner = pack.build_surface_payload()
+    return {"transcript_edit": {TRANSCRIPT_EDIT_RUNTIME_SURFACE_ID: inner}}
 
 
 def _live_four_crop_payload() -> dict:
@@ -133,9 +177,8 @@ def test_choose_action_live_four_crop_via_opaque_run_context_policies() -> None:
 
 
 def test_choose_action_live_four_crop_via_surface_payload_policies() -> None:
-    pack = build_transcript_edit_domain_pack()
-    surface = {"transcript_edit": pack.build_surface_payload()}
-    policies = _transcript_edit_policies()
+    surface = _live_nested_runtime_surface()
+    policies = _transcript_edit_policies(nested_runtime_shape=True)
     calls: list[int] = []
 
     def caller(_prompt: str, _model: str, **_kwargs: object) -> str:
@@ -156,6 +199,49 @@ def test_choose_action_live_four_crop_via_surface_payload_policies() -> None:
 
     assert len(calls) == 1
     assert len(plan.actions) == 4
+
+
+def test_choose_action_live_two_transform_nested_surface_no_repair() -> None:
+    surface = _live_nested_runtime_surface()
+    policies = _transcript_edit_policies(nested_runtime_shape=True)
+    calls: list[int] = []
+
+    def caller(_prompt: str, _model: str, **_kwargs: object) -> str:
+        calls.append(1)
+        return json.dumps(_live_two_transform_payload())
+
+    adapter = LlmTurnOrchestrationAdapter(
+        composed_input=ComposedTurnInput(
+            blocks=(TurnBlock(content="block"),),
+            surface_payloads=surface,
+            tool_handlers={tool_id: (lambda _x, tid=tool_id: _x) for tool_id in policies},
+        ),
+        text_model_caller=caller,
+        model_name="fake",
+        opaque_launch_context={},
+    )
+    plan = adapter.choose_action(_orch_context(), projection=None)
+
+    assert len(calls) == 1
+    assert len(plan.actions) == 2
+    assert plan.actions[0].alias == "crop_parcel1_opening_phrase"
+    assert plan.actions[1].alias == "zoom_parcel1_range_phrase"
+    assert all(a.action_type == "transform_artifact" for a in plan.actions)
+    assert plan.actions[0].hydrate_next == ("@this.result.derived_ref_id",)
+    assert plan.actions[1].hydrate_next_reason.startswith("Inspect the exact range phrase")
+
+
+def test_live_two_transform_native_actions_parse_with_nested_policies() -> None:
+    policies = _transcript_edit_policies(nested_runtime_shape=True)
+    plan = parse_action_plan_response(
+        json.dumps(_live_two_transform_payload()),
+        available_tool_ids=tuple(policies.keys()),
+        tool_batch_policies=policies,
+    )
+    assert len(plan.actions) == 2
+    assert plan.actions[0].alias == "crop_parcel1_opening_phrase"
+    assert plan.actions[1].alias == "zoom_parcel1_range_phrase"
+    assert all(a.hydrate_next == ("@this.result.derived_ref_id",) for a in plan.actions)
 
 
 def test_live_four_crop_native_actions_parse_with_transcript_edit_policies() -> None:
