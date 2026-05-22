@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 from domains.mapping.transcript_edit import (
     build_transcript_edit_closure_policy,
     build_transcript_edit_branch_blocks,
@@ -11,6 +13,10 @@ from domains.mapping.transcript_edit import (
     project_transcript_edit_view,
     transcript_edit_closure_semantics,
     transcript_edit_handoff_semantics,
+)
+from domains.mapping.transcript_edit.execution.subtask_profiles import (
+    TRANSCRIPT_EDIT_VISUAL_SOURCE_OBSERVATION_PROFILE_ID,
+    build_transcript_edit_subtask_profiles,
 )
 from domains.mapping.prompting.family_branch import (
     MAPPING_FAMILY_BRANCH_VERSION,
@@ -47,6 +53,128 @@ def test_domain_pack_wires_same_tool_count_as_manifest() -> None:
     payload = pack.build_surface_payload()
     assert payload["tool_ids"] == list(m.declared_semantic_tool_ids)
     assert payload["closure_policy"]["hard_enforced"] is True
+    assert "subtask_profiles" in payload
+    assert len(payload["subtask_profiles"]) >= 1
+
+
+def test_surface_payload_includes_visual_source_observation_subtask_profile() -> None:
+    pack = build_transcript_edit_domain_pack()
+    payload = pack.build_surface_payload()
+    profiles = payload["subtask_profiles"]
+    profile_ids = {row["profile_id"] for row in profiles}
+    assert TRANSCRIPT_EDIT_VISUAL_SOURCE_OBSERVATION_PROFILE_ID in profile_ids
+
+    profile = next(
+        row
+        for row in profiles
+        if row["profile_id"] == TRANSCRIPT_EDIT_VISUAL_SOURCE_OBSERVATION_PROFILE_ID
+    )
+    assert profile["owner"] == "transcript_edit"
+    assert set(profile["allowed_ref_kinds"]) == {"image", "artifact"}
+    result_fields = set(profile["result_schema"]["result"].keys())
+    assert result_fields == {
+        "task_response",
+        "source_visible_text",
+        "visual_basis",
+        "ambiguity",
+        "limits",
+    }
+    preamble = profile["prompt_preamble"].lower()
+    assert "use only" in preamble or "supplied" in preamble
+    assert "peer draft" in preamble or "broader mission context" in preamble
+    assert "preserve source-visible" in preamble
+    assert "confidence" in preamble
+    assert "do not include confidence" in preamble
+
+    joined = json.dumps(profile).lower()
+    assert "confidence" not in joined.replace("do not include confidence", "")
+
+
+def test_visual_source_observation_profile_registers_through_composed_registry() -> None:
+    from harness.runtime.orchestration.subtasks.registry import build_composed_subtask_registry
+
+    payload = build_transcript_edit_domain_pack().build_surface_payload()
+    registry = build_composed_subtask_registry(
+        surface_payloads={"transcript_edit": payload},
+    )
+    profile = registry.require(TRANSCRIPT_EDIT_VISUAL_SOURCE_OBSERVATION_PROFILE_ID)
+    assert set(profile.allowed_ref_kinds) == {"image", "artifact"}
+    assert set(profile.result_schema["result"].keys()) == {
+        "task_response",
+        "source_visible_text",
+        "visual_basis",
+        "ambiguity",
+        "limits",
+    }
+
+
+def test_visual_source_observation_profile_normalizes_and_projects_end_to_end() -> None:
+    import json
+
+    from harness.runtime.orchestration.subtasks.contracts import DelegateSubtaskRequest
+    from harness.runtime.orchestration.subtasks.projection import project_subtask_output
+    from harness.runtime.orchestration.subtasks.registry import build_composed_subtask_registry
+    from harness.runtime.orchestration.subtasks.runner import normalize_child_output
+
+    payload = build_transcript_edit_domain_pack().build_surface_payload()
+    registry = build_composed_subtask_registry(
+        surface_payloads={"transcript_edit": payload},
+    )
+    profile = registry.require(TRANSCRIPT_EDIT_VISUAL_SOURCE_OBSERVATION_PROFILE_ID)
+    normalized = normalize_child_output(
+        json.dumps(
+            {
+                "status": "completed",
+                "result": {
+                    "task_response": "mark reads as A",
+                    "source_visible_text": "A",
+                    "visual_basis": ["tight stroke at center"],
+                    "ambiguity": "",
+                    "limits": [],
+                },
+            }
+        ),
+        subtask_id="visual_read",
+        request=DelegateSubtaskRequest(
+            profile=profile.profile_id,
+            task="Read the visible mark in the supplied crop.",
+            context_refs=("image:derived:sample:crop_001",),
+        ),
+        profile=profile,
+    )
+    projected = project_subtask_output(normalized)
+
+    assert projected is not None
+    assert projected["result"]["task_response"] == "mark reads as A"
+    assert projected["result"]["source_visible_text"] == "A"
+    assert projected["result"]["visual_basis"] == ["tight stroke at center"]
+
+
+def test_procedural_guidance_teaches_delegate_subtask_lightly() -> None:
+    guidance = next(
+        b
+        for b in build_transcript_edit_domain_pack().build_semantic_prompt_blocks()
+        if b.block_id == "transcript_edit_procedural_guidance"
+    )
+    text = guidance.text.lower()
+    assert "delegate_subtask" in text
+    assert "transcript_edit.visual_source_observation" in text
+    assert "isolated attention" in text or "isolated visual" in text
+    assert "observation returned" in text or "observation returned to you" in text
+    assert "graph" in text or "hitl" in text
+    assert "must delegate" not in text
+    assert "always delegate" not in text
+    assert "required to delegate" not in text
+
+
+def test_build_transcript_edit_subtask_profiles_has_no_confidence_fields() -> None:
+    profiles = build_transcript_edit_subtask_profiles()
+    assert profiles
+    for profile in profiles:
+        schema_blob = json.dumps(profile.get("result_schema", {})).lower()
+        assert "confidence" not in schema_blob
+        for field_name in profile.get("result_schema", {}).get("result", {}):
+            assert "confidence" not in str(field_name).lower()
 
 
 def test_manifest_classifies_prompt_source_refs() -> None:

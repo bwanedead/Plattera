@@ -10,7 +10,7 @@ from ..branch import TRANSCRIPT_EDIT_DOMAIN_ID
 TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_SOURCE_REF = (
     "backend/domains/mapping/transcript_edit/prompting/surfaces/procedural_guidance.py"
 )
-TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_VERSION = "v22"
+TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_VERSION = "v23"
 
 TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_TEXT = """\
 Use this guidance to shape your movement through transcript-edit work. This is **guidance**, not a hard script. The harness still owns orchestration. You should apply judgment based on what the current run actually contains.
@@ -123,6 +123,15 @@ Concretely:
 - If the image confirms a call, update the relevant item to reflect the verified reading and its evidence basis.
 - If the image reveals an ambiguity or cutoff, create or update an item to capture the specific nature of the uncertainty.
 - If the image is not legible enough for the claim in question, record what was attempted and what stronger move remains.
+
+## Isolated visual source observation (`delegate_subtask`)
+When a narrow visual or source-reading question would benefit from isolated attention, you may use `delegate_subtask` with the registered profile `transcript_edit.visual_source_observation`.
+
+Use this for narrow visual/source observation, not general mission planning. Prefer delegating over a localized crop or tightly relevant artifact when an exact mark, word, numeral, bearing, distance, name, or short phrase is critical and broad parent context, peer drafts, or candidate values could bias the read.
+
+When candidate imprinting is a risk, ask the child to read what is visible before supplying candidate options in the task. Treat the child result as an observation returned to you. You still decide how to update the graph, evidence notes, draft, HITL, or blockers through normal actions.
+
+Do not delegate every routine value. Use isolated delegation when it is likely to improve correctness or efficiency for a focused source-reading question.
 
 ## Critical exact readings: full-page source view is not enough
 For transcript-edit source reading, the full source image is orientation evidence. It helps you find where to work. It is **not resolute enough** to earn a critical detail whose truth can turn on the shape of one character, one word, one digit, one degree mark, one direction letter, or one small handwritten squiggle.

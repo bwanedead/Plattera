@@ -6,6 +6,7 @@ from dataclasses import asdict, dataclass
 from typing import Any
 
 from domains.mapping.prompting.family_branch import build_mapping_family_branch_blocks
+from .execution.subtask_profiles import build_transcript_edit_subtask_profiles
 from .execution.tool_specs import SemanticToolSpec, build_transcript_edit_tool_specs
 from .manifest import TranscriptEditManifest, build_transcript_edit_manifest
 from .payloads import TranscriptEditStartupInventory
@@ -56,6 +57,7 @@ class TranscriptEditDomainPack:
                 "tool_specs": [asdict(spec) for spec in tool_specs],
                 "tool_ids": list(declared_tool_ids),
                 "closure_policy": asdict(self.manifest.closure_policy),
+                "subtask_profiles": list(build_transcript_edit_subtask_profiles()),
             }
         )
 
