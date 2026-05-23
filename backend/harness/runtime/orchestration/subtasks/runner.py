@@ -183,7 +183,7 @@ def normalize_child_output(
         )
     result_raw = parsed.get("result")
     try:
-        result = normalize_result_payload(
+        result, truncation = normalize_result_payload(
             result_raw if isinstance(result_raw, Mapping) else {},
             profile=profile,
         )
@@ -204,6 +204,8 @@ def normalize_child_output(
         "result": result,
         "result_schema": dict(profile.result_schema),
     }
+    if truncation:
+        normalized.update(truncation)
     if profile.result_validator is not None:
         try:
             profile.result_validator(normalized, profile)

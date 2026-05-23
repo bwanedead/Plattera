@@ -80,9 +80,9 @@ def test_surface_payload_includes_visual_source_observation_subtask_profile() ->
         "limits",
     }
     preamble = profile["prompt_preamble"].lower()
-    assert "use only" in preamble or "supplied" in preamble
+    assert "source-visible" in preamble or "source visible" in preamble
     assert "peer draft" in preamble or "broader mission context" in preamble
-    assert "preserve source-visible" in preamble
+    assert "task_response" in preamble
     assert "confidence" in preamble
     assert "do not include confidence" in preamble
 

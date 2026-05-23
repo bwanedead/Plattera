@@ -139,6 +139,8 @@ def test_choose_action_instruction_includes_tiny_examples() -> None:
     assert 'One action with next-turn hydration:' in text
     assert 'Multiple independent actions:' in text
     assert '@this.result.revision_ref' in text
+    assert '@this.result.working_draft_ref' in text
+    assert '@this.result.output_ref' in text
     assert '@this.result.derived_ref_id' in text
     assert '{"complete_run":true' in text
     assert "Use option A" in text

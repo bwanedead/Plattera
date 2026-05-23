@@ -92,8 +92,12 @@ def normalize_result_payload(
     raw: Mapping[str, Any],
     *,
     profile: SubtaskProfile,
-) -> dict[str, Any]:
-    """Normalize child ``result`` payload according to ``profile.result_schema``."""
+) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    """Normalize child ``result`` payload according to ``profile.result_schema``.
+
+    Returns ``(normalized_result, truncation_meta)`` where ``truncation_meta`` is
+    ``None`` when no size truncation was applied.
+    """
 
     schema = profile.result_schema if isinstance(profile.result_schema, Mapping) else {}
     result_spec = schema.get("result")
@@ -141,7 +145,8 @@ def project_result_payload(
     if not isinstance(result_spec, Mapping):
         return _project_fallback(result)
     projected = _project_object(result, result_spec)
-    return _cap_result_size(projected, max_chars=max_chars)
+    capped, _ = _cap_result_size(projected, max_chars=max_chars)
+    return capped
 
 
 def _validate_type_spec(spec: Any, *, path: str, depth: int) -> None:
@@ -342,18 +347,126 @@ def _project_fallback(result: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
-def _cap_result_size(result: dict[str, Any], *, max_chars: int) -> dict[str, Any]:
-    text = json.dumps(result, separators=(",", ":"), default=str)
-    if len(text) <= int(max_chars):
-        return result
+def _cap_result_size(
+    result: dict[str, Any],
+    *,
+    max_chars: int,
+) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    original_chars = _json_len(result)
+    if original_chars <= int(max_chars):
+        return result, None
+
+    shrunk = _shrink_result(result)
+    if _json_len(shrunk) <= int(max_chars):
+        return shrunk, _truncation_meta(result, shrunk, original_chars=original_chars)
+
+    aggressive = _aggressive_cap_result(shrunk, max_chars=int(max_chars))
+    return aggressive, _truncation_meta(result, aggressive, original_chars=original_chars)
+
+
+def _truncation_meta(
+    before: dict[str, Any],
+    after: dict[str, Any],
+    *,
+    original_chars: int,
+) -> dict[str, Any]:
+    fields = _diff_truncated_fields(before, after)
+    return {
+        "result_truncated": True,
+        "truncated_fields": fields,
+        "original_result_chars": int(original_chars),
+    }
+
+
+def _diff_truncated_fields(before: Mapping[str, Any], after: Mapping[str, Any], *, prefix: str = "") -> list[str]:
+    fields: list[str] = []
+    keys = sorted(set(before.keys()) | set(after.keys()))
+    for key in keys:
+        path = f"{prefix}.{key}" if prefix else str(key)
+        before_value = before.get(key)
+        after_value = after.get(key)
+        if isinstance(before_value, str) and isinstance(after_value, str):
+            if len(after_value) < len(before_value.strip()):
+                fields.append(path)
+            continue
+        if isinstance(before_value, list) and isinstance(after_value, list):
+            for index, (before_item, after_item) in enumerate(zip(before_value, after_value)):
+                item_path = f"{path}[{index}]"
+                if isinstance(before_item, str) and isinstance(after_item, str):
+                    if len(after_item) < len(before_item.strip()):
+                        fields.append(item_path)
+                elif isinstance(before_item, Mapping) and isinstance(after_item, Mapping):
+                    fields.extend(_diff_truncated_fields(before_item, after_item, prefix=item_path))
+            if len(after_value) < len(before_value):
+                fields.append(path)
+            continue
+        if isinstance(before_value, Mapping) and isinstance(after_value, Mapping):
+            fields.extend(_diff_truncated_fields(before_value, after_value, prefix=path))
+    return fields
+
+
+def _aggressive_cap_result(result: dict[str, Any], *, max_chars: int) -> dict[str, Any]:
     capped = _shrink_result(result)
-    text = json.dumps(capped, separators=(",", ":"), default=str)
-    if len(text) <= int(max_chars):
-        return capped
-    raise SubtaskResultSchemaError(
-        "subtask_result_too_large",
-        f"Normalized subtask result exceeds max size {int(max_chars)}.",
-    )
+    guard = 0
+    while _json_len(capped) > int(max_chars) and guard < 48:
+        guard += 1
+        longest_key = None
+        longest_len = -1
+        for key, value in capped.items():
+            if isinstance(value, str) and len(value) > longest_len:
+                longest_key = key
+                longest_len = len(value)
+            elif isinstance(value, list):
+                for index, item in enumerate(value):
+                    if isinstance(item, str) and len(item) > longest_len:
+                        longest_key = f"{key}[{index}]"
+                        longest_len = len(item)
+        if longest_key is None or longest_len <= 8:
+            break
+        if "[" in longest_key:
+            list_key, index_text = longest_key.split("[", 1)
+            index = int(index_text.rstrip("]"))
+            items = capped.get(list_key)
+            if isinstance(items, list) and 0 <= index < len(items) and isinstance(items[index], str):
+                items[index] = items[index][: max(8, len(items[index]) // 2)]
+            continue
+        if isinstance(capped.get(longest_key), str):
+            text = str(capped[longest_key])
+            capped[longest_key] = text[: max(8, len(text) // 2)]
+    if _json_len(capped) > int(max_chars):
+        capped = _minimal_cap_result(capped, max_chars=int(max_chars))
+    return capped
+
+
+def _minimal_cap_result(result: dict[str, Any], *, max_chars: int) -> dict[str, Any]:
+    minimal: dict[str, Any] = {}
+    for key, value in result.items():
+        if _json_len({**minimal, key: value}) > int(max_chars):
+            if isinstance(value, str):
+                remaining = int(max_chars) - _json_len(minimal) - len(str(key)) - 6
+                if remaining > 8:
+                    minimal[key] = value[:remaining]
+            elif isinstance(value, list) and value:
+                remaining = int(max_chars) - _json_len(minimal) - len(str(key)) - 8
+                if remaining > 8 and isinstance(value[0], str):
+                    minimal[key] = [value[0][:remaining]]
+            continue
+        minimal[key] = value
+        if _json_len(minimal) >= int(max_chars):
+            break
+    return minimal
+
+
+def _short_scalar(value: Any) -> Any:
+    if isinstance(value, str):
+        return value[:80]
+    if isinstance(value, list):
+        return [_short_scalar(item) for item in value[:2]]
+    return value
+
+
+def _json_len(value: Mapping[str, Any]) -> int:
+    return len(json.dumps(value, separators=(",", ":"), default=str))
 
 
 def _shrink_result(result: dict[str, Any]) -> dict[str, Any]:

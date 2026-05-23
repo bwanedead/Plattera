@@ -204,6 +204,30 @@ def test_resolve_published_ref_from_outputs() -> None:
     assert resolved == ["transcript_edit:published:1"]
 
 
+def test_resolve_working_draft_ref_from_outputs() -> None:
+    resolved, _ = resolve_hydrate_next_refs(
+        ["@result.working_draft_ref"],
+        tool_result={"outputs": {"working_draft_ref": "transcript_edit:working:rev:0001"}},
+    )
+    assert resolved == ["transcript_edit:working:rev:0001"]
+
+
+def test_resolve_output_ref_from_outputs() -> None:
+    resolved, _ = resolve_hydrate_next_refs(
+        ["@result.output_ref"],
+        tool_result={"outputs": {"output_ref": "transcript_edit:output"}},
+    )
+    assert resolved == ["transcript_edit:output"]
+
+
+def test_resolve_this_result_working_draft_ref_alias() -> None:
+    resolved, _ = resolve_hydrate_next_refs(
+        ["@this.result.working_draft_ref"],
+        tool_result={"outputs": {"working_draft_ref": "transcript_edit:working:rev:0002"}},
+    )
+    assert resolved == ["transcript_edit:working:rev:0002"]
+
+
 def test_resolve_artifact_refs_list_from_top_level() -> None:
     resolved, errors = resolve_hydrate_next_refs(
         ["@result.artifact_refs[]"],

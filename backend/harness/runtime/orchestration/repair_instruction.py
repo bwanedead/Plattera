@@ -16,7 +16,7 @@ REPAIR_INSTRUCTION: str = (
 - When repair_targets includes reduce_actions_to_tool_cap_not_single_action, return the maximum allowed number of action rows (up to the cited cap), not one row.
 - When repair_targets includes remove_top_level_hydrate_when_using_per_action_hydrate, remove top-level `hydrate_next` / `hydrate_next_reason` and keep per-row `hydrate_next` on each `actions[]` entry.
 - When repair_targets includes repair_or_drop_malformed_action_rows_preserve_valid_rows, fix or drop only the malformed `actions[]` rows cited in the parse error; keep other valid rows unchanged.
-- Per-action `hydrate_next` may use `@this.result.derived_ref_id`, `@this.result.revision_ref`, `@this.result.published_ref`, or `@this.result.artifact_refs[]` on each row. Do not rewrite them to top-level `hydrate_next` or legacy `@result.*` unless repairing a single-action legacy plan.
+- Per-action `hydrate_next` may use `@this.result.derived_ref_id`, `@this.result.revision_ref`, `@this.result.working_draft_ref`, `@this.result.published_ref`, `@this.result.output_ref`, or `@this.result.artifact_refs[]` on each row. Do not rewrite them to top-level `hydrate_next` or legacy `@result.*` unless repairing a single-action legacy plan.
 - If repair_context.previous_response_object is provided, treat it as the base object and make minimal targeted edits.
 - Do not rewrite sections unrelated to the identified structural problems.
 - When a required field is missing, add the smallest valid version rather than regenerating the whole plan.

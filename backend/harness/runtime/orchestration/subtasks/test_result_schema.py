@@ -11,6 +11,7 @@ from harness.runtime.orchestration.subtasks.registry import DEFAULT_SUBTASK_REGI
 from harness.runtime.orchestration.subtasks.result_schema import (
     SubtaskProfileSchemaError,
     SubtaskResultSchemaError,
+    _json_len,
     normalize_result_payload,
     validate_profile_result_schema,
 )
@@ -40,7 +41,7 @@ def _domain_profile() -> SubtaskProfile:
 
 def test_generic_observation_profile_unchanged() -> None:
     profile = DEFAULT_SUBTASK_REGISTRY.require("harness.observation")
-    result = normalize_result_payload(
+    result, truncation = normalize_result_payload(
         {
             "reading": "A",
             "ambiguity": "unclear edge",
@@ -56,11 +57,12 @@ def test_generic_observation_profile_unchanged() -> None:
         "observations": ["line one", "line two"],
         "limits": ["crop only"],
     }
+    assert truncation is None
 
 
 def test_custom_profile_preserves_fields() -> None:
     profile = _domain_profile()
-    result = normalize_result_payload(
+    result, truncation = normalize_result_payload(
         {
             "domain_notes": ["mark visible", "edge fuzzy"],
             "source_mark": "N. 2° 00' W.",
@@ -74,6 +76,7 @@ def test_custom_profile_preserves_fields() -> None:
         "domain_notes": ["mark visible", "edge fuzzy"],
         "source_mark": "N. 2° 00' W.",
     }
+    assert truncation is None
     assert "confidence" not in result
     assert "b64" not in result
 
@@ -123,7 +126,7 @@ def test_prompt_schema_matches_normalization_schema() -> None:
     result = normalize_result_payload(
         {"domain_notes": ["x"], "source_mark": "y"},
         profile=profile,
-    )
+    )[0]
     assert set(result.keys()) == {"domain_notes", "source_mark"}
 
 
@@ -169,7 +172,7 @@ def test_profile_schema_rejects_binary_payload_fields() -> None:
     assert excinfo.value.reason_code == "result_schema_binary_field_disallowed"
 
 
-def test_oversized_output_is_repairably_rejected() -> None:
+def test_oversized_output_is_truncated_instead_of_failed() -> None:
     registry = SubtaskProfileRegistry()
     registry.register(
         SubtaskProfile(
@@ -187,13 +190,15 @@ def test_oversized_output_is_repairably_rejected() -> None:
     )
     tiny_profile = registry.require("tiny.result")
 
-    with pytest.raises(SubtaskResultSchemaError) as excinfo:
-        normalize_result_payload(
-            {"notes": ["x" * 200, "y" * 200, "z" * 200]},
-            profile=tiny_profile,
-        )
+    result, truncation = normalize_result_payload(
+        {"notes": ["x" * 200, "y" * 200, "z" * 200]},
+        profile=tiny_profile,
+    )
 
-    assert excinfo.value.reason_code == "subtask_result_too_large"
+    assert truncation is not None
+    assert truncation["result_truncated"] is True
+    assert truncation["original_result_chars"] > 40
+    assert _json_len(result) <= int(tiny_profile.max_result_chars)
 
 
 def test_invalid_child_field_type_is_repairably_rejected() -> None:
@@ -236,3 +241,37 @@ def test_projection_does_not_leak_raw_payloads() -> None:
     text = json.dumps(projected)
     assert "SHOULD_NOT_RENDER" not in text
     assert "b64" not in text.lower()
+
+
+def test_verbose_visual_observation_returns_truncated_usable_result() -> None:
+    from domains.mapping.transcript_edit.execution.subtask_profiles import (
+        build_transcript_edit_subtask_profiles,
+    )
+    from harness.runtime.orchestration.subtasks.registry import profile_from_mapping
+
+    profile = profile_from_mapping({**build_transcript_edit_subtask_profiles()[0], "max_result_chars": 220})
+    verbose = {
+        "task_response": "The visible bearing reads N. 4° 00' W. " + ("extra detail. " * 80),
+        "source_visible_text": "N. 4° 00' W.",
+        "visual_basis": ["numeral stroke resembles a 4", "degree mark visible"] + ["shape note"] * 8,
+        "ambiguity": "possible smudge near the degree mark",
+        "limits": ["crop edge clipped the final foot mark"],
+    }
+    normalized = normalize_child_output(
+        json.dumps({"status": "completed", "result": verbose}),
+        subtask_id="blind_read",
+        request=DelegateSubtaskRequest(
+            profile=profile.profile_id,
+            task="Read the bearing text visible in the supplied crop.",
+            context_refs=("image:derived:sample",),
+        ),
+        profile=profile,
+    )
+
+    assert normalized["status"] == "completed"
+    assert normalized.get("result_truncated") is True
+    assert normalized["result"]["source_visible_text"] == "N. 4° 00' W."
+    projected = project_subtask_output(normalized)
+    assert projected is not None
+    assert projected["result_truncated"] is True
+    assert "source_visible_text" in projected["result"]

@@ -295,8 +295,10 @@ Use multiple rows when every row is already justified before seeing the other ro
 
 Per-action `hydrate_next` removes predictable hydrate-only turns. Use it when this action will produce or name an artifact you already know you must inspect next turn. Supported placeholders:
 - `@this.result.derived_ref_id` — single ref from this row's transform-style result
-- `@this.result.revision_ref` — single ref from this row's save-style result
-- `@this.result.published_ref` — single ref from this row's publish-style result
+- `@this.result.revision_ref` — single ref from this row's save-style result (legacy alias)
+- `@this.result.working_draft_ref` — single ref from this row's save-style result when the tool returns `working_draft_ref`
+- `@this.result.published_ref` — single ref from this row's publish-style result (legacy alias)
+- `@this.result.output_ref` — single ref from this row's publish-style result when the tool returns `output_ref`
 - `@this.result.artifact_refs[]` — this row's bounded artifact refs list
 
 Bounds: at most 5 requested refs per row and at most 5 resolved refs after aggregate dedupe. Non-string entries are rejected. Unresolved placeholders become compact next-turn errors, not runner crashes. `hydrate_next` is attention routing for the NEXT turn only: it does not execute as the current action, does not replace a current-turn hydrate when you need content now, and does not make the referenced content authoritative. The next turn still decides what the hydrated content means after seeing `structured_state.agent_requested_hydration` and `structured_state.recent_action_sequence_result`.
@@ -344,7 +346,7 @@ Minimal HITL:
 `{"wait_for_human":true,"hitl_request":{"message":"Which source value should govern this item?","choices":["Use option A","Use option B","Preserve as unresolved","Other / needs nuance"],"context":{"primary_evidence_ref":"artifact://focused-evidence","question_regions":["disputed_value"]}},"state_patch":{"resolution":{"items":[{"item_id":"value-conflict","requires_hitl":true,"no_further_progress":true}]}},"rationale":"Source-only checks cannot disambiguate the two candidate values; escalate to human with the focused evidence."}`
 
 One action with next-turn hydration:
-`{"actions":[{"alias":"save_draft","action_type":"save_workspace_artifact","action_inputs":{"payload":{"status":"draft"}},"hydrate_next":["@this.result.revision_ref"],"hydrate_next_reason":"verify saved payload shape before publish"}],"rationale":"Save the narrowed draft now; next turn should inspect the saved revision directly rather than spend a separate turn requesting hydration."}`
+`{"actions":[{"alias":"save_draft","action_type":"save_workspace_artifact","action_inputs":{"payload":{"status":"draft"}},"hydrate_next":["@this.result.working_draft_ref"],"hydrate_next_reason":"verify saved payload shape before publish"}],"rationale":"Save the narrowed draft now; next turn should inspect the saved revision directly rather than spend a separate turn requesting hydration."}`
 
 Multiple independent actions:
 `{"actions":[{"alias":"crop_a","action_type":"transform_artifact","action_inputs":{"ref_id":"image:assoc:tx-1:original","sub_action":"crop","params":{"box_norm":[0,0,0.5,0.5]}},"hydrate_next":["@this.result.derived_ref_id"]},{"alias":"crop_b","action_type":"transform_artifact","action_inputs":{"ref_id":"image:assoc:tx-1:original","sub_action":"crop","params":{"box_norm":[0.5,0,1,0.5]}},"hydrate_next":["@this.result.derived_ref_id"]}],"rationale":"Create both independent region crops in one turn instead of serializing two transform-only turns."}`

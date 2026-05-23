@@ -15,6 +15,7 @@ from .tool_batch_policy import (
     effective_max_batch_size,
     effective_tool_cap,
 )
+from .subtasks.contracts import DELEGATE_SUBTASK_ACTION_TYPE
 from .subtasks.projection import project_subtask_output
 
 DEFAULT_MAX_BATCH_SIZE = 5
@@ -337,6 +338,27 @@ def _strip_binary(value: Any) -> Any:
     return value
 
 
+def _delegate_outputs_excerpt(
+    outputs: Mapping[str, Any],
+    *,
+    projected: Mapping[str, Any],
+) -> dict[str, Any]:
+    excerpt: dict[str, Any] = {
+        "action_type": DELEGATE_SUBTASK_ACTION_TYPE,
+        "subtask_id": projected.get("subtask_id"),
+        "profile": projected.get("profile"),
+        "status": projected.get("status"),
+        "input_refs": projected.get("input_refs"),
+        "result": projected.get("result"),
+    }
+    for key in ("result_truncated", "truncated_fields", "original_result_chars", "errors", "subtask_trace"):
+        if key in projected:
+            excerpt[key] = projected[key]
+        elif key in outputs:
+            excerpt[key] = outputs[key]
+    return {key: value for key, value in excerpt.items() if value is not None}
+
+
 def build_batch_item_result_row(
     *,
     alias: str,
@@ -354,9 +376,19 @@ def build_batch_item_result_row(
     }
     if artifact_refs:
         row["artifact_refs"] = list(artifact_refs)[:_MAX_ARTIFACT_REFS_PER_ITEM]
-    excerpt = _bounded_outputs_excerpt(outputs)
-    if excerpt:
-        row["outputs_excerpt"] = excerpt
+    if action_type == DELEGATE_SUBTASK_ACTION_TYPE and isinstance(outputs, Mapping):
+        subtask_projection = project_subtask_output(outputs)
+        if subtask_projection:
+            row["delegate_subtask"] = subtask_projection
+            row["outputs_excerpt"] = _delegate_outputs_excerpt(outputs, projected=subtask_projection)
+        else:
+            excerpt = _bounded_outputs_excerpt(outputs)
+            if excerpt:
+                row["outputs_excerpt"] = excerpt
+    else:
+        excerpt = _bounded_outputs_excerpt(outputs)
+        if excerpt:
+            row["outputs_excerpt"] = excerpt
     evidence_summary = summarize_image_evidence_for_projection(image_evidence)
     if evidence_summary:
         row["image_evidence_summary"] = evidence_summary

@@ -39,6 +39,17 @@ def project_subtask_output(outputs: Mapping[str, Any] | None) -> dict[str, Any] 
         "input_refs": _bounded_list(outputs.get("input_refs"), limit=8),
         "result": projected_result,
     }
+    if outputs.get("result_truncated") is True:
+        out["result_truncated"] = True
+        truncated_fields = outputs.get("truncated_fields")
+        if isinstance(truncated_fields, (list, tuple)) and truncated_fields:
+            out["truncated_fields"] = [_short(item) for item in truncated_fields[:8]]
+        original_chars = outputs.get("original_result_chars")
+        if original_chars is not None:
+            try:
+                out["original_result_chars"] = int(original_chars)
+            except (TypeError, ValueError):
+                pass
     errors = outputs.get("errors")
     if isinstance(errors, (list, tuple)) and errors:
         out["errors"] = [

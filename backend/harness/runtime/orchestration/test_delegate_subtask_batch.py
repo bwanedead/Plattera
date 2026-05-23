@@ -29,6 +29,7 @@ from harness.runtime.orchestration.subtasks.batch_policy import (
 )
 from harness.runtime.orchestration.subtasks.contracts import DELEGATE_SUBTASK_ACTION_TYPE
 from harness.runtime.orchestration.subtasks.handler import make_delegate_subtask_handler
+from harness.runtime.orchestration.subtasks.registry import DEFAULT_SUBTASK_REGISTRY
 from harness.runtime.orchestration.tool_batch_policy import resolve_tool_batch_policies
 
 
@@ -57,12 +58,13 @@ def _delegate_action(alias: str) -> dict:
 
 
 class _DelegateHandlerSessionManager(ExecutionSessionManager):
-    def __init__(self, *, model_caller) -> None:
+    def __init__(self, *, model_caller, registry=None) -> None:
         super().__init__()
         self.handler = make_delegate_subtask_handler(
             model_caller=model_caller,
             model_name="model-a",
             hydration_handler=None,
+            registry=registry or DEFAULT_SUBTASK_REGISTRY,
         )
         self.requests: list[ExecutionStepRequest] = []
 
@@ -290,3 +292,135 @@ def test_batch_projection_contains_both_rows_without_raw_b64() -> None:
     joined = json.dumps(projected).lower()
     assert "should_not_render" not in joined
     assert "b64" not in joined
+
+
+def test_transcript_edit_visual_profile_batch_with_localized_image_refs() -> None:
+    from domains.mapping.transcript_edit import build_transcript_edit_domain_pack
+    from domains.mapping.transcript_edit.execution.subtask_profiles import (
+        TRANSCRIPT_EDIT_VISUAL_SOURCE_OBSERVATION_PROFILE_ID,
+    )
+    from harness.runtime.orchestration.subtasks.registry import build_composed_subtask_registry
+
+    payload = build_transcript_edit_domain_pack().build_surface_payload()
+    registry = build_composed_subtask_registry(
+        surface_payloads={"transcript_edit": {"transcript_edit": payload}},
+    )
+    assert registry.get(TRANSCRIPT_EDIT_VISUAL_SOURCE_OBSERVATION_PROFILE_ID) is not None
+
+    plan = parse_action_plan_response(
+        _batch_payload(
+            actions=[
+                {
+                    "alias": "read_bearing_a",
+                    "action_type": DELEGATE_SUBTASK_ACTION_TYPE,
+                    "action_inputs": {
+                        "profile": TRANSCRIPT_EDIT_VISUAL_SOURCE_OBSERVATION_PROFILE_ID,
+                        "task": "Read the bearing text visible in crop A.",
+                        "context_refs": ["image:derived:crop_a"],
+                    },
+                },
+                {
+                    "alias": "read_bearing_b",
+                    "action_type": DELEGATE_SUBTASK_ACTION_TYPE,
+                    "action_inputs": {
+                        "profile": TRANSCRIPT_EDIT_VISUAL_SOURCE_OBSERVATION_PROFILE_ID,
+                        "task": "Read the bearing text visible in crop B.",
+                        "context_refs": ["image:derived:crop_b"],
+                    },
+                },
+            ]
+        ),
+        available_tool_ids=(DELEGATE_SUBTASK_ACTION_TYPE,),
+        tool_batch_policies=_delegate_policies(),
+        subtask_profile_registry=registry,
+    )
+    assert len(plan.actions) == 2
+
+
+def test_transcript_edit_visual_batch_executes_with_one_truncated_sibling() -> None:
+    from domains.mapping.transcript_edit.execution.subtask_profiles import (
+        TRANSCRIPT_EDIT_VISUAL_SOURCE_OBSERVATION_PROFILE_ID,
+        build_transcript_edit_subtask_profiles,
+    )
+    from harness.runtime.orchestration.subtasks.registry import build_composed_subtask_registry
+
+    profiles = [{**build_transcript_edit_subtask_profiles()[0], "max_result_chars": 260}]
+    registry = build_composed_subtask_registry(
+        opaque_run_context={"subtask_profiles": profiles},
+    )
+    calls = {"count": 0}
+
+    def model_caller(prompt: str, model_name: str, *, call_options):
+        del prompt, model_name, call_options
+        calls["count"] += 1
+        if calls["count"] == 2:
+            return json.dumps(
+                {
+                    "status": "completed",
+                    "result": {
+                        "task_response": "Verbose read. " + ("detail. " * 120),
+                        "source_visible_text": "N. 4° 00' W.",
+                        "visual_basis": ["numeral resembles 4"],
+                        "ambiguity": "",
+                        "limits": [],
+                    },
+                }
+            )
+        return json.dumps(
+            {
+                "status": "completed",
+                "result": {
+                    "task_response": "Crop A reads N. 2° 00' W.",
+                    "source_visible_text": "N. 2° 00' W.",
+                    "visual_basis": ["numeral resembles 2"],
+                    "ambiguity": "",
+                    "limits": [],
+                },
+            }
+        )
+
+    sm = _DelegateHandlerSessionManager(model_caller=model_caller, registry=registry)
+    profile_id = TRANSCRIPT_EDIT_VISUAL_SOURCE_OBSERVATION_PROFILE_ID
+    actions = (
+        ActionPlanAction(
+            "read_a",
+            DELEGATE_SUBTASK_ACTION_TYPE,
+            {
+                "profile": profile_id,
+                "task": "Read crop A bearing text.",
+                "context_refs": ["image:derived:crop_a"],
+            },
+        ),
+        ActionPlanAction(
+            "read_b",
+            DELEGATE_SUBTASK_ACTION_TYPE,
+            {
+                "profile": profile_id,
+                "task": "Read crop B bearing text.",
+                "context_refs": ["image:derived:crop_b"],
+            },
+        ),
+    )
+    sequence_result, _ = _execute_sequence_items(
+        loop_memory=LoopMemoryState(),
+        session_manager=sm,
+        session_id="s",
+        actions=actions,
+        iteration=5,
+        request_id_prefix="req",
+        run_id="r",
+        tool_batch_policies=_delegate_policies(),
+        multi_action=True,
+    )
+    by_alias = {row["alias"]: row for row in sequence_result["items"]}
+    assert by_alias["read_a"]["execution_state"] == "executed"
+    assert by_alias["read_b"]["execution_state"] == "executed"
+    assert by_alias["read_a"]["outputs_excerpt"]["status"] == "completed"
+    assert by_alias["read_b"]["outputs_excerpt"]["status"] == "completed"
+    assert by_alias["read_b"]["outputs_excerpt"].get("result_truncated") is True
+    assert by_alias["read_b"]["delegate_subtask"]["result_truncated"] is True
+    projected = [project_batch_item_row(row) for row in sequence_result["items"]]
+    joined = json.dumps(projected).lower()
+    assert "b64" not in joined
+    assert projected[0]["delegate_subtask"]["result"]["source_visible_text"] == "N. 2° 00' W."
+    assert projected[1]["delegate_subtask"]["result_truncated"] is True

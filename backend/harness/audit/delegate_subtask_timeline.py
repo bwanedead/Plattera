@@ -37,10 +37,23 @@ def render_delegate_subtask_result(item: Mapping[str, Any]) -> list[str]:
     if not projected:
         return []
     lines = ["      subtask_result:"]
+    subtask_id = projected.get("subtask_id")
+    if subtask_id:
+        lines.append(f"        subtask_id: {subtask_id}")
     for key in ("profile", "status"):
         value = projected.get(key)
         if value:
             lines.append(f"        {key}: {value}")
+    if projected.get("result_truncated") is True:
+        lines.append("        result_truncated: true")
+        truncated_fields = projected.get("truncated_fields")
+        if isinstance(truncated_fields, list) and truncated_fields:
+            lines.append("        truncated_fields:")
+            for field in truncated_fields[:8]:
+                lines.append(f"          - {field}")
+        original_chars = projected.get("original_result_chars")
+        if original_chars is not None:
+            lines.append(f"        original_result_chars: {original_chars}")
     input_refs = projected.get("input_refs")
     if isinstance(input_refs, list) and input_refs:
         lines.append("        input_refs:")

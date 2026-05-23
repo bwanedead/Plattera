@@ -34,6 +34,8 @@ _SINGLE_PLACEHOLDERS: dict[str, str] = {
     "@result.derived_ref_id": "derived_ref_id",
     "@result.revision_ref": "revision_ref",
     "@result.published_ref": "published_ref",
+    "@result.working_draft_ref": "working_draft_ref",
+    "@result.output_ref": "output_ref",
 }
 _LIST_PLACEHOLDER = "@result.artifact_refs[]"
 _BATCH_LIST_SUFFIX = ".result.artifact_refs[]"
@@ -41,6 +43,8 @@ _BATCH_SINGLE_SUFFIXES: dict[str, str] = {
     ".result.derived_ref_id": "derived_ref_id",
     ".result.revision_ref": "revision_ref",
     ".result.published_ref": "published_ref",
+    ".result.working_draft_ref": "working_draft_ref",
+    ".result.output_ref": "output_ref",
 }
 
 
@@ -370,7 +374,11 @@ def build_tool_result_snapshot(
     snapshot: dict[str, Any] = {}
     if isinstance(outputs, Mapping):
         snapshot["outputs"] = {k: outputs.get(k) for k in (
-            "derived_ref_id", "revision_ref", "published_ref",
+            "derived_ref_id",
+            "revision_ref",
+            "published_ref",
+            "working_draft_ref",
+            "output_ref",
         ) if k in outputs}
     if isinstance(artifact_refs, (list, tuple)):
         snapshot["artifact_refs"] = [str(x) for x in artifact_refs if isinstance(x, str) and x.strip()]

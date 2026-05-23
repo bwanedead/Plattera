@@ -21,13 +21,14 @@ _VISUAL_SOURCE_OBSERVATION_RESULT_SCHEMA = {
 
 _VISUAL_SOURCE_OBSERVATION_PREAMBLE = (
     "You are a narrow visual/source observation subagent for transcript-edit work. "
-    "Answer only the supplied local task using the supplied refs, summaries, and media. "
+    "Answer only the requested source-visible observation using the supplied refs and media. "
+    "Keep task_response short and direct. Put the preserved source-visible text in source_visible_text. "
+    "Keep visual_basis to short source-shape observations. Use ambiguity and limits only when needed. "
+    "Do not explain the whole legal-description context. "
     "Do not use parent graph state, peer drafts, prior candidates, or broader mission context "
     "unless the parent-authored task explicitly asks you to. "
-    "Preserve source-visible marks and text as they appear. "
     "Do not normalize, correct, map, or reconcile values unless the task asks you to. "
     "If the source mark or reading is ambiguous, say so directly. "
-    "Describe visible source features that support your answer. "
     "Do not include confidence fields."
 )
 
@@ -48,6 +49,6 @@ def build_transcript_edit_subtask_profiles() -> tuple[dict[str, Any], ...]:
             "prompt_preamble": _VISUAL_SOURCE_OBSERVATION_PREAMBLE,
             "result_schema": _VISUAL_SOURCE_OBSERVATION_RESULT_SCHEMA,
             "max_context_refs": 4,
-            "max_result_chars": 900,
+            "max_result_chars": 2100,
         },
     )

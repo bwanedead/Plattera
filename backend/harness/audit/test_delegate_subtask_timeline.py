@@ -160,3 +160,62 @@ def test_timeline_renders_two_delegate_rows_with_custom_fields_and_no_b64() -> N
     assert "subtask_output_malformed" in body
     assert "SHOULD_NOT_RENDER" not in body
     assert "b64" not in body.lower()
+
+
+def test_timeline_renders_delegate_truncation_metadata() -> None:
+    body = render_timeline(
+        [
+            {
+                "turn_index": 4,
+                "parse_ok": True,
+                "tool_request": {
+                    "actions": [
+                        {
+                            "alias": "read_crop",
+                            "action_type": DELEGATE_SUBTASK_ACTION_TYPE,
+                            "action_inputs": {
+                                "profile": "transcript_edit.visual_source_observation",
+                                "task": "Read bearing text in localized crop.",
+                                "context_refs": ["image:derived:crop_a"],
+                            },
+                        }
+                    ],
+                    "rationale": "delegate localized read",
+                },
+                "recent_action_sequence_result": {
+                    "sequence_id": "seq-4",
+                    "source_turn_index": 4,
+                    "items": [
+                        {
+                            "alias": "read_crop",
+                            "action_type": DELEGATE_SUBTASK_ACTION_TYPE,
+                            "execution_state": "executed",
+                            "delegate_subtask": {
+                                "subtask_id": "read_crop",
+                                "profile": "transcript_edit.visual_source_observation",
+                                "status": "completed",
+                                "input_refs": ["image:derived:crop_a"],
+                                "result_truncated": True,
+                                "truncated_fields": ["task_response"],
+                                "original_result_chars": 1800,
+                                "result": {
+                                    "task_response": "The visible bearing reads N. 4° 00' W.",
+                                    "source_visible_text": "N. 4° 00' W.",
+                                    "visual_basis": ["numeral resembles 4"],
+                                    "ambiguity": "",
+                                    "limits": [],
+                                },
+                            },
+                        }
+                    ],
+                },
+            }
+        ]
+    )
+
+    assert "subtask_id: read_crop" in body
+    assert "result_truncated: true" in body
+    assert "truncated_fields:" in body
+    assert "task_response" in body
+    assert "original_result_chars: 1800" in body
+    assert "image:derived:crop_a" in body
