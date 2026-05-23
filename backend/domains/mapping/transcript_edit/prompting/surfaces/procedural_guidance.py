@@ -10,7 +10,7 @@ from ..branch import TRANSCRIPT_EDIT_DOMAIN_ID
 TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_SOURCE_REF = (
     "backend/domains/mapping/transcript_edit/prompting/surfaces/procedural_guidance.py"
 )
-TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_VERSION = "v24"
+TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_VERSION = "v25"
 
 TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_TEXT = """\
 Use this guidance to shape your movement through transcript-edit work. This is **guidance**, not a hard script. The harness still owns orchestration. You should apply judgment based on what the current run actually contains.
@@ -58,7 +58,7 @@ That often means explicit review work for:
 
 When the deed contains many geometry-bearing particulars, that may legitimately require many items and many turns of targeted verification.
 Do not inventory only disagreement points and then call the work universe real. For legal-description text, the source's operative structure is the inventory driver. Draft disagreement can fill `candidate_values`, shape priority, or mark suspicion; it should not replace the basic duty to list all visible mapping-critical values that the downstream pipeline would rely on.
-Before resolution motion begins, audit the baseline inventory itself. Ask: "Can I still name another visible operative value, call component, reference, or handoff-critical scope that should have a row or covered unit?" If yes, enrich the work universe before earning exact values. If no meaningful additions come to mind, state that the baseline inventory is believed adequate and then begin source-reading resolution. This should happen before closing or earning individual values, not as a late cleanup after a few salient items are already resolved.
+Before resolution motion begins, audit the baseline inventory itself. During the opening posture, inventory completeness is the priority. Broad source views, peer drafts, and first impressions can propose candidate readings, but they should not earn exact mapping-critical values while the work universe is still visibly incomplete. Ask: "Can I still name another visible operative value, call component, reference, or handoff-critical scope that should have a row or covered unit?" If yes, enrich the work universe before earning exact values. If no meaningful additions come to mind, state that the baseline inventory is believed adequate and then begin source-reading resolution. This should happen before closing or earning individual values, not as a late cleanup after a few salient items are already resolved.
 Each item should stay concrete enough that you can answer:
 - what claim or span is in question
 - what evidence currently bears on it
@@ -80,7 +80,7 @@ The transcript-edit-specific inflection on top of the generic harness method is 
 5. treat peer drafts as candidate readings and disagreement detectors only; authority for a mapping-critical claim is the source image, with HITL as the fallback — peer-draft agreement is never a verification basis on its own
 6. keep early layer posture provisional with statuses like `unassessed`, `in_review`, or `open` until the relevant review coverage has actually been worked, and use `determination` when you want that provisional vs earned distinction to remain explicit in persisted state
 7. inspect the strongest available transcript-edit evidence for the active item
-8. if the item is mapping-critical and the source is not trivially legible, localize and enlarge the exact claim region with a targeted move (crop/zoom/annotate) rather than another broad pass
+8. if the item is mapping-critical and the source is not trivially legible, localize and enlarge the exact claim region with a targeted move (crop/zoom/annotate) rather than another broad pass or a premature delegate read
 9. if the strongest available in-run check is still inconclusive, keep the item unresolved and classify whether it is a Layer 2 issue, a Layer 3 issue, or an item that now warrants HITL
 10. update the work inventory and the four-layer closure posture with what that evidence actually supports
 11. once enough of the visible portion is deliberately verified, author a working draft that actually materializes that verified transcript state even if later publish / complete remain blocked
@@ -125,7 +125,9 @@ Concretely:
 - If the image is not legible enough for the claim in question, record what was attempted and what stronger move remains.
 
 ## Isolated visual source observation (`delegate_subtask`)
-For transcript-edit, delegation is a way to get a cleaner source read after you have curated the local work universe. The parent should find the relevant source area, create or choose a satisfactory crop/artifact, and then use `delegate_subtask` with `transcript_edit.visual_source_observation` when an exact reading deserves fresh isolated attention. This is especially valuable for critical determinations where a small mark, digit, word, bearing, distance, acreage, name, range/reference, or direction letter can change downstream correctness.
+For transcript-edit, delegation is a way to get a cleaner source read after you have curated the local work universe and prepared local evidence. It should not become a shortcut around baseline inventory. Use the opening turns to discover the visible mapping-critical atoms first; use delegation when the parent has a bounded source question worth handing to a clean, narrow observer.
+
+The parent should find the relevant source area, create or choose a satisfactory localized crop/artifact, and then use `delegate_subtask` with `transcript_edit.visual_source_observation` when an exact reading deserves fresh isolated attention. For this domain, localized evidence before delegated determination is the normal path: a child that receives the tight source packet has less prompt burden, less visual clutter, and less inherited theory than a parent trying to read from the full page inside the whole run context. This is especially valuable for critical determinations where a small mark, digit, word, bearing, distance, acreage, name, range/reference, or direction letter can change downstream correctness.
 
 The reason is practical: the parent turn carries peer drafts, candidate values, graph state, prior impressions, closure pressure, and a large prompt. Those things are useful for managing the mission, but they can contaminate a visual read. A delegated child can receive a much smaller prompt and only the curated local evidence, which is often a higher-signal and more token-efficient way to answer a narrow source question. Treat delegation as a clean-room observation pass: the child reports what the source visibly supports; the parent decides what that observation means for the work graph, evidence notes, draft, HITL, blockers, or final output.
 
@@ -138,7 +140,7 @@ For transcript-edit source reading, the full source image is orientation evidenc
 
 This is extremely important because this failure happens in practice: the model looks at the correct page, sees roughly the correct area, carries a candidate value from t0 or first impression, and then closes the wrong number or word with confidence. That is not acceptable for mapping-critical text. A broad page view plus a box on the original image can still be a false determination.
 
-When the claim needing resolution is a number, bearing, distance, acreage, name, range/reference, direction, short word, or other specific attribute, hyper-localize it before determining it. Crop, zoom, annotate, or render the locator so the exact mark is isolated and obvious. Then actually read that local evidence as the basis of the decision. Do not decide first from the page, peer draft, or memory and then attach a locator afterward as decoration.
+When the claim needing resolution is a number, bearing, distance, acreage, name, range/reference, direction, short word, or other specific attribute, hyper-localize it before determining it. Crop, zoom, annotate, or render the locator so the exact mark is isolated and obvious. Then actually read that local evidence as the basis of the decision; for critical or ambiguity-prone readings, a neutral `delegate_subtask` observation from the localized packet is usually the cleaner determination aid. Do not decide first from the page, peer draft, or memory and then attach a locator afterward as decoration.
 
 The sane order is: candidate value -> hyper-local evidence -> first-hand inspection of the exact mark -> earned value. If the hyper-local evidence does not make the reading obvious, keep the unit open, refine the evidence, ask HITL, or mark the limitation. Do not make a clean-looking determination from a broad source view when the real question is the shape of a single value.
 
