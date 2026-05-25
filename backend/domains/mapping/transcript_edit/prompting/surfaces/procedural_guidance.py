@@ -10,82 +10,25 @@ from ..branch import TRANSCRIPT_EDIT_DOMAIN_ID
 TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_SOURCE_REF = (
     "backend/domains/mapping/transcript_edit/prompting/surfaces/procedural_guidance.py"
 )
-TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_VERSION = "v25"
+TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_VERSION = "v26"
 
 TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_TEXT = """\
 Use this guidance to shape your movement through transcript-edit work. This is **guidance**, not a hard script. The harness still owns orchestration. You should apply judgment based on what the current run actually contains.
 
-## A sane transcript-edit opening posture
-Early in a transcript-edit run, you usually need to establish:
-- which peer drafts exist
-- whether a transcript-edit working/output artifact already exists
-- which source image refs exist
-- where the likely high-signal disagreements or source-sensitive claims are
-- what the mission would actually require to be true for downstream mapping to trust this transcript
+## Transcript-edit work universe: t0 gives shape, source gives truth
+Use t0 drafts aggressively for initial shape, not for earned truth. The t0 landscape is a practical and efficient template for the visible document structure: it can expose sections, paragraphs, parcel or scope structure, likely calls, candidate values, repeated values, cutoffs, contradictions, and disagreement hotspots. For the opening work-universe pass, it is acceptable to use t0 as the main map of what atoms probably need to exist.
 
-That does **not** mean repeatedly loading everything over and over.
-It means becoming clear about the landscape quickly enough that you can start turning real transcript concerns into explicit work.
+But t0 does not earn values. Peer drafts are candidate readings, not authority. Their disagreements are useful clues, and their agreements may help you move faster, but neither disagreement nor agreement decides truth. Every t0 reading remains candidate/open until source-local evidence, delegated observation, HITL, or explicit blocker/no-further-progress posture resolves it. If later source review shows that t0 missed, merged, split, or misread a unit, amend the work universe then. The initial inventory should be complete from the current vantage point, not frozen forever.
 
-## What t0 means in this domain
-`t0` is the initial transcription output surface for the dossier or segment in scope. It may produce more than one draft because parallel or redundant transcription passes can expose uncertainty early.
+Before transcript-edit resolution motion begins, the graph should contain every visible map-critical object you can identify from the t0/source landscape. Do not stop at disagreement points, broad parcel buckets, first impressions, or the first loud source conflict. The work universe is defined by what the visible source material is doing for downstream mapping and transcript handoff trust, not by which peer drafts happened to disagree.
 
-**Peer drafts are candidate readings, not authority.** They are other machines' attempts at the same problem you are solving. Authority for what the deed says is the **source image** (and, when the source is ambiguous or cut off, a HITL answer from a human). Peer drafts are useful primarily as disagreement detectors — places where at least one machine reader was uncertain, which is a signal that a human-grade check against the source image is warranted.
+Numbers are strongly presumed atomic. If a number can affect geometry, source integrity, handoff trust, or downstream normalization, it needs its own atomic item or covered unit unless it is genuinely immaterial. That includes degrees, bearings, distances, acreage, section/township/range numbers, parcel counts, offsets, quantities, dates when operative, and any other numeric detail the map or handoff may rely on. Quiet numbers still count; a number is not excused from inventory merely because all peer drafts agree about it.
 
-Treat redundant draft disagreement as:
-- a **disagreement detector**: a location where the source image should be checked directly
-- a source of candidate values, uncertainty notes, or prioritization hints when the disagreement touches mapping-relevant text
+The same atom pressure applies to non-numeric map-critical objects: parcel/scope structure, point-of-beginning facts, tie facts, courses, directions, boundaries, operative references, source cutoffs, apparent source contradictions, external dependencies, and governing downstream choices. A paragraph-level or parcel-level group is useful only as an organizer; it does not make inventory complete unless the material components inside it are visible as covered units or related atoms with their own status, candidate/determined value where relevant, and evidence posture.
 
-Treat redundant draft disagreement as a clue, not as the boundary of the work. It is fine to use the peer drafts as the first inventory source, but the inventory must still seek the full visible set of mapping-critical atoms. The work inventory is defined by what the source document is doing for downstream mapping, not by which peer drafts happened to disagree. If a value, reference, or call component can affect geometry, handoff trust, source integrity, or later correction, it deserves representation even when the peer drafts are quiet or unanimous.
+The baseline inventory gate is simple: if you can still name another visible operative value, number, call component, reference, source limit, contradiction, dependency, or handoff-critical scope that lacks a row or covered unit, inventory is not done. Keep inventorying. Resolution motion starts only after the visible work universe is believed adequate from the current vantage point. Later discoveries can and should amend the graph, but obvious map-critical atoms should not be deferred just because one source conflict or draft disagreement is already tempting.
 
-Treat redundant draft **agreement** as:
-- weak negative evidence only — at best a reason to deprioritize, never a substitute for direct source-image verification when the claim is mapping-critical
-
-Do not limit yourself to draft disagreement alone. Mapping-critical content must be reviewed directly against the source image even when every peer draft happens to agree. Agreement between peer drafts is not a verification basis; the source image (and HITL when the image is insufficient) is.
-
-## How to turn transcript-edit reality into work
-In transcript-edit, a good work inventory should cover the visible mapping-significant claims and problems that stand between the run and trustworthy transcript reality.
-
-That often means explicit review work for:
-- parcel structure, parcel count, or legal-description organization
-- section / township / range / survey or other operative references
-- point-of-beginning, tie, offset, course, boundary, bearing, distance, and acreage components
-- a geometry-bearing line or tightly scoped call group that must be checked against the image
-- a likely transcript/source delta
-- an apparent source contradiction
-- a visibly incomplete or cut-off source segment
-- an external dependency that prevents confident closure
-- a material disagreement between peer drafts, as a clue to candidate values or fragile spans rather than the reason the row exists
-
-When the deed contains many geometry-bearing particulars, that may legitimately require many items and many turns of targeted verification.
-Do not inventory only disagreement points and then call the work universe real. For legal-description text, the source's operative structure is the inventory driver. Draft disagreement can fill `candidate_values`, shape priority, or mark suspicion; it should not replace the basic duty to list all visible mapping-critical values that the downstream pipeline would rely on.
-Before resolution motion begins, audit the baseline inventory itself. During the opening posture, inventory completeness is the priority. Broad source views, peer drafts, and first impressions can propose candidate readings, but they should not earn exact mapping-critical values while the work universe is still visibly incomplete. Ask: "Can I still name another visible operative value, call component, reference, or handoff-critical scope that should have a row or covered unit?" If yes, enrich the work universe before earning exact values. If no meaningful additions come to mind, state that the baseline inventory is believed adequate and then begin source-reading resolution. This should happen before closing or earning individual values, not as a late cleanup after a few salient items are already resolved.
-Each item should stay concrete enough that you can answer:
-- what claim or span is in question
-- what evidence currently bears on it
-- what would count as stronger verification
-- whether it is resolved, still open, or potentially blocking
-
-For mapping-critical deed text, “reviewed” does not mean skimmed once.
-It means the run has deliberately checked the claim against the strongest available evidence the run can obtain.
-
-The generic harness already teaches the universal work method: build the work universe, choose an active item, get the next discriminating truth, and update durable state from that work. Transcript-edit adds what those items typically are and what kinds of evidence/closure matter here.
-
-## Recommended transcript-edit movement
-The transcript-edit-specific inflection on top of the generic harness method is usually:
-
-1. derive the mission-essential conditions for transcript trust in this run, not just the first visible disagreements
-2. inventory the visible mapping-significant claims, operative legal-description values, contradictions, cutoffs, and dependencies that stand between the run and transcript trust
-3. create explicit items or covered units for each material claim or tightly scoped claim-group the mission depends on, including quiet geometry-bearing values that are not peer-disagreement points
-4. audit the baseline inventory before serious resolution motion; if you can still think of meaningful visible atoms, add them before earning values
-5. treat peer drafts as candidate readings and disagreement detectors only; authority for a mapping-critical claim is the source image, with HITL as the fallback — peer-draft agreement is never a verification basis on its own
-6. keep early layer posture provisional with statuses like `unassessed`, `in_review`, or `open` until the relevant review coverage has actually been worked, and use `determination` when you want that provisional vs earned distinction to remain explicit in persisted state
-7. inspect the strongest available transcript-edit evidence for the active item
-8. if the item is mapping-critical and the source is not trivially legible, localize and enlarge the exact claim region with a targeted move (crop/zoom/annotate) rather than another broad pass or a premature delegate read
-9. if the strongest available in-run check is still inconclusive, keep the item unresolved and classify whether it is a Layer 2 issue, a Layer 3 issue, or an item that now warrants HITL
-10. update the work inventory and the four-layer closure posture with what that evidence actually supports
-11. once enough of the visible portion is deliberately verified, author a working draft that actually materializes that verified transcript state even if later publish / complete remain blocked
-
-This is transcript-edit guidance, not a hard-coded controller pipeline.
+For mapping-critical source text, “reviewed” does not mean skimmed once or copied from a peer draft. It means the run has deliberately checked the claim against the strongest available evidence the run can obtain, or has honestly recorded why that check is unavailable, inconclusive, blocked, or human-answerable. Keep early layer posture provisional with statuses like `unassessed`, `in_review`, or `open` until the relevant review coverage has actually been worked, and use `determination` when you want the provisional vs earned distinction to remain explicit in persisted state.
 
 ## Operational reminders
 - Keep `mission.closure_state` and `resolution_state.items` current as real work happens; do not wait for a final rationale to explain closure after the fact.

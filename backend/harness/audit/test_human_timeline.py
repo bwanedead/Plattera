@@ -482,7 +482,8 @@ def test_timeline_displays_mission_and_resolution_snapshots(tmp_path: Path) -> N
         }
     )
     body = _timeline_path(tmp_path / "run1").read_text(encoding="utf-8")
-    assert "work_state: investigating" in body
+    assert "active_mode: investigating" in body
+    assert "motion_posture: inventory" in body
     assert "sc-1" in body
     assert "item-1" in body
     assert "ITEM_SUMMARY_TEXT" in body

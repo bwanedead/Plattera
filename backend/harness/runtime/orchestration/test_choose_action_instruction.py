@@ -100,6 +100,8 @@ def test_choose_action_instruction_requires_rationale_on_every_turn() -> None:
 def test_choose_action_instruction_teaches_state_patch_and_hitl_reference_law() -> None:
     text = CHOOSE_ACTION_INSTRUCTION.lower()
     assert "work_universe_posture" in text
+    assert "motion_posture" in text
+    assert "motion_posture_basis" in text
     assert "complete_run" in text and "mechanical complete/publish gate" in text
     assert "mission_state" in text and "resolution_state" in text
     assert "hitl_request.context" in text
@@ -224,15 +226,16 @@ def test_surface_teaches_broad_to_specific_value_decomposition() -> None:
     from harness.runtime.prompting.surface import _HARNESS_TRUNK_METHOD_TEXT
     text = _HARNESS_TRUNK_METHOD_TEXT
     lowered = text.lower()
-    assert "broad-to-specific value decomposition" in lowered
+    assert "mission work method" in lowered
+    assert "work proximity, groups, and atoms" in lowered
     assert "candidate_values" in text
     assert "determined_value" in text
-    assert "if the atomic row itself has the answer" in lowered
+    assert "if the atomic row has an answer" in lowered
     assert "claim, candidates, determined value, evidence, status" in lowered
     assert "value_kind" in text
     assert "not exhaustive" in lowered
-    assert "authoritative evidence earns disputed values" in lowered
-    assert "patch/block/escalate" in lowered or "stop condition" in lowered
+    assert "compact proof object" in lowered
+    assert "work-universe quality directly affects the economic possibility cone" in lowered
 
 
 def test_surface_teaches_defensible_evidence_and_read_carry_forward() -> None:
@@ -253,9 +256,10 @@ def test_surface_teaches_group_covered_units_rule() -> None:
     from harness.runtime.prompting.surface import _HARNESS_TRUNK_METHOD_TEXT
     text = _HARNESS_TRUNK_METHOD_TEXT.lower()
     assert "covered_units" in text
-    assert "may not close while a material sub-unit it stands over is still unresolved" in text
-    assert "visible problem universe" in text
-    assert "mission outcome, confidence, handoffability, safety, cost, or user trust" in text
+    assert "atoms are the core completeness unit" in text
+    assert "groups are organizational utilities" in text
+    assert "the material atoms inside the mission have visible places" in text
+    assert "success, failure, handoffability, safety, cost, user trust" in text
     assert "ask the smallest question whose answer can be integrated" in text
 
 

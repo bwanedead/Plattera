@@ -13,6 +13,7 @@ MISSION_STATE_VERSION = "mission_state.v1"
 RESOLUTION_STATE_VERSION = "resolution_state.v1"
 CLOSURE_STATE_VERSION = "closure_state.v1"
 WorkUniversePosture = Literal["initial", "partial", "believed_adequate", "audited"]
+MotionPosture = Literal["inventory", "resolution"]
 ResolutionItemStructureKind = Literal["atomic", "group"]
 
 
@@ -252,6 +253,8 @@ class MissionState(BaseModel):
     objective: str | None = Field(default=None, max_length=240)
     active_mode: str | None = Field(default=None, max_length=64)
     work_universe_posture: WorkUniversePosture = "initial"
+    motion_posture: MotionPosture = "inventory"
+    motion_posture_basis: str | None = Field(default=None, max_length=500)
     updated_at_epoch_seconds: float = Field(default=0.0, ge=0.0)
     latest_refs_summary: dict[str, Any] = Field(default_factory=dict)
     high_signal_artifact_refs: list[str] = Field(default_factory=list, max_length=16)
@@ -334,6 +337,8 @@ def new_mission_state(
     objective: str | None = None,
     active_mode: str | None = None,
     work_universe_posture: WorkUniversePosture = "initial",
+    motion_posture: MotionPosture = "inventory",
+    motion_posture_basis: str | None = None,
     updated_at_epoch_seconds: float = 0.0,
     latest_refs_summary: Mapping[str, Any] | None = None,
     high_signal_artifact_refs: list[str] | None = None,
@@ -362,6 +367,8 @@ def new_mission_state(
         objective=_clean_text(objective, limit=240),
         active_mode=_clean_text(active_mode, limit=64),
         work_universe_posture=work_universe_posture,
+        motion_posture=motion_posture,
+        motion_posture_basis=_clean_text(motion_posture_basis, limit=500),
         updated_at_epoch_seconds=float(updated_at_epoch_seconds or 0.0),
         latest_refs_summary=dict(latest_refs_summary) if isinstance(latest_refs_summary, Mapping) else {},
         high_signal_artifact_refs=_clean_str_list(high_signal_artifact_refs, limit=16),

@@ -40,6 +40,8 @@ MAX_RESOLUTION_RELATIONS_TOTAL = 128
 MAX_STATE_PATCH_DETAIL_ROWS = 4
 MAX_STATE_PATCH_VALIDATION_ERRORS = 4
 _WORK_UNIVERSE_POSTURES = frozenset({"initial", "partial", "believed_adequate", "audited"})
+_MOTION_POSTURES = frozenset({"inventory", "resolution"})
+_MAX_MOTION_POSTURE_BASIS_CHARS = 500
 
 # Salvageable optional prose/display fields: may be omitted when invalid without
 # destroying core semantic content. Only top-level string-overlong failures on these
@@ -62,6 +64,8 @@ ALLOWED_MISSION_KEYS = frozenset(
         "objective",
         "active_mode",
         "work_universe_posture",
+        "motion_posture",
+        "motion_posture_basis",
         "high_signal_artifact_refs",
         "blocker_summary",
         "verification_summary",
@@ -1159,6 +1163,35 @@ def _apply_mission_branch(ms: MissionState, raw: Any) -> MissionState:
                 detail={"failing_path": "mission.work_universe_posture"},
             )
         updates["work_universe_posture"] = posture
+
+    if "motion_posture" in raw:
+        posture = str(raw["motion_posture"] or "").strip()
+        if posture not in _MOTION_POSTURES:
+            raise StatePatchError(
+                "motion_posture_invalid",
+                (
+                    "mission.motion_posture must be one of "
+                    f"{sorted(_MOTION_POSTURES)}"
+                ),
+                detail={"failing_path": "mission.motion_posture"},
+            )
+        updates["motion_posture"] = posture
+        if posture != ms.motion_posture and "motion_posture_basis" not in raw:
+            updates["motion_posture_basis"] = None
+
+    if "motion_posture_basis" in raw:
+        v = raw["motion_posture_basis"]
+        if v is None:
+            updates["motion_posture_basis"] = None
+        elif isinstance(v, str):
+            text = v.strip()
+            updates["motion_posture_basis"] = text[:_MAX_MOTION_POSTURE_BASIS_CHARS] or None
+        else:
+            raise StatePatchError(
+                "motion_posture_basis_invalid",
+                "mission.motion_posture_basis must be a string or null",
+                detail={"failing_path": "mission.motion_posture_basis"},
+            )
 
     for key in (
         "blocker_summary",

@@ -16,6 +16,20 @@ def test_harness_surface_teaches_work_universe_posture_and_audit_sweep() -> None
     assert "audit sweep" in text
     assert "if i had to defend every closed item one by one" in text
     assert "mechanically blocked until `mission.work_universe_posture` is `audited`" in text
+    assert "motion_posture" in text
+    assert "does not block tools based on motion posture" in text
+
+
+def test_harness_surface_defines_inventory_and_resolution_motion_gate() -> None:
+    text = _HARNESS_TRUNK_METHOD_TEXT.lower()
+    assert "inventory motion and resolution motion are different jobs" in text
+    assert "inventory motion is work whose purpose is to discover, name, structure, and organize" in text
+    assert "resolution motion is work whose purpose is to learn, prove, crop, inspect, delegate" in text
+    assert "localizing evidence for one already-chosen item is resolution motion" in text
+    assert "a partial universe is not permission to begin resolving the favorite item" in text
+    assert "stay in inventory motion" in text
+    assert "moving from inventory motion into resolution motion is an authored commitment" in text
+    assert "retroflect immediately" in text
 
 
 def test_harness_surface_teaches_hitl_self_audit_and_async_default() -> None:

@@ -88,4 +88,6 @@ STR_FIELDS = (
     "last_state_patch_outcome",
     "last_state_patch_reason_code",
     "work_universe_posture",
+    "motion_posture",
+    "motion_posture_basis",
 )

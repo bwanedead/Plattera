@@ -43,6 +43,8 @@ def build_prompt_observability_summary(
     closure_state = cont.mission_state.closure_state
     closure_dimensions = list(getattr(closure_state, "dimensions", ()) or ())
     work_universe_posture = _as_optional_text(getattr(cont.mission_state, "work_universe_posture", None)) or "initial"
+    motion_posture = _as_optional_text(getattr(cont.mission_state, "motion_posture", None)) or "inventory"
+    motion_posture_basis = _as_optional_text(getattr(cont.mission_state, "motion_posture_basis", None))
     feedback = dict(cont.state_patch_feedback) if isinstance(cont.state_patch_feedback, Mapping) else {}
     relation_index = _relation_index(resolution_relations)
     sequence_metrics = _sequence_metrics(resolution_items)
@@ -281,6 +283,8 @@ def build_prompt_observability_summary(
         "last_state_patch_outcome": _as_optional_text(feedback.get("outcome")),
         "last_state_patch_reason_code": _as_optional_text(feedback.get("reason_code")),
         "work_universe_posture": work_universe_posture,
+        "motion_posture": motion_posture,
+        "motion_posture_basis": motion_posture_basis,
         "repeated_state_patch_reason_code_streak": repeated_state_patch_reason_code_streak,
         "turns_since_last_state_patch_applied": turns_since_last_state_patch_applied,
         "consecutive_same_active_item_turns": consecutive_same_active_item_turns,

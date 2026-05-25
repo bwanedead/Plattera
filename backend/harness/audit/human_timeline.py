@@ -181,6 +181,7 @@ def _render_turn(turn: Mapping[str, Any]) -> list[str]:
     out.extend(_render_tool_result(turn))
     out.extend(_render_saved_artifact(turn))
     out.extend(_render_state_patch(turn))
+    out.extend(_render_motion_posture_transition(turn))
     out.extend(_render_hitl(turn))
     out.extend(_render_user_messages(turn))
     out.extend(_render_mission_snapshot(turn))
@@ -742,6 +743,25 @@ def _render_state_patch(turn: Mapping[str, Any]) -> list[str]:
     return lines
 
 
+def _render_motion_posture_transition(turn: Mapping[str, Any]) -> list[str]:
+    before = _coerce_mapping(turn.get("mission_state_before"))
+    after = _coerce_mapping(turn.get("mission_state_after"))
+    if not before or not after:
+        return []
+    before_posture = str(before.get("motion_posture") or "inventory").strip() or "inventory"
+    after_posture = str(after.get("motion_posture") or "inventory").strip() or "inventory"
+    if before_posture == after_posture:
+        return []
+    lines = ["Motion Posture"]
+    lines.append(f"  motion_posture: {before_posture} -> {after_posture}")
+    basis = after.get("motion_posture_basis")
+    if isinstance(basis, str) and basis.strip():
+        lines.append("  basis:")
+        lines.extend(_indented_prose(_bound_text(basis, PROSE_MAX_CHARS), indent="    "))
+    lines.append("")
+    return lines
+
+
 def _render_hitl(turn: Mapping[str, Any]) -> list[str]:
     pending = turn.get("pending_hitl_requests") or []
     answered = turn.get("answered_hitl_responses") or []
@@ -827,12 +847,18 @@ def _render_mission_snapshot(turn: Mapping[str, Any]) -> list[str]:
         return []
     lines = ["Mission Snapshot"]
     if mission:
-        work_state = (
-            mission.get("active_mode")
-            or mission.get("work_state")
-            or mission.get("work_universe_posture")
-        )
-        lines.append(f"  work_state: {work_state or 'unknown'}")
+        active_mode = mission.get("active_mode")
+        if active_mode:
+            lines.append(f"  active_mode: {active_mode}")
+        work_universe_posture = mission.get("work_universe_posture")
+        if work_universe_posture:
+            lines.append(f"  work_universe_posture: {work_universe_posture}")
+        motion_posture = mission.get("motion_posture") or "inventory"
+        lines.append(f"  motion_posture: {motion_posture}")
+        motion_basis = mission.get("motion_posture_basis")
+        if isinstance(motion_basis, str) and motion_basis.strip():
+            lines.append("  motion_posture_basis:")
+            lines.extend(_indented_prose(_bound_text(motion_basis, PROSE_MAX_CHARS), indent="    "))
         objective = mission.get("objective")
         if objective:
             lines.append("  objective:")
@@ -1138,6 +1164,8 @@ def _render_observability(turn: Mapping[str, Any]) -> list[str]:
             lines.append(f"    - {flag}")
     for key in (
         "work_universe_posture",
+        "motion_posture",
+        "motion_posture_basis",
         "resolution_item_count",
         "success_condition_count",
         "closure_dimension_count",

@@ -53,7 +53,7 @@ _STATE_PATCH_MECHANICS_TEXT = """\
 ### state_patch mechanics
 Optional `state_patch` shape:
 - `resolution?`: `{active_item_id, items, relations, opaque_payload}`
-- `mission?`: `{objective, active_mode, work_universe_posture, blocker_summary, verification_summary, waiting_summary, continuity_summary, mission_mode_summary, high_signal_artifact_refs, success_conditions, closure_state, opaque_payload}`
+- `mission?`: `{objective, active_mode, work_universe_posture, motion_posture, motion_posture_basis, blocker_summary, verification_summary, waiting_summary, continuity_summary, mission_mode_summary, high_signal_artifact_refs, success_conditions, closure_state, opaque_payload}`
 
 The runtime merges mechanically:
 - resolution items merge by `item_id`
@@ -149,6 +149,14 @@ closure_state dimensions merge by `dimension_id`.
 
 `mission.work_universe_posture` allowed values: `initial` | `partial` | `believed_adequate` | `audited`
 `audited` is the only posture that satisfies the mechanical complete/publish gate.
+
+`mission.motion_posture` allowed values: `inventory` | `resolution`
+- `inventory`: still discovering, naming, structuring, and organizing the mission work universe; while mission-critical atoms or covered units you can name remain unrepresented, stay in inventory motion.
+- `resolution`: deliberately authorizing resolution motion on specific items or units (learn, prove, crop, inspect, delegate, adjudicate, earn, close).
+Setting `motion_posture=resolution` is an authored commitment, not an automatic side effect of tools. Resolution turns may reveal missing inventory; if baseline inventory was premature, patch back to `motion_posture=inventory` with an honest `motion_posture_basis`.
+Keep `motion_posture` separate from `work_universe_posture`: inventory completeness vs the kind of motion you are authorizing. The harness surfaces both for visibility; it does not block tools based on `motion_posture`.
+
+Optional `motion_posture_basis`: short explanation of why the current motion posture is honest (bounded string).
 
 Summary-field shorthand: mission summary fields such as `blocker_summary`, `verification_summary`, `waiting_summary`, `continuity_summary`, and `mission_mode_summary` accept a plain string and the host normalizes it to `{"summary": "..."}`.
 """

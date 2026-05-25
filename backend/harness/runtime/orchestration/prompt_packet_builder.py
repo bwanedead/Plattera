@@ -464,6 +464,7 @@ def _safe_turn_index(row: Mapping[str, Any]) -> int | None:
 
 _ALWAYS_KEEP_OBSERVABILITY_KEYS: tuple[str, ...] = (
     "work_universe_posture",
+    "motion_posture",
     "resolution_item_count",
     "success_condition_count",
     "closure_dimension_count",
@@ -533,6 +534,9 @@ def _compact_prompt_observability_summary(full_summary: Mapping[str, Any]) -> di
     reason_code = full_summary.get("last_state_patch_reason_code")
     if reason_code:
         compact["last_state_patch_reason_code"] = reason_code
+    motion_basis = full_summary.get("motion_posture_basis")
+    if isinstance(motion_basis, str) and motion_basis.strip():
+        compact["motion_posture_basis"] = motion_basis.strip()
 
     for key in _OPTIONAL_OBSERVABILITY_COUNTERS:
         value = full_summary.get(key)

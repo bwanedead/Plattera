@@ -785,7 +785,7 @@ def test_full_choose_action_prompt_doctrine_mentions_hydrate_next() -> None:
         journal_verbatim_keep_n=2,
     )
     assert "hydrate_next" in doc.prompt_text
-    assert '"hydrate_next":["@this.result.revision_ref"]' in doc.prompt_text
+    assert '"hydrate_next":["@this.result.working_draft_ref"]' in doc.prompt_text
     assert '"hydrate_next":["@this.result.derived_ref_id"]' in doc.prompt_text
     assert "removes predictable hydrate-only turns" in doc.prompt_text
     assert "verify saved payload shape before publish" in doc.prompt_text

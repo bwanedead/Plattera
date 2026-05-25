@@ -302,26 +302,28 @@ def test_domain_pack_declares_semantic_prompt_blocks() -> None:
     assert "peer draft" in text
     assert "t0" in text
     assert "mapping-critical" in text
-    assert "recommended transcript-edit movement" in text
+    assert "transcript-edit work universe: t0 gives shape, source gives truth" in text
     assert "same broad set of refs" in text
-    assert "working draft that actually materializes that verified transcript state" in text
+    assert "source-faithful transcript artifact" in text
     assert "heads/finals" not in text
     assert "peer draft" in text
     assert "t0" in text
     assert "`mission.closure_state`" in guidance.text
     assert "`resolution_state.items`" in guidance.text
-    assert "inventory the visible mapping-significant claims" in text
-    assert "the work inventory is defined by what the source document is doing for downstream mapping" in text
-    assert "the source's operative structure is the inventory driver" in text
-    assert "it is fine to use the peer drafts as the first inventory source" in text
-    assert "audit the baseline inventory before serious resolution motion" in text
-    assert "state that the baseline inventory is believed adequate" in text
-    assert "quiet geometry-bearing values that are not peer-disagreement points" in text
-    assert "mission-essential conditions" in text
-    assert "material claim or tightly scoped claim-group" in text
-    assert "localize and enlarge the exact claim region" in text
-    assert "layer 2 issue, a layer 3 issue, or an item that now warrants hitl" in text
-    assert "verified transcript state" in text
+    assert "use t0 drafts aggressively for initial shape, not for earned truth" in text
+    assert "visible document structure" in text
+    assert "main map of what atoms probably need to exist" in text
+    assert "every t0 reading remains candidate/open" in text
+    assert "missed, merged, split, or misread a unit" in text
+    assert "every visible map-critical object" in text
+    assert "the work universe is defined by what the visible source material is doing" in text
+    assert "numbers are strongly presumed atomic" in text
+    assert "quiet numbers still count" in text
+    assert "degrees, bearings, distances, acreage" in text
+    assert "paragraph-level or parcel-level group is useful only as an organizer" in text
+    assert "the baseline inventory gate is simple" in text
+    assert "resolution motion starts only after the visible work universe is believed adequate" in text
+    assert "provisional vs earned distinction" in text
     assert "use the turn sensibly" in text
     assert "if related crops, hydrations, or state updates can be handled together" in text
     assert "record and close those readings while leaving the unclear ones open" in text
