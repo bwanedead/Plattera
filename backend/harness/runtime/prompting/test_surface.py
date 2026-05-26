@@ -24,10 +24,13 @@ def test_harness_surface_defines_inventory_and_resolution_motion_gate() -> None:
     text = _HARNESS_TRUNK_METHOD_TEXT.lower()
     assert "inventory motion and resolution motion are different jobs" in text
     assert "inventory motion is work whose purpose is to discover, name, structure, and organize" in text
-    assert "resolution motion is work whose purpose is to learn, prove, crop, inspect, delegate" in text
-    assert "localizing evidence for one already-chosen item is resolution motion" in text
+    assert "inventory motion may record candidate values and likely work items" in text
+    assert "resolution motion is work whose purpose is to learn, prove, localize, inspect, delegate" in text
+    assert "if the move is meant to decide whether a specific atom is true" in text
+    assert "cropping a specific value so it can be read" in text
     assert "a partial universe is not permission to begin resolving the favorite item" in text
     assert "stay in inventory motion" in text
+    assert "enter resolution motion" in text
     assert "moving from inventory motion into resolution motion is an authored commitment" in text
     assert "retroflect immediately" in text
 
@@ -68,6 +71,9 @@ def test_harness_surface_teaches_mission_critical_exactness() -> None:
     assert "false determination is a common agent failure mode" in lowered
     assert "broad familiarity with the source" in lowered
     assert "locally and directly inspectable" in lowered
+    assert "consider delegation the normal high-signal path" in lowered
+    assert "smaller neutral task and a curated evidence packet" in lowered
+    assert "attention quality and token efficiency" in lowered
     assert "this is not ceremony" in lowered
     assert "falsely earned unit is dangerous" in lowered
 

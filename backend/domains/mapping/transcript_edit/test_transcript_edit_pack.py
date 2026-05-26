@@ -179,7 +179,8 @@ def test_procedural_guidance_teaches_delegate_subtask_lightly() -> None:
     text = guidance.text.lower()
     assert "delegate_subtask" in text
     assert "transcript_edit.visual_source_observation" in text
-    assert "fresh isolated attention" in text
+    assert "normal determination aid for critical exact visual/source readings" in text
+    assert "unless delegation genuinely does not make sense" in text
     assert "curated local evidence" in text
     assert "higher-signal and more token-efficient" in text
     assert "clean-room observation pass" in text
@@ -312,17 +313,18 @@ def test_domain_pack_declares_semantic_prompt_blocks() -> None:
     assert "`resolution_state.items`" in guidance.text
     assert "use t0 drafts aggressively for initial shape, not for earned truth" in text
     assert "visible document structure" in text
-    assert "main map of what atoms probably need to exist" in text
+    assert "fast practical substrate for the opening work universe" in text
+    assert "build the atomized work universe quickly" in text
     assert "every t0 reading remains candidate/open" in text
     assert "missed, merged, split, or misread a unit" in text
-    assert "every visible map-critical object" in text
-    assert "the work universe is defined by what the visible source material is doing" in text
+    assert "the early job is not to investigate each atom's truth" in text
+    assert "walk the t0/source landscape top-to-bottom" in text
     assert "numbers are strongly presumed atomic" in text
     assert "quiet numbers still count" in text
     assert "degrees, bearings, distances, acreage" in text
     assert "paragraph-level or parcel-level group is useful only as an organizer" in text
-    assert "the baseline inventory gate is simple" in text
-    assert "resolution motion starts only after the visible work universe is believed adequate" in text
+    assert "fast t0-shaped atomization pass" in text
+    assert "obvious t0-visible atoms should not be deferred" in text
     assert "provisional vs earned distinction" in text
     assert "use the turn sensibly" in text
     assert "if related crops, hydrations, or state updates can be handled together" in text
