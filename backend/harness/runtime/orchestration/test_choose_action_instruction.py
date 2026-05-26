@@ -251,13 +251,15 @@ def test_choose_action_instruction_teaches_artifact_excerpt_boundary_risk_flag()
     assert "absent from the excerpt" in lowered or "absent from the source" in lowered
 
 
-def test_choose_action_instruction_teaches_source_and_downstream_lanes() -> None:
+def test_choose_action_instruction_teaches_generic_multi_lane_preflight() -> None:
     text = CHOOSE_ACTION_INSTRUCTION
     lowered = text.lower()
-    assert "source-observed lane" in lowered
-    assert "downstream-usable lane" in lowered
-    assert "do not silently overwrite the source lane" in lowered
-    assert "mark the unavailable portion explicitly" in lowered
+    assert "multiple semantic lanes or views" in lowered
+    assert "preserve each required lane when they differ" in lowered
+    assert "do not silently collapse one lane into another" in lowered
+    assert "carry metadata explaining divergence" in lowered
+    assert "source-observed lane" not in lowered
+    assert "downstream-usable lane" not in lowered
 
 
 def test_choose_action_instruction_preflight_section_has_no_current_deed_examples() -> None:

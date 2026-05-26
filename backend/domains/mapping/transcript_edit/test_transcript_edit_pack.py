@@ -246,42 +246,22 @@ def test_prompt_branch_block_shape_and_doctrine_markers() -> None:
     assert "deliberate layer assessment" in text.lower()
     assert "a partial answer to one layer is not a closure answer to the others" in text.lower()
     assert "earned source-reading standard" in text.lower()
-    assert "strongest bounded image move" in text.lower()
     assert "false visual earning" in text.lower()
-    assert "author the crop, box, highlight, or `image_region` locator yourself" in text.lower()
-    assert "inspect the focused or rendered evidence" in text.lower()
+    assert "orientation evidence helps find the area" in text.lower()
+    assert "do not decide from t0, transcript text, memory, or first impression" in text.lower()
+    assert "mapping-critical inventory law" in text.lower()
+    assert "structured source readings in the work graph" in text.lower()
+    assert "determined_value" in text
     assert "materialize transcript-bearing state" in text.lower()
     assert "`unassessed`, `in_review`, or `open`" in text
     assert "treat `closed` as an earned late-run determination" in text.lower()
     assert "use `determination`" in text.lower()
     assert "material claim" in text.lower()
-    assert "zoom is a source-reading move" in text.lower()
-    assert "audit product" in text.lower()
-    assert "visual source-reading audit" in text.lower()
-    assert "bounded source-shape audit" in text.lower()
-    assert "inspect the evidence as a physical mark" in text.lower()
-    assert "orientation, baseline, neighboring characters, and local handwriting style" in text.lower()
-    assert "tight claim-local crop" in text.lower()
-    assert "slightly wider local phrase or line crop" in text.lower()
-    assert "do not keep rereading indefinitely" in text.lower()
-    assert "practical motion density" in text.lower()
-    assert "using each turn with adult judgment" in text.lower()
-    assert "set up several focused views at once" in text.lower()
-    assert "not to force batching" in text.lower()
-    assert "clear readings can move forward while unclear readings remain open" in text.lower()
-    assert "the atoms still need their own values, statuses, and evidence basis" in text.lower()
-    assert "source-evidence refinement should have a reason" in text.lower()
-    assert "repeating near-identical crops" in text.lower()
-    assert "force certainty out of the same pixels" in text.lower()
-    assert "do not let one salient conflict stand in for the full mapping-critical inventory" in text.lower()
-    assert "the work universe is not the set of places where peer t0 drafts disagree" in text.lower()
-    assert "peer drafts can be a useful entry point for inventorying" in text.lower()
-    assert "the atoms come from the operative legal-description structure" in text.lower()
-    assert "before starting serious resolution motion on individual legal-description values" in text.lower()
-    assert "explicit baseline-inventory audit" in text.lower()
-    assert "visible operative call components represented as compact atoms or covered units" in text.lower()
-    assert "quiet values still count" in text.lower()
-    assert "auditable call inventory" in text.lower()
+    assert "visual source-reading audit" not in text.lower()
+    assert "practical motion density" not in text.lower()
+    assert "80-90 percent" not in text.lower()
+    assert "author the crop, box, highlight" not in text.lower()
+    assert "baseline-inventory audit" not in text.lower()
 
 
 def test_domain_pack_declares_semantic_prompt_blocks() -> None:
@@ -714,14 +694,14 @@ def test_startup_context_artifact_description_names_original_only() -> None:
 
 
 def test_branch_teaches_turn_local_image_evidence() -> None:
-    """Branch doctrine must teach transform-attached image evidence as turn-local."""
+    """Branch doctrine must teach turn-local image evidence without tool choreography."""
     blocks = build_transcript_edit_branch_blocks()
     text = blocks[0].text.lower()
     assert "turn-local" in text
-    assert "transform_artifact" in text
-    assert "re-hydrate" in text or "reload it" in text
+    assert "model-visible image content" in text
     assert "record" in text
     assert "same turn" in text
+    assert "transform_artifact" not in text
 
 
 def test_procedural_guidance_reinforces_image_observation_recording() -> None:
@@ -865,15 +845,16 @@ def test_transcript_edit_output_contract_sections_have_no_current_deed_examples(
         assert banned not in combined, f"Found banned current-deed example {banned!r} in transcript-edit contract text"
 
 
-def test_visual_source_reading_audit_has_no_current_deed_examples() -> None:
+def test_branch_does_not_teach_procedural_source_reading_workflow() -> None:
     branch = build_transcript_edit_branch_blocks()[0].text.lower()
-    audit_start = branch.find("## visual source-reading audit")
-    audit_end = branch.find("for legal-description handoff")
-    assert audit_start >= 0 and audit_end > audit_start
-    audit_text = branch[audit_start:audit_end]
-
-    for banned in ("range 75", "range 74", "parcel 1", "parcel 2", "nw corner", "1638", "n. 2", "n. 4"):
-        assert banned not in audit_text, f"Found banned current-deed example {banned!r} in visual audit doctrine"
+    for removed in (
+        "## visual source-reading audit",
+        "practical motion density",
+        "source-evidence refinement should have a reason",
+        "explicit baseline-inventory audit",
+        "zoom is a source-reading move",
+    ):
+        assert removed not in branch, f"Procedural workflow text should not remain in branch: {removed!r}"
 
 
 def test_procedural_guidance_discourages_fresh_transform_rehydrate_waste() -> None:
