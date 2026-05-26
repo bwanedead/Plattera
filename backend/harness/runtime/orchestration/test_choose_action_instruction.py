@@ -42,19 +42,12 @@ def test_choose_action_instruction_teaches_efficiency_reminders() -> None:
     lowered = text.lower()
     assert "### important reminders: efficient motion density" in lowered
     assert "each turn is expensive" in lowered
-    assert "make the turn quality-dense" in lowered
-    assert "batch actions when batching is the natural expression of the work" in lowered
-    assert "not as theater" in lowered
-    assert "leave the next turn at the most practical decision point" in lowered
-    assert "avoid a full turn whose only purpose is asking to hydrate what you just created" in lowered
-    assert "do not work one tiny tile at a time" in lowered
-    assert "several related moves can naturally be done together" in lowered
-    assert "update the clear parts while leaving unclear parts open" in lowered
-    assert "practical motion density" in lowered
-    assert "do not force artificial batching" in lowered
+    assert "multiple `actions` rows are allowed" in lowered
+    assert "do not batch theatrically" in lowered
+    assert "avoid hydrate-only turns" in lowered
+    assert "use `hydrate_next` when you already know the next turn must inspect a ref this action produces" in lowered
+    assert "use `pin_refs` only for refs that will matter repeatedly across turns" in lowered
     assert "concrete expected gain" in lowered
-    assert "near-identical retries" in lowered
-    assert "preserve the residual uncertainty honestly" in lowered
 
 
 def test_choose_action_instruction_teaches_pin_refs_as_attention_support() -> None:
@@ -71,16 +64,12 @@ def test_choose_action_instruction_teaches_pin_refs_as_attention_support() -> No
 def test_choose_action_instruction_teaches_delegate_subtask_sensibly() -> None:
     text = CHOOSE_ACTION_INSTRUCTION
     lowered = text.lower()
-    assert "`delegate_subtask` is a generic observation tool" in text
-    assert "buys isolated attention" in lowered
-    assert "the parent curates the child work universe" in lowered
-    assert "keep the child mission neutral" in lowered
-    assert "improve signal quality or token efficiency" in lowered
-    assert "only an observation" in lowered
-    assert "does not update durable state" in lowered
-    assert "delegation is batch-capable" in lowered
-    assert "multiple `delegate_subtask` rows in one `actions` list" in lowered
-    assert "broad planning, closure judgment, graph authorship, and mission strategy stay with the parent" in lowered
+    assert "`delegate_subtask` is an observation tool" in text
+    assert "parent supplies bounded task framing and context refs" in lowered
+    assert "child returns observation only" in lowered
+    assert "delegation does not update durable state" in lowered
+    assert "delegation does not replace parent inventory" in lowered
+    assert "batch multiple independent `delegate_subtask` rows" in lowered
 
 
 def test_choose_action_instruction_does_not_teach_legacy_action_batch() -> None:
@@ -114,7 +103,6 @@ def test_choose_action_instruction_teaches_state_patch_and_hitl_reference_law() 
     assert "dependency graph" in text
     assert "primary_evidence_ref" in text
     assert "question_regions" in text
-    assert "strongest available verification method" in text
     assert "unable to determine" in text
     assert "other / needs nuance" in text
     assert "smallest question whose answer can be integrated into a specific item or covered unit" in text
@@ -166,60 +154,37 @@ def test_choose_action_instruction_teaches_covered_units_merge_and_group_rule() 
     assert "`covered_units` list" in text
     assert "do not mix both for the same sub-unit set" in lowered
     assert "do not hide critical sub-units only inside summary prose" in lowered
-    assert "material sub-units are explicit as `covered_units` or separate related items" in text
-    assert "covered-unit fields" in lowered
 
 
 def test_choose_action_instruction_teaches_covered_unit_value_fields() -> None:
     text = CHOOSE_ACTION_INSTRUCTION
     lowered = text.lower()
+    assert "compact atom contract" in lowered
     assert "label" in text and "value_kind" in text
     assert "candidate_values" in text
     assert "determined_value" in text
-    assert "atomic item" in lowered
-    assert "put that answer in `determined_value`" in text
-    assert "do not hide the result only inside `summary`" in lowered
-    assert "not exhaustive" in lowered
-    assert "if another possibility appears, add it" in lowered
-    assert "authoritative evidence earns disputed values" in lowered
-    assert "bucket" in lowered and "group" in lowered and "atomic covered unit" in lowered
-    assert "if this fails i will patch/block/escalate" in lowered or "stop condition" in lowered
+    assert "put it in `determined_value`" in text
+    assert "not only in `summary` or `verification_basis`" in lowered
+    assert "long_determined_value_units" in text
 
 
-def test_choose_action_instruction_teaches_defensible_evidence_and_read_carry_forward() -> None:
+def test_choose_action_instruction_teaches_tool_result_carry_forward() -> None:
     text = CHOOSE_ACTION_INSTRUCTION
     lowered = text.lower()
-    assert "defensible evidence" in lowered
-    assert "directly and undeniably auditable" in lowered
-    assert "without reconstructing broad context" in lowered
-    assert "focused crop, zoom, excerpt, trace, query result, test output, screenshot, log excerpt, code pointer" in lowered
-    assert "false earned certainty" in lowered
-    assert "silently contaminate later state and output" in lowered
-    assert "a read, hydrate, or transform is not complete" in lowered
-    assert "persist that distinction immediately" in lowered
+    assert "### tool-result carry-forward" in lowered
+    assert "floating tool results do not help unless integrated" in lowered
+    assert "carry it into `state_patch`" in text
     assert "same_item_hydrate_churn_no_gain" in text
 
 
-def test_choose_action_instruction_teaches_decisive_detail_localization() -> None:
-    text = CHOOSE_ACTION_INSTRUCTION
-    lowered = text.lower()
-    assert "smallest evidence view that resolves the point of difference" in lowered
-    assert "broad navigation evidence" in lowered
-    assert "large locator regions" in lowered
-    assert "decisive proof for a disputed exact value" in lowered
-    assert "broad evidence can tell you where to look" in lowered
-    assert "does not by itself settle the atom" in lowered
-
-
-def test_choose_action_decisive_detail_guidance_has_no_domain_examples() -> None:
+def test_choose_action_instruction_does_not_duplicate_surface_exact_proof_doctrine() -> None:
     lowered = CHOOSE_ACTION_INSTRUCTION.lower()
-    start = lowered.find("smallest evidence view that resolves the point of difference")
-    end = lowered.find("this is guarding against a known failure mode")
-    assert start >= 0, "decisive detail guidance must exist"
-    assert end > start, "false earned certainty paragraph should follow decisive detail guidance"
-    section = lowered[start:end]
-    for banned in ("deed", "parcel", "range", "bearing", "distance", "acreage", "plss", "transcript"):
-        assert banned not in section, f"Found banned term {banned!r} in decisive-detail guidance"
+    assert "defensible evidence" not in lowered
+    assert "localize first, then determine" not in lowered
+    assert "evidence cannot be retroactive" not in lowered
+    assert "false earned certainty" not in lowered
+    assert "handoff readiness" not in lowered
+    assert "itemization and per-item resolution" not in lowered
 
 
 def test_surface_teaches_broad_to_specific_value_decomposition() -> None:
@@ -344,44 +309,17 @@ def test_repair_instruction_teaches_terminal_summary_removal() -> None:
         assert "host-owned" in text.lower(), f"{name} missing host-owned reference"
 
 
-def test_choose_action_instruction_teaches_compact_atom_and_locator_doctrine() -> None:
+def test_choose_action_instruction_teaches_compact_atom_and_locator_mechanics() -> None:
     text = CHOOSE_ACTION_INSTRUCTION
     lowered = text.lower()
-    # Compact atom contract
     assert "compact atom contract" in lowered
-    assert "compact claim atoms" in lowered
     assert "long_determined_value_units" in text
-    # Considering rendering for candidate_values (allow smart quotes)
-    assert "considering" in lowered
-    assert "render" in lowered and "candidate_values" in text
-    # Evidence refs vs evidence locators
     assert "evidence refs vs evidence locators" in lowered
-    assert "agent authors" in lowered
+    assert "you author locators" in lowered
     assert "earned_unit_missing_locator" in text
-    # locator_kind mentions
     for kind in ("image_region", "text_span", "json_path"):
         assert kind in text
-    # Label/title/unit_id ordering and human-facing label guidance
-    assert "label" in lowered and "title" in lowered and "unit_id" in lowered
-    assert "ui prefers" in lowered or "user-facing" in lowered
-    assert "render locator artifacts" in lowered
-    assert "the runtime only validates and renders it" in lowered
-    assert "claim-local rendered evidence lets a reviewer" in lowered
-    assert "broad evidence refs from hiding weak verification" in lowered
-
-
-def test_choose_action_instruction_teaches_field_role_separation() -> None:
-    text = CHOOSE_ACTION_INSTRUCTION
-    lowered = text.lower()
-    assert "field roles" in lowered
-    assert "skeleton fields" in lowered
-    assert "prose fields" in lowered
-    assert "determined_value` is for compact resolved values only" in text
-    assert "candidate_values` is for considered options, not exhaustive truth" in text
-    assert "closure_summary` is the short memory retained after closure" in text
-    assert "reopen_triggers` describe what would invalidate or reopen the row" in text
-    assert "long text belongs in artifacts" in lowered
-    assert "verification_basis` explains why a value is earned" in text
+    assert "closure_summary" in text and "reopen_triggers" in text
 
 
 def test_choose_action_instruction_teaches_notebook_shape_flag_guidance() -> None:
@@ -402,8 +340,7 @@ def test_choose_action_instruction_teaches_artifact_claim_inventory_suspect_guid
     assert "create or update atomic items or covered units" in lowered
     assert "if the mission truly does not require atomization" in lowered
     assert "label it honestly" in lowered
-    assert "compact claim inventory lets future turns, audit, and ui surfaces" in lowered
-    assert "without it, exact claims can enter final-looking output" in lowered
+    assert "do not reread just to reduce discomfort" in lowered
 
 
 def test_choose_action_instruction_prompt_work_graph_projection_has_no_domain_examples() -> None:
@@ -417,25 +354,14 @@ def test_choose_action_instruction_prompt_work_graph_projection_has_no_domain_ex
         assert banned not in section, f"Found banned term {banned!r} in prompt projection doctrine"
 
 
-def test_choose_action_instruction_field_roles_have_no_domain_examples() -> None:
-    lowered = CHOOSE_ACTION_INSTRUCTION.lower()
-    start = lowered.find("field roles:")
-    end = lowered.find("compact value fields on an atomic item or covered unit")
-    assert start >= 0, "field roles section must exist"
-    assert end > start, "compact value section should follow field roles"
-    section = lowered[start:end]
-    for banned in ("deed", "parcel", "range", "bearing", "distance", "cutoff", "mapping"):
-        assert banned not in section, f"Found banned term {banned!r} in field-role doctrine"
-
-
-def test_choose_action_instruction_locator_rendering_has_no_domain_examples() -> None:
+def test_choose_action_instruction_locator_mechanics_have_no_domain_examples() -> None:
     lowered = CHOOSE_ACTION_INSTRUCTION.lower()
     start = lowered.find("### evidence refs vs evidence locators")
-    end = lowered.find("if a focused locator is feasible")
+    end = lowered.find("- if order matters, use `sequence_scope`")
     assert start >= 0 and end > start
     section = lowered[start:end]
     for banned in ("deed", "parcel", "range", "bearing", "distance", "cutoff", "mapping"):
-        assert banned not in section, f"Found banned term {banned!r} in locator doctrine"
+        assert banned not in section, f"Found banned term {banned!r} in locator mechanics"
 
 
 def test_surface_teaches_compact_claim_atoms_and_locator_doctrine() -> None:
