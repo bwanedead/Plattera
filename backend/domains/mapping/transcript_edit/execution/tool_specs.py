@@ -87,7 +87,7 @@ def build_transcript_edit_tool_specs() -> tuple[SemanticToolSpec, ...]:
             purpose=(
                 "Apply a spatial or annotation transform to a source or derived image ref. "
                 "Returns a new image:derived:* ref and model-visible image evidence for the next turn. "
-                "Sub-actions: crop, expand, zoom, annotate, reference_overlay, render_evidence_locators, point_crops. "
+                "Sub-actions: crop, expand, zoom, annotate, reference_overlay, render_evidence_locators, point_crops, point_crops_adjust. "
                 "Use annotate for temporary visual markup, highlighting, bounding boxes, or labels — "
                 "this is visual editing, not durable evidence. "
                 "Use render_evidence_locators as the DURABLE evidence path: it renders the agent-authored "
@@ -101,6 +101,9 @@ def build_transcript_edit_tool_specs() -> tuple[SemanticToolSpec, ...]:
                 "Letters A/B/C are visual local labels only; semantic aliases live in metadata. "
                 "point_crops returns one master overlay as immediate image_evidence; individual crop refs "
                 "are persisted for later hydrate_artifact_refs / delegation — crop ergonomics, not durable claim evidence. "
+                "Use point_crops_adjust on a prior point_crops master overlay ref to nudge points by numeric shift_norm "
+                "or change size/shape without redesigning box_norm crops; adjustment creates a new crop-set revision and "
+                "does not mutate old refs. "
                 "Geometry ergonomics: crop, zoom, and each annotate annotation all accept either pixel "
                 "`box` OR normalized `box_norm` (provide one, never both), plus optional adjustment "
                 "controls (`adjust_px` or `adjust_norm`) for fine-tuning without recomputing coordinates.  "
@@ -110,7 +113,7 @@ def build_transcript_edit_tool_specs() -> tuple[SemanticToolSpec, ...]:
             ),
             expected_request_shape=(
                 "ref_id: source image ref (image:assoc:* or image:derived:*). "
-                "sub_action: one of crop | expand | zoom | annotate | reference_overlay | render_evidence_locators | point_crops. "
+                "sub_action: one of crop | expand | zoom | annotate | reference_overlay | render_evidence_locators | point_crops | point_crops_adjust. "
                 "params: sub-action-specific parameters object. "
                 "GEOMETRY FORMS — two explicit forms are accepted anywhere a box is needed "
                 "(crop params, zoom params, each annotate annotation): "
@@ -144,7 +147,12 @@ def build_transcript_edit_tool_specs() -> tuple[SemanticToolSpec, ...]:
                 "shape: wide|portrait|square}, ...], show?: [pin|box|letter]}. "
                 "Default show is [pin, box, letter]. Creates one master overlay (returned as image_evidence) "
                 "plus per-point crop refs in artifact_refs. Aliases are stored in metadata; letters are local A/B/C labels. "
-                "Use hydrate_artifact_refs on individual crop refs when you need the cropped image content later."
+                "Use hydrate_artifact_refs on individual crop refs when you need the cropped image content later. "
+                "POINT_CROPS_ADJUST — ref_id must be a prior point_crops master overlay ref (image:derived:*). "
+                "params: {adjust: [{letter|alias, point_norm?, shift_norm?, size?, shape?}, ...], show?: [pin|box|letter]}. "
+                "Each adjust row targets exactly one point by letter OR alias and must make a real change. "
+                "Use numeric shift_norm (e.g. [0.015, 0.0]) — not natural-language movement. "
+                "Prior crop-set refs remain valid; adjustment mints a new master overlay and new crop refs."
             ),
             expected_request_json_shape={
                 "type": "object",
@@ -164,6 +172,7 @@ def build_transcript_edit_tool_specs() -> tuple[SemanticToolSpec, ...]:
                             "reference_overlay",
                             "render_evidence_locators",
                             "point_crops",
+                            "point_crops_adjust",
                         ],
                     },
                     "params": {
@@ -184,7 +193,9 @@ def build_transcript_edit_tool_specs() -> tuple[SemanticToolSpec, ...]:
                             "render_evidence_locators: {locators: evidence_locators[]} — the durable evidence path. "
                             "point_crops: {points: [{alias: str, point_norm: [x,y], size: small|medium|large, "
                             "shape: wide|portrait|square}], show?: [pin|box|letter]} — template crop packets; "
-                            "master overlay only in image_evidence."
+                            "master overlay only in image_evidence. "
+                            "point_crops_adjust: {adjust: [{letter|alias, point_norm?, shift_norm?, size?, shape?}], "
+                            "show?: [pin|box|letter]} — adjust an existing crop set via prior master overlay ref_id."
                         ),
                     },
                 },
@@ -229,6 +240,9 @@ def build_transcript_edit_tool_specs() -> tuple[SemanticToolSpec, ...]:
                 "ONLY that master overlay (not every crop). outputs.crop_set and outputs.crop_records map "
                 "letters/aliases/colors/geometry to individual crop refs in artifact_refs. "
                 "Per-crop parent_ref_id is the original source ref; crop_set_overlay_ref links back to the master. "
+                "For point_crops_adjust: same result shape as point_crops plus outputs.previous_crop_set_overlay_ref, "
+                "outputs.adjustment_source_ref, and outputs.adjustments_applied with prior/new point_norm/size/shape "
+                "per adjusted target. Old master/crop refs are not mutated. "
                 "image_evidence: model-visible generated image for the next choose_action turn; "
                 "a separate hydrate_artifact_refs call is not required just to inspect the new crop/overlay. "
                 "On retryable param error: outputs.error.code = invalid_transform_params, "

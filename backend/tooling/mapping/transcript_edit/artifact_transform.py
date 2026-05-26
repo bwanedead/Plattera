@@ -30,15 +30,180 @@ from .point_crops import (
     PointCropParamError,
     build_crop_set_point_record,
     compute_point_crops,
+    point_crops_adjust_repair_hint_for,
     point_crops_repair_hint_for,
+    prepare_point_crops_adjust,
+    validate_point_crops_adjust_params,
     validate_point_crops_params,
 )
 
 _IMAGE_ASSOC_PREFIX = "image:assoc:"
 _IMAGE_DERIVED_PREFIX = "image:derived:"
 _SUPPORTED_SUB_ACTIONS = frozenset(
-    {"crop", "expand", "zoom", "annotate", "reference_overlay", "render_evidence_locators", "point_crops"}
+    {
+        "crop",
+        "expand",
+        "zoom",
+        "annotate",
+        "reference_overlay",
+        "render_evidence_locators",
+        "point_crops",
+        "point_crops_adjust",
+    }
 )
+
+
+def _persist_point_crop_set(
+    *,
+    dossier_id: str,
+    transcription_id: str,
+    workspace_key: str,
+    source_ref: str,
+    sub_action: str,
+    params: dict[str, Any],
+    transform_metadata: dict[str, Any],
+    lineage: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Mint refs, write descriptors/sidecar, and return the tool result payload."""
+    derived_dir = transcript_edit_derived_images_dir(dossier_id, transcription_id, workspace_key)
+    derived_dir.mkdir(parents=True, exist_ok=True)
+
+    master_pil = transform_metadata["master_pil"]
+    per_point = transform_metadata["per_point"]
+    show = transform_metadata.get("show")
+    legend_height = transform_metadata.get("legend_height")
+    source_width_height = transform_metadata.get("source_width_height")
+    point_count = transform_metadata.get("point_count")
+    lineage = lineage or {}
+
+    master_uuid = _uuid_mod.uuid4().hex
+    master_ref = f"{_IMAGE_DERIVED_PREFIX}{master_uuid}"
+    master_path = derived_dir / f"{master_uuid}.png"
+    master_pil.save(master_path)
+
+    previous_crop_set_overlay_ref = lineage.get("previous_crop_set_overlay_ref")
+    adjustment_source_ref = lineage.get("adjustment_source_ref")
+    adjustments_applied = lineage.get("adjustments_applied")
+
+    crop_refs: list[dict[str, Any]] = []
+    artifact_refs = [master_ref]
+    for pt in per_point:
+        c_uuid = _uuid_mod.uuid4().hex
+        c_ref = f"{_IMAGE_DERIVED_PREFIX}{c_uuid}"
+        c_path = derived_dir / f"{c_uuid}.png"
+        pt["crop_img"].save(c_path)
+
+        crop_record = build_crop_set_point_record(pt, crop_ref=c_ref)
+        crop_refs.append(crop_record)
+
+        crop_transform_metadata: dict[str, Any] = {
+            "alias": pt["alias"],
+            "letter": pt["letter"],
+            "color": pt["color"],
+            "size": pt["size"],
+            "shape": pt["shape"],
+            "point_norm": pt["point_norm"],
+            "box_px": pt["box_px"],
+            "box_norm": pt["box_norm"],
+            "source_width_height": source_width_height,
+            "crop_set_overlay_ref": master_ref,
+        }
+        if previous_crop_set_overlay_ref:
+            crop_transform_metadata["previous_crop_set_overlay_ref"] = previous_crop_set_overlay_ref
+
+        c_desc: dict[str, Any] = {
+            "ref_id": c_ref,
+            "parent_ref_id": source_ref,
+            "crop_set_overlay_ref": master_ref,
+            "sub_action": "point_crops_crop",
+            "params": {"parent_point_alias": pt["alias"]},
+            "absolute_path": str(c_path.resolve()),
+            "basename": c_path.name,
+            "size_bytes": c_path.stat().st_size if c_path.exists() else None,
+            "width_height": [pt["crop_img"].width, pt["crop_img"].height],
+            "transform_metadata": crop_transform_metadata,
+        }
+        if previous_crop_set_overlay_ref:
+            c_desc["previous_crop_set_overlay_ref"] = previous_crop_set_overlay_ref
+        (derived_dir / f"{c_uuid}.json").write_text(
+            json.dumps(c_desc, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        artifact_refs.append(c_ref)
+
+    crop_set: dict[str, Any] = {
+        "master_overlay_ref": master_ref,
+        "source_ref": source_ref,
+        "show": show,
+        "legend_height": legend_height,
+        "source_width_height": source_width_height,
+        "points": list(crop_refs),
+    }
+    if previous_crop_set_overlay_ref:
+        crop_set["previous_crop_set_overlay_ref"] = previous_crop_set_overlay_ref
+    if adjustments_applied:
+        crop_set["adjustments_applied"] = list(adjustments_applied)
+
+    (derived_dir / f"{master_uuid}_crop_set.json").write_text(
+        json.dumps(crop_set, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+
+    master_transform_metadata: dict[str, Any] = {
+        "source_ref": source_ref,
+        "show": show,
+        "legend_height": legend_height,
+        "source_width_height": source_width_height,
+        "point_count": point_count,
+        "crop_set": {"points": list(crop_refs)},
+    }
+    if previous_crop_set_overlay_ref:
+        master_transform_metadata["previous_crop_set_overlay_ref"] = previous_crop_set_overlay_ref
+    if adjustment_source_ref:
+        master_transform_metadata["adjustment_source_ref"] = adjustment_source_ref
+    if adjustments_applied:
+        master_transform_metadata["adjustments_applied"] = list(adjustments_applied)
+
+    master_desc = {
+        "ref_id": master_ref,
+        "parent_ref_id": source_ref,
+        "sub_action": sub_action,
+        "params": params,
+        "transform_metadata": master_transform_metadata,
+        "absolute_path": str(master_path.resolve()),
+        "basename": master_path.name,
+        "size_bytes": master_path.stat().st_size if master_path.exists() else None,
+        "width_height": [master_pil.width, master_pil.height],
+    }
+    if previous_crop_set_overlay_ref:
+        master_desc["previous_crop_set_overlay_ref"] = previous_crop_set_overlay_ref
+    (derived_dir / f"{master_uuid}.json").write_text(
+        json.dumps(master_desc, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+
+    outputs: dict[str, Any] = {
+        "derived_ref_id": master_ref,
+        "parent_ref_id": source_ref,
+        "sub_action": sub_action,
+        "basename": master_path.name,
+        "width_height": [master_pil.width, master_pil.height],
+        "crop_set": crop_set,
+        "crop_records": crop_refs,
+    }
+    if previous_crop_set_overlay_ref:
+        outputs["previous_crop_set_overlay_ref"] = previous_crop_set_overlay_ref
+    if adjustment_source_ref:
+        outputs["adjustment_source_ref"] = adjustment_source_ref
+    if adjustments_applied:
+        outputs["adjustments_applied"] = list(adjustments_applied)
+
+    result: dict[str, Any] = {
+        "executed": True,
+        "artifact_refs": artifact_refs,
+        "outputs": outputs,
+    }
+    evidence = image_evidence_from_path(master_ref, master_path)
+    if evidence:
+        result["image_evidence"] = [evidence]
+    return result
 
 
 def make_transform_artifact_handler(
@@ -74,6 +239,70 @@ def make_transform_artifact_handler(
         if param_error is not None:
             return param_error
 
+        if sub_action == "point_crops_adjust":
+            if not ref_id.startswith(_IMAGE_DERIVED_PREFIX):
+                return _param_error(
+                    "invalid_transform_params",
+                    "point_crops_adjust ref_id must be a prior point_crops master overlay ref (image:derived:*).",
+                    repair_hint="Set ref_id to outputs.derived_ref_id from a prior point_crops call.",
+                )
+            master_desc = _load_derived_image_descriptor(
+                dossier_id, transcription_id, workspace_key, ref_id
+            )
+            if master_desc is None:
+                return _error_result("derived_ref_not_found", "Derived image ref not found.")
+            try:
+                adjust_bundle = prepare_point_crops_adjust(
+                    master_desc,
+                    params,
+                    adjustment_source_ref=ref_id,
+                )
+            except PointCropParamError as exc:
+                return _param_error(
+                    "invalid_transform_params",
+                    str(exc),
+                    repair_hint=exc.repair_hint or point_crops_adjust_repair_hint_for(str(exc)),
+                )
+            source_path, resolve_error = _resolve_source_path(
+                ref_id=adjust_bundle["source_ref"],
+                dossier_id=dossier_id,
+                transcription_id=transcription_id,
+                workspace_key=workspace_key,
+            )
+            if resolve_error:
+                return _error_result(resolve_error["code"], resolve_error["message"])
+            assert source_path is not None
+            try:
+                from PIL import Image  # type: ignore[import]
+
+                img = Image.open(source_path)
+                transform_metadata = compute_point_crops(
+                    img,
+                    {"points": adjust_bundle["points"], "show": adjust_bundle["show"]},
+                )
+            except PointCropParamError as exc:
+                return _param_error(
+                    "invalid_transform_params",
+                    str(exc),
+                    repair_hint=exc.repair_hint,
+                )
+            except Exception as exc:
+                return _error_result("transform_failed", f"Transform failed: {exc}")
+            return _persist_point_crop_set(
+                dossier_id=dossier_id,
+                transcription_id=transcription_id,
+                workspace_key=workspace_key,
+                source_ref=adjust_bundle["source_ref"],
+                sub_action=sub_action,
+                params=params,
+                transform_metadata=transform_metadata,
+                lineage={
+                    "previous_crop_set_overlay_ref": adjust_bundle["previous_crop_set_overlay_ref"],
+                    "adjustment_source_ref": adjust_bundle["adjustment_source_ref"],
+                    "adjustments_applied": adjust_bundle["adjustments_applied"],
+                },
+            )
+
         # Resolve source image path
         source_path, resolve_error = _resolve_source_path(
             ref_id=ref_id,
@@ -103,112 +332,15 @@ def make_transform_artifact_handler(
         # The apply step now returns PIL images + rich geometry in metadata (pure computation).
         # Handler is the single owner of all ref minting, file I/O, and descriptors.
         if sub_action == "point_crops":
-            derived_dir = transcript_edit_derived_images_dir(dossier_id, transcription_id, workspace_key)
-            derived_dir.mkdir(parents=True, exist_ok=True)
-
-            master_pil = transform_metadata["master_pil"]
-            per_point = transform_metadata["per_point"]
-            show = transform_metadata.get("show")
-            legend_height = transform_metadata.get("legend_height")
-            source_width_height = transform_metadata.get("source_width_height")
-            point_count = transform_metadata.get("point_count")
-
-            master_uuid = _uuid_mod.uuid4().hex
-            master_ref = f"{_IMAGE_DERIVED_PREFIX}{master_uuid}"
-            master_path = derived_dir / f"{master_uuid}.png"
-            master_pil.save(master_path)
-
-            crop_refs: list[dict[str, Any]] = []
-            artifact_refs = [master_ref]
-            for pt in per_point:
-                c_uuid = _uuid_mod.uuid4().hex
-                c_ref = f"{_IMAGE_DERIVED_PREFIX}{c_uuid}"
-                c_path = derived_dir / f"{c_uuid}.png"
-                pt["crop_img"].save(c_path)
-
-                crop_record = build_crop_set_point_record(pt, crop_ref=c_ref)
-                crop_refs.append(crop_record)
-
-                c_desc = {
-                    "ref_id": c_ref,
-                    "parent_ref_id": ref_id,
-                    "crop_set_overlay_ref": master_ref,
-                    "sub_action": "point_crops_crop",
-                    "params": {"parent_point_alias": pt["alias"]},
-                    "absolute_path": str(c_path.resolve()),
-                    "basename": c_path.name,
-                    "size_bytes": c_path.stat().st_size if c_path.exists() else None,
-                    "width_height": [pt["crop_img"].width, pt["crop_img"].height],
-                    "transform_metadata": {
-                        "alias": pt["alias"],
-                        "letter": pt["letter"],
-                        "color": pt["color"],
-                        "size": pt["size"],
-                        "shape": pt["shape"],
-                        "point_norm": pt["point_norm"],
-                        "box_px": pt["box_px"],
-                        "box_norm": pt["box_norm"],
-                        "source_width_height": source_width_height,
-                        "crop_set_overlay_ref": master_ref,
-                    },
-                }
-                (derived_dir / f"{c_uuid}.json").write_text(
-                    json.dumps(c_desc, ensure_ascii=False, indent=2), encoding="utf-8"
-                )
-                artifact_refs.append(c_ref)
-
-            crop_set = {
-                "master_overlay_ref": master_ref,
-                "source_ref": ref_id,
-                "show": show,
-                "legend_height": legend_height,
-                "source_width_height": source_width_height,
-                "points": list(crop_refs),
-            }
-            (derived_dir / f"{master_uuid}_crop_set.json").write_text(
-                json.dumps(crop_set, ensure_ascii=False, indent=2), encoding="utf-8"
+            return _persist_point_crop_set(
+                dossier_id=dossier_id,
+                transcription_id=transcription_id,
+                workspace_key=workspace_key,
+                source_ref=ref_id,
+                sub_action=sub_action,
+                params=params,
+                transform_metadata=transform_metadata,
             )
-
-            master_transform_metadata = {
-                "source_ref": ref_id,
-                "show": show,
-                "legend_height": legend_height,
-                "source_width_height": source_width_height,
-                "point_count": point_count,
-                "crop_set": {"points": list(crop_refs)},
-            }
-            master_desc = {
-                "ref_id": master_ref,
-                "parent_ref_id": ref_id,
-                "sub_action": sub_action,
-                "params": params,
-                "transform_metadata": master_transform_metadata,
-                "absolute_path": str(master_path.resolve()),
-                "basename": master_path.name,
-                "size_bytes": master_path.stat().st_size if master_path.exists() else None,
-                "width_height": [master_pil.width, master_pil.height],
-            }
-            (derived_dir / f"{master_uuid}.json").write_text(
-                json.dumps(master_desc, ensure_ascii=False, indent=2), encoding="utf-8"
-            )
-
-            result: dict[str, Any] = {
-                "executed": True,
-                "artifact_refs": artifact_refs,
-                "outputs": {
-                    "derived_ref_id": master_ref,
-                    "parent_ref_id": ref_id,
-                    "sub_action": sub_action,
-                    "basename": master_path.name,
-                    "width_height": [master_pil.width, master_pil.height],
-                    "crop_set": crop_set,
-                    "crop_records": crop_refs,
-                },
-            }
-            evidence = image_evidence_from_path(master_ref, master_path)
-            if evidence:
-                result["image_evidence"] = [evidence]
-            return result
 
         # Normal single-output path for all other sub-actions
         derived_uuid = _uuid_mod.uuid4().hex
@@ -761,6 +893,14 @@ def _validate_params(sub_action: str, params: dict[str, Any]) -> dict[str, Any] 
                 "invalid_transform_params",
                 message,
                 repair_hint=point_crops_repair_hint_for(message),
+            )
+    if sub_action == "point_crops_adjust":
+        message = validate_point_crops_adjust_params(params)
+        if message is not None:
+            return _param_error(
+                "invalid_transform_params",
+                message,
+                repair_hint=point_crops_adjust_repair_hint_for(message),
             )
     return None
 

@@ -1292,6 +1292,251 @@ def test_point_crops_no_b64_in_persisted_descriptors(tmp_path, monkeypatch):
     assert not _dict_has_b64_key(result["outputs"])
 
 
+# ---------------------------------------------------------------------------
+# point_crops_adjust — reuse and revision (Brief 2)
+# ---------------------------------------------------------------------------
+
+def _create_two_point_crop_set(handler, source_ref: str) -> dict:
+    result = handler({
+        "ref_id": source_ref,
+        "sub_action": "point_crops",
+        "params": {
+            "points": [
+                {
+                    "alias": "parcel_1_tie_bearing",
+                    "point_norm": [0.42, 0.58],
+                    "size": "medium",
+                    "shape": "wide",
+                },
+                {
+                    "alias": "parcel_1_acreage",
+                    "point_norm": [0.2, 0.3],
+                    "size": "small",
+                    "shape": "square",
+                },
+            ],
+            "show": ["pin", "box", "letter"],
+        },
+    })
+    assert result["executed"] is True, f"Unexpected failure: {result}"
+    return result
+
+
+def _point_crops_adjust_request(*, master_ref: str, adjust: list[dict], show: list[str] | None = None) -> dict:
+    params: dict = {"adjust": adjust}
+    if show is not None:
+        params["show"] = show
+    return {
+        "ref_id": master_ref,
+        "sub_action": "point_crops_adjust",
+        "params": params,
+    }
+
+
+def test_point_crops_adjust_by_letter(tmp_path, monkeypatch):
+    handler, source_ref = _make_handler(tmp_path, monkeypatch)
+    created = _create_two_point_crop_set(handler, source_ref)
+    prior_master = created["outputs"]["derived_ref_id"]
+    prior_b = created["outputs"]["crop_set"]["points"][1]
+    prior_b_norm = list(prior_b["point_norm"])
+
+    adjusted = handler(_point_crops_adjust_request(
+        master_ref=prior_master,
+        adjust=[{"letter": "B", "shift_norm": [0.05, 0.0]}],
+    ))
+    assert adjusted["executed"] is True, f"Unexpected failure: {adjusted}"
+    new_master = adjusted["outputs"]["derived_ref_id"]
+    assert new_master != prior_master
+    assert adjusted["outputs"]["previous_crop_set_overlay_ref"] == prior_master
+    assert adjusted["outputs"]["adjustment_source_ref"] == prior_master
+    assert len(adjusted["image_evidence"]) == 1
+    assert adjusted["image_evidence"][0]["ref_id"] == new_master
+
+    new_b = next(p for p in adjusted["outputs"]["crop_set"]["points"] if p["letter"] == "B")
+    assert new_b["crop_ref"] != prior_b["crop_ref"]
+    assert new_b["point_norm"][0] > prior_b_norm[0]
+    assert adjusted["outputs"]["adjustments_applied"][0]["target"] == {"letter": "B"}
+
+
+def test_point_crops_adjust_by_alias(tmp_path, monkeypatch):
+    handler, source_ref = _make_handler(tmp_path, monkeypatch)
+    created = _create_two_point_crop_set(handler, source_ref)
+    prior_master = created["outputs"]["derived_ref_id"]
+    prior_a = created["outputs"]["crop_set"]["points"][0]
+
+    adjusted = handler(_point_crops_adjust_request(
+        master_ref=prior_master,
+        adjust=[{"alias": "parcel_1_tie_bearing", "size": "large", "shape": "wide"}],
+    ))
+    assert adjusted["executed"] is True
+    new_a = next(
+        p for p in adjusted["outputs"]["crop_set"]["points"] if p["alias"] == "parcel_1_tie_bearing"
+    )
+    assert new_a["size"] == "large"
+    assert new_a["shape"] == "wide"
+    assert new_a["box_px"] != prior_a["box_px"]
+    assert adjusted["outputs"]["adjustments_applied"][0]["target"] == {"alias": "parcel_1_tie_bearing"}
+
+
+def test_point_crops_adjust_shift_norm_clamps_at_bounds(tmp_path, monkeypatch):
+    handler, source_ref = _make_handler(tmp_path, monkeypatch)
+    created = handler({
+        "ref_id": source_ref,
+        **_point_crops_request(point_norm=[0.05, 0.5], alias="edge_point"),
+    })
+    prior_master = created["outputs"]["derived_ref_id"]
+
+    adjusted = handler(_point_crops_adjust_request(
+        master_ref=prior_master,
+        adjust=[{"letter": "A", "shift_norm": [-0.2, 0.0]}],
+    ))
+    assert adjusted["executed"] is True
+    point = adjusted["outputs"]["crop_set"]["points"][0]
+    assert point["point_norm"][0] == 0.0
+    assert point["box_px"][2] > point["box_px"][0]
+
+
+def test_point_crops_adjust_creates_new_refs_and_preserves_old_hydration(tmp_path, monkeypatch):
+    from tooling.mapping.transcript_edit.artifact_hydration import _load_derived_image_descriptor
+
+    handler, source_ref = _make_handler(tmp_path, monkeypatch, d="d1", tx="tx-1", ws="ws-1")
+    created = _create_two_point_crop_set(handler, source_ref)
+    prior_master = created["outputs"]["derived_ref_id"]
+    prior_crop = created["outputs"]["crop_set"]["points"][0]["crop_ref"]
+
+    adjusted = handler(_point_crops_adjust_request(
+        master_ref=prior_master,
+        adjust=[{"letter": "A", "shift_norm": [0.01, 0.0]}],
+    ))
+    new_master = adjusted["outputs"]["derived_ref_id"]
+    new_crop = adjusted["outputs"]["crop_set"]["points"][0]["crop_ref"]
+    assert new_master != prior_master
+    assert new_crop != prior_crop
+
+    assert _load_derived_image_descriptor("d1", "tx-1", "ws-1", prior_master) is not None
+    assert _load_derived_image_descriptor("d1", "tx-1", "ws-1", prior_crop) is not None
+
+
+def test_point_crops_adjust_sidecar_and_descriptors_include_lineage(tmp_path, monkeypatch):
+    from tooling.mapping.transcript_edit.artifact_hydration import _load_derived_image_descriptor
+    from tooling.mapping.transcript_edit.paths import transcript_edit_derived_images_dir
+
+    handler, source_ref = _make_handler(tmp_path, monkeypatch, d="d1", tx="tx-1", ws="ws-1")
+    created = _create_two_point_crop_set(handler, source_ref)
+    prior_master = created["outputs"]["derived_ref_id"]
+
+    adjusted = handler(_point_crops_adjust_request(
+        master_ref=prior_master,
+        adjust=[{"letter": "B", "size": "Large", "shape": "Square"}],
+    ))
+    new_master = adjusted["outputs"]["derived_ref_id"]
+    sidecar = json.loads(
+        (
+            transcript_edit_derived_images_dir("d1", "tx-1", "ws-1")
+            / f"{new_master.split(':')[-1]}_crop_set.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert sidecar["previous_crop_set_overlay_ref"] == prior_master
+    assert sidecar["adjustments_applied"][0]["new_size"] == "large"
+    assert sidecar["adjustments_applied"][0]["new_shape"] == "square"
+
+    master_desc = _load_derived_image_descriptor("d1", "tx-1", "ws-1", new_master)
+    crop_desc = _load_derived_image_descriptor(
+        "d1", "tx-1", "ws-1", adjusted["outputs"]["crop_set"]["points"][1]["crop_ref"]
+    )
+    assert master_desc is not None and crop_desc is not None
+    assert master_desc["transform_metadata"]["previous_crop_set_overlay_ref"] == prior_master
+    assert crop_desc["transform_metadata"]["previous_crop_set_overlay_ref"] == prior_master
+    assert crop_desc["previous_crop_set_overlay_ref"] == prior_master
+    assert not _dict_has_b64_key(master_desc)
+    assert not _dict_has_b64_key(crop_desc)
+    assert not _dict_has_b64_key(adjusted["outputs"])
+
+
+def test_point_crops_adjust_rejects_invalid_letter(tmp_path, monkeypatch):
+    handler, source_ref = _make_handler(tmp_path, monkeypatch)
+    created = _create_two_point_crop_set(handler, source_ref)
+    result = handler(_point_crops_adjust_request(
+        master_ref=created["outputs"]["derived_ref_id"],
+        adjust=[{"letter": "Z", "shift_norm": [0.01, 0.0]}],
+    ))
+    assert result["executed"] is False
+    assert result["refusal"]["retryable"] is True
+
+
+def test_point_crops_adjust_rejects_invalid_alias(tmp_path, monkeypatch):
+    handler, source_ref = _make_handler(tmp_path, monkeypatch)
+    created = _create_two_point_crop_set(handler, source_ref)
+    result = handler(_point_crops_adjust_request(
+        master_ref=created["outputs"]["derived_ref_id"],
+        adjust=[{"alias": "missing_alias", "size": "large", "shape": "wide"}],
+    ))
+    assert result["executed"] is False
+    assert result["refusal"]["retryable"] is True
+
+
+def test_point_crops_adjust_rejects_both_letter_and_alias(tmp_path, monkeypatch):
+    handler, source_ref = _make_handler(tmp_path, monkeypatch)
+    created = _create_two_point_crop_set(handler, source_ref)
+    result = handler(_point_crops_adjust_request(
+        master_ref=created["outputs"]["derived_ref_id"],
+        adjust=[{"letter": "A", "alias": "parcel_1_tie_bearing", "shift_norm": [0.01, 0.0]}],
+    ))
+    assert result["executed"] is False
+    assert result["refusal"]["retryable"] is True
+
+
+def test_point_crops_adjust_rejects_missing_selector(tmp_path, monkeypatch):
+    handler, source_ref = _make_handler(tmp_path, monkeypatch)
+    created = _create_two_point_crop_set(handler, source_ref)
+    result = handler(_point_crops_adjust_request(
+        master_ref=created["outputs"]["derived_ref_id"],
+        adjust=[{"shift_norm": [0.01, 0.0]}],
+    ))
+    assert result["executed"] is False
+    assert result["refusal"]["retryable"] is True
+
+
+def test_point_crops_adjust_rejects_empty_adjust_list(tmp_path, monkeypatch):
+    handler, source_ref = _make_handler(tmp_path, monkeypatch)
+    created = _create_two_point_crop_set(handler, source_ref)
+    result = handler({
+        "ref_id": created["outputs"]["derived_ref_id"],
+        "sub_action": "point_crops_adjust",
+        "params": {"adjust": []},
+    })
+    assert result["executed"] is False
+    assert result["refusal"]["retryable"] is True
+
+
+def test_point_crops_adjust_rejects_no_op_adjustment(tmp_path, monkeypatch):
+    handler, source_ref = _make_handler(tmp_path, monkeypatch)
+    created = _create_two_point_crop_set(handler, source_ref)
+    point = created["outputs"]["crop_set"]["points"][0]
+    result = handler(_point_crops_adjust_request(
+        master_ref=created["outputs"]["derived_ref_id"],
+        adjust=[{
+            "letter": "A",
+            "point_norm": point["point_norm"],
+            "size": point["size"],
+            "shape": point["shape"],
+        }],
+    ))
+    assert result["executed"] is False
+    assert result["refusal"]["retryable"] is True
+
+
+def test_point_crops_adjust_rejects_invalid_shift_norm(tmp_path, monkeypatch):
+    handler, source_ref = _make_handler(tmp_path, monkeypatch)
+    created = _create_two_point_crop_set(handler, source_ref)
+    result = handler(_point_crops_adjust_request(
+        master_ref=created["outputs"]["derived_ref_id"],
+        adjust=[{"letter": "A", "shift_norm": [0.01]}],
+    ))
+    assert result["executed"] is False
+    assert result["refusal"]["retryable"] is True
+
+
 def test_tool_spec_documents_point_crops() -> None:
     from domains.mapping.transcript_edit.execution.tool_specs import build_transcript_edit_tool_specs
 
@@ -1315,3 +1560,6 @@ def test_tool_spec_documents_point_crops() -> None:
     assert "pin" in text and "box" in text and "letter" in text
     assert "crop_set" in text or "crop_records" in text
     assert spec.example_request.get("sub_action") == "point_crops"
+    assert "point_crops_adjust" in text
+    assert "shift_norm" in text
+    assert "previous_crop_set_overlay_ref" in text or "adjustment_source_ref" in text
