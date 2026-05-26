@@ -69,6 +69,13 @@ When relevant, also inspect:
 - Owns request/result mechanics, limits, result shapes, and mechanical examples.
 - Should not become broad behavior doctrine.
 
+## Review Method
+
+1. Read changed files or the diff first.
+2. Read the required docs listed above.
+3. Compare the changes against the ownership map.
+4. Report only actionable doctrine and ownership findings.
+
 ## Review For
 
 ### 1. Canonical Ownership
@@ -98,6 +105,8 @@ Check whether the doctrine:
 - uses action/state vocabulary naturally where it helps
 - avoids overfitting to one run, one practice deed, or one observed incident
 - names practical gains when relevant: fewer turns, lower prompt growth, better UX, better audit, better downstream handoff, fewer false determinations
+
+Do not require every paragraph to explain why, failure mode, or economics; flag only when missing context weakens behavior.
 
 ### 4. Harness Constitution
 Check that deterministic code or doctrine does not imply the harness authors semantic truth.
