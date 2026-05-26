@@ -30,6 +30,7 @@ from harness.audit.delegate_subtask_timeline import (
     render_delegate_subtask_request,
     render_delegate_subtask_result,
 )
+from harness.audit.point_crop_set_timeline import render_point_crop_set_tool_output
 from harness.runtime.orchestration.subtasks.contracts import DELEGATE_SUBTASK_ACTION_TYPE
 
 _LOG = logging.getLogger(__name__)
@@ -650,6 +651,7 @@ def _render_tool_result(turn: Mapping[str, Any]) -> list[str]:
         if truncated:
             lines.append(f"    [truncated to {OUTPUTS_EXCERPT_MAX_CHARS} chars]")
         lines.extend(_render_rendered_evidence_output(_coerce_mapping(outputs), indent="  "))
+        lines.extend(render_point_crop_set_tool_output(_coerce_mapping(outputs)))
     else:
         lines.append("  outputs_excerpt: none")
 

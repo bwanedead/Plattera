@@ -42,6 +42,8 @@ DEFAULT_SHOW = ["pin", "box", "letter"]
 ALLOWED_SHOW = frozenset({"pin", "box", "letter"})
 ALLOWED_SIZES = frozenset({"small", "medium", "large"})
 ALLOWED_SHAPES = frozenset({"wide", "portrait", "square"})
+MAX_GRAPH_REF_KEYS = 8
+MAX_GRAPH_REF_VALUE_CHARS = 120
 
 
 class PointCropParamError(Exception):
@@ -86,6 +88,18 @@ def validate_point_crops_params(params: dict[str, Any]) -> str | None:
             return f"params.points[{i}].shape must be wide|portrait|square."
         p["size"] = size
         p["shape"] = shape
+        if "graph_ref" in p:
+            try:
+                normalized_graph_ref = validate_graph_ref(
+                    p.get("graph_ref"),
+                    field_prefix=f"params.points[{i}].graph_ref",
+                )
+            except PointCropParamError as exc:
+                return str(exc)
+            if normalized_graph_ref is None:
+                p.pop("graph_ref", None)
+            else:
+                p["graph_ref"] = normalized_graph_ref
     if len(points) > MAX_POINT_CROP_COUNT:
         return "point_crops point count exceeds safety cap (16)."
     return _validate_show_param(params) or None
@@ -102,80 +116,86 @@ def point_crops_repair_hint_for(message: str) -> str | None:
     return None
 
 
-def compute_point_crops(img: Any, params: dict[str, Any]) -> dict[str, Any]:
-    """Compute master overlay and per-point crops in memory.
-
-    Returns a metadata dict consumed by the ``point_crops`` handler branch.
-    """
-    from PIL import Image, ImageDraw  # type: ignore[import]
-
-    points = params.get("points") or []
-    if len(points) > MAX_POINT_CROP_COUNT:
+def validate_graph_ref(raw: Any, *, field_prefix: str = "graph_ref") -> dict[str, str] | None:
+    """Validate optional bounded graph association metadata (stored verbatim)."""
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
         raise PointCropParamError(
-            "point_crops point count exceeds safety cap (16).",
-            repair_hint="Reduce the number of points in a single call.",
+            f"{field_prefix} must be a flat object mapping string keys to string values.",
+            repair_hint='Use graph_ref like {"item_id": "...", "covered_unit_id": "..."}.',
         )
-
-    show_raw = params.get("show")
-    show = list(show_raw) if isinstance(show_raw, list) and show_raw else list(DEFAULT_SHOW)
-
-    n = len(points)
-    letters = [chr(ord("A") + i) for i in range(n)]
-    colors = [_POINT_COLORS[i % len(_POINT_COLORS)] for i in range(n)]
-
-    per_point_data: list[dict[str, Any]] = []
-    for i, p in enumerate(points):
-        alias = str(p.get("alias") or "").strip()
-        x, y = float(p["point_norm"][0]), float(p["point_norm"][1])
-        w, h = _POINT_CROP_TEMPLATES[p["size"]][p["shape"]]
-
-        desired_w = w * img.width
-        desired_h = h * img.height
-
-        left = x * img.width - desired_w / 2
-        top = y * img.height - desired_h / 2
-        right = left + desired_w
-        bottom = top + desired_h
-
-        if left < 0:
-            right -= left
-            left = 0
-        if top < 0:
-            bottom -= top
-            top = 0
-        if right > img.width:
-            left -= right - img.width
-            right = img.width
-        if bottom > img.height:
-            top -= bottom - img.height
-            bottom = img.height
-
-        left = max(0, min(left, img.width - 1))
-        top = max(0, min(top, img.height - 1))
-        right = max(left + 1, min(right, img.width))
-        bottom = max(top + 1, min(bottom, img.height))
-
-        box = (int(left), int(top), int(right), int(bottom))
-        crop_img = img.crop(box)
-
-        per_point_data.append(
-            {
-                "alias": alias,
-                "letter": letters[i],
-                "color": list(colors[i]),
-                "point_norm": [round(x, 6), round(y, 6)],
-                "box_px": [box[0], box[1], box[2], box[3]],
-                "box_norm": [
-                    round(left / img.width, 6),
-                    round(top / img.height, 6),
-                    round(right / img.width, 6),
-                    round(bottom / img.height, 6),
-                ],
-                "crop_img": crop_img,
-                "size": p["size"],
-                "shape": p["shape"],
-            }
+    if len(raw) > MAX_GRAPH_REF_KEYS:
+        raise PointCropParamError(
+            f"{field_prefix} exceeds max key count ({MAX_GRAPH_REF_KEYS}).",
         )
+    out: dict[str, str] = {}
+    for key, value in raw.items():
+        key_text = str(key).strip()[:64]
+        if not key_text:
+            continue
+        if isinstance(value, (dict, list, tuple, set)):
+            raise PointCropParamError(
+                f"{field_prefix}.{key_text} must be a bounded string/scalar value, not nested data.",
+            )
+        value_text = str(value).strip()[:MAX_GRAPH_REF_VALUE_CHARS]
+        if value_text:
+            out[key_text] = value_text
+    return out or None
+
+
+def _compute_single_point_geometry(
+    img: Any,
+    *,
+    point_norm: list[float],
+    size: str,
+    shape: str,
+) -> dict[str, Any]:
+    x, y = float(point_norm[0]), float(point_norm[1])
+    w, h = _POINT_CROP_TEMPLATES[size][shape]
+
+    desired_w = w * img.width
+    desired_h = h * img.height
+
+    left = x * img.width - desired_w / 2
+    top = y * img.height - desired_h / 2
+    right = left + desired_w
+    bottom = top + desired_h
+
+    if left < 0:
+        right -= left
+        left = 0
+    if top < 0:
+        bottom -= top
+        top = 0
+    if right > img.width:
+        left -= right - img.width
+        right = img.width
+    if bottom > img.height:
+        top -= bottom - img.height
+        bottom = img.height
+
+    left = max(0, min(left, img.width - 1))
+    top = max(0, min(top, img.height - 1))
+    right = max(left + 1, min(right, img.width))
+    bottom = max(top + 1, min(bottom, img.height))
+
+    box = (int(left), int(top), int(right), int(bottom))
+    return {
+        "point_norm": [round(x, 6), round(y, 6)],
+        "box_px": [box[0], box[1], box[2], box[3]],
+        "box_norm": [
+            round(left / img.width, 6),
+            round(top / img.height, 6),
+            round(right / img.width, 6),
+            round(bottom / img.height, 6),
+        ],
+        "box": box,
+    }
+
+
+def _render_master_overlay(img: Any, per_point_data: list[dict[str, Any]], show: list[str]) -> tuple[Any, int]:
+    from PIL import Image, ImageDraw  # type: ignore[import]
 
     legend_h = 120
     canvas = Image.new("RGB", (img.width, img.height + legend_h), (255, 255, 255))
@@ -211,7 +231,51 @@ def compute_point_crops(img: Any, params: dict[str, Any]) -> dict[str, Any]:
             draw.text((ex, example_y + eh_px + 1), f"{sz[0]}{sh[0]}", fill=(60, 60, 60))
             ex += ew_px + 18
         ex += 10
+    return canvas, legend_h
 
+
+def compute_point_crops(img: Any, params: dict[str, Any]) -> dict[str, Any]:
+    """Compute master overlay and per-point crops in memory."""
+    points = params.get("points") or []
+    if len(points) > MAX_POINT_CROP_COUNT:
+        raise PointCropParamError(
+            "point_crops point count exceeds safety cap (16).",
+            repair_hint="Reduce the number of points in a single call.",
+        )
+
+    show_raw = params.get("show")
+    show = list(show_raw) if isinstance(show_raw, list) and show_raw else list(DEFAULT_SHOW)
+
+    n = len(points)
+    letters = [chr(ord("A") + i) for i in range(n)]
+    colors = [_POINT_COLORS[i % len(_POINT_COLORS)] for i in range(n)]
+
+    per_point_data: list[dict[str, Any]] = []
+    for i, p in enumerate(points):
+        alias = str(p.get("alias") or "").strip()
+        geo = _compute_single_point_geometry(
+            img,
+            point_norm=[float(p["point_norm"][0]), float(p["point_norm"][1])],
+            size=p["size"],
+            shape=p["shape"],
+        )
+        crop_img = img.crop(tuple(geo["box"]))
+        row: dict[str, Any] = {
+            "alias": alias,
+            "letter": letters[i],
+            "color": list(colors[i]),
+            "point_norm": geo["point_norm"],
+            "box_px": geo["box_px"],
+            "box_norm": geo["box_norm"],
+            "crop_img": crop_img,
+            "size": p["size"],
+            "shape": p["shape"],
+        }
+        if isinstance(p.get("graph_ref"), dict):
+            row["graph_ref"] = dict(p["graph_ref"])
+        per_point_data.append(row)
+
+    canvas, legend_h = _render_master_overlay(img, per_point_data, show)
     return {
         "master_pil": canvas,
         "per_point": per_point_data,
@@ -222,19 +286,75 @@ def compute_point_crops(img: Any, params: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def build_crop_set_point_record(point: dict[str, Any], *, crop_ref: str) -> dict[str, Any]:
-    """Compact recoverable point row for crop-set sidecar and master metadata."""
+def compute_point_crops_view(img: Any, points: list[dict[str, Any]], *, show: list[str]) -> dict[str, Any]:
+    """Render a filtered crop-set overlay without minting new per-point crops."""
+    if not points:
+        raise PointCropParamError("point_crops_view requires at least one point to render.")
+    if len(points) > MAX_POINT_CROP_COUNT:
+        raise PointCropParamError("point_crops_view point count exceeds safety cap (16).")
+
+    per_point_data: list[dict[str, Any]] = []
+    for i, p in enumerate(points):
+        alias = str(p.get("alias") or "").strip()
+        letter = str(p.get("letter") or chr(ord("A") + i)).strip().upper()
+        color_raw = p.get("color")
+        if isinstance(color_raw, (list, tuple)) and len(color_raw) >= 3:
+            color = [int(color_raw[0]), int(color_raw[1]), int(color_raw[2])]
+        else:
+            color = list(_POINT_COLORS[i % len(_POINT_COLORS)])
+        geo = _compute_single_point_geometry(
+            img,
+            point_norm=[float(p["point_norm"][0]), float(p["point_norm"][1])],
+            size=str(p["size"]),
+            shape=str(p["shape"]),
+        )
+        row: dict[str, Any] = {
+            "alias": alias,
+            "letter": letter,
+            "color": color,
+            "point_norm": geo["point_norm"],
+            "box_px": geo["box_px"],
+            "box_norm": geo["box_norm"],
+            "size": p["size"],
+            "shape": p["shape"],
+        }
+        crop_ref = p.get("crop_ref")
+        if isinstance(crop_ref, str) and crop_ref.strip():
+            row["crop_ref"] = crop_ref.strip()
+        if isinstance(p.get("graph_ref"), dict):
+            row["graph_ref"] = dict(p["graph_ref"])
+        per_point_data.append(row)
+
+    canvas, legend_h = _render_master_overlay(img, per_point_data, show)
     return {
+        "master_pil": canvas,
+        "per_point": per_point_data,
+        "show": show,
+        "legend_height": legend_h,
+        "source_width_height": [img.width, img.height],
+        "point_count": len(points),
+    }
+
+
+def build_crop_set_point_record(point: dict[str, Any], *, crop_ref: str | None = None) -> dict[str, Any]:
+    """Compact recoverable point row for crop-set sidecar and master metadata."""
+    row: dict[str, Any] = {
         "alias": point["alias"],
         "letter": point["letter"],
         "color": point["color"],
-        "crop_ref": crop_ref,
         "point_norm": point["point_norm"],
         "box_px": point["box_px"],
         "box_norm": point["box_norm"],
         "size": point["size"],
         "shape": point["shape"],
     }
+    if crop_ref:
+        row["crop_ref"] = crop_ref
+    elif isinstance(point.get("crop_ref"), str) and point["crop_ref"].strip():
+        row["crop_ref"] = point["crop_ref"].strip()
+    if isinstance(point.get("graph_ref"), dict):
+        row["graph_ref"] = dict(point["graph_ref"])
+    return row
 
 
 def _validate_show_param(params: dict[str, Any]) -> str | None:
@@ -364,6 +484,8 @@ def prepare_point_crops_adjust(
             "size": size,
             "shape": shape,
         }
+        if isinstance(pt.get("graph_ref"), dict):
+            row["graph_ref"] = dict(pt["graph_ref"])
         working_points.append(row)
         by_letter[letter] = row
         by_alias[alias] = row
@@ -496,15 +618,17 @@ def prepare_point_crops_adjust(
             applied["shift_norm"] = shift_applied
         adjustments_applied.append(applied)
 
-    compute_points = [
-        {
+    compute_points = []
+    for pt in working_points:
+        point_row = {
             "alias": pt["alias"],
             "point_norm": pt["point_norm"],
             "size": pt["size"],
             "shape": pt["shape"],
         }
-        for pt in working_points
-    ]
+        if isinstance(pt.get("graph_ref"), dict):
+            point_row["graph_ref"] = dict(pt["graph_ref"])
+        compute_points.append(point_row)
 
     return {
         "source_ref": prior["source_ref"],
@@ -513,5 +637,113 @@ def prepare_point_crops_adjust(
         "previous_crop_set_overlay_ref": adjustment_source_ref,
         "adjustment_source_ref": adjustment_source_ref,
         "adjustments_applied": adjustments_applied,
+    }
+
+
+def validate_point_crops_view_params(params: dict[str, Any]) -> str | None:
+    show_err = _validate_show_param(params)
+    if show_err:
+        return show_err
+    filter_raw = params.get("filter")
+    if filter_raw is None:
+        return None
+    if not isinstance(filter_raw, dict):
+        return "params.filter must be an object when provided."
+    letters = filter_raw.get("letters")
+    aliases = filter_raw.get("aliases")
+    if letters is not None:
+        if not isinstance(letters, list) or not letters:
+            return "params.filter.letters must be a non-empty list when provided."
+    if aliases is not None:
+        if not isinstance(aliases, list) or not aliases:
+            return "params.filter.aliases must be a non-empty list when provided."
+    if letters is None and aliases is None:
+        return "params.filter must include letters and/or aliases when provided."
+    return None
+
+
+def point_crops_view_repair_hint_for(message: str) -> str | None:
+    if "filter" in message and "letters" in message:
+        return 'Use params.filter = {"letters": ["A", "C"]} or {"aliases": ["parcel_1_tie_bearing"]}.'
+    if "does not contain recoverable" in message:
+        return "Set ref_id to the master overlay ref returned by a prior point_crops call."
+    if "Unknown letter" in message or "Unknown alias" in message:
+        return "Filter targets must exist in the prior crop_set.points metadata."
+    return None
+
+
+def prepare_point_crops_view(
+    master_desc: dict[str, Any],
+    params: dict[str, Any],
+    *,
+    view_source_ref: str,
+) -> dict[str, Any]:
+    prior = extract_crop_set_from_master_descriptor(master_desc)
+    show_err = _validate_show_param(params)
+    if show_err:
+        raise PointCropParamError(show_err)
+
+    show_raw = params.get("show")
+    show = list(show_raw) if isinstance(show_raw, list) and show_raw else list(prior["show"])
+
+    filter_raw = params.get("filter")
+    selected: list[dict[str, Any]] = []
+    if isinstance(filter_raw, dict):
+        letters_wanted = {
+            str(v).strip().upper()
+            for v in (filter_raw.get("letters") or [])
+            if str(v).strip()
+        }
+        aliases_wanted = {
+            str(v).strip()
+            for v in (filter_raw.get("aliases") or [])
+            if str(v).strip()
+        }
+        if not letters_wanted and not aliases_wanted:
+            raise PointCropParamError("params.filter must include at least one letter or alias target.")
+
+        known_letters = {
+            str(pt.get("letter") or "").strip().upper()
+            for pt in prior["points"]
+            if isinstance(pt, dict)
+        }
+        known_aliases = {
+            str(pt.get("alias") or "").strip()
+            for pt in prior["points"]
+            if isinstance(pt, dict)
+        }
+        for letter in letters_wanted:
+            if letter not in known_letters:
+                raise PointCropParamError(
+                    f"Unknown letter {letter!r} in params.filter.letters; not found in prior crop set.",
+                    repair_hint=point_crops_view_repair_hint_for("Unknown letter"),
+                )
+        for alias in aliases_wanted:
+            if alias not in known_aliases:
+                raise PointCropParamError(
+                    f"Unknown alias {alias!r} in params.filter.aliases; not found in prior crop set.",
+                    repair_hint=point_crops_view_repair_hint_for("Unknown alias"),
+                )
+
+        for pt in prior["points"]:
+            if not isinstance(pt, dict):
+                continue
+            letter = str(pt.get("letter") or "").strip().upper()
+            alias = str(pt.get("alias") or "").strip()
+            if letter in letters_wanted or alias in aliases_wanted:
+                selected.append(dict(pt))
+        if not selected:
+            raise PointCropParamError(
+                "params.filter matched no points in the prior crop set.",
+            )
+    else:
+        selected = [dict(pt) for pt in prior["points"] if isinstance(pt, dict)]
+
+    return {
+        "source_ref": prior["source_ref"],
+        "show": show,
+        "points": selected,
+        "view_of_crop_set_overlay_ref": view_source_ref,
+        "filter": dict(filter_raw) if isinstance(filter_raw, dict) else None,
     }
 

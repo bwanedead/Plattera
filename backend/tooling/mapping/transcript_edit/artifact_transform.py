@@ -30,11 +30,15 @@ from .point_crops import (
     PointCropParamError,
     build_crop_set_point_record,
     compute_point_crops,
+    compute_point_crops_view,
     point_crops_adjust_repair_hint_for,
     point_crops_repair_hint_for,
+    point_crops_view_repair_hint_for,
     prepare_point_crops_adjust,
+    prepare_point_crops_view,
     validate_point_crops_adjust_params,
     validate_point_crops_params,
+    validate_point_crops_view_params,
 )
 
 _IMAGE_ASSOC_PREFIX = "image:assoc:"
@@ -49,6 +53,7 @@ _SUPPORTED_SUB_ACTIONS = frozenset(
         "render_evidence_locators",
         "point_crops",
         "point_crops_adjust",
+        "point_crops_view",
     }
 )
 
@@ -206,6 +211,96 @@ def _persist_point_crop_set(
     return result
 
 
+def _persist_point_crop_view(
+    *,
+    dossier_id: str,
+    transcription_id: str,
+    workspace_key: str,
+    source_ref: str,
+    sub_action: str,
+    params: dict[str, Any],
+    transform_metadata: dict[str, Any],
+    view_bundle: dict[str, Any],
+) -> dict[str, Any]:
+    """Persist a filtered crop-set overlay view (no new per-point crop refs)."""
+    derived_dir = transcript_edit_derived_images_dir(dossier_id, transcription_id, workspace_key)
+    derived_dir.mkdir(parents=True, exist_ok=True)
+
+    master_pil = transform_metadata["master_pil"]
+    per_point = transform_metadata["per_point"]
+    show = transform_metadata.get("show")
+    source_width_height = transform_metadata.get("source_width_height")
+    view_of_ref = view_bundle.get("view_of_crop_set_overlay_ref")
+    filter_applied = view_bundle.get("filter")
+
+    master_uuid = _uuid_mod.uuid4().hex
+    master_ref = f"{_IMAGE_DERIVED_PREFIX}{master_uuid}"
+    master_path = derived_dir / f"{master_uuid}.png"
+    master_pil.save(master_path)
+
+    view_points = [build_crop_set_point_record(pt) for pt in per_point]
+    crop_set: dict[str, Any] = {
+        "master_overlay_ref": master_ref,
+        "source_ref": source_ref,
+        "show": show,
+        "source_width_height": source_width_height,
+        "points": view_points,
+        "view_of_crop_set_overlay_ref": view_of_ref,
+    }
+    if filter_applied:
+        crop_set["filter"] = filter_applied
+
+    master_transform_metadata: dict[str, Any] = {
+        "source_ref": source_ref,
+        "show": show,
+        "source_width_height": source_width_height,
+        "point_count": len(view_points),
+        "crop_set": {"points": view_points},
+        "view_of_crop_set_overlay_ref": view_of_ref,
+    }
+    if filter_applied:
+        master_transform_metadata["filter"] = filter_applied
+
+    master_desc = {
+        "ref_id": master_ref,
+        "parent_ref_id": source_ref,
+        "sub_action": sub_action,
+        "params": params,
+        "transform_metadata": master_transform_metadata,
+        "absolute_path": str(master_path.resolve()),
+        "basename": master_path.name,
+        "size_bytes": master_path.stat().st_size if master_path.exists() else None,
+        "width_height": [master_pil.width, master_pil.height],
+        "view_of_crop_set_overlay_ref": view_of_ref,
+    }
+    (derived_dir / f"{master_uuid}.json").write_text(
+        json.dumps(master_desc, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+
+    outputs: dict[str, Any] = {
+        "derived_ref_id": master_ref,
+        "parent_ref_id": source_ref,
+        "sub_action": sub_action,
+        "basename": master_path.name,
+        "width_height": [master_pil.width, master_pil.height],
+        "crop_set": crop_set,
+        "crop_records": view_points,
+        "view_of_crop_set_overlay_ref": view_of_ref,
+    }
+    if filter_applied:
+        outputs["filter"] = filter_applied
+
+    result: dict[str, Any] = {
+        "executed": True,
+        "artifact_refs": [master_ref],
+        "outputs": outputs,
+    }
+    evidence = image_evidence_from_path(master_ref, master_path)
+    if evidence:
+        result["image_evidence"] = [evidence]
+    return result
+
+
 def make_transform_artifact_handler(
     *,
     dossier_id: str,
@@ -301,6 +396,67 @@ def make_transform_artifact_handler(
                     "adjustment_source_ref": adjust_bundle["adjustment_source_ref"],
                     "adjustments_applied": adjust_bundle["adjustments_applied"],
                 },
+            )
+
+        if sub_action == "point_crops_view":
+            if not ref_id.startswith(_IMAGE_DERIVED_PREFIX):
+                return _param_error(
+                    "invalid_transform_params",
+                    "point_crops_view ref_id must be a prior point_crops master overlay ref (image:derived:*).",
+                    repair_hint="Set ref_id to outputs.derived_ref_id from a prior point_crops call.",
+                )
+            master_desc = _load_derived_image_descriptor(
+                dossier_id, transcription_id, workspace_key, ref_id
+            )
+            if master_desc is None:
+                return _error_result("derived_ref_not_found", "Derived image ref not found.")
+            try:
+                view_bundle = prepare_point_crops_view(
+                    master_desc,
+                    params,
+                    view_source_ref=ref_id,
+                )
+            except PointCropParamError as exc:
+                return _param_error(
+                    "invalid_transform_params",
+                    str(exc),
+                    repair_hint=exc.repair_hint or point_crops_view_repair_hint_for(str(exc)),
+                )
+            source_path, resolve_error = _resolve_source_path(
+                ref_id=view_bundle["source_ref"],
+                dossier_id=dossier_id,
+                transcription_id=transcription_id,
+                workspace_key=workspace_key,
+            )
+            if resolve_error:
+                return _error_result(resolve_error["code"], resolve_error["message"])
+            assert source_path is not None
+            try:
+                from PIL import Image  # type: ignore[import]
+
+                img = Image.open(source_path)
+                transform_metadata = compute_point_crops_view(
+                    img,
+                    view_bundle["points"],
+                    show=view_bundle["show"],
+                )
+            except PointCropParamError as exc:
+                return _param_error(
+                    "invalid_transform_params",
+                    str(exc),
+                    repair_hint=exc.repair_hint,
+                )
+            except Exception as exc:
+                return _error_result("transform_failed", f"Transform failed: {exc}")
+            return _persist_point_crop_view(
+                dossier_id=dossier_id,
+                transcription_id=transcription_id,
+                workspace_key=workspace_key,
+                source_ref=view_bundle["source_ref"],
+                sub_action=sub_action,
+                params=params,
+                transform_metadata=transform_metadata,
+                view_bundle=view_bundle,
             )
 
         # Resolve source image path
@@ -901,6 +1057,14 @@ def _validate_params(sub_action: str, params: dict[str, Any]) -> dict[str, Any] 
                 "invalid_transform_params",
                 message,
                 repair_hint=point_crops_adjust_repair_hint_for(message),
+            )
+    if sub_action == "point_crops_view":
+        message = validate_point_crops_view_params(params)
+        if message is not None:
+            return _param_error(
+                "invalid_transform_params",
+                message,
+                repair_hint=point_crops_view_repair_hint_for(message),
             )
     return None
 

@@ -40,6 +40,18 @@ def _refs_from_slice(row: Mapping[str, Any]) -> frozenset[str]:
             for entry in rendered:
                 if isinstance(entry, str) and entry.strip():
                     refs.add(entry.strip())
+    crop_summary = row.get("point_crop_set_summary")
+    if isinstance(crop_summary, Mapping):
+        master = crop_summary.get("master_overlay_ref")
+        if isinstance(master, str) and master.strip():
+            refs.add(master.strip())
+        points = crop_summary.get("points") or []
+        if isinstance(points, list):
+            for pt in points:
+                if isinstance(pt, Mapping):
+                    crop_ref = pt.get("crop_ref")
+                    if isinstance(crop_ref, str) and crop_ref.strip():
+                        refs.add(crop_ref.strip())
     return frozenset(refs)
 
 
@@ -145,6 +157,23 @@ def compact_stale_result_slice(row: dict[str, Any], *, stale: bool) -> dict[str,
             key: summary[key]
             for key in ("derived_ref", "source_ref", "rendered_evidence_refs")
             if key in summary and summary[key] not in (None, "", [], {})
+        }
+
+    crop_summary = row.get("point_crop_set_summary")
+    if isinstance(crop_summary, Mapping):
+        compact["point_crop_set_summary"] = {
+            key: crop_summary[key]
+            for key in (
+                "kind",
+                "sub_action",
+                "master_overlay_ref",
+                "source_ref",
+                "previous_crop_set_overlay_ref",
+                "view_of_crop_set_overlay_ref",
+                "point_count",
+                "points",
+            )
+            if key in crop_summary and crop_summary[key] not in (None, "", [], {})
         }
 
     excerpt = row.get("outputs_excerpt")

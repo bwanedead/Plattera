@@ -1561,5 +1561,133 @@ def test_tool_spec_documents_point_crops() -> None:
     assert "crop_set" in text or "crop_records" in text
     assert spec.example_request.get("sub_action") == "point_crops"
     assert "point_crops_adjust" in text
+    assert "point_crops_view" in text
     assert "shift_norm" in text
+    assert "delegate_subtask" in text or "context_refs" in text
     assert "previous_crop_set_overlay_ref" in text or "adjustment_source_ref" in text
+
+
+def test_point_crops_accepts_bounded_graph_ref(tmp_path, monkeypatch):
+    handler, ref_id = _make_handler(tmp_path, monkeypatch, d="d1", tx="tx-1", ws="ws-1")
+    result = handler({
+        "ref_id": ref_id,
+        "sub_action": "point_crops",
+        "params": {
+            "points": [
+                {
+                    "alias": "parcel_1_tie_bearing",
+                    "point_norm": [0.42, 0.58],
+                    "size": "medium",
+                    "shape": "wide",
+                    "graph_ref": {
+                        "item_id": "parcel_1_description",
+                        "covered_unit_id": "p1_tie_bearing",
+                    },
+                }
+            ]
+        },
+    })
+    assert result["executed"] is True
+    assert result["outputs"]["crop_set"]["points"][0]["graph_ref"]["item_id"] == "parcel_1_description"
+
+
+def test_point_crops_rejects_nested_graph_ref(tmp_path, monkeypatch):
+    handler, ref_id = _make_handler(tmp_path, monkeypatch)
+    result = handler({
+        "ref_id": ref_id,
+        "sub_action": "point_crops",
+        "params": {
+            "points": [
+                {
+                    "alias": "bad_graph",
+                    "point_norm": [0.5, 0.5],
+                    "size": "small",
+                    "shape": "square",
+                    "graph_ref": {"item_id": {"nested": True}},
+                }
+            ]
+        },
+    })
+    assert result["executed"] is False
+    assert result["refusal"]["retryable"] is True
+
+
+def test_point_crops_view_renders_all_points(tmp_path, monkeypatch):
+    handler, source_ref = _make_handler(tmp_path, monkeypatch)
+    created = _create_two_point_crop_set(handler, source_ref)
+    prior_master = created["outputs"]["derived_ref_id"]
+    viewed = handler({"ref_id": prior_master, "sub_action": "point_crops_view", "params": {}})
+    assert viewed["executed"] is True
+    assert viewed["outputs"]["derived_ref_id"] != prior_master
+    assert viewed["artifact_refs"] == [viewed["outputs"]["derived_ref_id"]]
+    assert len(viewed["image_evidence"]) == 1
+    assert len(viewed["outputs"]["crop_set"]["points"]) == 2
+
+
+def test_point_crops_view_filters_by_letters(tmp_path, monkeypatch):
+    handler, source_ref = _make_handler(tmp_path, monkeypatch)
+    created = _create_two_point_crop_set(handler, source_ref)
+    viewed = handler({
+        "ref_id": created["outputs"]["derived_ref_id"],
+        "sub_action": "point_crops_view",
+        "params": {"filter": {"letters": ["B"]}},
+    })
+    assert viewed["executed"] is True
+    assert len(viewed["outputs"]["crop_set"]["points"]) == 1
+    assert viewed["outputs"]["crop_set"]["points"][0]["letter"] == "B"
+
+
+def test_point_crops_view_filters_by_aliases(tmp_path, monkeypatch):
+    handler, source_ref = _make_handler(tmp_path, monkeypatch)
+    created = _create_two_point_crop_set(handler, source_ref)
+    viewed = handler({
+        "ref_id": created["outputs"]["derived_ref_id"],
+        "sub_action": "point_crops_view",
+        "params": {"filter": {"aliases": ["parcel_1_acreage"]}},
+    })
+    assert viewed["executed"] is True
+    assert len(viewed["outputs"]["crop_set"]["points"]) == 1
+    assert viewed["outputs"]["crop_set"]["points"][0]["alias"] == "parcel_1_acreage"
+
+
+def test_point_crops_view_rejects_invalid_filter_target(tmp_path, monkeypatch):
+    handler, source_ref = _make_handler(tmp_path, monkeypatch)
+    created = _create_two_point_crop_set(handler, source_ref)
+    result = handler({
+        "ref_id": created["outputs"]["derived_ref_id"],
+        "sub_action": "point_crops_view",
+        "params": {"filter": {"letters": ["Z"]}},
+    })
+    assert result["executed"] is False
+    assert result["refusal"]["retryable"] is True
+
+
+def test_delegate_batch_parser_accepts_projected_crop_ref() -> None:
+    import json
+
+    from harness.runtime.orchestration.action_plan_parser import parse_action_plan_response
+    from harness.runtime.orchestration.subtasks.batch_policy import delegate_subtask_tool_batch_policy
+    from harness.runtime.orchestration.subtasks.contracts import DELEGATE_SUBTASK_ACTION_TYPE
+
+    crop_ref = "image:derived:crop-a"
+    plan = parse_action_plan_response(
+        json.dumps(
+            {
+                "actions": [
+                    {
+                        "alias": "obs_p1_tie_bearing",
+                        "action_type": DELEGATE_SUBTASK_ACTION_TYPE,
+                        "action_inputs": {
+                            "profile": "harness.observation",
+                            "task": "Read the source-visible bearing text in this crop.",
+                            "context_refs": [crop_ref],
+                        },
+                    }
+                ],
+                "rationale": "Delegate using crop ref from projected crop-set summary.",
+            }
+        ),
+        available_tool_ids=(DELEGATE_SUBTASK_ACTION_TYPE,),
+        tool_batch_policies={DELEGATE_SUBTASK_ACTION_TYPE: delegate_subtask_tool_batch_policy()},
+    )
+    assert plan.actions[0].action_inputs["context_refs"] == [crop_ref]

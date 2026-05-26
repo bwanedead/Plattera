@@ -18,6 +18,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from .continuity_journal import CLIP_SENTINEL_KEY  # paired: see continuity_journal._clip_large_text_fields
+from .point_crop_set_projection import project_point_crop_set_summary
 
 DEFAULT_MAX_RECORDS = 3
 DEFAULT_MAX_CHARS_PER_RESULT = 2500
@@ -452,6 +453,10 @@ def _extract_evidence_artifact_summary(outputs: Any) -> dict[str, Any] | None:
     return summary if summary else None
 
 
+def _extract_point_crop_set_summary(outputs: Any) -> dict[str, Any] | None:
+    return project_point_crop_set_summary(outputs if isinstance(outputs, Mapping) else None)
+
+
 def build_recent_tool_result_slices(
     step_result_records: list[dict[str, Any]],
     *,
@@ -501,6 +506,7 @@ def build_recent_tool_result_slices(
         else:
             artifact_refs = []
         evidence_artifact_summary = _extract_evidence_artifact_summary(outputs)
+        point_crop_set_summary = _extract_point_crop_set_summary(outputs)
         text_field_summaries = _extract_text_field_summaries(outputs)
         slice_row: dict[str, Any] = {
             "kernel_turn_index": turn,
@@ -520,6 +526,8 @@ def build_recent_tool_result_slices(
         }
         if evidence_artifact_summary is not None:
             slice_row["evidence_artifact_summary"] = evidence_artifact_summary
+        if point_crop_set_summary is not None:
+            slice_row["point_crop_set_summary"] = point_crop_set_summary
         if text_field_summaries is not None:
             slice_row["text_field_summaries"] = text_field_summaries
         try:
