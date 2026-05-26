@@ -13,6 +13,7 @@ import base64
 import io
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 from pydantic import ValidationError
@@ -1059,3 +1060,258 @@ def test_missing_source_image_is_non_retryable(tmp_path, monkeypatch):
     refusal = result["refusal"]
     assert refusal["retryable"] is False
     assert refusal["blocked_by_invariant"] is True
+
+
+# ---------------------------------------------------------------------------
+# point_crops — template crop packets (Brief 1 follow-up)
+# ---------------------------------------------------------------------------
+
+def _point_crops_request(
+    *,
+    alias: str = "parcel_1_tie_bearing",
+    point_norm: list[float] | None = None,
+    size: str = "medium",
+    shape: str = "wide",
+    show: list[str] | None = None,
+    extra_points: list[dict] | None = None,
+) -> dict:
+    points = [
+        {
+            "alias": alias,
+            "point_norm": point_norm or [0.42, 0.58],
+            "size": size,
+            "shape": shape,
+        }
+    ]
+    if extra_points:
+        points.extend(extra_points)
+    params: dict = {"points": points}
+    if show is not None:
+        params["show"] = show
+    return {"sub_action": "point_crops", "params": params}
+
+
+def _dict_has_b64_key(value: Any) -> bool:
+    if isinstance(value, dict):
+        if "b64" in value:
+            return True
+        return any(_dict_has_b64_key(v) for v in value.values())
+    if isinstance(value, list):
+        return any(_dict_has_b64_key(v) for v in value)
+    return False
+
+
+def test_point_crops_happy_path_executes(tmp_path, monkeypatch):
+    handler, ref_id = _make_handler(tmp_path, monkeypatch)
+    result = handler({"ref_id": ref_id, **_point_crops_request()})
+
+    assert result["executed"] is True, f"Unexpected failure: {result}"
+    master = result["outputs"]["derived_ref_id"]
+    assert master.startswith("image:derived:")
+    assert len(result["image_evidence"]) == 1
+    assert result["image_evidence"][0]["ref_id"] == master
+    crop_refs = [r for r in result["artifact_refs"] if r != master]
+    assert len(crop_refs) == 1
+    assert master in result["artifact_refs"]
+    assert crop_refs[0] in result["artifact_refs"]
+
+
+def test_point_crops_outputs_crop_set_geometry_and_alias_map(tmp_path, monkeypatch):
+    handler, ref_id = _make_handler(tmp_path, monkeypatch)
+    result = handler({"ref_id": ref_id, **_point_crops_request()})
+
+    point = result["outputs"]["crop_set"]["points"][0]
+    assert point["alias"] == "parcel_1_tie_bearing"
+    assert point["letter"] == "A"
+    assert point["color"] == [255, 200, 0]
+    assert point["size"] == "medium"
+    assert point["shape"] == "wide"
+    assert point["crop_ref"].startswith("image:derived:")
+    assert len(point["point_norm"]) == 2
+    assert len(point["box_px"]) == 4
+    assert len(point["box_norm"]) == 4
+    assert point["box_px"][2] > point["box_px"][0]
+    assert point["box_px"][3] > point["box_px"][1]
+
+
+def test_point_crops_labels_and_colors_are_deterministic(tmp_path, monkeypatch):
+    handler, ref_id = _make_handler(tmp_path, monkeypatch)
+    req = {
+        "ref_id": ref_id,
+        **_point_crops_request(
+            extra_points=[
+                {"alias": "second_point", "point_norm": [0.2, 0.3], "size": "small", "shape": "square"},
+                {"alias": "third_point", "point_norm": [0.7, 0.4], "size": "large", "shape": "portrait"},
+            ]
+        ),
+    }
+    result = handler(req)
+    assert result["executed"] is True
+    points = result["outputs"]["crop_set"]["points"]
+    assert [p["letter"] for p in points] == ["A", "B", "C"]
+    assert [p["color"] for p in points] == [[255, 200, 0], [0, 200, 220], [255, 100, 180]]
+
+
+def test_point_crops_master_and_crop_descriptors_hydrate_with_metadata(tmp_path, monkeypatch):
+    from tooling.mapping.transcript_edit.artifact_hydration import _load_derived_image_descriptor
+
+    handler, ref_id = _make_handler(tmp_path, monkeypatch, d="d1", tx="tx-1", ws="ws-1")
+    result = handler({"ref_id": ref_id, **_point_crops_request()})
+    master_ref = result["outputs"]["derived_ref_id"]
+    crop_ref = result["outputs"]["crop_set"]["points"][0]["crop_ref"]
+
+    master_desc = _load_derived_image_descriptor("d1", "tx-1", "ws-1", master_ref)
+    crop_desc = _load_derived_image_descriptor("d1", "tx-1", "ws-1", crop_ref)
+    assert master_desc is not None
+    assert crop_desc is not None
+
+    master_meta = master_desc["transform_metadata"]
+    assert master_meta["source_ref"] == ref_id
+    assert master_meta["point_count"] == 1
+    assert master_meta["crop_set"]["points"][0]["alias"] == "parcel_1_tie_bearing"
+    assert master_meta["crop_set"]["points"][0]["crop_ref"] == crop_ref
+
+    crop_meta = crop_desc["transform_metadata"]
+    assert crop_meta["alias"] == "parcel_1_tie_bearing"
+    assert crop_meta["letter"] == "A"
+    assert crop_meta["crop_set_overlay_ref"] == master_ref
+    assert crop_desc["parent_ref_id"] == ref_id
+    assert crop_desc["crop_set_overlay_ref"] == master_ref
+
+
+def test_point_crops_edge_point_shift_clamp_produces_valid_crop(tmp_path, monkeypatch):
+    handler, ref_id = _make_handler(tmp_path, monkeypatch)
+    result = handler({
+        "ref_id": ref_id,
+        **_point_crops_request(point_norm=[0.0, 0.0], size="large", shape="wide"),
+    })
+    assert result["executed"] is True
+    point = result["outputs"]["crop_set"]["points"][0]
+    assert point["box_px"][0] == 0
+    assert point["box_px"][1] == 0
+    assert point["box_px"][2] > point["box_px"][0]
+    assert point["box_px"][3] > point["box_px"][1]
+    crop_ref = point["crop_ref"]
+    crop_row = next(r for r in result["outputs"]["crop_records"] if r["crop_ref"] == crop_ref)
+    assert crop_row["box_px"][2] > crop_row["box_px"][0]
+
+
+def test_point_crops_rejects_more_than_sixteen_points(tmp_path, monkeypatch):
+    handler, ref_id = _make_handler(tmp_path, monkeypatch)
+    points = [
+        {"alias": f"p{i}", "point_norm": [0.1, 0.1], "size": "small", "shape": "square"}
+        for i in range(17)
+    ]
+    result = handler({"ref_id": ref_id, "sub_action": "point_crops", "params": {"points": points}})
+    assert result["executed"] is False
+    assert result["refusal"]["retryable"] is True
+    assert "16" in result["outputs"]["error"]["message"]
+
+
+def test_point_crops_rejects_duplicate_alias(tmp_path, monkeypatch):
+    handler, ref_id = _make_handler(tmp_path, monkeypatch)
+    result = handler({
+        "ref_id": ref_id,
+        "sub_action": "point_crops",
+        "params": {
+            "points": [
+                {"alias": "dup", "point_norm": [0.2, 0.2], "size": "small", "shape": "square"},
+                {"alias": "dup", "point_norm": [0.8, 0.8], "size": "small", "shape": "square"},
+            ]
+        },
+    })
+    assert result["executed"] is False
+    assert result["refusal"]["retryable"] is True
+    assert "Duplicate alias" in result["outputs"]["error"]["message"]
+
+
+def test_point_crops_rejects_invalid_point_norm(tmp_path, monkeypatch):
+    handler, ref_id = _make_handler(tmp_path, monkeypatch)
+    result = handler({
+        "ref_id": ref_id,
+        "sub_action": "point_crops",
+        "params": {"points": [{"alias": "bad", "point_norm": [1.2, 0.5], "size": "small", "shape": "square"}]},
+    })
+    assert result["executed"] is False
+    assert result["refusal"]["retryable"] is True
+
+
+def test_point_crops_rejects_invalid_show(tmp_path, monkeypatch):
+    handler, ref_id = _make_handler(tmp_path, monkeypatch)
+    result = handler({
+        "ref_id": ref_id,
+        **_point_crops_request(show=["pin", "opacity"]),
+    })
+    assert result["executed"] is False
+    assert result["refusal"]["retryable"] is True
+    assert "show" in result["outputs"]["error"]["message"]
+
+
+def test_point_crops_normalizes_mixed_case_size_and_shape(tmp_path, monkeypatch):
+    handler, ref_id = _make_handler(tmp_path, monkeypatch)
+    result = handler({
+        "ref_id": ref_id,
+        "sub_action": "point_crops",
+        "params": {
+            "points": [
+                {
+                    "alias": "mixed_case",
+                    "point_norm": [0.5, 0.5],
+                    "size": "MeDiUm",
+                    "shape": "WiDe",
+                }
+            ]
+        },
+    })
+    assert result["executed"] is True
+    point = result["outputs"]["crop_set"]["points"][0]
+    assert point["size"] == "medium"
+    assert point["shape"] == "wide"
+
+
+def test_point_crops_no_b64_in_persisted_descriptors(tmp_path, monkeypatch):
+    from tooling.mapping.transcript_edit.artifact_hydration import _load_derived_image_descriptor
+    from tooling.mapping.transcript_edit.paths import transcript_edit_derived_images_dir
+
+    handler, ref_id = _make_handler(tmp_path, monkeypatch, d="d1", tx="tx-1", ws="ws-1")
+    result = handler({"ref_id": ref_id, **_point_crops_request()})
+    master_ref = result["outputs"]["derived_ref_id"]
+    crop_ref = result["outputs"]["crop_set"]["points"][0]["crop_ref"]
+
+    for ref in (master_ref, crop_ref):
+        desc = _load_derived_image_descriptor("d1", "tx-1", "ws-1", ref)
+        assert desc is not None
+        assert not _dict_has_b64_key(desc)
+
+    derived_dir = transcript_edit_derived_images_dir("d1", "tx-1", "ws-1")
+    master_uuid = master_ref.split(":")[-1]
+    sidecar = derived_dir / f"{master_uuid}_crop_set.json"
+    assert sidecar.is_file()
+    sidecar_data = json.loads(sidecar.read_text(encoding="utf-8"))
+    assert not _dict_has_b64_key(sidecar_data)
+    assert not _dict_has_b64_key(result["outputs"])
+
+
+def test_tool_spec_documents_point_crops() -> None:
+    from domains.mapping.transcript_edit.execution.tool_specs import build_transcript_edit_tool_specs
+
+    specs = build_transcript_edit_tool_specs()
+    spec = next(s for s in specs if s.tool_id == "transform_artifact")
+    text = (
+        spec.purpose
+        + " "
+        + spec.expected_request_shape
+        + " "
+        + spec.expected_result_shape
+        + " "
+        + str(spec.expected_request_json_shape)
+        + " "
+        + str(spec.example_request)
+    ).lower()
+    assert "point_crops" in text
+    assert "point_norm" in text
+    assert "small" in text and "medium" in text and "large" in text
+    assert "wide" in text and "portrait" in text and "square" in text
+    assert "pin" in text and "box" in text and "letter" in text
+    assert "crop_set" in text or "crop_records" in text
+    assert spec.example_request.get("sub_action") == "point_crops"

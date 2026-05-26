@@ -87,7 +87,7 @@ def build_transcript_edit_tool_specs() -> tuple[SemanticToolSpec, ...]:
             purpose=(
                 "Apply a spatial or annotation transform to a source or derived image ref. "
                 "Returns a new image:derived:* ref and model-visible image evidence for the next turn. "
-                "Sub-actions: crop, expand, zoom, annotate, reference_overlay, render_evidence_locators. "
+                "Sub-actions: crop, expand, zoom, annotate, reference_overlay, render_evidence_locators, point_crops. "
                 "Use annotate for temporary visual markup, highlighting, bounding boxes, or labels — "
                 "this is visual editing, not durable evidence. "
                 "Use render_evidence_locators as the DURABLE evidence path: it renders the agent-authored "
@@ -96,6 +96,11 @@ def build_transcript_edit_tool_specs() -> tuple[SemanticToolSpec, ...]:
                 "Use reference_overlay to obtain a grid-labeled version of the image so you can "
                 "identify precise subregions on the next turn and then supply explicit box or box_norm coordinates "
                 "to a subsequent crop. "
+                "Use point_crops to create labeled point-centered crop packets from templates "
+                "(small|medium|large × wide|portrait|square) instead of hand-authoring full crop boxes. "
+                "Letters A/B/C are visual local labels only; semantic aliases live in metadata. "
+                "point_crops returns one master overlay as immediate image_evidence; individual crop refs "
+                "are persisted for later hydrate_artifact_refs / delegation — crop ergonomics, not durable claim evidence. "
                 "Geometry ergonomics: crop, zoom, and each annotate annotation all accept either pixel "
                 "`box` OR normalized `box_norm` (provide one, never both), plus optional adjustment "
                 "controls (`adjust_px` or `adjust_norm`) for fine-tuning without recomputing coordinates.  "
@@ -105,7 +110,7 @@ def build_transcript_edit_tool_specs() -> tuple[SemanticToolSpec, ...]:
             ),
             expected_request_shape=(
                 "ref_id: source image ref (image:assoc:* or image:derived:*). "
-                "sub_action: one of crop | expand | zoom | annotate | reference_overlay | render_evidence_locators. "
+                "sub_action: one of crop | expand | zoom | annotate | reference_overlay | render_evidence_locators | point_crops. "
                 "params: sub-action-specific parameters object. "
                 "GEOMETRY FORMS — two explicit forms are accepted anywhere a box is needed "
                 "(crop params, zoom params, each annotate annotation): "
@@ -134,7 +139,12 @@ def build_transcript_edit_tool_specs() -> tuple[SemanticToolSpec, ...]:
                 "This is the preferred path for claim-local evidence that should survive in the work graph "
                 "and UI/audit timeline; annotate is for transient visual markup only. "
                 "Image_region locators whose ref_id matches ref_id are rendered as highlights/boxes; "
-                "text_span, log_span, code_span, table_cell, json_path, and unknown kinds are summarized explicitly."
+                "text_span, log_span, code_span, table_cell, json_path, and unknown kinds are summarized explicitly. "
+                "POINT_CROPS — params: {points: [{alias, point_norm: [x,y], size: small|medium|large, "
+                "shape: wide|portrait|square}, ...], show?: [pin|box|letter]}. "
+                "Default show is [pin, box, letter]. Creates one master overlay (returned as image_evidence) "
+                "plus per-point crop refs in artifact_refs. Aliases are stored in metadata; letters are local A/B/C labels. "
+                "Use hydrate_artifact_refs on individual crop refs when you need the cropped image content later."
             ),
             expected_request_json_shape={
                 "type": "object",
@@ -146,7 +156,15 @@ def build_transcript_edit_tool_specs() -> tuple[SemanticToolSpec, ...]:
                     },
                     "sub_action": {
                         "type": "string",
-                        "enum": ["crop", "expand", "zoom", "annotate", "reference_overlay", "render_evidence_locators"],
+                        "enum": [
+                            "crop",
+                            "expand",
+                            "zoom",
+                            "annotate",
+                            "reference_overlay",
+                            "render_evidence_locators",
+                            "point_crops",
+                        ],
                     },
                     "params": {
                         "type": "object",
@@ -163,7 +181,10 @@ def build_transcript_edit_tool_specs() -> tuple[SemanticToolSpec, ...]:
                             "text: str (REQUIRED when type='label', non-empty; ignored for bbox/highlight), "
                             "adjust_px?: {...}, adjust_norm?: {...}}]}. "
                             "reference_overlay: {cols: int, rows: int, line_color: [R,G,B], label_color: [R,G,B]}. "
-                            "render_evidence_locators: {locators: evidence_locators[]} — the durable evidence path."
+                            "render_evidence_locators: {locators: evidence_locators[]} — the durable evidence path. "
+                            "point_crops: {points: [{alias: str, point_norm: [x,y], size: small|medium|large, "
+                            "shape: wide|portrait|square}], show?: [pin|box|letter]} — template crop packets; "
+                            "master overlay only in image_evidence."
                         ),
                     },
                 },
@@ -171,8 +192,18 @@ def build_transcript_edit_tool_specs() -> tuple[SemanticToolSpec, ...]:
             },
             example_request={
                 "ref_id": "image:assoc:tx-1:original",
-                "sub_action": "reference_overlay",
-                "params": {"cols": 4, "rows": 6},
+                "sub_action": "point_crops",
+                "params": {
+                    "points": [
+                        {
+                            "alias": "parcel_1_tie_bearing",
+                            "point_norm": [0.42, 0.58],
+                            "size": "medium",
+                            "shape": "wide",
+                        }
+                    ],
+                    "show": ["pin", "box", "letter"],
+                },
             },
             batching={
                 "allowed": True,
@@ -194,6 +225,10 @@ def build_transcript_edit_tool_specs() -> tuple[SemanticToolSpec, ...]:
                 "rendered_ref and reports locator_count/rendered_locator_count/summary_only_locator_count/"
                 "unsupported_locator_count; outputs.rendered_locators, outputs.summary_only_locators, "
                 "and outputs.unsupported_locators preserve per-locator lineage. "
+                "For point_crops: outputs.derived_ref_id is the master overlay ref; image_evidence contains "
+                "ONLY that master overlay (not every crop). outputs.crop_set and outputs.crop_records map "
+                "letters/aliases/colors/geometry to individual crop refs in artifact_refs. "
+                "Per-crop parent_ref_id is the original source ref; crop_set_overlay_ref links back to the master. "
                 "image_evidence: model-visible generated image for the next choose_action turn; "
                 "a separate hydrate_artifact_refs call is not required just to inspect the new crop/overlay. "
                 "On retryable param error: outputs.error.code = invalid_transform_params, "

@@ -26,11 +26,18 @@ from .paths import (
     transcript_edit_derived_images_dir,
 )
 from .artifact_hydration import _load_derived_image_descriptor
+from .point_crops import (
+    PointCropParamError,
+    build_crop_set_point_record,
+    compute_point_crops,
+    point_crops_repair_hint_for,
+    validate_point_crops_params,
+)
 
 _IMAGE_ASSOC_PREFIX = "image:assoc:"
 _IMAGE_DERIVED_PREFIX = "image:derived:"
 _SUPPORTED_SUB_ACTIONS = frozenset(
-    {"crop", "expand", "zoom", "annotate", "reference_overlay", "render_evidence_locators"}
+    {"crop", "expand", "zoom", "annotate", "reference_overlay", "render_evidence_locators", "point_crops"}
 )
 
 
@@ -92,7 +99,118 @@ def make_transform_artifact_handler(
         except Exception as exc:
             return _error_result("transform_failed", f"Transform failed: {exc}")
 
-        # Persist derived descriptor
+        # Special multi-output handling for point_crops (Brief 1).
+        # The apply step now returns PIL images + rich geometry in metadata (pure computation).
+        # Handler is the single owner of all ref minting, file I/O, and descriptors.
+        if sub_action == "point_crops":
+            derived_dir = transcript_edit_derived_images_dir(dossier_id, transcription_id, workspace_key)
+            derived_dir.mkdir(parents=True, exist_ok=True)
+
+            master_pil = transform_metadata["master_pil"]
+            per_point = transform_metadata["per_point"]
+            show = transform_metadata.get("show")
+            legend_height = transform_metadata.get("legend_height")
+            source_width_height = transform_metadata.get("source_width_height")
+            point_count = transform_metadata.get("point_count")
+
+            master_uuid = _uuid_mod.uuid4().hex
+            master_ref = f"{_IMAGE_DERIVED_PREFIX}{master_uuid}"
+            master_path = derived_dir / f"{master_uuid}.png"
+            master_pil.save(master_path)
+
+            crop_refs: list[dict[str, Any]] = []
+            artifact_refs = [master_ref]
+            for pt in per_point:
+                c_uuid = _uuid_mod.uuid4().hex
+                c_ref = f"{_IMAGE_DERIVED_PREFIX}{c_uuid}"
+                c_path = derived_dir / f"{c_uuid}.png"
+                pt["crop_img"].save(c_path)
+
+                crop_record = build_crop_set_point_record(pt, crop_ref=c_ref)
+                crop_refs.append(crop_record)
+
+                c_desc = {
+                    "ref_id": c_ref,
+                    "parent_ref_id": ref_id,
+                    "crop_set_overlay_ref": master_ref,
+                    "sub_action": "point_crops_crop",
+                    "params": {"parent_point_alias": pt["alias"]},
+                    "absolute_path": str(c_path.resolve()),
+                    "basename": c_path.name,
+                    "size_bytes": c_path.stat().st_size if c_path.exists() else None,
+                    "width_height": [pt["crop_img"].width, pt["crop_img"].height],
+                    "transform_metadata": {
+                        "alias": pt["alias"],
+                        "letter": pt["letter"],
+                        "color": pt["color"],
+                        "size": pt["size"],
+                        "shape": pt["shape"],
+                        "point_norm": pt["point_norm"],
+                        "box_px": pt["box_px"],
+                        "box_norm": pt["box_norm"],
+                        "source_width_height": source_width_height,
+                        "crop_set_overlay_ref": master_ref,
+                    },
+                }
+                (derived_dir / f"{c_uuid}.json").write_text(
+                    json.dumps(c_desc, ensure_ascii=False, indent=2), encoding="utf-8"
+                )
+                artifact_refs.append(c_ref)
+
+            crop_set = {
+                "master_overlay_ref": master_ref,
+                "source_ref": ref_id,
+                "show": show,
+                "legend_height": legend_height,
+                "source_width_height": source_width_height,
+                "points": list(crop_refs),
+            }
+            (derived_dir / f"{master_uuid}_crop_set.json").write_text(
+                json.dumps(crop_set, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
+
+            master_transform_metadata = {
+                "source_ref": ref_id,
+                "show": show,
+                "legend_height": legend_height,
+                "source_width_height": source_width_height,
+                "point_count": point_count,
+                "crop_set": {"points": list(crop_refs)},
+            }
+            master_desc = {
+                "ref_id": master_ref,
+                "parent_ref_id": ref_id,
+                "sub_action": sub_action,
+                "params": params,
+                "transform_metadata": master_transform_metadata,
+                "absolute_path": str(master_path.resolve()),
+                "basename": master_path.name,
+                "size_bytes": master_path.stat().st_size if master_path.exists() else None,
+                "width_height": [master_pil.width, master_pil.height],
+            }
+            (derived_dir / f"{master_uuid}.json").write_text(
+                json.dumps(master_desc, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
+
+            result: dict[str, Any] = {
+                "executed": True,
+                "artifact_refs": artifact_refs,
+                "outputs": {
+                    "derived_ref_id": master_ref,
+                    "parent_ref_id": ref_id,
+                    "sub_action": sub_action,
+                    "basename": master_path.name,
+                    "width_height": [master_pil.width, master_pil.height],
+                    "crop_set": crop_set,
+                    "crop_records": crop_refs,
+                },
+            }
+            evidence = image_evidence_from_path(master_ref, master_path)
+            if evidence:
+                result["image_evidence"] = [evidence]
+            return result
+
+        # Normal single-output path for all other sub-actions
         derived_uuid = _uuid_mod.uuid4().hex
         derived_ref_id = f"{_IMAGE_DERIVED_PREFIX}{derived_uuid}"
         _attach_rendered_ref(transform_metadata, rendered_ref=derived_ref_id)
@@ -636,6 +754,14 @@ def _validate_params(sub_action: str, params: dict[str, Any]) -> dict[str, Any] 
                 "render_evidence_locators requires params.locators as a non-empty list.",
                 repair_hint="Pass params.locators as the agent-authored evidence_locators list for the selected source ref.",
             )
+    if sub_action == "point_crops":
+        message = validate_point_crops_params(params)
+        if message is not None:
+            return _param_error(
+                "invalid_transform_params",
+                message,
+                repair_hint=point_crops_repair_hint_for(message),
+            )
     return None
 
 
@@ -897,6 +1023,14 @@ def _apply_transform(
             "unsupported_locators": plan["unsupported_locators"],
             "locator_summaries": locator_summaries,
         }
+
+    elif sub_action == "point_crops":
+        try:
+            transform_metadata = compute_point_crops(img, params)
+        except PointCropParamError as exc:
+            raise _TransformParamError(str(exc), repair_hint=exc.repair_hint) from exc
+        wh = (transform_metadata["master_pil"].width, transform_metadata["master_pil"].height)
+        return source, wh, transform_metadata
 
     out_suffix = ".png"
     out_path = source.parent / (source.stem + f"_derived_{_uuid_mod.uuid4().hex[:8]}{out_suffix}")
