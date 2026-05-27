@@ -1293,6 +1293,212 @@ def test_point_crops_no_b64_in_persisted_descriptors(tmp_path, monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# point_crops — zoomed per-point crop refs (M1)
+# ---------------------------------------------------------------------------
+
+def test_point_crops_applies_default_zoom_by_size(tmp_path, monkeypatch):
+    handler, ref_id = _make_handler(tmp_path, monkeypatch)
+    result = handler({
+        "ref_id": ref_id,
+        "sub_action": "point_crops",
+        "params": {
+            "points": [
+                {"alias": "small_pt", "point_norm": [0.5, 0.5], "size": "small", "shape": "wide"},
+                {"alias": "medium_pt", "point_norm": [0.5, 0.5], "size": "medium", "shape": "wide"},
+                {"alias": "large_pt", "point_norm": [0.5, 0.5], "size": "large", "shape": "wide"},
+            ]
+        },
+    })
+    assert result["executed"] is True
+    by_alias = {p["alias"]: p for p in result["outputs"]["crop_set"]["points"]}
+    assert by_alias["small_pt"]["zoom_factor"] == 3.0
+    assert by_alias["medium_pt"]["zoom_factor"] == 2.25
+    assert by_alias["large_pt"]["zoom_factor"] == 1.5
+    for alias, expected in [("small_pt", 3.0), ("medium_pt", 2.25), ("large_pt", 1.5)]:
+        pt = by_alias[alias]
+        uw, uh = pt["unzoomed_width_height"]
+        ow, oh = pt["output_width_height"]
+        assert ow == max(1, int(round(uw * expected)))
+        assert oh == max(1, int(round(uh * expected)))
+
+
+def test_point_crops_global_zoom_factor_applies_to_all_points(tmp_path, monkeypatch):
+    handler, ref_id = _make_handler(tmp_path, monkeypatch)
+    result = handler({
+        "ref_id": ref_id,
+        "sub_action": "point_crops",
+        "params": {
+            "zoom_factor": 2.0,
+            "points": [
+                {"alias": "first", "point_norm": [0.42, 0.58], "size": "medium", "shape": "wide"},
+                {"alias": "second", "point_norm": [0.2, 0.3], "size": "small", "shape": "square"},
+            ],
+        },
+    })
+    assert result["executed"] is True
+    for point in result["outputs"]["crop_set"]["points"]:
+        assert point["zoom_factor"] == 2.0
+
+
+def test_point_crops_per_point_zoom_factor_overrides_global(tmp_path, monkeypatch):
+    handler, ref_id = _make_handler(tmp_path, monkeypatch)
+    result = handler({
+        "ref_id": ref_id,
+        "sub_action": "point_crops",
+        "params": {
+            "zoom_factor": 2.0,
+            "points": [
+                {
+                    "alias": "override_pt",
+                    "point_norm": [0.5, 0.5],
+                    "size": "medium",
+                    "shape": "wide",
+                    "zoom_factor": 3.0,
+                },
+                {
+                    "alias": "global_pt",
+                    "point_norm": [0.2, 0.3],
+                    "size": "small",
+                    "shape": "square",
+                },
+            ],
+        },
+    })
+    assert result["executed"] is True
+    by_alias = {p["alias"]: p for p in result["outputs"]["crop_set"]["points"]}
+    assert by_alias["override_pt"]["zoom_factor"] == 3.0
+    assert by_alias["global_pt"]["zoom_factor"] == 2.0
+
+
+def test_point_crops_master_overlay_remains_unzoomed(tmp_path, monkeypatch):
+    handler, ref_id = _make_handler(tmp_path, monkeypatch)
+    result = handler({"ref_id": ref_id, **_point_crops_request()})
+    assert result["executed"] is True
+    assert result["outputs"]["width_height"] == [100, 200]
+    point = result["outputs"]["crop_set"]["points"][0]
+    assert point["output_width_height"][0] > point["unzoomed_width_height"][0]
+
+
+def test_point_crops_geometry_metadata_stays_source_based(tmp_path, monkeypatch):
+    handler, ref_id = _make_handler(tmp_path, monkeypatch)
+    result = handler({"ref_id": ref_id, **_point_crops_request(point_norm=[0.42, 0.58])})
+    point = result["outputs"]["crop_set"]["points"][0]
+    assert point["point_norm"] == [0.42, 0.58]
+    assert len(point["box_norm"]) == 4
+    assert point["box_px"][2] > point["box_px"][0]
+    assert point["box_norm"][2] > point["box_norm"][0]
+
+
+def test_point_crops_persisted_crop_descriptor_records_zoom_metadata(tmp_path, monkeypatch):
+    from tooling.mapping.transcript_edit.artifact_hydration import _load_derived_image_descriptor
+
+    handler, ref_id = _make_handler(tmp_path, monkeypatch, d="d1", tx="tx-1", ws="ws-1")
+    result = handler({"ref_id": ref_id, **_point_crops_request(size="small", shape="wide")})
+    crop_ref = result["outputs"]["crop_set"]["points"][0]["crop_ref"]
+    crop_desc = _load_derived_image_descriptor("d1", "tx-1", "ws-1", crop_ref)
+    assert crop_desc is not None
+    meta = crop_desc["transform_metadata"]
+    assert meta["zoom_factor"] == 3.0
+    assert meta["unzoomed_width_height"]
+    assert meta["output_width_height"]
+    assert meta["zoom_cap_applied"] is False
+    assert crop_desc["width_height"] == meta["output_width_height"]
+    assert not _dict_has_b64_key(crop_desc)
+
+
+def test_point_crops_rejects_invalid_zoom_factor(tmp_path, monkeypatch):
+    handler, ref_id = _make_handler(tmp_path, monkeypatch)
+    for bad_zoom in (0.5, 7.0):
+        result = handler({
+            "ref_id": ref_id,
+            "sub_action": "point_crops",
+            "params": {
+                "zoom_factor": bad_zoom,
+                "points": [
+                    {"alias": "bad", "point_norm": [0.5, 0.5], "size": "small", "shape": "square"},
+                ],
+            },
+        })
+        assert result["executed"] is False
+        assert result["refusal"]["retryable"] is True
+        assert "zoom_factor" in result["outputs"]["error"]["message"]
+
+
+def test_point_crops_applies_zoom_output_cap(tmp_path, monkeypatch):
+    import tooling.mapping.transcript_edit.point_crops as point_crops_mod
+
+    monkeypatch.setattr(point_crops_mod, "MAX_CROP_OUTPUT_DIMENSION", 20)
+    handler, ref_id = _make_handler(tmp_path, monkeypatch)
+    result = handler({
+        "ref_id": ref_id,
+        "sub_action": "point_crops",
+        "params": {
+            "points": [
+                {
+                    "alias": "capped",
+                    "point_norm": [0.5, 0.5],
+                    "size": "medium",
+                    "shape": "wide",
+                    "zoom_factor": 6.0,
+                }
+            ]
+        },
+    })
+    assert result["executed"] is True
+    point = result["outputs"]["crop_set"]["points"][0]
+    assert point["zoom_cap_applied"] is True
+    assert point["requested_zoom_factor"] == 6.0
+    assert point["max_output_dimension"] == 20
+    assert max(point["output_width_height"]) <= 20
+
+
+def test_point_crops_adjust_preserves_prior_zoom(tmp_path, monkeypatch):
+    handler, source_ref = _make_handler(tmp_path, monkeypatch)
+    created = handler({
+        "ref_id": source_ref,
+        "sub_action": "point_crops",
+        "params": {
+            "points": [
+                {
+                    "alias": "parcel_1_tie_bearing",
+                    "point_norm": [0.42, 0.58],
+                    "size": "medium",
+                    "shape": "wide",
+                    "zoom_factor": 2.5,
+                }
+            ]
+        },
+    })
+    prior_master = created["outputs"]["derived_ref_id"]
+    prior_zoom = created["outputs"]["crop_set"]["points"][0]["zoom_factor"]
+    adjusted = handler(_point_crops_adjust_request(
+        master_ref=prior_master,
+        adjust=[{"letter": "A", "shift_norm": [0.01, 0.0]}],
+    ))
+    assert adjusted["executed"] is True
+    new_point = adjusted["outputs"]["crop_set"]["points"][0]
+    assert new_point["zoom_factor"] == prior_zoom
+
+
+def test_point_crops_adjust_can_change_zoom_factor(tmp_path, monkeypatch):
+    handler, source_ref = _make_handler(tmp_path, monkeypatch)
+    created = _create_two_point_crop_set(handler, source_ref)
+    prior_master = created["outputs"]["derived_ref_id"]
+    prior_b = next(p for p in created["outputs"]["crop_set"]["points"] if p["letter"] == "B")
+    adjusted = handler(_point_crops_adjust_request(
+        master_ref=prior_master,
+        adjust=[{"letter": "B", "zoom_factor": 4.0}],
+    ))
+    assert adjusted["executed"] is True
+    new_b = next(p for p in adjusted["outputs"]["crop_set"]["points"] if p["letter"] == "B")
+    assert new_b["zoom_factor"] == 4.0
+    assert new_b["crop_ref"] != prior_b["crop_ref"]
+    applied = adjusted["outputs"]["adjustments_applied"][0]
+    assert applied["prior_zoom_factor"] == prior_b["zoom_factor"]
+    assert applied["new_zoom_factor"] == 4.0
+
+
+# ---------------------------------------------------------------------------
 # point_crops_adjust — reuse and revision (Brief 2)
 # ---------------------------------------------------------------------------
 

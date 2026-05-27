@@ -113,6 +113,20 @@ def _persist_point_crop_set(
             "source_width_height": source_width_height,
             "crop_set_overlay_ref": master_ref,
         }
+        crop_transform_metadata.update(
+            {
+                key: pt[key]
+                for key in (
+                    "zoom_factor",
+                    "unzoomed_width_height",
+                    "output_width_height",
+                    "zoom_cap_applied",
+                    "requested_zoom_factor",
+                    "max_output_dimension",
+                )
+                if key in pt
+            }
+        )
         if previous_crop_set_overlay_ref:
             crop_transform_metadata["previous_crop_set_overlay_ref"] = previous_crop_set_overlay_ref
 

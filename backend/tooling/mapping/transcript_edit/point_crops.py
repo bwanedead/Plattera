@@ -6,6 +6,7 @@ This module computes geometry, crops, and the master overlay in memory only.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any
 
 # Normalized box sizes centered on ``point_norm``.
@@ -44,6 +45,22 @@ ALLOWED_SIZES = frozenset({"small", "medium", "large"})
 ALLOWED_SHAPES = frozenset({"wide", "portrait", "square"})
 MAX_GRAPH_REF_KEYS = 8
 MAX_GRAPH_REF_VALUE_CHARS = 120
+MIN_ZOOM_FACTOR = 1.0
+MAX_ZOOM_FACTOR = 6.0
+MAX_CROP_OUTPUT_DIMENSION = 1600
+DEFAULT_ZOOM_BY_SIZE: dict[str, float] = {
+    "small": 3.0,
+    "medium": 2.25,
+    "large": 1.5,
+}
+_ZOOM_METADATA_KEYS = (
+    "zoom_factor",
+    "unzoomed_width_height",
+    "output_width_height",
+    "zoom_cap_applied",
+    "requested_zoom_factor",
+    "max_output_dimension",
+)
 
 
 class PointCropParamError(Exception):
@@ -102,6 +119,20 @@ def validate_point_crops_params(params: dict[str, Any]) -> str | None:
                 p["graph_ref"] = normalized_graph_ref
     if len(points) > MAX_POINT_CROP_COUNT:
         return "point_crops point count exceeds safety cap (16)."
+    global_zoom_err = _validate_zoom_factor_raw(params.get("zoom_factor"), "params.zoom_factor")
+    if global_zoom_err:
+        return global_zoom_err
+    if params.get("zoom_factor") is not None:
+        params["zoom_factor"] = _normalize_zoom_factor(params["zoom_factor"])
+    for i, p in enumerate(points):
+        if "zoom_factor" in p:
+            point_zoom_err = _validate_zoom_factor_raw(
+                p.get("zoom_factor"),
+                f"params.points[{i}].zoom_factor",
+            )
+            if point_zoom_err:
+                return point_zoom_err
+            p["zoom_factor"] = _normalize_zoom_factor(p["zoom_factor"])
     return _validate_show_param(params) or None
 
 
@@ -113,7 +144,81 @@ def point_crops_repair_hint_for(message: str) -> str | None:
         )
     if "exceeds safety cap" in message:
         return "Reduce the number of points in a single call."
+    if "zoom_factor" in message:
+        return f"Use zoom_factor between {MIN_ZOOM_FACTOR} and {MAX_ZOOM_FACTOR} (global or per-point)."
     return None
+
+
+def _validate_zoom_factor_raw(raw: Any, field_name: str) -> str | None:
+    if raw is None:
+        return None
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return f"{field_name} must be a numeric zoom factor."
+    if not (MIN_ZOOM_FACTOR <= value <= MAX_ZOOM_FACTOR):
+        return (
+            f"{field_name} must be between {MIN_ZOOM_FACTOR} and {MAX_ZOOM_FACTOR}."
+        )
+    return None
+
+
+def _normalize_zoom_factor(raw: Any) -> float:
+    return round(float(raw), 4)
+
+
+def resolve_point_zoom_factor(
+    *,
+    size: str,
+    global_zoom: float | None = None,
+    point_zoom: float | None = None,
+) -> float:
+    """Resolve requested zoom: per-point override, then global, then size default."""
+    if point_zoom is not None:
+        return _normalize_zoom_factor(point_zoom)
+    if global_zoom is not None:
+        return _normalize_zoom_factor(global_zoom)
+    return _normalize_zoom_factor(DEFAULT_ZOOM_BY_SIZE[size])
+
+
+def _apply_crop_zoom(crop_img: Any, requested_zoom: float) -> tuple[Any, dict[str, Any]]:
+    """Resize a cropped region for legibility; geometry metadata stays source-based."""
+    from PIL import Image  # type: ignore[import]
+
+    unzoomed_w = int(crop_img.width)
+    unzoomed_h = int(crop_img.height)
+    requested = _normalize_zoom_factor(requested_zoom)
+    target_w = max(1, int(round(unzoomed_w * requested)))
+    target_h = max(1, int(round(unzoomed_h * requested)))
+
+    zoom_cap_applied = False
+    applied_zoom = requested
+    if max(target_w, target_h) > MAX_CROP_OUTPUT_DIMENSION:
+        scale = MAX_CROP_OUTPUT_DIMENSION / max(target_w, target_h)
+        target_w = max(1, int(round(target_w * scale)))
+        target_h = max(1, int(round(target_h * scale)))
+        zoom_cap_applied = True
+        applied_zoom = round(min(target_w / unzoomed_w, target_h / unzoomed_h), 4)
+
+    zoomed = crop_img.resize((target_w, target_h), Image.Resampling.LANCZOS)
+    meta: dict[str, Any] = {
+        "zoom_factor": applied_zoom,
+        "unzoomed_width_height": [unzoomed_w, unzoomed_h],
+        "output_width_height": [target_w, target_h],
+        "zoom_cap_applied": zoom_cap_applied,
+    }
+    if zoom_cap_applied:
+        meta["requested_zoom_factor"] = requested
+        meta["max_output_dimension"] = MAX_CROP_OUTPUT_DIMENSION
+    return zoomed, meta
+
+
+def _copy_zoom_metadata(source: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        key: source[key]
+        for key in _ZOOM_METADATA_KEYS
+        if key in source
+    }
 
 
 def validate_graph_ref(raw: Any, *, field_prefix: str = "graph_ref") -> dict[str, str] | None:
@@ -245,6 +350,8 @@ def compute_point_crops(img: Any, params: dict[str, Any]) -> dict[str, Any]:
 
     show_raw = params.get("show")
     show = list(show_raw) if isinstance(show_raw, list) and show_raw else list(DEFAULT_SHOW)
+    global_zoom = params.get("zoom_factor")
+    global_zoom = float(global_zoom) if global_zoom is not None else None
 
     n = len(points)
     letters = [chr(ord("A") + i) for i in range(n)]
@@ -260,6 +367,14 @@ def compute_point_crops(img: Any, params: dict[str, Any]) -> dict[str, Any]:
             shape=p["shape"],
         )
         crop_img = img.crop(tuple(geo["box"]))
+        point_zoom = p.get("zoom_factor")
+        point_zoom = float(point_zoom) if point_zoom is not None else None
+        requested_zoom = resolve_point_zoom_factor(
+            size=p["size"],
+            global_zoom=global_zoom,
+            point_zoom=point_zoom,
+        )
+        zoomed_crop, zoom_meta = _apply_crop_zoom(crop_img, requested_zoom)
         row: dict[str, Any] = {
             "alias": alias,
             "letter": letters[i],
@@ -267,9 +382,10 @@ def compute_point_crops(img: Any, params: dict[str, Any]) -> dict[str, Any]:
             "point_norm": geo["point_norm"],
             "box_px": geo["box_px"],
             "box_norm": geo["box_norm"],
-            "crop_img": crop_img,
+            "crop_img": zoomed_crop,
             "size": p["size"],
             "shape": p["shape"],
+            **zoom_meta,
         }
         if isinstance(p.get("graph_ref"), dict):
             row["graph_ref"] = dict(p["graph_ref"])
@@ -354,6 +470,7 @@ def build_crop_set_point_record(point: dict[str, Any], *, crop_ref: str | None =
         row["crop_ref"] = point["crop_ref"].strip()
     if isinstance(point.get("graph_ref"), dict):
         row["graph_ref"] = dict(point["graph_ref"])
+    row.update(_copy_zoom_metadata(point))
     return row
 
 
@@ -429,7 +546,7 @@ def point_crops_adjust_repair_hint_for(message: str) -> str | None:
     if "letter" in message and "alias" in message:
         return "Each adjustment row must target exactly one point via letter OR alias, not both."
     if "no actual change" in message:
-        return "Provide point_norm, shift_norm, size, and/or shape values that change the target point."
+        return "Provide point_norm, shift_norm, size, shape, and/or zoom_factor values that change the target point."
     if "does not contain recoverable" in message:
         return "Set ref_id to the master overlay ref returned by a prior point_crops call."
     if "Unknown" in message or "not found in prior crop set" in message:
@@ -486,6 +603,12 @@ def prepare_point_crops_adjust(
         }
         if isinstance(pt.get("graph_ref"), dict):
             row["graph_ref"] = dict(pt["graph_ref"])
+        prior_zoom = pt.get("zoom_factor")
+        if prior_zoom is not None:
+            try:
+                row["zoom_factor"] = _normalize_zoom_factor(prior_zoom)
+            except (TypeError, ValueError):
+                pass
         working_points.append(row)
         by_letter[letter] = row
         by_alias[alias] = row
@@ -538,15 +661,17 @@ def prepare_point_crops_adjust(
         prior_point_norm = list(target_row["point_norm"])
         prior_size = target_row["size"]
         prior_shape = target_row["shape"]
+        prior_zoom_factor = target_row.get("zoom_factor")
         new_point_norm = list(prior_point_norm)
         new_size = prior_size
         new_shape = prior_shape
+        new_zoom_factor = prior_zoom_factor
         shift_applied: list[float] | None = None
 
-        change_fields = ("point_norm", "shift_norm", "size", "shape")
+        change_fields = ("point_norm", "shift_norm", "size", "shape", "zoom_factor")
         if not any(field in adj for field in change_fields):
             raise PointCropParamError(
-                f"params.adjust[{i}] specifies no actual change (need point_norm, shift_norm, size, and/or shape).",
+                f"params.adjust[{i}] specifies no actual change (need point_norm, shift_norm, size, shape, and/or zoom_factor).",
                 repair_hint=point_crops_adjust_repair_hint_for("no actual change"),
             )
 
@@ -591,10 +716,29 @@ def prepare_point_crops_adjust(
                 raise PointCropParamError(f"params.adjust[{i}].shape must be wide|portrait|square.")
             new_shape = shape
 
+        if "zoom_factor" in adj:
+            zoom_err = _validate_zoom_factor_raw(
+                adj.get("zoom_factor"),
+                f"params.adjust[{i}].zoom_factor",
+            )
+            if zoom_err:
+                raise PointCropParamError(zoom_err)
+            new_zoom_factor = _normalize_zoom_factor(adj["zoom_factor"])
+
+        prior_zoom_effective = resolve_point_zoom_factor(
+            size=prior_size,
+            point_zoom=float(prior_zoom_factor) if prior_zoom_factor is not None else None,
+        )
+        new_zoom_effective = resolve_point_zoom_factor(
+            size=new_size,
+            point_zoom=float(new_zoom_factor) if new_zoom_factor is not None else None,
+        )
+
         if (
             new_point_norm == [round(prior_point_norm[0], 6), round(prior_point_norm[1], 6)]
             and new_size == prior_size
             and new_shape == prior_shape
+            and new_zoom_effective == prior_zoom_effective
         ):
             raise PointCropParamError(
                 f"params.adjust[{i}] specifies no actual change for the selected target.",
@@ -604,6 +748,10 @@ def prepare_point_crops_adjust(
         target_row["point_norm"] = new_point_norm
         target_row["size"] = new_size
         target_row["shape"] = new_shape
+        if new_zoom_factor is not None:
+            target_row["zoom_factor"] = new_zoom_factor
+        elif "zoom_factor" not in target_row and new_size != prior_size:
+            target_row.pop("zoom_factor", None)
 
         applied: dict[str, Any] = {
             "target": target,
@@ -614,6 +762,9 @@ def prepare_point_crops_adjust(
             "prior_shape": prior_shape,
             "new_shape": new_shape,
         }
+        if prior_zoom_effective != new_zoom_effective:
+            applied["prior_zoom_factor"] = prior_zoom_effective
+            applied["new_zoom_factor"] = new_zoom_effective
         if shift_applied is not None:
             applied["shift_norm"] = shift_applied
         adjustments_applied.append(applied)
@@ -628,6 +779,8 @@ def prepare_point_crops_adjust(
         }
         if isinstance(pt.get("graph_ref"), dict):
             point_row["graph_ref"] = dict(pt["graph_ref"])
+        if pt.get("zoom_factor") is not None:
+            point_row["zoom_factor"] = pt["zoom_factor"]
         compute_points.append(point_row)
 
     return {
