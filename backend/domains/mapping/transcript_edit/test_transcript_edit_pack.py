@@ -179,16 +179,13 @@ def test_procedural_guidance_teaches_delegate_subtask_lightly() -> None:
     text = guidance.text.lower()
     assert "delegate_subtask" in text
     assert "transcript_edit.visual_source_observation" in text
-    assert "normal determination aid for critical exact visual/source readings" in text
-    assert "unless delegation genuinely does not make sense" in text
-    assert "curated local evidence" in text
-    assert "higher-signal and more token-efficient" in text
-    assert "clean-room observation pass" in text
-    assert "parent decides" in text
-    assert "keep delegate tasks neutral" in text
+    assert "cleaner determination aid" in text
+    assert "curated packet refs" in text
+    assert "context_refs" in text
+    assert "delegation_lines" in text
     assert "what the source visibly says" in text
-    assert "delegation can be batched" in text
-    assert "independent focused reads together" in text
+    assert "observation only" in text
+    assert "batch independent delegate reads" in text
     assert "must delegate" not in text
     assert "always delegate" not in text
     assert "required to delegate" not in text
@@ -279,16 +276,12 @@ def test_domain_pack_declares_semantic_prompt_blocks() -> None:
     assert guidance.version == TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_VERSION
     text = guidance.text.lower()
     assert "not a hard script" in text
-    assert "targeted move" in text
     assert "peer draft" in text
     assert "t0" in text
     assert "mapping-critical" in text
     assert "transcript-edit work universe: t0 gives shape, source gives truth" in text
-    assert "same broad set of refs" in text
-    assert "source-faithful transcript artifact" in text
+    assert "packet ref or targeted read is available" in text
     assert "heads/finals" not in text
-    assert "peer draft" in text
-    assert "t0" in text
     assert "`mission.closure_state`" in guidance.text
     assert "`resolution_state.items`" in guidance.text
     assert "use t0 drafts aggressively for initial shape, not for earned truth" in text
@@ -298,29 +291,40 @@ def test_domain_pack_declares_semantic_prompt_blocks() -> None:
     assert "every t0 reading remains candidate/open" in text
     assert "missed, merged, split, or misread a unit" in text
     assert "the early job is not to investigate each atom's truth" in text
-    assert "walk the t0/source landscape top-to-bottom" in text
+    assert "walk the t0 landscape top-to-bottom" in text
     assert "numbers are strongly presumed atomic" in text
     assert "quiet numbers still count" in text
     assert "degrees, bearings, distances, acreage" in text
     assert "paragraph-level or parcel-level group is useful only as an organizer" in text
     assert "fast t0-shaped atomization pass" in text
     assert "obvious t0-visible atoms should not be deferred" in text
+    assert "do not crop or source-investigate just to prove inventory exists" in text
+    assert "motion_posture: resolution" in guidance.text
     assert "provisional vs earned distinction" in text
-    assert "use the turn sensibly" in text
-    assert "if related crops, hydrations, or state updates can be handled together" in text
-    assert "record and close those readings while leaving the unclear ones open" in text
-    assert "setup-turn/review-turn cycle by default" in text
-    assert "refinement should earn its keep" in text
-    assert "same visual question" in text
+    assert "source-reading packet workflow" in text
+    assert "point_crops" in guidance.text
+    assert "point_crops_adjust" in guidance.text
+    assert "point_crops_view" in guidance.text
+    assert "master overlay" in text
+    assert "placement and control surface" in text
+    assert "individual per-point" in text or "individual crop refs" in text
+    assert "batch motion and integration" in text
+    assert "hydrate_next" in guidance.text
+    assert "fair hitl packets" in text
+    assert "save and handoff rhythm" in text
+    assert "hyper-localize it before determining" not in text
+    assert "crop and/or zoom it" not in text
+    assert "critical exact readings:" not in text
+    assert "source-reading hitl evidence packets" not in text
+    assert "image evidence: record what you see" not in text
     assert "`unassessed`, `in_review`, or `open`" in guidance.text
-    assert "verified visible portion" in text
+    assert "verified visible progress" in text
     assert "use `determination`" in text
     assert "transcript-edit run duration pressure" in text
     assert "run_context.iteration" in guidance.text
     assert "critical_budget" in text
     assert "not an instruction" in text
     assert "not a command to close" in text
-    assert "source-reading hitl evidence packets" in text
     assert "primary_evidence_ref" in text
     assert "annotated_evidence_ref" in text
     assert "question_regions" in text
@@ -774,29 +778,24 @@ def test_procedural_guidance_teaches_saved_payload_shape() -> None:
     blocks = build_transcript_edit_procedural_guidance_blocks()
     text = blocks[0].text
     lowered = text.lower()
-    assert "expected saved payload shape" in lowered
+    assert "save and handoff rhythm" in lowered
     assert "source_transcript_verbatim" in text
-    assert "normalized_or_mapping_transcript" in text
-    assert "issues" in text
-    assert "parcel_metadata" in text
-    assert "hitl_decisions" in text
-    assert "evidence_refs" in text
+    assert "domain branch owns the detailed lane contract" in lowered
     assert "first output obligation" in lowered
-    assert "not silently mutated" in lowered or "do not omit" in lowered
     assert "review as reconciliation rather than a fresh investigation" in lowered
     assert "publish/complete instead of stretching the run" in lowered
 
 
-def test_procedural_guidance_teaches_full_visible_available_source_scope() -> None:
+def test_procedural_guidance_defers_payload_lane_contract_to_branch() -> None:
     from domains.mapping.transcript_edit.prompting.surfaces.procedural_guidance import (
         build_transcript_edit_procedural_guidance_blocks,
     )
 
     blocks = build_transcript_edit_procedural_guidance_blocks()
     text = blocks[0].text.lower()
-    assert "full visible / available source scope" in text or "full visible/available source scope" in text
-    assert "preserve source wording" in text
-    assert "unavailable portion explicitly" in text
+    assert "`source_transcript_verbatim` remains the first output obligation" in text
+    assert "domain branch owns the detailed lane contract" in text
+    assert "expected saved payload shape" not in text
 
 
 def test_save_tool_spec_mentions_source_faithful_payload_shape() -> None:
@@ -826,7 +825,7 @@ def test_transcript_edit_output_contract_sections_have_no_current_deed_examples(
         for b in build_transcript_edit_domain_pack().build_semantic_prompt_blocks()
         if b.block_id == "transcript_edit_procedural_guidance"
     )
-    guidance_start = guidance.find("## expected saved payload shape")
+    guidance_start = guidance.find("## save and handoff rhythm")
     guidance_end = guidance.find("## what not to do")
     assert guidance_start >= 0 and guidance_end > guidance_start
     guidance_contract = guidance[guidance_start:guidance_end]
@@ -858,13 +857,13 @@ def test_branch_does_not_teach_procedural_source_reading_workflow() -> None:
 
 
 def test_procedural_guidance_discourages_fresh_transform_rehydrate_waste() -> None:
-    """Procedural guidance should tell the model not to burn a turn re-hydrating a fresh crop."""
+    """Procedural guidance should tell the model not to burn a turn re-hydrating a fresh overlay."""
     from domains.mapping.transcript_edit.prompting.surfaces.procedural_guidance import (
         build_transcript_edit_procedural_guidance_blocks,
     )
 
     blocks = build_transcript_edit_procedural_guidance_blocks()
     text = blocks[0].text.lower()
-    assert "returned derived image evidence" in text or "attached evidence" in text
-    assert "next turn" in text
-    assert "re-hydrate only if you need to reload it later" in text or "separate turn hydrating" in text
+    assert "master overlay" in text
+    assert "next-turn evidence" in text or "next turn" in text
+    assert "re-hydrating a freshly returned master overlay" in text or "separate turn re-hydrating" in text
