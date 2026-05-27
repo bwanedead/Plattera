@@ -172,6 +172,9 @@ def compact_stale_result_slice(row: dict[str, Any], *, stale: bool) -> dict[str,
                 "view_of_crop_set_overlay_ref",
                 "point_count",
                 "points",
+                "delegation_lines",
+                "grid",
+                "legend",
             )
             if key in crop_summary and crop_summary[key] not in (None, "", [], {})
         }

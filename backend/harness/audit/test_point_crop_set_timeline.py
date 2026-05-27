@@ -23,8 +23,16 @@ def _outputs(*, sub_action: str = "point_crops") -> dict:
                     "box_px": [10, 20, 30, 40],
                     "size": "medium",
                     "shape": "wide",
+                    "zoom_factor": 2.25,
+                    "box_norm": [0.1, 0.25, 0.4, 0.5],
+                    "projection_available": True,
+                    "root_source_ref": "image:assoc:tx-1:original",
+                    "root_point_norm": [0.51, 0.63],
+                    "root_box_norm": [0.47, 0.6, 0.56, 0.66],
                 }
             ],
+            "grid": {"enabled": True, "divisions": 4},
+            "legend": {"size_colors": {"small": [1, 2, 3]}},
         },
     }
 
@@ -47,8 +55,58 @@ def test_timeline_renders_point_crop_set_creation() -> None:
     assert "sub_action: point_crops" in body
     assert "master_overlay_ref: image:derived:master-1" in body
     assert "A | parcel_1_tie_bearing" in body
+    assert "zoom=2.25" in body
+    assert "root_point_norm:" in body
+    assert "overlay_grid:" in body
     assert "b64" not in body.lower()
     assert "C:\\" not in body
+
+
+def test_timeline_renders_projection_unavailable_reason() -> None:
+    outputs = _outputs()
+    outputs["crop_set"]["points"][0]["projection_available"] = False
+    outputs["crop_set"]["points"][0]["projection_unavailable_reason"] = (
+        "parent transform reference_overlay does not preserve source-coordinate mapping"
+    )
+    body = render_timeline(
+        [
+            {
+                "turn_index": 2,
+                "parse_ok": True,
+                "tool_result_raw": {"execution_state": "executed", "outputs": outputs},
+            }
+        ]
+    )
+    assert "projection_unavailable:" in body
+    assert "reference_overlay" in body
+
+
+def test_timeline_renders_adjustment_zoom_lineage() -> None:
+    outputs = _outputs(sub_action="point_crops_adjust")
+    outputs["previous_crop_set_overlay_ref"] = "image:derived:master-old"
+    outputs["adjustments_applied"] = [
+        {
+            "target": {"letter": "A"},
+            "prior_point_norm": [0.4, 0.5],
+            "new_point_norm": [0.42, 0.58],
+            "prior_size": "small",
+            "new_size": "medium",
+            "prior_shape": "square",
+            "new_shape": "wide",
+            "prior_zoom_factor": 3.0,
+            "new_zoom_factor": 2.25,
+        }
+    ]
+    body = render_timeline(
+        [
+            {
+                "turn_index": 3,
+                "parse_ok": True,
+                "tool_result_raw": {"execution_state": "executed", "outputs": outputs},
+            }
+        ]
+    )
+    assert "zoom: 3.0->2.25" in body
 
 
 def test_timeline_renders_graph_ref_when_present() -> None:

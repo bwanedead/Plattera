@@ -28,9 +28,17 @@ def _crop_set_outputs(*, sub_action: str = "point_crops", previous: str | None =
                     "size": "medium",
                     "shape": "wide",
                     "box_px": [10, 20, 30, 40],
+                    "box_norm": [0.1, 0.25, 0.4, 0.5],
+                    "zoom_factor": 2.25,
+                    "projection_available": True,
+                    "root_source_ref": "image:assoc:tx-1:original",
+                    "root_point_norm": [0.51, 0.63],
+                    "root_box_norm": [0.47, 0.6, 0.56, 0.66],
                     "absolute_path": "C:\\secret\\crop-a.png",
                 }
             ],
+            "grid": {"enabled": True, "divisions": 4, "coordinate_space": "source_image_norm"},
+            "legend": {"size_colors": {"small": [1, 2, 3], "medium": [4, 5, 6], "large": [7, 8, 9]}},
         },
     }
     if previous:
@@ -49,7 +57,15 @@ def test_project_point_crops_result_as_compact_summary() -> None:
     assert point["alias"] == "parcel_1_tie_bearing"
     assert point["crop_ref"] == "image:derived:crop-a"
     assert "absolute_path" not in point
-    assert summary["delegation_lines"] == ["A parcel_1_tie_bearing -> image:derived:crop-a"]
+    assert point["zoom_factor"] == 2.25
+    assert point["box_norm"] == [0.1, 0.25, 0.4, 0.5]
+    assert point["root_point_norm"] == [0.51, 0.63]
+    assert point["root_box_norm"] == [0.47, 0.6, 0.56, 0.66]
+    assert "projection_chain" not in point
+    assert summary["grid"]["enabled"] is True
+    assert summary["delegation_lines"] == [
+        "A parcel_1_tie_bearing -> image:derived:crop-a root=[0.51,0.63] zoom=2.25"
+    ]
 
 
 def test_project_point_crops_adjust_includes_previous_overlay_ref() -> None:
@@ -109,3 +125,35 @@ def test_projection_has_no_b64_or_absolute_paths() -> None:
     assert "b64" not in dumped
     assert "c:\\" not in dumped
     assert "absolute_path" not in dumped
+
+
+def test_projection_includes_unavailable_reason_when_projection_false() -> None:
+    outputs = _crop_set_outputs()
+    outputs["crop_set"]["points"][0]["projection_available"] = False
+    outputs["crop_set"]["points"][0]["projection_unavailable_reason"] = (
+        "parent transform reference_overlay does not preserve source-coordinate mapping"
+    )
+    outputs["crop_set"]["points"][0].pop("root_point_norm", None)
+    summary = project_point_crop_set_summary(outputs)
+    assert summary is not None
+    point = summary["points"][0]
+    assert point["projection_available"] is False
+    assert "reference_overlay" in point["projection_unavailable_reason"]
+
+
+def test_projection_caps_points_at_sixteen() -> None:
+    outputs = _crop_set_outputs()
+    outputs["crop_set"]["points"] = [
+        {
+            "letter": chr(ord("A") + i),
+            "alias": f"p{i}",
+            "crop_ref": f"image:derived:c{i}",
+            "point_norm": [0.1, 0.1],
+            "size": "small",
+            "shape": "square",
+        }
+        for i in range(20)
+    ]
+    summary = project_point_crop_set_summary(outputs)
+    assert summary is not None
+    assert len(summary["points"]) == 16
