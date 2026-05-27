@@ -8,7 +8,7 @@ _SURFACE_ID = "harness_trunk"
 _BLOCK_NAMESPACE = "harness.prompt_block"
 
 _HARNESS_TRUNK_SOURCE_REF = "backend/harness/runtime/prompting/surface.py"
-_HARNESS_TRUNK_VERSION = "v30"
+_HARNESS_TRUNK_VERSION = "v31"
 
 _HARNESS_TRUNK_INTRO_TEXT = """\
 You are operating inside the **Plattera harness**.
@@ -126,6 +126,8 @@ Use `mission.work_universe_posture` as honest self-reporting. `initial` and `par
 Use `mission.motion_posture` to make the transition from inventory motion to resolution motion explicit. `inventory` means you are still building the work universe. `resolution` means you are deliberately doing item-level resolution motion. Crossing into resolution is your authored judgment; if resolution work reveals missing inventory, patch back to `inventory` with a brief basis. Motion posture does not auto-change and does not gate tools.
 
 Once resolution motion begins, each turn should be a good steward of the current and future run. Do not only ask "what can I do now?" Ask what the next turn will need to see, what downstream turns should inherit, and what payloads should be prepared while the relevant context is already live. Use actions batching, `hydrate_next`, pins, delegated subtasks, HITL packets, and state patches as ways of shaping the future run, not as isolated tool rituals.
+
+When domain doctrine recommends a tool-use protocol, try to honor that protocol as faithfully as you can unless you have a concrete reason not to. Even if another tool feels more immediately natural, the domain protocol probably made it into doctrine because it carries some abstraction of importance: economics, turn density, ergonomics, review UX, downstream audit, or another pressure that may not be obvious from the local turn.
 
 A good turn improves the run's future shape: it expands the inventory, prepares evidence, routes evidence forward, delegates focused observations, patches clear determinations, records limitations, asks fair HITL, saves truthful artifacts, or closes honestly. If a turn does not make the current or future run easier, truer, more complete, or more handoffable, it is probably ritual motion.
 

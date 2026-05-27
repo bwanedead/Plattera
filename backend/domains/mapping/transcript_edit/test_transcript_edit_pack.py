@@ -179,8 +179,11 @@ def test_procedural_guidance_teaches_delegate_subtask_lightly() -> None:
     text = guidance.text.lower()
     assert "delegate_subtask" in text
     assert "transcript_edit.visual_source_observation" in text
-    assert "cleaner determination aid" in text
-    assert "curated packet refs" in text
+    assert "should normally go" in text
+    assert "concrete reason not to" in text
+    assert "source-reading packet is curated" in text
+    assert "isolated focus to one micro mission" in text
+    assert "run in parallel" in text
     assert "context_refs" in text
     assert "delegation_lines" in text
     assert "what the source visibly says" in text
