@@ -10,7 +10,7 @@ from domains.prompting import PromptBlock
 
 from ..branch import TRANSCRIPT_EDIT_DOMAIN_ID
 
-TRANSCRIPT_EDIT_STARTUP_CONTEXT_VERSION = "v3"
+TRANSCRIPT_EDIT_STARTUP_CONTEXT_VERSION = "v4"
 _STARTUP_CONTEXT_SOURCE_PATH = "backend/domains/mapping/transcript_edit/prompting/surfaces/startup_context.py"
 
 
@@ -121,8 +121,9 @@ def _format_startup_context(inventory: object) -> str:
         "- `image:assoc:*:original` → raw captured source image (model-visible pixels) + metadata\n"
         "- `image:derived:*` → model-visible derived image evidence (actual pixels) + provenance/metadata\n\n"
         "**Capabilities:** `hydrate_artifact_refs` loads any of the above refs. "
-        "`transform_artifact` applies crop/expand/zoom/annotate to image refs and returns a new `image:derived:*` ref "
-        "that can itself be re-hydrated as model-visible evidence. "
+        "`transform_artifact` creates reusable `image:derived:*` refs (model-visible evidence) via crop, expand, zoom, "
+        "annotate, reference_overlay, render_evidence_locators, point_crops, point_crops_adjust, and point_crops_view. "
+        "Derived refs can be re-hydrated with `hydrate_artifact_refs`. "
         "`save_workspace_artifact` saves a working transcript revision. "
         "`publish_workspace_artifact` promotes a working revision to output."
     )

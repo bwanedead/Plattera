@@ -648,7 +648,7 @@ def test_tool_spec_transform_returns_next_turn_image_evidence() -> None:
     result_lower = transform.expected_result_shape.lower()
 
     assert "model-visible image evidence for the next turn" in purpose_lower
-    assert "inspect returned image evidence next turn" in request_lower
+    assert "typical workflow" not in request_lower
     assert "separate hydrate_artifact_refs call is not required" in result_lower
 
 
@@ -690,6 +690,63 @@ def test_startup_context_artifact_description_names_original_only() -> None:
 
     assert ":original" in text
     assert ":processed" not in text
+
+
+def test_startup_context_advertises_point_crop_capabilities() -> None:
+    """Startup context should name point-crop sub-actions without teaching workflow doctrine."""
+    from domains.mapping.transcript_edit.payloads import (
+        TranscriptEditStartupInventory,
+        TranscriptEditScope,
+    )
+    from domains.mapping.transcript_edit.prompting.surfaces.startup_context import (
+        TRANSCRIPT_EDIT_STARTUP_CONTEXT_VERSION,
+        build_startup_context_block,
+    )
+
+    inventory = TranscriptEditStartupInventory(
+        scope=TranscriptEditScope(dossier_id="d1", transcription_id="tx1"),
+    )
+    block = build_startup_context_block(inventory)
+    text = block.text.lower()
+
+    assert block.version == TRANSCRIPT_EDIT_STARTUP_CONTEXT_VERSION
+    assert "point_crops" in text
+    assert "point_crops_adjust" in text
+    assert "point_crops_view" in text
+    assert "image:derived:*" in block.text
+    assert "model-visible evidence" in text
+    assert "master overlay" not in text
+    assert "packet workflow" not in text
+
+
+def test_tool_spec_transform_teaches_point_crops_as_default_path() -> None:
+    specs = build_transcript_edit_tool_specs()
+    transform = next(s for s in specs if s.tool_id == "transform_artifact")
+    combined = " ".join(
+        [
+            transform.purpose,
+            transform.expected_request_shape,
+            transform.expected_result_shape,
+        ]
+    ).lower()
+
+    for sub_action in (
+        "point_crops",
+        "point_crops_adjust",
+        "point_crops_view",
+        "reference_overlay",
+    ):
+        assert sub_action in combined
+
+    assert "ergonomic default" in combined
+    assert "coordinate-grid fallback" in combined or "fallback coordinate grid" in combined
+    assert "typical workflow" not in combined
+    assert "outputs.crop_set.points" in combined or "crop_set.points" in combined
+    assert "crop_records" in combined
+    assert "only the master overlay" in combined or "only that master overlay" in combined
+    assert "old refs are not mutated" in combined
+    assert "does not mint new per-point crop refs" in combined
+    assert "delegate_subtask.context_refs" in combined or "delegate_subtask" in combined
 
 
 # ---------------------------------------------------------------------------
