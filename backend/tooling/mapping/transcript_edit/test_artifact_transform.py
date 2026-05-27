@@ -1452,6 +1452,68 @@ def test_point_crops_applies_zoom_output_cap(tmp_path, monkeypatch):
     assert max(point["output_width_height"]) <= 20
 
 
+# ---------------------------------------------------------------------------
+# point_crops — master overlay grid + legend (M2)
+# ---------------------------------------------------------------------------
+
+def test_point_crops_master_overlay_includes_grid_metadata(tmp_path, monkeypatch):
+    handler, ref_id = _make_handler(tmp_path, monkeypatch)
+    result = handler({"ref_id": ref_id, **_point_crops_request()})
+    assert result["executed"] is True
+    assert result["outputs"]["width_height"] == [100, 200]
+    grid = result["outputs"]["crop_set"]["grid"]
+    assert grid["enabled"] is True
+    assert grid["divisions"] == 4
+    assert grid["coordinate_space"] == "source_image_norm"
+    legend = result["outputs"]["crop_set"]["legend"]
+    assert legend["size_colors"]["small"] == [70, 130, 220]
+    assert legend["size_colors"]["medium"] == [230, 180, 60]
+    assert legend["size_colors"]["large"] == [80, 180, 100]
+
+
+def test_point_crops_master_overlay_renders_grid_on_image_area(tmp_path, monkeypatch):
+    from tooling.mapping.transcript_edit.artifact_hydration import _load_derived_image_descriptor
+
+    handler, ref_id = _make_handler(tmp_path, monkeypatch, d="d1", tx="tx-1", ws="ws-1")
+    result = handler({"ref_id": ref_id, **_point_crops_request()})
+    master_ref = result["outputs"]["derived_ref_id"]
+    desc = _load_derived_image_descriptor("d1", "tx-1", "ws-1", master_ref)
+    assert desc is not None
+    from PIL import Image
+
+    img = Image.open(desc["absolute_path"])
+    # Uniform source gray is (200,200,200); grid line at x=25 should differ.
+    assert img.getpixel((25, 10)) != (200, 200, 200)
+    assert img.height == 200
+
+
+def test_point_crops_per_point_crop_refs_exclude_grid(tmp_path, monkeypatch):
+    from tooling.mapping.transcript_edit.artifact_hydration import _load_derived_image_descriptor
+
+    handler, ref_id = _make_handler(tmp_path, monkeypatch, d="d1", tx="tx-1", ws="ws-1")
+    result = handler({"ref_id": ref_id, **_point_crops_request()})
+    point = result["outputs"]["crop_set"]["points"][0]
+    crop_desc = _load_derived_image_descriptor("d1", "tx-1", "ws-1", point["crop_ref"])
+    assert crop_desc is not None
+    assert crop_desc["width_height"] == point["output_width_height"]
+    assert "grid" not in crop_desc["transform_metadata"]
+    assert crop_desc["width_height"][1] < 200
+
+
+def test_point_crops_view_includes_grid_and_legend(tmp_path, monkeypatch):
+    handler, source_ref = _make_handler(tmp_path, monkeypatch)
+    created = _create_two_point_crop_set(handler, source_ref)
+    viewed = handler({
+        "ref_id": created["outputs"]["derived_ref_id"],
+        "sub_action": "point_crops_view",
+        "params": {"filter": {"letters": ["A"]}},
+    })
+    assert viewed["executed"] is True
+    assert viewed["outputs"]["width_height"][1] == 200
+    assert viewed["outputs"]["crop_set"]["grid"]["enabled"] is True
+    assert viewed["outputs"]["crop_set"]["legend"]["size_colors"]["medium"] == [230, 180, 60]
+
+
 def test_point_crops_adjust_preserves_prior_zoom(tmp_path, monkeypatch):
     handler, source_ref = _make_handler(tmp_path, monkeypatch)
     created = handler({

@@ -61,6 +61,17 @@ _ZOOM_METADATA_KEYS = (
     "requested_zoom_factor",
     "max_output_dimension",
 )
+OVERLAY_GRID_DIVISIONS = 4
+OVERLAY_LEGEND_HEIGHT = 120
+_OVERLAY_GRID_LINE_COLOR = (215, 215, 215)
+_OVERLAY_GRID_LABEL_COLOR = (110, 110, 110)
+_LEGEND_SIZE_COLORS: dict[str, tuple[int, int, int]] = {
+    "small": (70, 130, 220),
+    "medium": (230, 180, 60),
+    "large": (80, 180, 100),
+}
+_LEGEND_SQUARE_PX = {"small": 14, "medium": 20, "large": 28}
+_LEGEND_EXTENSION_PX = 18
 
 
 class PointCropParamError(Exception):
@@ -299,13 +310,122 @@ def _compute_single_point_geometry(
     }
 
 
-def _render_master_overlay(img: Any, per_point_data: list[dict[str, Any]], show: list[str]) -> tuple[Any, int]:
+def build_overlay_render_metadata() -> dict[str, Any]:
+    """Mechanical metadata for point-crop master overlay grid/legend rendering."""
+    return {
+        "grid": {
+            "enabled": True,
+            "divisions": OVERLAY_GRID_DIVISIONS,
+            "coordinate_space": "source_image_norm",
+        },
+        "legend": {
+            "size_colors": {
+                size: list(_LEGEND_SIZE_COLORS[size])
+                for size in ("small", "medium", "large")
+            },
+        },
+    }
+
+
+def _format_norm_axis_label(axis: str, frac: float) -> str:
+    value = f"{frac:.2f}"
+    if value.startswith("0"):
+        value = value[1:]
+    return f"{axis}={value}"
+
+
+def _draw_dashed_line(
+    draw: Any,
+    start: tuple[int, int],
+    end: tuple[int, int],
+    *,
+    fill: tuple[int, int, int],
+    width: int = 1,
+    dash_len: int = 4,
+    gap_len: int = 3,
+) -> None:
+    x0, y0 = start
+    x1, y1 = end
+    if x0 == x1:
+        step = dash_len + gap_len
+        y = min(y0, y1)
+        y_end = max(y0, y1)
+        while y < y_end:
+            seg_end = min(y + dash_len, y_end)
+            draw.line([(x0, y), (x1, seg_end)], fill=fill, width=width)
+            y += step
+        return
+    if y0 == y1:
+        step = dash_len + gap_len
+        x = min(x0, x1)
+        x_end = max(x0, x1)
+        while x < x_end:
+            seg_end = min(x + dash_len, x_end)
+            draw.line([(x, y0), (seg_end, y1)], fill=fill, width=width)
+            x += step
+        return
+    draw.line([start, end], fill=fill, width=width)
+
+
+def _draw_coordinate_grid(draw: Any, img_w: int, img_h: int) -> None:
+    """Light normalized-coordinate grid on the source image area only."""
+    divisions = OVERLAY_GRID_DIVISIONS
+    for i in range(1, divisions):
+        frac = i / divisions
+        x = int(round(frac * img_w))
+        y = int(round(frac * img_h))
+        draw.line([(x, 0), (x, img_h)], fill=_OVERLAY_GRID_LINE_COLOR, width=1)
+        draw.line([(0, y), (img_w, y)], fill=_OVERLAY_GRID_LINE_COLOR, width=1)
+        draw.text((min(x + 2, max(0, img_w - 36)), 2), _format_norm_axis_label("x", frac), fill=_OVERLAY_GRID_LABEL_COLOR)
+        draw.text((2, min(y + 2, max(0, img_h - 14))), _format_norm_axis_label("y", frac), fill=_OVERLAY_GRID_LABEL_COLOR)
+
+
+def _draw_template_legend(draw: Any, *, img_w: int, img_h: int) -> None:
+    """Compact size/shape legend with distinct colors per size family."""
+    title_y = img_h + 6
+    draw.text((8, title_y), "Template sizes (square base + wide/portrait cues):", fill=(20, 20, 20))
+    row_y = title_y + 18
+    col_x = [10, 115, 220]
+    for idx, size in enumerate(("small", "medium", "large")):
+        color = _LEGEND_SIZE_COLORS[size]
+        x0 = col_x[idx]
+        sq = _LEGEND_SQUARE_PX[size]
+        top = row_y
+        left = x0
+        draw.rectangle([left, top, left + sq, top + sq], outline=color, fill=color, width=1)
+        wide_end = left + sq + _LEGEND_EXTENSION_PX
+        _draw_dashed_line(
+            draw,
+            (left + sq + 2, top + sq // 2),
+            (wide_end, top + sq // 2),
+            fill=color,
+            width=1,
+        )
+        port_end = top + sq + _LEGEND_EXTENSION_PX
+        _draw_dashed_line(
+            draw,
+            (left + sq // 2, top + sq + 2),
+            (left + sq // 2, port_end),
+            fill=color,
+            width=1,
+        )
+        draw.text((left, top + sq + 8), size, fill=color)
+        draw.text((left, top + sq + 20), "sq · wide · port", fill=(70, 70, 70))
+
+
+def _render_master_overlay(
+    img: Any,
+    per_point_data: list[dict[str, Any]],
+    show: list[str],
+) -> tuple[Any, int, dict[str, Any]]:
     from PIL import Image, ImageDraw  # type: ignore[import]
 
-    legend_h = 120
+    legend_h = OVERLAY_LEGEND_HEIGHT
     canvas = Image.new("RGB", (img.width, img.height + legend_h), (255, 255, 255))
     canvas.paste(img, (0, 0))
     draw = ImageDraw.Draw(canvas)
+
+    _draw_coordinate_grid(draw, img.width, img.height)
 
     for pt in per_point_data:
         b = tuple(pt["box_px"])
@@ -323,20 +443,8 @@ def _render_master_overlay(img: Any, per_point_data: list[dict[str, Any]], show:
             draw.rectangle([lx - 1, ly - 1, lx + 12, ly + 12], fill=(255, 255, 255))
             draw.text((lx, ly), pt["letter"], fill=col)
 
-    ly = img.height + 6
-    draw.text((8, ly), "Point Crop Templates (reference):", fill=(0, 0, 0))
-    example_y = ly + 18
-    ex = 10
-    for sz in ("small", "medium", "large"):
-        for sh in ("wide", "portrait", "square"):
-            ew, eh = _POINT_CROP_TEMPLATES[sz][sh]
-            ew_px = max(12, int(ew * 120))
-            eh_px = max(8, int(eh * 120))
-            draw.rectangle([ex, example_y, ex + ew_px, example_y + eh_px], outline=(80, 80, 80), width=1)
-            draw.text((ex, example_y + eh_px + 1), f"{sz[0]}{sh[0]}", fill=(60, 60, 60))
-            ex += ew_px + 18
-        ex += 10
-    return canvas, legend_h
+    _draw_template_legend(draw, img_w=img.width, img_h=img.height)
+    return canvas, legend_h, build_overlay_render_metadata()
 
 
 def compute_point_crops(img: Any, params: dict[str, Any]) -> dict[str, Any]:
@@ -391,7 +499,7 @@ def compute_point_crops(img: Any, params: dict[str, Any]) -> dict[str, Any]:
             row["graph_ref"] = dict(p["graph_ref"])
         per_point_data.append(row)
 
-    canvas, legend_h = _render_master_overlay(img, per_point_data, show)
+    canvas, legend_h, overlay = _render_master_overlay(img, per_point_data, show)
     return {
         "master_pil": canvas,
         "per_point": per_point_data,
@@ -399,6 +507,7 @@ def compute_point_crops(img: Any, params: dict[str, Any]) -> dict[str, Any]:
         "legend_height": legend_h,
         "source_width_height": [img.width, img.height],
         "point_count": len(points),
+        "overlay": overlay,
     }
 
 
@@ -441,7 +550,7 @@ def compute_point_crops_view(img: Any, points: list[dict[str, Any]], *, show: li
             row["graph_ref"] = dict(p["graph_ref"])
         per_point_data.append(row)
 
-    canvas, legend_h = _render_master_overlay(img, per_point_data, show)
+    canvas, legend_h, overlay = _render_master_overlay(img, per_point_data, show)
     return {
         "master_pil": canvas,
         "per_point": per_point_data,
@@ -449,6 +558,7 @@ def compute_point_crops_view(img: Any, points: list[dict[str, Any]], *, show: li
         "legend_height": legend_h,
         "source_width_height": [img.width, img.height],
         "point_count": len(points),
+        "overlay": overlay,
     }
 
 

@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import json
 import uuid as _uuid_mod
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -56,6 +56,17 @@ _SUPPORTED_SUB_ACTIONS = frozenset(
         "point_crops_view",
     }
 )
+
+
+def _overlay_metadata_fields(transform_metadata: Mapping[str, Any]) -> dict[str, Any]:
+    overlay = transform_metadata.get("overlay")
+    if not isinstance(overlay, Mapping):
+        return {}
+    fields: dict[str, Any] = {}
+    for key in ("grid", "legend"):
+        if key in overlay:
+            fields[key] = overlay[key]
+    return fields
 
 
 def _persist_point_crop_set(
@@ -161,6 +172,7 @@ def _persist_point_crop_set(
         crop_set["previous_crop_set_overlay_ref"] = previous_crop_set_overlay_ref
     if adjustments_applied:
         crop_set["adjustments_applied"] = list(adjustments_applied)
+    crop_set.update(_overlay_metadata_fields(transform_metadata))
 
     (derived_dir / f"{master_uuid}_crop_set.json").write_text(
         json.dumps(crop_set, ensure_ascii=False, indent=2), encoding="utf-8"
@@ -180,6 +192,7 @@ def _persist_point_crop_set(
         master_transform_metadata["adjustment_source_ref"] = adjustment_source_ref
     if adjustments_applied:
         master_transform_metadata["adjustments_applied"] = list(adjustments_applied)
+    master_transform_metadata.update(_overlay_metadata_fields(transform_metadata))
 
     master_desc = {
         "ref_id": master_ref,
@@ -243,6 +256,7 @@ def _persist_point_crop_view(
     master_pil = transform_metadata["master_pil"]
     per_point = transform_metadata["per_point"]
     show = transform_metadata.get("show")
+    legend_height = transform_metadata.get("legend_height")
     source_width_height = transform_metadata.get("source_width_height")
     view_of_ref = view_bundle.get("view_of_crop_set_overlay_ref")
     filter_applied = view_bundle.get("filter")
@@ -257,16 +271,19 @@ def _persist_point_crop_view(
         "master_overlay_ref": master_ref,
         "source_ref": source_ref,
         "show": show,
+        "legend_height": legend_height,
         "source_width_height": source_width_height,
         "points": view_points,
         "view_of_crop_set_overlay_ref": view_of_ref,
     }
     if filter_applied:
         crop_set["filter"] = filter_applied
+    crop_set.update(_overlay_metadata_fields(transform_metadata))
 
     master_transform_metadata: dict[str, Any] = {
         "source_ref": source_ref,
         "show": show,
+        "legend_height": legend_height,
         "source_width_height": source_width_height,
         "point_count": len(view_points),
         "crop_set": {"points": view_points},
@@ -274,6 +291,7 @@ def _persist_point_crop_view(
     }
     if filter_applied:
         master_transform_metadata["filter"] = filter_applied
+    master_transform_metadata.update(_overlay_metadata_fields(transform_metadata))
 
     master_desc = {
         "ref_id": master_ref,
