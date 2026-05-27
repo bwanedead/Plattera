@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
+from harness.audit.artifact_ref_links import ArtifactLinkContext, build_ref_path_index
 from harness.audit.human_timeline import render_timeline
+from harness.audit.delegate_subtask_timeline import render_delegate_subtask_section
 from harness.audit.point_crop_set_timeline import render_point_crop_set_tool_output
 
 
@@ -51,15 +55,61 @@ def test_timeline_renders_point_crop_set_creation() -> None:
             }
         ]
     )
-    assert "Point Crop Set" in body
-    assert "sub_action: point_crops" in body
-    assert "master_overlay_ref: image:derived:master-1" in body
-    assert "A | parcel_1_tie_bearing" in body
+    assert "Point crop set:" in body
+    assert "master overlay: `image:derived:master-1`" in body
+    assert "A `parcel_1_tie_bearing`" in body
     assert "zoom=2.25" in body
-    assert "root_point_norm:" in body
-    assert "overlay_grid:" in body
+    assert "root=[" in body
+    assert "overlay grid: yes" in body
     assert "b64" not in body.lower()
     assert "C:\\" not in body
+
+
+def test_point_crop_renders_clickable_links_when_paths_resolvable(tmp_path: Path) -> None:
+    images = tmp_path / "images"
+    images.mkdir()
+    master = images / "master.png"
+    crop = images / "crop-a.png"
+    master.write_bytes(b"png")
+    crop.write_bytes(b"png")
+
+    timeline_path = tmp_path / "audit" / "human" / "timeline.md"
+    timeline_path.parent.mkdir(parents=True)
+    turn = {
+        "tool_result_raw": {
+            "outputs": {
+                **_outputs(),
+                "absolute_path": str(master),
+                "crop_set": {
+                    **_outputs()["crop_set"],
+                    "points": [
+                        {
+                            **_outputs()["crop_set"]["points"][0],
+                            "absolute_path": str(crop),
+                        }
+                    ],
+                },
+            }
+        }
+    }
+    index = build_ref_path_index(turn=turn)
+    assert "image:derived:master-1" in index
+    assert "image:derived:crop-a" in index
+    context = ArtifactLinkContext(timeline_path=timeline_path, ref_path_index=index)
+    outputs = turn["tool_result_raw"]["outputs"]
+    lines = render_point_crop_set_tool_output(outputs, link_context=context)
+    rendered = "\n".join(lines)
+
+    assert "[open overlay](../../images/master.png)" in rendered
+    assert "[open crop](../../images/crop-a.png)" in rendered
+    assert "b64" not in rendered.lower()
+
+
+def test_point_crop_falls_back_to_ref_only_when_paths_missing() -> None:
+    lines = render_point_crop_set_tool_output(_outputs())
+    rendered = "\n".join(lines)
+    assert "`image:derived:master-1`" in rendered
+    assert "[open overlay]" not in rendered
 
 
 def test_timeline_renders_projection_unavailable_reason() -> None:
@@ -152,7 +202,7 @@ def test_timeline_renders_point_crop_set_adjustment_lineage() -> None:
             }
         ]
     )
-    assert "previous_crop_set_overlay_ref: image:derived:master-old" in body
+    assert "previous_crop_set_overlay_ref:" in body
     assert "adjustments_applied:" in body
     assert "shift_norm:" in body
 
@@ -174,5 +224,34 @@ def test_point_crop_timeline_helper_bounds_sixteen_points() -> None:
             "crop_set": {"points": points},
         }
     )
-    rendered_points = [line for line in lines if line.strip().startswith("- ") and "crop_ref:" in line]
+    rendered_points = [line for line in lines if line.strip().startswith("- ") and "`p" in line]
     assert len(rendered_points) == 16
+
+
+def test_inline_image_cap_uses_links_for_overflow(tmp_path: Path) -> None:
+    images = tmp_path / "images"
+    images.mkdir()
+    paths = {}
+    for idx in range(4):
+        path = images / f"crop-{idx}.png"
+        path.write_bytes(b"png")
+        paths[f"image:derived:crop-{idx}"] = str(path)
+
+    timeline_path = tmp_path / "audit" / "human" / "timeline.md"
+    timeline_path.parent.mkdir(parents=True)
+    context = ArtifactLinkContext(timeline_path=timeline_path, ref_path_index=paths, inline_budget=1)
+    lines = render_delegate_subtask_section(
+        alias="read_many",
+        inputs={
+            "profile": "transcript_edit.visual_source_observation",
+            "task": "Read each crop.",
+            "context_refs": [f"image:derived:crop-{idx}" for idx in range(4)],
+        },
+        item=None,
+        link_context=context,
+        include_result=False,
+    )
+    rendered = "\n".join(lines)
+    assert rendered.count("![") == 1
+    assert "inline image cap reached" in rendered
+    assert rendered.count("[open crop]") == 4

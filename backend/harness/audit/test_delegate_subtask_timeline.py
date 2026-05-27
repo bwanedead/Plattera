@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+from pathlib import Path
+
+from harness.audit.delegate_subtask_timeline import render_delegate_subtask_section
 from harness.audit.human_timeline import render_timeline
+from harness.audit.artifact_ref_links import ArtifactLinkContext
 from harness.runtime.orchestration.subtasks.contracts import DELEGATE_SUBTASK_ACTION_TYPE
 
 
@@ -61,10 +65,11 @@ def test_timeline_renders_delegate_subtask_mechanics_without_raw_media() -> None
         ]
     )
 
-    assert "subtask_profile: harness.observation" in body
-    assert "subtask_task_excerpt:" in body
-    assert "subtask_input_refs:" in body
-    assert "subtask_result:" in body
+    assert "Delegate subtask `local_subtask`" in body
+    assert "profile: `harness.observation`" in body
+    assert "- prompt:" in body
+    assert "context refs:" in body
+    assert "- result:" in body
     assert "status: completed" in body
     assert "reading:" in body
     assert "Only supplied input was used." in body
@@ -152,9 +157,9 @@ def test_timeline_renders_two_delegate_rows_with_custom_fields_and_no_b64() -> N
         ]
     )
 
-    assert "read_a" in body
-    assert "read_b" in body
-    assert body.count("subtask_profile: transcript_edit.visual_source_observation") == 2
+    assert body.count("Delegate subtask `read_a`") == 1
+    assert body.count("Delegate subtask `read_b`") == 1
+    assert body.count("profile: `transcript_edit.visual_source_observation`") == 2
     assert "source_visible_text:" in body
     assert "N. 4° 00' W." in body
     assert "subtask_output_malformed" in body
@@ -213,9 +218,42 @@ def test_timeline_renders_delegate_truncation_metadata() -> None:
         ]
     )
 
-    assert "subtask_id: read_crop" in body
+    assert "Delegate subtask `read_crop`" in body
     assert "result_truncated: true" in body
     assert "truncated_fields:" in body
     assert "task_response" in body
     assert "original_result_chars: 1800" in body
     assert "image:derived:crop_a" in body
+
+
+def test_delegate_context_ref_renders_image_link_when_resolvable(tmp_path: Path) -> None:
+    image_path = tmp_path / "crop-a.png"
+    image_path.write_bytes(b"png")
+    timeline_path = tmp_path / "audit" / "human" / "timeline.md"
+    timeline_path.parent.mkdir(parents=True)
+    context = ArtifactLinkContext(
+        timeline_path=timeline_path,
+        ref_path_index={"image:derived:crop_a": str(image_path)},
+    )
+    lines = render_delegate_subtask_section(
+        alias="read_crop",
+        inputs={
+            "profile": "transcript_edit.visual_source_observation",
+            "task": "Read the visible bearing only.",
+            "context_refs": ["image:derived:crop_a"],
+        },
+        item={
+            "alias": "read_crop",
+            "execution_state": "executed",
+            "delegate_subtask": {
+                "subtask_id": "read_crop",
+                "profile": "transcript_edit.visual_source_observation",
+                "status": "completed",
+                "result": {"task_response": "N. 37° 00' W."},
+            },
+        },
+        link_context=context,
+    )
+    rendered = "\n".join(lines)
+    assert "[open crop](../../crop-a.png)" in rendered
+    assert "task_response: `N. 37° 00' W.`" in rendered

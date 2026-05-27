@@ -26,11 +26,10 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from harness.audit.delegate_subtask_timeline import (
-    render_delegate_subtask_request,
-    render_delegate_subtask_result,
-)
+from harness.audit.artifact_ref_links import ArtifactLinkContext, build_run_ref_path_index
+from harness.audit.delegate_subtask_timeline import render_delegate_subtask_section
 from harness.audit.point_crop_set_timeline import render_point_crop_set_tool_output
+from harness.audit.turn_action_flags import render_turn_action_flags
 from harness.runtime.orchestration.subtasks.contracts import DELEGATE_SUBTASK_ACTION_TYPE
 
 _LOG = logging.getLogger(__name__)
@@ -76,7 +75,11 @@ def write_human_timeline(
     try:
         target_dir = audit_dir / "human"
         target_dir.mkdir(parents=True, exist_ok=True)
-        body = render_timeline(turns, run_terminal_override=run_terminal_override)
+        body = render_timeline(
+            turns,
+            run_terminal_override=run_terminal_override,
+            audit_dir=audit_dir,
+        )
         _atomic_write_text(target_dir / "timeline.md", body)
     except Exception:
         _LOG.warning("human_timeline write failed; timeline may be stale", exc_info=True)
@@ -85,6 +88,7 @@ def write_human_timeline(
 def render_timeline(
     turns: list[dict[str, Any]],
     run_terminal_override: Mapping[str, Any] | None = None,
+    audit_dir: Path | None = None,
 ) -> str:
     """Render the full markdown-ish timeline body from accumulated turn records."""
     sorted_turns = sorted(
@@ -111,8 +115,26 @@ def render_timeline(
                 "",
             ]
         )
+    timeline_path = (
+        audit_dir / "human" / "timeline.md"
+        if audit_dir is not None
+        else Path("audit/human/timeline.md")
+    )
+    run_dir = audit_dir.parent if audit_dir is not None else None
+    run_ref_path_index = build_run_ref_path_index(
+        audit_dir=audit_dir,
+        run_dir=run_dir,
+        turns=sorted_turns,
+    )
     for turn in sorted_turns:
-        lines.extend(_render_turn(turn))
+        lines.extend(
+            _render_turn(
+                turn,
+                audit_dir=audit_dir,
+                timeline_path=timeline_path,
+                run_ref_path_index=run_ref_path_index,
+            )
+        )
         lines.append("")
     lines.extend(_render_run_projection(sorted_turns, override, summary_heading="Final Run Summary"))
     return "\n".join(lines) + "\n"
@@ -159,7 +181,13 @@ def _render_run_projection(
     return lines
 
 
-def _render_turn(turn: Mapping[str, Any]) -> list[str]:
+def _render_turn(
+    turn: Mapping[str, Any],
+    *,
+    audit_dir: Path | None = None,
+    timeline_path: Path | None = None,
+    run_ref_path_index: Mapping[str, str] | None = None,
+) -> list[str]:
     turn_index = _safe_turn_index(turn)
     dispatch_summary = _pick_dispatch_summary(turn)
     patch_outcome = _nested_get(turn, "state_patch_feedback", "outcome") or "no_patch"
@@ -171,15 +199,22 @@ def _render_turn(turn: Mapping[str, Any]) -> list[str]:
         header = f"{header} | duration:{_format_duration(duration)}"
     out: list[str] = [_SECTION_BAR, header, _SECTION_BAR, ""]
 
+    resolved_timeline_path = timeline_path or Path("audit/human/timeline.md")
+    link_context = ArtifactLinkContext(
+        timeline_path=resolved_timeline_path,
+        ref_path_index=dict(run_ref_path_index or {}),
+    )
+
     out.extend(_render_operator_progress(turn))
     out.extend(_render_host_hydration_before_turn(turn))
     out.extend(_render_llm_authored_text(turn))
     out.extend(_render_repair(turn))
-    out.extend(_render_action(turn))
+    out.extend(_render_action(turn, link_context=link_context))
+    out.extend(render_turn_action_flags(turn))
     out.extend(_render_action_sequence_lane(turn))
     out.extend(_render_pinned_refs(turn))
     out.extend(_render_required_output_gate(turn))
-    out.extend(_render_tool_result(turn))
+    out.extend(_render_tool_result(turn, link_context=link_context))
     out.extend(_render_saved_artifact(turn))
     out.extend(_render_state_patch(turn))
     out.extend(_render_motion_posture_transition(turn))
@@ -386,7 +421,11 @@ def _render_operator_progress(turn: Mapping[str, Any]) -> list[str]:
     return lines
 
 
-def _render_action(turn: Mapping[str, Any]) -> list[str]:
+def _render_action(
+    turn: Mapping[str, Any],
+    *,
+    link_context: ArtifactLinkContext | None = None,
+) -> list[str]:
     tool_request = _coerce_mapping(turn.get("tool_request"))
     parsed = _coerce_mapping(turn.get("parsed_action_plan"))
     actions = _extract_actions(tool_request, parsed)
@@ -396,7 +435,7 @@ def _render_action(turn: Mapping[str, Any]) -> list[str]:
     if actions:
         lines.append(f"  actions: {len(actions)}")
         for row in actions:
-            lines.extend(_render_action_row(row, turn=turn))
+            lines.extend(_render_action_row(row, turn=turn, link_context=link_context))
     else:
         action_type = tool_request.get("action_type") or parsed.get("action_type")
         lines.append(f"  action_type: {action_type or 'none'}")
@@ -569,7 +608,12 @@ def _render_pinned_refs(turn: Mapping[str, Any]) -> list[str]:
     return lines
 
 
-def _render_action_row(row: Mapping[str, Any], *, turn: Mapping[str, Any]) -> list[str]:
+def _render_action_row(
+    row: Mapping[str, Any],
+    *,
+    turn: Mapping[str, Any],
+    link_context: ArtifactLinkContext | None = None,
+) -> list[str]:
     alias = str(row.get("alias") or "").strip() or "?"
     action_type = str(row.get("action_type") or "").strip() or "none"
     lines = [f"    - {alias}: {action_type}"]
@@ -596,8 +640,7 @@ def _render_action_row(row: Mapping[str, Any], *, turn: Mapping[str, Any]) -> li
         )
     else:
         lines.append("      action_inputs: none")
-    if action_type == DELEGATE_SUBTASK_ACTION_TYPE:
-        lines.extend(render_delegate_subtask_request(inputs))
+    sequence_item: Mapping[str, Any] | None = None
     sequence = _coerce_mapping(turn.get("recent_action_sequence_result"))
     if sequence:
         items = sequence.get("items")
@@ -607,19 +650,31 @@ def _render_action_row(row: Mapping[str, Any], *, turn: Mapping[str, Any]) -> li
                     continue
                 if str(item.get("alias") or "") != alias:
                     continue
+                sequence_item = item
                 exec_state = str(item.get("execution_state") or "").strip()
                 if exec_state:
                     lines.append(f"      execution_state: {exec_state}")
                 item_reason = item.get("reason_code")
                 if item_reason:
                     lines.append(f"      execution_reason_code: {item_reason}")
-                if action_type == DELEGATE_SUBTASK_ACTION_TYPE:
-                    lines.extend(render_delegate_subtask_result(item))
                 break
+    if action_type == DELEGATE_SUBTASK_ACTION_TYPE:
+        section = render_delegate_subtask_section(
+            alias=alias,
+            inputs=inputs,
+            item=sequence_item,
+            link_context=link_context,
+        )
+        for section_line in section:
+            lines.append(f"      {section_line}")
     return lines
 
 
-def _render_tool_result(turn: Mapping[str, Any]) -> list[str]:
+def _render_tool_result(
+    turn: Mapping[str, Any],
+    *,
+    link_context: ArtifactLinkContext | None = None,
+) -> list[str]:
     result = _coerce_mapping(turn.get("tool_result_raw"))
     if not result:
         return []
@@ -651,7 +706,12 @@ def _render_tool_result(turn: Mapping[str, Any]) -> list[str]:
         if truncated:
             lines.append(f"    [truncated to {OUTPUTS_EXCERPT_MAX_CHARS} chars]")
         lines.extend(_render_rendered_evidence_output(_coerce_mapping(outputs), indent="  "))
-        lines.extend(render_point_crop_set_tool_output(_coerce_mapping(outputs)))
+        lines.extend(
+            render_point_crop_set_tool_output(
+                _coerce_mapping(outputs),
+                link_context=link_context,
+            )
+        )
     else:
         lines.append("  outputs_excerpt: none")
 
