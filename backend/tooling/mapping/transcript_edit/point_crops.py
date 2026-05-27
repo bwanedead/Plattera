@@ -9,6 +9,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
+from .root_projection import copy_projection_fields
+
 # Normalized box sizes centered on ``point_norm``.
 _POINT_CROP_TEMPLATES: dict[str, dict[str, tuple[float, float]]] = {
     "small": {
@@ -581,6 +583,7 @@ def build_crop_set_point_record(point: dict[str, Any], *, crop_ref: str | None =
     if isinstance(point.get("graph_ref"), dict):
         row["graph_ref"] = dict(point["graph_ref"])
     row.update(_copy_zoom_metadata(point))
+    row.update(copy_projection_fields(point))
     return row
 
 

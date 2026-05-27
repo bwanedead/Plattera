@@ -749,6 +749,7 @@ def test_tool_spec_transform_teaches_point_crops_as_default_path() -> None:
     assert "only the master overlay" in combined or "only that master overlay" in combined
     assert "zoom_factor" in combined
     assert "coordinate grid" in combined or "grid" in combined
+    assert "projection_available" in combined or "root_point_norm" in combined
     assert "old refs are not mutated" in combined
     assert "does not mint new per-point crop refs" in combined
     assert "delegate_subtask.context_refs" in combined or "delegate_subtask" in combined

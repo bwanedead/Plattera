@@ -26,6 +26,11 @@ from .paths import (
     transcript_edit_derived_images_dir,
 )
 from .artifact_hydration import _load_derived_image_descriptor
+from .root_projection import (
+    copy_projection_fields,
+    enrich_point_geometry_with_projection,
+    resolve_root_projection_context,
+)
 from .point_crops import (
     PointCropParamError,
     build_crop_set_point_record,
@@ -101,9 +106,18 @@ def _persist_point_crop_set(
     adjustment_source_ref = lineage.get("adjustment_source_ref")
     adjustments_applied = lineage.get("adjustments_applied")
 
+    projection_ctx = resolve_root_projection_context(
+        dossier_id=dossier_id,
+        transcription_id=transcription_id,
+        workspace_key=workspace_key,
+        source_ref=source_ref,
+        local_width_height=list(source_width_height) if isinstance(source_width_height, (list, tuple)) else None,
+    )
+
     crop_refs: list[dict[str, Any]] = []
     artifact_refs = [master_ref]
     for pt in per_point:
+        enrich_point_geometry_with_projection(pt, projection_ctx=projection_ctx)
         c_uuid = _uuid_mod.uuid4().hex
         c_ref = f"{_IMAGE_DERIVED_PREFIX}{c_uuid}"
         c_path = derived_dir / f"{c_uuid}.png"
@@ -138,6 +152,7 @@ def _persist_point_crop_set(
                 if key in pt
             }
         )
+        crop_transform_metadata.update(copy_projection_fields(pt))
         if previous_crop_set_overlay_ref:
             crop_transform_metadata["previous_crop_set_overlay_ref"] = previous_crop_set_overlay_ref
 
@@ -153,6 +168,8 @@ def _persist_point_crop_set(
             "width_height": [pt["crop_img"].width, pt["crop_img"].height],
             "transform_metadata": crop_transform_metadata,
         }
+        if pt.get("root_source_ref"):
+            c_desc["root_source_ref"] = pt["root_source_ref"]
         if previous_crop_set_overlay_ref:
             c_desc["previous_crop_set_overlay_ref"] = previous_crop_set_overlay_ref
         (derived_dir / f"{c_uuid}.json").write_text(

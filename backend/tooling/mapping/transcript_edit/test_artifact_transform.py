@@ -1930,6 +1930,181 @@ def test_point_crops_view_rejects_invalid_filter_target(tmp_path, monkeypatch):
     assert result["refusal"]["retryable"] is True
 
 
+# ---------------------------------------------------------------------------
+# point_crops — nested root projection metadata (M3)
+# ---------------------------------------------------------------------------
+
+def _approx_norm(actual: list[float], expected: list[float], *, tol: float = 0.03) -> None:
+    assert len(actual) == len(expected)
+    for got, want in zip(actual, expected):
+        assert abs(float(got) - float(want)) <= tol
+
+
+def test_point_crops_on_source_records_root_equal_to_local(tmp_path, monkeypatch):
+    handler, ref_id = _make_handler(tmp_path, monkeypatch)
+    result = handler({"ref_id": ref_id, **_point_crops_request()})
+    point = result["outputs"]["crop_set"]["points"][0]
+    assert point["projection_available"] is True
+    assert point["root_source_ref"] == ref_id
+    assert point["local_source_ref"] == ref_id
+    assert point["local_point_norm"] == point["point_norm"]
+    assert point["root_point_norm"] == point["point_norm"]
+    assert point["root_box_norm"] == point["box_norm"]
+
+
+def test_point_crops_inside_crop_projects_to_root_source(tmp_path, monkeypatch):
+    handler, source_ref = _make_handler(tmp_path, monkeypatch)
+    cropped = handler({
+        "ref_id": source_ref,
+        "sub_action": "crop",
+        "params": {"box_norm": [0.25, 0.25, 0.75, 0.75]},
+    })
+    assert cropped["executed"] is True
+    crop_ref = cropped["outputs"]["derived_ref_id"]
+    nested = handler({
+        "ref_id": crop_ref,
+        "sub_action": "point_crops",
+        "params": {
+            "points": [
+                {
+                    "alias": "nested_center",
+                    "point_norm": [0.5, 0.5],
+                    "size": "small",
+                    "shape": "square",
+                }
+            ]
+        },
+    })
+    assert nested["executed"] is True
+    point = nested["outputs"]["crop_set"]["points"][0]
+    assert point["projection_available"] is True
+    assert point["root_source_ref"] == source_ref
+    assert point["local_source_ref"] == crop_ref
+    _approx_norm(point["root_point_norm"], [0.5, 0.5])
+    assert point["root_box_norm"][0] >= 0.24
+    assert point["root_box_norm"][2] <= 0.76
+
+
+def test_point_crops_inside_per_point_crop_composes_projection_chain(tmp_path, monkeypatch):
+    handler, source_ref = _make_handler(tmp_path, monkeypatch)
+    outer = handler({
+        "ref_id": source_ref,
+        **_point_crops_request(point_norm=[0.5, 0.5], alias="outer_point"),
+    })
+    assert outer["executed"] is True
+    outer_crop_ref = outer["outputs"]["crop_set"]["points"][0]["crop_ref"]
+    inner = handler({
+        "ref_id": outer_crop_ref,
+        "sub_action": "point_crops",
+        "params": {
+            "points": [
+                {
+                    "alias": "inner_point",
+                    "point_norm": [0.5, 0.5],
+                    "size": "small",
+                    "shape": "square",
+                }
+            ]
+        },
+    })
+    assert inner["executed"] is True
+    point = inner["outputs"]["crop_set"]["points"][0]
+    assert point["projection_available"] is True
+    assert point["root_source_ref"] == source_ref
+    assert len(point["projection_chain"]) >= 1
+    assert point["projection_chain"][0]["sub_action"] == "point_crops_crop"
+    _approx_norm(point["root_point_norm"], [0.5, 0.5], tol=0.08)
+
+
+def test_point_crops_projection_metadata_persists_in_descriptors(tmp_path, monkeypatch):
+    from tooling.mapping.transcript_edit.artifact_hydration import _load_derived_image_descriptor
+    from tooling.mapping.transcript_edit.paths import transcript_edit_derived_images_dir
+
+    handler, source_ref = _make_handler(tmp_path, monkeypatch, d="d1", tx="tx-1", ws="ws-1")
+    cropped = handler({
+        "ref_id": source_ref,
+        "sub_action": "crop",
+        "params": {"box_norm": [0.0, 0.0, 0.5, 0.5]},
+    })
+    nested = handler({
+        "ref_id": cropped["outputs"]["derived_ref_id"],
+        "sub_action": "point_crops",
+        "params": {
+            "points": [
+                {
+                    "alias": "persist_probe",
+                    "point_norm": [0.5, 0.5],
+                    "size": "medium",
+                    "shape": "wide",
+                }
+            ]
+        },
+    })
+    master_ref = nested["outputs"]["derived_ref_id"]
+    crop_ref = nested["outputs"]["crop_set"]["points"][0]["crop_ref"]
+    master_desc = _load_derived_image_descriptor("d1", "tx-1", "ws-1", master_ref)
+    crop_desc = _load_derived_image_descriptor("d1", "tx-1", "ws-1", crop_ref)
+    assert master_desc is not None
+    assert crop_desc is not None
+    master_point = master_desc["transform_metadata"]["crop_set"]["points"][0]
+    assert master_point["projection_available"] is True
+    assert master_point["root_source_ref"] == source_ref
+    assert crop_desc["root_source_ref"] == source_ref
+    assert crop_desc["transform_metadata"]["root_point_norm"]
+    derived_dir = transcript_edit_derived_images_dir("d1", "tx-1", "ws-1")
+    sidecar = derived_dir / f"{master_ref.split(':')[-1]}_crop_set.json"
+    sidecar_data = json.loads(sidecar.read_text(encoding="utf-8"))
+    assert sidecar_data["points"][0]["local_point_norm"]
+    assert not _dict_has_b64_key(master_desc)
+    assert not _dict_has_b64_key(crop_desc)
+
+
+def test_point_crops_on_unsupported_parent_marks_projection_unavailable(tmp_path, monkeypatch):
+    handler, source_ref = _make_handler(tmp_path, monkeypatch)
+    overlay = handler({"ref_id": source_ref, "sub_action": "reference_overlay", "params": {}})
+    assert overlay["executed"] is True
+    result = handler({"ref_id": overlay["outputs"]["derived_ref_id"], **_point_crops_request()})
+    assert result["executed"] is True
+    point = result["outputs"]["crop_set"]["points"][0]
+    assert point["projection_available"] is False
+    assert point["projection_unavailable_reason"]
+    assert "reference_overlay" in point["projection_unavailable_reason"]
+
+
+def test_point_crops_adjust_recomputes_root_projection(tmp_path, monkeypatch):
+    handler, source_ref = _make_handler(tmp_path, monkeypatch)
+    cropped = handler({
+        "ref_id": source_ref,
+        "sub_action": "crop",
+        "params": {"box_norm": [0.25, 0.25, 0.75, 0.75]},
+    })
+    nested = handler({
+        "ref_id": cropped["outputs"]["derived_ref_id"],
+        "sub_action": "point_crops",
+        "params": {
+            "points": [
+                {
+                    "alias": "adjust_probe",
+                    "point_norm": [0.4, 0.4],
+                    "size": "small",
+                    "shape": "square",
+                }
+            ]
+        },
+    })
+    prior_master = nested["outputs"]["derived_ref_id"]
+    prior_root = nested["outputs"]["crop_set"]["points"][0]["root_point_norm"]
+    adjusted = handler(_point_crops_adjust_request(
+        master_ref=prior_master,
+        adjust=[{"letter": "A", "shift_norm": [0.1, 0.0]}],
+    ))
+    assert adjusted["executed"] is True
+    new_point = adjusted["outputs"]["crop_set"]["points"][0]
+    assert new_point["projection_available"] is True
+    assert new_point["root_point_norm"] != prior_root
+    assert new_point["root_point_norm"][0] > prior_root[0]
+
+
 def test_delegate_batch_parser_accepts_projected_crop_ref() -> None:
     import json
 
