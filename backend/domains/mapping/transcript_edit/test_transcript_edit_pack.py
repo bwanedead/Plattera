@@ -309,7 +309,9 @@ def test_domain_pack_declares_semantic_prompt_blocks() -> None:
     assert "point_crops_adjust" in guidance.text
     assert "point_crops_view" in guidance.text
     assert "master overlay" in text
-    assert "placement and control surface" in text
+    assert "batch qa and placement-control surface" in text
+    assert "stable pinned object" in text
+    assert "master overlay is for packet sanity" in text
     assert "individual per-point" in text or "individual crop refs" in text
     assert "batch motion and integration" in text
     assert "hydrate_next" in guidance.text

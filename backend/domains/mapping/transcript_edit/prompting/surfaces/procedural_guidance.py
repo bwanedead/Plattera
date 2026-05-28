@@ -10,7 +10,7 @@ from ..branch import TRANSCRIPT_EDIT_DOMAIN_ID
 TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_SOURCE_REF = (
     "backend/domains/mapping/transcript_edit/prompting/surfaces/procedural_guidance.py"
 )
-TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_VERSION = "v28"
+TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_VERSION = "v29"
 
 TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_TEXT = """\
 Use this guidance to shape your movement through transcript-edit work. This is **guidance**, not a hard script. The harness still owns orchestration. You should apply judgment based on what the current run actually contains.
@@ -58,7 +58,9 @@ Once resolution targets are known, prepare **source-reading packets** instead of
 
 The point is the higher-leverage information: the **spot of importance** is usually more useful than a hand-designed **window of importance**. A window can be resized, reshaped, zoomed, or adjusted later; the spot anchors the thing the run actually cares about. Use coordinate overlays as scaffolding when you need help estimating where pins belong. The coordinate view is useful for placement; the point-crop packet is the work product.
 
-Treat the point-crop master overlay as the placement and control surface. Hydrate or pin it when reviewing placement helps the next turn, and use **`point_crops_adjust`** by letter or alias when the point, size, shape, or eventual zoom needs correction. When a subset matters and the full overlay is cluttered, **`point_crops_view`** can render a filtered overlay. Individual per-point **crop refs** in the crop set are the useful packets for exact reads, `hydrate_artifact_refs`, `delegate_subtask`, and HITL context. Do not inspect every individual crop just to decide whether placement is sane if the master overlay already answers that question.
+Treat the point-crop master overlay as the batch QA and placement-control surface, not decoration. It is the thing that lets the parent stay sane about where the pins landed, what each template window covers, and whether the packet is fair before spending delegate calls or HITL on bad evidence. When a crop set is going to drive a resolution pocket across more than one turn, the master overlay is often worth making a stable pinned object for that pocket; pin or hydrate it so the next turn can judge placement and wire refs without rediscovering the whole page.
+
+The right check is not "did I inspect every individual crop?" It is "does the overlay show that each lettered target is plausibly on the thing I need, with enough surrounding text for a fair read?" The templates intentionally make readable local packets, not microscope slits; nearby words are acceptable when they make the target easier to read. If the overlay plainly shows a miss, use **`point_crops_adjust`** by letter or alias to move, resize, reshape, or change zoom. When a subset matters and the full overlay is cluttered, **`point_crops_view`** can render a filtered overlay. Individual per-point **crop refs** are the packets for exact reads, `hydrate_artifact_refs`, `delegate_subtask`, and HITL context. The master overlay is for packet sanity; the crop refs are for reading.
 
 Targeting should usually move through locality. If the full page is too broad, target a group or paragraph region first, then from that group ref place the point pins for the atoms in that group so the cluster can all land in the same turn. This is exactly why it is important that the work universe is enriched fully early: if the relevant atoms are visible before resolution motion, the run can batch their group pins together instead of backtracking later or pinning them one by one. Pinning individual things on isolated later turns is expensive motion when those items could have been pinned with the rest of the stuff around them. Full atomic inventory before resolution motion is what makes this economical packet work possible.
 
