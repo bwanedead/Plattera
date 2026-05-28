@@ -14,19 +14,19 @@ from .root_projection import copy_projection_fields
 # Normalized box sizes centered on ``point_norm``.
 _POINT_CROP_TEMPLATES: dict[str, dict[str, tuple[float, float]]] = {
     "small": {
-        "wide": (0.07, 0.028),
-        "portrait": (0.028, 0.07),
-        "square": (0.045, 0.045),
+        "wide": (0.22, 0.18),
+        "square": (0.18, 0.18),
+        "portrait": (0.18, 0.24),
     },
     "medium": {
-        "wide": (0.13, 0.045),
-        "portrait": (0.045, 0.13),
-        "square": (0.08, 0.08),
+        "wide": (0.42, 0.30),
+        "square": (0.30, 0.30),
+        "portrait": (0.30, 0.42),
     },
     "large": {
-        "wide": (0.22, 0.065),
-        "portrait": (0.065, 0.22),
-        "square": (0.13, 0.13),
+        "wide": (0.82, 0.48),
+        "square": (0.48, 0.48),
+        "portrait": (0.48, 0.82),
     },
 }
 
@@ -68,8 +68,8 @@ OVERLAY_LEGEND_HEIGHT = 120
 _OVERLAY_GRID_LINE_COLOR = (215, 215, 215)
 _OVERLAY_GRID_LABEL_COLOR = (110, 110, 110)
 _LEGEND_SIZE_COLORS: dict[str, tuple[int, int, int]] = {
-    "small": (70, 130, 220),
-    "medium": (230, 180, 60),
+    "small": (220, 70, 70),
+    "medium": (70, 130, 220),
     "large": (80, 180, 100),
 }
 _LEGEND_SQUARE_PX = {"small": 14, "medium": 20, "large": 28}

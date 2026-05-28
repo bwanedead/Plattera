@@ -11,6 +11,7 @@ POINT_CROP_SUB_ACTIONS = frozenset({"point_crops", "point_crops_adjust", "point_
 SAVE_ACTIONS = frozenset({"save_workspace_artifact"})
 PUBLISH_ACTIONS = frozenset({"publish_workspace_artifact"})
 STATE_PATCH_ACTIONS = frozenset({"apply_state_patch", "state_patch"})
+_MAX_FLAG_REFS = 8
 
 
 def render_turn_action_flags(turn: Mapping[str, Any]) -> list[str]:
@@ -35,6 +36,15 @@ def render_turn_action_flags(turn: Mapping[str, Any]) -> list[str]:
         lines.append("- point_crops: no")
     lines.append(f"- image_refs: {flags.image_refs}")
     lines.append(f"- HITL: {'yes' if flags.hitl else 'no'}")
+    lines.extend(_render_ref_motion_flag("hydrate_next", flags.hydrate_next_refs))
+    lines.extend(_render_ref_motion_flag("pinned_refs", flags.pin_refs))
+    lines.extend(_render_ref_motion_flag("unpin_refs", flags.unpin_refs))
+    if flags.determinations_changed:
+        lines.append(f"- determinations_changed: {flags.determinations_changed}")
+    if flags.units_closed:
+        lines.append(f"- units_closed: {flags.units_closed}")
+    if flags.items_or_units_added:
+        lines.append(f"- items_or_units_added: {flags.items_or_units_added}")
     if flags.save:
         lines.append("- save: yes")
     if flags.publish:
@@ -42,6 +52,15 @@ def render_turn_action_flags(turn: Mapping[str, Any]) -> list[str]:
     if flags.state_patch_only:
         lines.append("- state_patch_only: yes")
     lines.append("")
+    return lines
+
+
+def _render_ref_motion_flag(label: str, refs: list[str]) -> list[str]:
+    if not refs:
+        return [f"- {label}: no"]
+    lines = [f"- {label}: yes ({len(refs)} refs)"]
+    for ref in refs[:_MAX_FLAG_REFS]:
+        lines.append(f"  - {ref}")
     return lines
 
 
@@ -107,6 +126,13 @@ def compute_turn_action_flags(turn: Mapping[str, Any]) -> "TurnActionFlags":
         state_patch_actions=state_patch_actions,
         tool_result=tool_result,
     )
+    hydrate_next_refs = _collect_hydrate_next_refs(actions, tool_request=tool_request, parsed=parsed)
+    pin_refs = _collect_pin_refs(turn, tool_request=tool_request, parsed=parsed)
+    unpin_refs = _collect_unpin_refs(turn, tool_request=tool_request, parsed=parsed)
+    graph_delta = _compute_resolution_graph_delta(
+        _coerce_mapping(turn.get("resolution_state_before")),
+        _coerce_mapping(turn.get("resolution_state_after")),
+    )
 
     return TurnActionFlags(
         batch=action_rows > 1,
@@ -118,10 +144,31 @@ def compute_turn_action_flags(turn: Mapping[str, Any]) -> "TurnActionFlags":
         point_crop_points=point_crop_points,
         image_refs=image_refs,
         hitl=hitl,
+        hydrate_next_refs=hydrate_next_refs,
+        pin_refs=pin_refs,
+        unpin_refs=unpin_refs,
+        determinations_changed=graph_delta.determinations_changed,
+        units_closed=graph_delta.units_closed,
+        items_or_units_added=graph_delta.items_or_units_added,
         save=save,
         publish=publish,
         state_patch_only=state_patch_only,
     )
+
+
+class GraphDeltaFlags:
+    __slots__ = ("determinations_changed", "units_closed", "items_or_units_added")
+
+    def __init__(
+        self,
+        *,
+        determinations_changed: int,
+        units_closed: int,
+        items_or_units_added: int,
+    ) -> None:
+        self.determinations_changed = determinations_changed
+        self.units_closed = units_closed
+        self.items_or_units_added = items_or_units_added
 
 
 class TurnActionFlags:
@@ -135,6 +182,12 @@ class TurnActionFlags:
         "point_crop_points",
         "image_refs",
         "hitl",
+        "hydrate_next_refs",
+        "pin_refs",
+        "unpin_refs",
+        "determinations_changed",
+        "units_closed",
+        "items_or_units_added",
         "save",
         "publish",
         "state_patch_only",
@@ -152,6 +205,12 @@ class TurnActionFlags:
         point_crop_points: int,
         image_refs: int,
         hitl: bool,
+        hydrate_next_refs: list[str],
+        pin_refs: list[str],
+        unpin_refs: list[str],
+        determinations_changed: int,
+        units_closed: int,
+        items_or_units_added: int,
         save: bool,
         publish: bool,
         state_patch_only: bool,
@@ -165,9 +224,153 @@ class TurnActionFlags:
         self.point_crop_points = point_crop_points
         self.image_refs = image_refs
         self.hitl = hitl
+        self.hydrate_next_refs = hydrate_next_refs
+        self.pin_refs = pin_refs
+        self.unpin_refs = unpin_refs
+        self.determinations_changed = determinations_changed
+        self.units_closed = units_closed
+        self.items_or_units_added = items_or_units_added
         self.save = save
         self.publish = publish
         self.state_patch_only = state_patch_only
+
+
+def _collect_hydrate_next_refs(
+    actions: list[Mapping[str, Any]],
+    *,
+    tool_request: Mapping[str, Any],
+    parsed: Mapping[str, Any],
+) -> list[str]:
+    refs: list[str] = []
+    seen: set[str] = set()
+    for row in actions:
+        hydrate_next = row.get("hydrate_next")
+        if isinstance(hydrate_next, list):
+            _append_unique_refs(refs, seen, hydrate_next)
+    for source in (tool_request, parsed):
+        hydrate_next = source.get("hydrate_next")
+        if isinstance(hydrate_next, list):
+            _append_unique_refs(refs, seen, hydrate_next)
+    return refs
+
+
+def _collect_pin_refs(
+    turn: Mapping[str, Any],
+    *,
+    tool_request: Mapping[str, Any],
+    parsed: Mapping[str, Any],
+) -> list[str]:
+    refs: list[str] = []
+    seen: set[str] = set()
+    for source in (tool_request, parsed):
+        pin_refs = source.get("pin_refs")
+        if isinstance(pin_refs, list):
+            _append_unique_refs(refs, seen, pin_refs)
+    pin_this_turn = turn.get("pin_refs_this_turn")
+    if isinstance(pin_this_turn, list):
+        _append_unique_refs(refs, seen, pin_this_turn)
+    return refs
+
+
+def _collect_unpin_refs(
+    turn: Mapping[str, Any],
+    *,
+    tool_request: Mapping[str, Any],
+    parsed: Mapping[str, Any],
+) -> list[str]:
+    refs: list[str] = []
+    seen: set[str] = set()
+    for source in (tool_request, parsed):
+        unpin_refs = source.get("unpin_refs")
+        if isinstance(unpin_refs, list):
+            _append_unique_refs(refs, seen, unpin_refs)
+    unpin_this_turn = turn.get("unpin_refs_this_turn")
+    if isinstance(unpin_this_turn, list):
+        _append_unique_refs(refs, seen, unpin_this_turn)
+    return refs
+
+
+def _append_unique_refs(refs: list[str], seen: set[str], values: list[Any]) -> None:
+    for value in values:
+        text = str(value or "").strip()
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        refs.append(text)
+
+
+def _compute_resolution_graph_delta(
+    before: Mapping[str, Any],
+    after: Mapping[str, Any],
+) -> GraphDeltaFlags:
+    if not before and not after:
+        return GraphDeltaFlags(
+            determinations_changed=0,
+            units_closed=0,
+            items_or_units_added=0,
+        )
+    before_atoms = _resolution_atoms(before)
+    after_atoms = _resolution_atoms(after)
+    if not before_atoms and not after_atoms:
+        return GraphDeltaFlags(
+            determinations_changed=0,
+            units_closed=0,
+            items_or_units_added=0,
+        )
+
+    before_ids = set(before_atoms)
+    after_ids = set(after_atoms)
+    items_or_units_added = len(after_ids - before_ids)
+
+    determinations_changed = 0
+    units_closed = 0
+    for atom_id in before_ids & after_ids:
+        prior = before_atoms[atom_id]
+        current = after_atoms[atom_id]
+        if _determination_signature(prior) != _determination_signature(current):
+            determinations_changed += 1
+        if not _is_closed_status(prior.get("status")) and _is_closed_status(current.get("status")):
+            units_closed += 1
+
+    return GraphDeltaFlags(
+        determinations_changed=determinations_changed,
+        units_closed=units_closed,
+        items_or_units_added=items_or_units_added,
+    )
+
+
+def _resolution_atoms(state: Mapping[str, Any]) -> dict[str, Mapping[str, Any]]:
+    items = state.get("items")
+    if not isinstance(items, list):
+        return {}
+    atoms: dict[str, Mapping[str, Any]] = {}
+    for raw_item in items:
+        if not isinstance(raw_item, Mapping):
+            continue
+        item_id = str(raw_item.get("item_id") or "").strip()
+        if item_id:
+            atoms[f"item:{item_id}"] = raw_item
+        covered_units = raw_item.get("covered_units")
+        if not isinstance(covered_units, list):
+            continue
+        for raw_unit in covered_units:
+            if not isinstance(raw_unit, Mapping):
+                continue
+            unit_id = str(raw_unit.get("unit_id") or "").strip()
+            if unit_id:
+                atoms[f"unit:{item_id}:{unit_id}"] = raw_unit
+    return atoms
+
+
+def _determination_signature(atom: Mapping[str, Any]) -> tuple[str, str]:
+    return (
+        str(atom.get("determined_value") or "").strip(),
+        str(atom.get("determination") or "").strip(),
+    )
+
+
+def _is_closed_status(status: Any) -> bool:
+    return str(status or "").strip().lower() == "closed"
 
 
 def _detect_hitl(

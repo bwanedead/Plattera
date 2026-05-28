@@ -1453,6 +1453,129 @@ def test_point_crops_applies_zoom_output_cap(tmp_path, monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# point_crops — retuned template sizes (M6)
+# ---------------------------------------------------------------------------
+
+
+class _FakeImage:
+    def __init__(self, width: int, height: int) -> None:
+        self.width = width
+        self.height = height
+
+
+def test_point_crop_templates_match_retuned_normalized_sizes() -> None:
+    import tooling.mapping.transcript_edit.point_crops as point_crops_mod
+
+    expected = {
+        "small": {
+            "wide": (0.22, 0.18),
+            "square": (0.18, 0.18),
+            "portrait": (0.18, 0.24),
+        },
+        "medium": {
+            "wide": (0.42, 0.30),
+            "square": (0.30, 0.30),
+            "portrait": (0.30, 0.42),
+        },
+        "large": {
+            "wide": (0.82, 0.48),
+            "square": (0.48, 0.48),
+            "portrait": (0.48, 0.82),
+        },
+    }
+    assert point_crops_mod._POINT_CROP_TEMPLATES == expected
+
+
+@pytest.mark.parametrize(
+    ("size", "shape"),
+    [
+        ("small", "wide"),
+        ("small", "square"),
+        ("small", "portrait"),
+        ("medium", "wide"),
+        ("medium", "square"),
+        ("medium", "portrait"),
+        ("large", "wide"),
+        ("large", "square"),
+        ("large", "portrait"),
+    ],
+)
+def test_point_crop_template_geometry_uses_all_size_shape_pairs(size: str, shape: str) -> None:
+    import tooling.mapping.transcript_edit.point_crops as point_crops_mod
+
+    img = _FakeImage(4000, 3000)
+    geom = point_crops_mod._compute_single_point_geometry(
+        img,
+        point_norm=[0.5, 0.5],
+        size=size,
+        shape=shape,
+    )
+    norm_w, norm_h = point_crops_mod._POINT_CROP_TEMPLATES[size][shape]
+    expected_w = int(round(norm_w * img.width))
+    expected_h = int(round(norm_h * img.height))
+    actual_w = geom["box_px"][2] - geom["box_px"][0]
+    actual_h = geom["box_px"][3] - geom["box_px"][1]
+    assert actual_w == expected_w
+    assert actual_h == expected_h
+
+
+def test_point_crop_medium_wide_is_readable_on_large_source() -> None:
+    import tooling.mapping.transcript_edit.point_crops as point_crops_mod
+
+    geom = point_crops_mod._compute_single_point_geometry(
+        _FakeImage(4000, 3000),
+        point_norm=[0.42, 0.58],
+        size="medium",
+        shape="wide",
+    )
+    width = geom["box_px"][2] - geom["box_px"][0]
+    height = geom["box_px"][3] - geom["box_px"][1]
+    assert width >= 1600
+    assert height >= 850
+
+
+def test_point_crop_large_template_shift_first_clamps_at_image_edge() -> None:
+    import tooling.mapping.transcript_edit.point_crops as point_crops_mod
+
+    geom = point_crops_mod._compute_single_point_geometry(
+        _FakeImage(4000, 3000),
+        point_norm=[0.0, 0.0],
+        size="large",
+        shape="wide",
+    )
+    assert geom["box_px"][0] == 0
+    assert geom["box_px"][1] == 0
+    assert geom["box_px"][2] > geom["box_px"][0]
+    assert geom["box_px"][3] > geom["box_px"][1]
+
+
+def test_point_crop_large_template_still_applies_zoom_output_cap(tmp_path, monkeypatch) -> None:
+    import tooling.mapping.transcript_edit.point_crops as point_crops_mod
+
+    monkeypatch.setattr(point_crops_mod, "MAX_CROP_OUTPUT_DIMENSION", 20)
+    handler, ref_id = _make_handler(tmp_path, monkeypatch)
+    result = handler({
+        "ref_id": ref_id,
+        "sub_action": "point_crops",
+        "params": {
+            "points": [
+                {
+                    "alias": "large_packet",
+                    "point_norm": [0.5, 0.5],
+                    "size": "large",
+                    "shape": "wide",
+                    "zoom_factor": 6.0,
+                }
+            ]
+        },
+    })
+    assert result["executed"] is True
+    point = result["outputs"]["crop_set"]["points"][0]
+    assert point["zoom_cap_applied"] is True
+    assert max(point["output_width_height"]) <= 20
+
+
+# ---------------------------------------------------------------------------
 # point_crops — master overlay grid + legend (M2)
 # ---------------------------------------------------------------------------
 
@@ -1466,8 +1589,8 @@ def test_point_crops_master_overlay_includes_grid_metadata(tmp_path, monkeypatch
     assert grid["divisions"] == 4
     assert grid["coordinate_space"] == "source_image_norm"
     legend = result["outputs"]["crop_set"]["legend"]
-    assert legend["size_colors"]["small"] == [70, 130, 220]
-    assert legend["size_colors"]["medium"] == [230, 180, 60]
+    assert legend["size_colors"]["small"] == [220, 70, 70]
+    assert legend["size_colors"]["medium"] == [70, 130, 220]
     assert legend["size_colors"]["large"] == [80, 180, 100]
 
 
@@ -1511,7 +1634,7 @@ def test_point_crops_view_includes_grid_and_legend(tmp_path, monkeypatch):
     assert viewed["executed"] is True
     assert viewed["outputs"]["width_height"][1] == 200
     assert viewed["outputs"]["crop_set"]["grid"]["enabled"] is True
-    assert viewed["outputs"]["crop_set"]["legend"]["size_colors"]["medium"] == [230, 180, 60]
+    assert viewed["outputs"]["crop_set"]["legend"]["size_colors"]["medium"] == [70, 130, 220]
 
 
 def test_point_crops_adjust_preserves_prior_zoom(tmp_path, monkeypatch):
