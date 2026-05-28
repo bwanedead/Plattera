@@ -67,7 +67,7 @@ def _write_association(root: Path, dossier_id: str, transcription_id: str, image
     )
 
 
-def _make_handler(tmp_path, monkeypatch, *, d="d1", tx="tx-1", ws="ws-1"):
+def _make_handler(tmp_path, monkeypatch, *, d="d1", tx="tx-1", ws="ws-1", image_width=100, image_height=80):
     root = _dossiers_root(tmp_path)
     monkeypatch.setattr(te_paths_mod, "dossiers_root", lambda: root)
     monkeypatch.setattr(paths_mod, "dossiers_root", lambda: root)
@@ -75,7 +75,7 @@ def _make_handler(tmp_path, monkeypatch, *, d="d1", tx="tx-1", ws="ws-1"):
     img_dir = tmp_path / "images"
     img_dir.mkdir()
     img_file = img_dir / "scan.png"
-    img_file.write_bytes(_tiny_png_bytes(width=100, height=80))
+    img_file.write_bytes(_tiny_png_bytes(width=image_width, height=image_height))
     _write_association(root, d, tx, img_file)
 
     handler = make_transform_artifact_handler(dossier_id=d, transcription_id=tx, workspace_key=ws)
@@ -214,8 +214,27 @@ def test_reference_overlay_produces_derived_ref(tmp_path, monkeypatch):
     assert result["outputs"]["derived_ref_id"].startswith("image:derived:")
     assert result["image_evidence"][0]["ref_id"] == result["outputs"]["derived_ref_id"]
     w, h = result["outputs"]["width_height"]
-    # Source is 100x80; overlay preserves dimensions
     assert w == 100 and h == 80
+
+
+def test_reference_overlay_default_grid_is_denser(tmp_path, monkeypatch):
+    from tooling.mapping.transcript_edit.artifact_hydration import _load_derived_image_descriptor
+
+    handler, ref_id = _make_handler(tmp_path, monkeypatch, d="d1", tx="tx-1", ws="ws-1")
+    result = handler({"ref_id": ref_id, "sub_action": "reference_overlay", "params": {}})
+    assert result["executed"] is True
+    desc = _load_derived_image_descriptor("d1", "tx-1", "ws-1", result["outputs"]["derived_ref_id"])
+    grid = desc["transform_metadata"]["overlay"]["grid"]
+    assert grid["major_step_norm"] == 0.10
+    assert grid["minor_step_norm"] == 0.05
+    assert grid["cols"] == 10
+    assert grid["rows"] == 10
+    from PIL import Image
+
+    img = Image.open(desc["absolute_path"])
+    bg = (200, 200, 200)
+    assert img.getpixel((5, 5)) != bg
+    assert img.getpixel((10, 5)) != bg
 
 
 def test_reference_overlay_custom_grid(tmp_path, monkeypatch):
@@ -1468,17 +1487,17 @@ def test_point_crop_templates_match_retuned_normalized_sizes() -> None:
 
     expected = {
         "small": {
-            "wide": (0.22, 0.18),
+            "wide": (0.32, 0.18),
             "square": (0.18, 0.18),
             "portrait": (0.18, 0.24),
         },
         "small_plus": {
-            "wide": (0.32, 0.24),
+            "wide": (0.48, 0.24),
             "square": (0.24, 0.24),
             "portrait": (0.24, 0.32),
         },
         "medium": {
-            "wide": (0.42, 0.30),
+            "wide": (0.62, 0.30),
             "square": (0.30, 0.30),
             "portrait": (0.30, 0.42),
         },
@@ -1489,6 +1508,29 @@ def test_point_crop_templates_match_retuned_normalized_sizes() -> None:
         },
     }
     assert point_crops_mod._POINT_CROP_TEMPLATES == expected
+
+
+def test_point_crop_wide_templates_widened_heights_unchanged() -> None:
+    import tooling.mapping.transcript_edit.point_crops as point_crops_mod
+
+    templates = point_crops_mod._POINT_CROP_TEMPLATES
+    assert templates["small"]["wide"] == (0.32, 0.18)
+    assert templates["small_plus"]["wide"] == (0.48, 0.24)
+    assert templates["medium"]["wide"] == (0.62, 0.30)
+    assert templates["large"]["wide"] == (0.82, 0.48)
+    assert templates["small"]["wide"][1] == 0.18
+    assert templates["medium"]["wide"][1] == 0.30
+    assert templates["large"]["wide"][1] == 0.48
+    assert templates["small"]["square"] == (0.18, 0.18)
+    assert templates["small_plus"]["wide"][0] > 0.32
+
+
+def test_point_crop_small_plus_wide_substantially_wider_than_m7() -> None:
+    import tooling.mapping.transcript_edit.point_crops as point_crops_mod
+
+    width = point_crops_mod._POINT_CROP_TEMPLATES["small_plus"]["wide"][0]
+    assert width >= 0.48
+    assert width - 0.32 >= 0.15
 
 
 @pytest.mark.parametrize(
@@ -1538,7 +1580,7 @@ def test_point_crop_medium_wide_is_readable_on_large_source() -> None:
     )
     width = geom["box_px"][2] - geom["box_px"][0]
     height = geom["box_px"][3] - geom["box_px"][1]
-    assert width >= 1600
+    assert width >= 2400
     assert height >= 850
 
 
@@ -1633,8 +1675,8 @@ def test_point_crop_global_scale_changes_box_size() -> None:
     assert scaled_h > base_h
     assert scaled["scale_x"] == 1.25
     assert scaled["scale_y"] == 1.1
-    assert scaled["template_width_height_norm"] == [0.42, 0.30]
-    assert scaled["resolved_width_height_norm"] == [0.525, 0.33]
+    assert scaled["template_width_height_norm"] == [0.62, 0.30]
+    assert scaled["resolved_width_height_norm"] == [0.775, 0.33]
 
 
 def test_point_crop_per_point_scale_overrides_global() -> None:
@@ -1727,20 +1769,20 @@ def test_point_crop_scale_metadata_persists_in_sidecar_and_descriptor(tmp_path, 
     assert point["size"] == "small_plus"
     assert point["scale_x"] == 1.2
     assert point["scale_y"] == 1.15
-    assert point["template_width_height_norm"] == [0.32, 0.24]
-    assert point["resolved_width_height_norm"] == [0.384, 0.276]
+    assert point["template_width_height_norm"] == [0.48, 0.24]
+    assert point["resolved_width_height_norm"] == [0.576, 0.276]
 
     master_ref = result["outputs"]["derived_ref_id"]
     master_desc = _load_derived_image_descriptor("d1", "tx-1", "ws-1", master_ref)
     sidecar_point = master_desc["transform_metadata"]["crop_set"]["points"][0]
     assert sidecar_point["scale_x"] == 1.2
-    assert sidecar_point["resolved_width_height_norm"] == [0.384, 0.276]
+    assert sidecar_point["resolved_width_height_norm"] == [0.576, 0.276]
 
     crop_desc = _load_derived_image_descriptor("d1", "tx-1", "ws-1", point["crop_ref"])
     meta = crop_desc["transform_metadata"]
     assert meta["scale_x"] == 1.2
     assert meta["scale_y"] == 1.15
-    assert meta["template_width_height_norm"] == [0.32, 0.24]
+    assert meta["template_width_height_norm"] == [0.48, 0.24]
 
 
 def test_point_crops_adjust_can_change_only_scale(tmp_path, monkeypatch) -> None:
@@ -1807,6 +1849,39 @@ def test_point_crop_scaled_expansion_still_applies_zoom_output_cap(tmp_path, mon
     assert max(point["output_width_height"]) <= 20
 
 
+def test_point_crop_widened_medium_wide_stays_readable_with_output_cap(tmp_path, monkeypatch) -> None:
+    import tooling.mapping.transcript_edit.point_crops as point_crops_mod
+
+    assert point_crops_mod.MAX_CROP_OUTPUT_DIMENSION == 3200
+    handler, ref_id = _make_handler(
+        tmp_path,
+        monkeypatch,
+        image_width=4000,
+        image_height=3000,
+    )
+    result = handler({
+        "ref_id": ref_id,
+        "sub_action": "point_crops",
+        "params": {
+            "points": [
+                {
+                    "alias": "clause_wide",
+                    "point_norm": [0.5, 0.5],
+                    "size": "medium",
+                    "shape": "wide",
+                }
+            ]
+        },
+    })
+    assert result["executed"] is True
+    point = result["outputs"]["crop_set"]["points"][0]
+    assert point.get("zoom_cap_applied") is True
+    assert max(point["output_width_height"]) == 3200
+    assert point["requested_zoom_factor"] == 2.25
+    assert point["max_output_dimension"] == 3200
+    assert point["zoom_factor"] >= 1.2
+
+
 # ---------------------------------------------------------------------------
 # point_crops — master overlay grid + legend (M2)
 # ---------------------------------------------------------------------------
@@ -1818,8 +1893,11 @@ def test_point_crops_master_overlay_includes_grid_metadata(tmp_path, monkeypatch
     assert result["outputs"]["width_height"] == [100, 200]
     grid = result["outputs"]["crop_set"]["grid"]
     assert grid["enabled"] is True
-    assert grid["divisions"] == 4
+    assert grid["major_step_norm"] == 0.10
+    assert grid["minor_step_norm"] == 0.05
     assert grid["coordinate_space"] == "source_image_norm"
+    assert grid["major_line"]["width"] == 2
+    assert result["outputs"]["crop_set"]["box_render"]["fill_alpha"] == 52
     legend = result["outputs"]["crop_set"]["legend"]
     assert legend["size_colors"]["small"] == [220, 70, 70]
     assert legend["size_colors"]["small_plus"] == [245, 166, 35]
@@ -1828,7 +1906,7 @@ def test_point_crops_master_overlay_includes_grid_metadata(tmp_path, monkeypatch
     assert legend["size_labels"]["small_plus"] == "small+"
 
 
-def test_point_crops_master_overlay_renders_grid_on_image_area(tmp_path, monkeypatch):
+def test_point_crops_master_overlay_renders_dense_grid_on_image_area(tmp_path, monkeypatch):
     from tooling.mapping.transcript_edit.artifact_hydration import _load_derived_image_descriptor
 
     handler, ref_id = _make_handler(tmp_path, monkeypatch, d="d1", tx="tx-1", ws="ws-1")
@@ -1839,9 +1917,31 @@ def test_point_crops_master_overlay_renders_grid_on_image_area(tmp_path, monkeyp
     from PIL import Image
 
     img = Image.open(desc["absolute_path"])
-    # Uniform source gray is (200,200,200); grid line at x=25 should differ.
-    assert img.getpixel((25, 10)) != (200, 200, 200)
+    bg = (200, 200, 200)
+    # Minor grid at x=5 (0.05) and major at x=10 (0.10) on a 100px-wide source.
+    assert img.getpixel((5, 10)) != bg
+    assert img.getpixel((10, 10)) != bg
     assert img.height == 200
+
+
+def test_point_crops_master_overlay_renders_box_fill_and_letter(tmp_path, monkeypatch):
+    from tooling.mapping.transcript_edit.artifact_hydration import _load_derived_image_descriptor
+
+    handler, ref_id = _make_handler(tmp_path, monkeypatch, d="d1", tx="tx-1", ws="ws-1")
+    result = handler({"ref_id": ref_id, **_point_crops_request()})
+    master_ref = result["outputs"]["derived_ref_id"]
+    desc = _load_derived_image_descriptor("d1", "tx-1", "ws-1", master_ref)
+    from PIL import Image
+
+    img = Image.open(desc["absolute_path"])
+    point = result["outputs"]["crop_set"]["points"][0]
+    cx = (point["box_px"][0] + point["box_px"][2]) // 2
+    cy = (point["box_px"][1] + point["box_px"][3]) // 2
+    bg = (200, 200, 200)
+    assert img.getpixel((cx, cy)) != bg
+    lx = point["box_px"][0] + 2
+    ly = max(0, point["box_px"][1] - 16)
+    assert img.getpixel((lx + 1, ly + 1)) != bg
 
 
 def test_point_crops_per_point_crop_refs_exclude_grid(tmp_path, monkeypatch):

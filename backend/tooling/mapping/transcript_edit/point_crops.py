@@ -14,17 +14,17 @@ from .root_projection import copy_projection_fields
 # Normalized box sizes centered on ``point_norm``.
 _POINT_CROP_TEMPLATES: dict[str, dict[str, tuple[float, float]]] = {
     "small": {
-        "wide": (0.22, 0.18),
+        "wide": (0.32, 0.18),
         "square": (0.18, 0.18),
         "portrait": (0.18, 0.24),
     },
     "small_plus": {
-        "wide": (0.32, 0.24),
+        "wide": (0.48, 0.24),
         "square": (0.24, 0.24),
         "portrait": (0.24, 0.32),
     },
     "medium": {
-        "wide": (0.42, 0.30),
+        "wide": (0.62, 0.30),
         "square": (0.30, 0.30),
         "portrait": (0.30, 0.42),
     },
@@ -58,7 +58,7 @@ MIN_ZOOM_FACTOR = 1.0
 MAX_ZOOM_FACTOR = 6.0
 MIN_AXIS_SCALE = 0.5
 MAX_AXIS_SCALE = 3.0
-MAX_CROP_OUTPUT_DIMENSION = 1600
+MAX_CROP_OUTPUT_DIMENSION = 3200
 DEFAULT_ZOOM_BY_SIZE: dict[str, float] = {
     "small": 3.0,
     "small_plus": 2.75,
@@ -73,10 +73,20 @@ _ZOOM_METADATA_KEYS = (
     "requested_zoom_factor",
     "max_output_dimension",
 )
-OVERLAY_GRID_DIVISIONS = 4
+OVERLAY_GRID_MAJOR_STEP_NORM = 0.10
+OVERLAY_GRID_MINOR_STEP_NORM = 0.05
 OVERLAY_LEGEND_HEIGHT = 120
-_OVERLAY_GRID_LINE_COLOR = (215, 215, 215)
-_OVERLAY_GRID_LABEL_COLOR = (110, 110, 110)
+_OVERLAY_GRID_MINOR_COLOR = (228, 228, 228)
+_OVERLAY_GRID_MAJOR_COLOR = (140, 140, 140)
+_OVERLAY_GRID_MINOR_WIDTH = 1
+_OVERLAY_GRID_MAJOR_WIDTH = 2
+_OVERLAY_GRID_LABEL_COLOR = (50, 50, 50)
+_BOX_FILL_ALPHA = 52
+_BOX_OUTLINE_WIDTH = 3
+_PIN_RADIUS = 6
+_PIN_LINE_WIDTH = 3
+_LETTER_PAD = 3
+_LETTER_BG_RGBA = (255, 255, 255, 230)
 _LEGEND_SIZE_COLORS: dict[str, tuple[int, int, int]] = {
     "small": (220, 70, 70),
     "small_plus": (245, 166, 35),
@@ -392,8 +402,22 @@ def build_overlay_render_metadata() -> dict[str, Any]:
     return {
         "grid": {
             "enabled": True,
-            "divisions": OVERLAY_GRID_DIVISIONS,
             "coordinate_space": "source_image_norm",
+            "major_step_norm": OVERLAY_GRID_MAJOR_STEP_NORM,
+            "minor_step_norm": OVERLAY_GRID_MINOR_STEP_NORM,
+            "major_line": {
+                "color": list(_OVERLAY_GRID_MAJOR_COLOR),
+                "width": _OVERLAY_GRID_MAJOR_WIDTH,
+            },
+            "minor_line": {
+                "color": list(_OVERLAY_GRID_MINOR_COLOR),
+                "width": _OVERLAY_GRID_MINOR_WIDTH,
+            },
+            "edge_labels": "major_only",
+        },
+        "box_render": {
+            "fill_alpha": _BOX_FILL_ALPHA,
+            "outline_width": _BOX_OUTLINE_WIDTH,
         },
         "legend": {
             "size_colors": {
@@ -448,17 +472,80 @@ def _draw_dashed_line(
     draw.line([start, end], fill=fill, width=width)
 
 
-def _draw_coordinate_grid(draw: Any, img_w: int, img_h: int) -> None:
-    """Light normalized-coordinate grid on the source image area only."""
-    divisions = OVERLAY_GRID_DIVISIONS
-    for i in range(1, divisions):
-        frac = i / divisions
+def _is_major_grid_fraction(frac: float) -> bool:
+    major_tick = round(frac / OVERLAY_GRID_MAJOR_STEP_NORM)
+    return abs(frac - major_tick * OVERLAY_GRID_MAJOR_STEP_NORM) < 1e-9
+
+
+def _saturate_outline_color(rgb: tuple[int, int, int]) -> tuple[int, int, int]:
+    r, g, b = rgb
+    peak = max(r, g, b)
+    if peak <= 0:
+        return rgb
+    scale = 255.0 / peak
+    return (
+        min(255, int(r * scale * 0.92)),
+        min(255, int(g * scale * 0.92)),
+        min(255, int(b * scale * 0.92)),
+    )
+
+
+def draw_norm_step_coordinate_grid(
+    draw: Any,
+    img_w: int,
+    img_h: int,
+    *,
+    edge_labels: bool = True,
+) -> None:
+    """Draw major/minor normalized-coordinate grid on the source image area."""
+    frac = OVERLAY_GRID_MINOR_STEP_NORM
+    while frac < 1.0:
+        if not _is_major_grid_fraction(frac):
+            x = int(round(frac * img_w))
+            y = int(round(frac * img_h))
+            draw.line(
+                [(x, 0), (x, img_h)],
+                fill=_OVERLAY_GRID_MINOR_COLOR,
+                width=_OVERLAY_GRID_MINOR_WIDTH,
+            )
+            draw.line(
+                [(0, y), (img_w, y)],
+                fill=_OVERLAY_GRID_MINOR_COLOR,
+                width=_OVERLAY_GRID_MINOR_WIDTH,
+            )
+        frac = round(frac + OVERLAY_GRID_MINOR_STEP_NORM, 6)
+
+    frac = OVERLAY_GRID_MAJOR_STEP_NORM
+    while frac < 1.0:
         x = int(round(frac * img_w))
         y = int(round(frac * img_h))
-        draw.line([(x, 0), (x, img_h)], fill=_OVERLAY_GRID_LINE_COLOR, width=1)
-        draw.line([(0, y), (img_w, y)], fill=_OVERLAY_GRID_LINE_COLOR, width=1)
-        draw.text((min(x + 2, max(0, img_w - 36)), 2), _format_norm_axis_label("x", frac), fill=_OVERLAY_GRID_LABEL_COLOR)
-        draw.text((2, min(y + 2, max(0, img_h - 14))), _format_norm_axis_label("y", frac), fill=_OVERLAY_GRID_LABEL_COLOR)
+        draw.line(
+            [(x, 0), (x, img_h)],
+            fill=_OVERLAY_GRID_MAJOR_COLOR,
+            width=_OVERLAY_GRID_MAJOR_WIDTH,
+        )
+        draw.line(
+            [(0, y), (img_w, y)],
+            fill=_OVERLAY_GRID_MAJOR_COLOR,
+            width=_OVERLAY_GRID_MAJOR_WIDTH,
+        )
+        if edge_labels:
+            draw.text(
+                (min(x + 2, max(0, img_w - 36)), 2),
+                _format_norm_axis_label("x", frac),
+                fill=_OVERLAY_GRID_LABEL_COLOR,
+            )
+            draw.text(
+                (2, min(y + 2, max(0, img_h - 14))),
+                _format_norm_axis_label("y", frac),
+                fill=_OVERLAY_GRID_LABEL_COLOR,
+            )
+        frac = round(frac + OVERLAY_GRID_MAJOR_STEP_NORM, 6)
+
+
+def _draw_coordinate_grid(draw: Any, img_w: int, img_h: int) -> None:
+    """Light normalized-coordinate grid on the source image area only."""
+    draw_norm_step_coordinate_grid(draw, img_w, img_h, edge_labels=True)
 
 
 def _draw_template_legend(draw: Any, *, img_w: int, img_h: int) -> None:
@@ -508,22 +595,64 @@ def _render_master_overlay(
 
     _draw_coordinate_grid(draw, img.width, img.height)
 
+    rgba_base = canvas.convert("RGBA")
+    box_layer = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
+    box_draw = ImageDraw.Draw(box_layer)
     for pt in per_point_data:
         b = tuple(pt["box_px"])
-        col = tuple(pt["color"])
+        col = tuple(int(v) for v in pt["color"][:3])
+        outline = _saturate_outline_color(col)
         if "box" in show:
-            draw.rectangle(b, outline=col, width=2)
+            box_draw.rectangle(
+                b,
+                fill=(*col, _BOX_FILL_ALPHA),
+                outline=(*outline, 255),
+                width=_BOX_OUTLINE_WIDTH,
+            )
         if "pin" in show:
             cx = (b[0] + b[2]) // 2
             cy = (b[1] + b[3]) // 2
-            r = 5
-            draw.line([(cx - r, cy), (cx + r, cy)], fill=col, width=2)
-            draw.line([(cx, cy - r), (cx, cy + r)], fill=col, width=2)
-        if "letter" in show:
-            lx, ly = b[0] + 2, max(0, b[1] - 14)
-            draw.rectangle([lx - 1, ly - 1, lx + 12, ly + 12], fill=(255, 255, 255))
-            draw.text((lx, ly), pt["letter"], fill=col)
+            r = _PIN_RADIUS
+            box_draw.line(
+                [(cx - r, cy), (cx + r, cy)],
+                fill=(*outline, 255),
+                width=_PIN_LINE_WIDTH,
+            )
+            box_draw.line(
+                [(cx, cy - r), (cx, cy + r)],
+                fill=(*outline, 255),
+                width=_PIN_LINE_WIDTH,
+            )
+            box_draw.ellipse(
+                [cx - r, cy - r, cx + r, cy + r],
+                outline=(*outline, 255),
+                width=2,
+            )
 
+    composed = Image.alpha_composite(rgba_base, box_layer)
+
+    letter_layer = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
+    letter_draw = ImageDraw.Draw(letter_layer)
+    for pt in per_point_data:
+        if "letter" not in show:
+            continue
+        b = tuple(pt["box_px"])
+        col = tuple(int(v) for v in pt["color"][:3])
+        outline = _saturate_outline_color(col)
+        lx, ly = b[0] + 2, max(0, b[1] - 16)
+        pad = _LETTER_PAD
+        letter_draw.rectangle(
+            [lx - pad, ly - pad, lx + 14 + pad, ly + 14 + pad],
+            fill=_LETTER_BG_RGBA,
+            outline=(*outline, 255),
+            width=2,
+        )
+        letter_draw.text((lx, ly), pt["letter"], fill=(20, 20, 20, 255))
+
+    composed = Image.alpha_composite(composed, letter_layer)
+    canvas = composed.convert("RGB")
+
+    draw = ImageDraw.Draw(canvas)
     _draw_template_legend(draw, img_w=img.width, img_h=img.height)
     return canvas, legend_h, build_overlay_render_metadata()
 

@@ -34,8 +34,10 @@ from .root_projection import (
 from .point_crops import (
     PointCropParamError,
     build_crop_set_point_record,
+    build_overlay_render_metadata,
     compute_point_crops,
     compute_point_crops_view,
+    draw_norm_step_coordinate_grid,
     point_crops_adjust_repair_hint_for,
     point_crops_repair_hint_for,
     point_crops_view_repair_hint_for,
@@ -45,6 +47,9 @@ from .point_crops import (
     validate_point_crops_params,
     validate_point_crops_view_params,
 )
+
+REFERENCE_OVERLAY_DEFAULT_COLS = 10
+REFERENCE_OVERLAY_DEFAULT_ROWS = 10
 
 _IMAGE_ASSOC_PREFIX = "image:assoc:"
 _IMAGE_DERIVED_PREFIX = "image:derived:"
@@ -68,7 +73,7 @@ def _overlay_metadata_fields(transform_metadata: Mapping[str, Any]) -> dict[str,
     if not isinstance(overlay, Mapping):
         return {}
     fields: dict[str, Any] = {}
-    for key in ("grid", "legend"):
+    for key in ("grid", "legend", "box_render"):
         if key in overlay:
             fields[key] = overlay[key]
     return fields
@@ -1232,56 +1237,52 @@ def _apply_transform(
     elif sub_action == "reference_overlay":
         # Draw a deterministic grid with labeled coordinates so the model can select
         # an explicit box or box_norm region for a later crop.
-        # params.cols (int, default 4): number of vertical divisions.
-        # params.rows (int, default 4): number of horizontal divisions.
-        # params.line_color (list [R,G,B], default [200,200,200]): grid line color.
-        # params.label_color (list [R,G,B], default [255,0,0]): label text color.
-        # Returns the overlay with grid lines and cell labels like "(1,1)".
-        cols = max(2, int(params.get("cols", 4)))
-        rows = max(2, int(params.get("rows", 4)))
-        line_color_raw = params.get("line_color", [200, 200, 200])
-        label_color_raw = params.get("label_color", [255, 0, 0])
+        cols = max(2, int(params.get("cols", REFERENCE_OVERLAY_DEFAULT_COLS)))
+        rows = max(2, int(params.get("rows", REFERENCE_OVERLAY_DEFAULT_ROWS)))
+        line_color_raw = params.get("line_color", [140, 140, 140])
+        label_color_raw = params.get("label_color", [180, 0, 0])
         if isinstance(line_color_raw, list) and len(line_color_raw) >= 3:
             line_color: tuple[int, ...] = tuple(int(v) for v in line_color_raw[:3])
         else:
-            line_color = (200, 200, 200)
+            line_color = (140, 140, 140)
         if isinstance(label_color_raw, list) and len(label_color_raw) >= 3:
             label_color: tuple[int, ...] = tuple(int(v) for v in label_color_raw[:3])
         else:
-            label_color = (255, 0, 0)
+            label_color = (180, 0, 0)
 
         img = img.convert("RGB")
         draw = ImageDraw.Draw(img)
         w, h = img.width, img.height
+        draw_norm_step_coordinate_grid(draw, w, h, edge_labels=True)
         cell_w = w / cols
         cell_h = h / rows
 
-        # Draw vertical grid lines
         for c in range(1, cols):
             x = int(c * cell_w)
-            draw.line([(x, 0), (x, h)], fill=line_color, width=1)
+            draw.line([(x, 0), (x, h)], fill=line_color, width=2)
 
-        # Draw horizontal grid lines
         for r in range(1, rows):
             y = int(r * cell_h)
-            draw.line([(0, y), (w, y)], fill=line_color, width=1)
+            draw.line([(0, y), (w, y)], fill=line_color, width=2)
 
-        # Label each cell with (col, row) and the normalized center coordinates.
-        # Columns are 1-indexed left-to-right; rows 1-indexed top-to-bottom.
         for r in range(rows):
             for c in range(cols):
                 cx = int((c + 0.5) * cell_w)
                 cy = int((r + 0.5) * cell_h)
-                # Normalized coordinates of the cell bounds
                 x1_n = round(c / cols, 2)
                 y1_n = round(r / rows, 2)
                 x2_n = round((c + 1) / cols, 2)
                 y2_n = round((r + 1) / rows, 2)
                 label = f"({c + 1},{r + 1})\n[{x1_n},{y1_n},{x2_n},{y2_n}]"
-                # Split label onto two lines for readability
                 parts = label.split("\n")
                 for i, part in enumerate(parts):
                     draw.text((cx - 2, cy - 8 + i * 12), part, fill=label_color)
+
+        overlay_meta = build_overlay_render_metadata()
+        overlay_meta["grid"]["cols"] = cols
+        overlay_meta["grid"]["rows"] = rows
+        overlay_meta["grid"]["cell_labels"] = True
+        transform_metadata["overlay"] = overlay_meta
 
     elif sub_action == "annotate":
         annotations = params.get("annotations", [])
