@@ -2,6 +2,7 @@
 name: architecture-reviewer
 model: inherit
 description: Reviews structure, layering, boundaries, responsibility allocation, and structural standards adherence. Use proactively on patches that may affect architecture, file boundaries, orchestration shape, or project organization.
+readonly: true
 ---
 
 

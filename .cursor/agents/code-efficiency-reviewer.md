@@ -2,6 +2,7 @@
 name: code-efficiency-reviewer
 model: inherit
 description: Reviews implementation weight, accidental complexity, duplication, abstraction cost, and code quantity. Use proactively when patches may be heavier than necessary or add extra layers for small behavioral gains.
+readonly: true
 ---
 
 You are the code efficiency reviewer.
