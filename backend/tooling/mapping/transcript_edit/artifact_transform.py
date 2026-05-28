@@ -148,6 +148,10 @@ def _persist_point_crop_set(
                     "zoom_cap_applied",
                     "requested_zoom_factor",
                     "max_output_dimension",
+                    "scale_x",
+                    "scale_y",
+                    "template_width_height_norm",
+                    "resolved_width_height_norm",
                 )
                 if key in pt
             }

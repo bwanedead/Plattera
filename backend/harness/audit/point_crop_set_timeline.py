@@ -128,11 +128,20 @@ def render_point_crop_set_tool_output(
                 zoom_part = (
                     f" | zoom: {adj.get('prior_zoom_factor')}->{adj.get('new_zoom_factor')}"
                 )
+            scale_part = ""
+            if adj.get("prior_scale_x") is not None or adj.get("new_scale_x") is not None:
+                scale_part = (
+                    f" | scale_x: {adj.get('prior_scale_x')}->{adj.get('new_scale_x')}"
+                )
+            if adj.get("prior_scale_y") is not None or adj.get("new_scale_y") is not None:
+                scale_part = (
+                    f"{scale_part} | scale_y: {adj.get('prior_scale_y')}->{adj.get('new_scale_y')}"
+                )
             lines.append(
                 f"  - target: {target_label} | "
                 f"prior_point_norm: {prior} -> new_point_norm: {new} | "
                 f"size: {adj.get('prior_size')}->{adj.get('new_size')} | "
-                f"shape: {adj.get('prior_shape')}->{adj.get('new_shape')}{zoom_part}"
+                f"shape: {adj.get('prior_shape')}->{adj.get('new_shape')}{zoom_part}{scale_part}"
             )
             if adj.get("shift_norm") is not None:
                 lines.append(f"    shift_norm: {adj.get('shift_norm')}")

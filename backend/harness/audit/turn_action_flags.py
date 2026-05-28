@@ -39,6 +39,7 @@ def render_turn_action_flags(turn: Mapping[str, Any]) -> list[str]:
     lines.extend(_render_ref_motion_flag("hydrate_next", flags.hydrate_next_refs))
     lines.extend(_render_ref_motion_flag("pinned_refs", flags.pin_refs))
     lines.extend(_render_ref_motion_flag("unpin_refs", flags.unpin_refs))
+    lines.extend(_render_mission_posture_flags(turn))
     if flags.determinations_changed:
         lines.append(f"- determinations_changed: {flags.determinations_changed}")
     if flags.units_closed:
@@ -62,6 +63,31 @@ def _render_ref_motion_flag(label: str, refs: list[str]) -> list[str]:
     for ref in refs[:_MAX_FLAG_REFS]:
         lines.append(f"  - {ref}")
     return lines
+
+
+def _render_mission_posture_flags(turn: Mapping[str, Any]) -> list[str]:
+    before = _coerce_mapping(turn.get("mission_state_before"))
+    after = _coerce_mapping(turn.get("mission_state_after"))
+    mission = after or before
+    if not mission:
+        return []
+    lines: list[str] = []
+    for field in ("motion_posture", "work_universe_posture"):
+        before_val = _posture_value(before, field)
+        after_val = _posture_value(after, field) or _posture_value(before, field)
+        if not after_val:
+            continue
+        if before_val and before_val != after_val:
+            lines.append(f"- {field}: {before_val} -> {after_val}")
+        else:
+            lines.append(f"- {field}: {after_val}")
+    return lines
+
+
+def _posture_value(mission: Mapping[str, Any], field: str) -> str:
+    if not mission:
+        return ""
+    return str(mission.get(field) or "").strip()
 
 
 def compute_turn_action_flags(turn: Mapping[str, Any]) -> "TurnActionFlags":

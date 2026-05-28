@@ -233,3 +233,46 @@ def test_timeline_renders_graph_delta_flags() -> None:
     body = render_timeline([{"turn_index": 4, "parse_ok": True, **turn}])
     assert "- determinations_changed: 1" in body
     assert "- units_closed: 1" in body
+
+
+def test_action_flags_render_current_mission_posture() -> None:
+    turn = {
+        "turn_index": 5,
+        "mission_state_after": {
+            "motion_posture": "inventory",
+            "work_universe_posture": "partial",
+        },
+    }
+    body = render_timeline([{"turn_index": 5, "parse_ok": True, **turn}])
+    assert "- motion_posture: inventory" in body
+    assert "- work_universe_posture: partial" in body
+
+
+def test_action_flags_render_motion_posture_transition() -> None:
+    turn = {
+        "turn_index": 6,
+        "mission_state_before": {"motion_posture": "inventory"},
+        "mission_state_after": {"motion_posture": "resolution"},
+    }
+    body = render_timeline([{"turn_index": 6, "parse_ok": True, **turn}])
+    assert "- motion_posture: inventory -> resolution" in body
+
+
+def test_action_flags_render_work_universe_posture_transition() -> None:
+    turn = {
+        "turn_index": 7,
+        "mission_state_before": {"work_universe_posture": "partial"},
+        "mission_state_after": {"work_universe_posture": "believed_adequate"},
+    }
+    body = render_timeline([{"turn_index": 7, "parse_ok": True, **turn}])
+    assert "- work_universe_posture: partial -> believed_adequate" in body
+
+
+def test_action_flags_missing_before_posture_degrades_gracefully() -> None:
+    turn = {
+        "turn_index": 8,
+        "mission_state_after": {"motion_posture": "resolution"},
+    }
+    body = render_timeline([{"turn_index": 8, "parse_ok": True, **turn}])
+    assert "- motion_posture: resolution" in body
+    assert "->" not in body.split("Action flags:")[1].split("\n\n")[0]

@@ -89,11 +89,11 @@ def build_transcript_edit_tool_specs() -> tuple[SemanticToolSpec, ...]:
                 "Returns a new image:derived:* ref and model-visible image evidence for the next turn. "
                 "Sub-actions: crop, expand, zoom, annotate, reference_overlay, render_evidence_locators, point_crops, point_crops_adjust, point_crops_view. "
                 "point_crops is the ergonomic default for template pin crop packets "
-                "(small|medium|large × wide|portrait|square). "
+                "(small|small_plus|medium|large × wide|portrait|square). "
                 "Returns one master overlay as immediate image_evidence (outputs.derived_ref_id); "
                 "per-point crop refs persist in outputs.crop_set.points / outputs.crop_records. "
                 "Use point_crops_adjust on a prior point_crops master overlay ref to revise by letter or alias "
-                "(shift_norm, size, shape); creates a new revision — old refs are not mutated. "
+                "(shift_norm, size, shape, scale_x, scale_y); creates a new revision — old refs are not mutated. "
                 "Use point_crops_view to render a filtered overlay from a prior crop set; overlay view only, no new per-point crops. "
                 "Letters A/B/C are visual local labels only; semantic aliases live in metadata. "
                 "Use reference_overlay as a coordinate-grid fallback when explicit box_norm bounds are needed before crop/zoom "
@@ -143,11 +143,13 @@ def build_transcript_edit_tool_specs() -> tuple[SemanticToolSpec, ...]:
                 "and UI/audit timeline; annotate is for transient visual markup only. "
                 "Image_region locators whose ref_id matches ref_id are rendered as highlights/boxes; "
                 "text_span, log_span, code_span, table_cell, json_path, and unknown kinds are summarized explicitly. "
-                "POINT_CROPS — params: {zoom_factor?: number, points: [{alias, point_norm: [x,y], "
-                "size: small|medium|large, shape: wide|portrait|square, zoom_factor?: number}, ...], "
+                "POINT_CROPS — params: {scale_x?: number, scale_y?: number, zoom_factor?: number, points: [{alias, point_norm: [x,y], "
+                "size: small|small_plus|medium|large, shape: wide|portrait|square, scale_x?: number, scale_y?: number, zoom_factor?: number}, ...], "
                 "show?: [pin|box|letter]}. "
-                "Default show is [pin, box, letter]. Per-point zoom_factor overrides params.zoom_factor; "
-                "when neither is set, default zoom by size (small 3.0, medium 2.25, large 1.5). "
+                "Default show is [pin, box, letter]. Per-point scale_x/scale_y override params.scale_x/scale_y; "
+                "1.0 leaves the template unchanged, >1.0 expands that axis, <1.0 condenses. "
+                "Per-point zoom_factor overrides params.zoom_factor; "
+                "when neither is set, default zoom by size (small 3.0, small_plus 2.75, medium 2.25, large 1.5). "
                 "Zoom applies to per-point crop refs only; master overlay stays unzoomed. "
                 "Master overlay includes a light normalized coordinate grid and a compact template "
                 "legend (size colors + wide/portrait cues) for placement review. "
@@ -159,10 +161,10 @@ def build_transcript_edit_tool_specs() -> tuple[SemanticToolSpec, ...]:
                 "hydrate_artifact_refs, delegate_subtask.context_refs, and HITL evidence packets. "
                 "Aliases are stored in metadata; letters are local A/B/C labels. "
                 "POINT_CROPS_ADJUST — ref_id must be a prior point_crops master overlay ref (image:derived:*). "
-                "params: {adjust: [{letter|alias, point_norm?, shift_norm?, size?, shape?, zoom_factor?}, ...], "
+                "params: {adjust: [{letter|alias, point_norm?, shift_norm?, size?, shape?, scale_x?, scale_y?, zoom_factor?}, ...], "
                 "show?: [pin|box|letter]}. "
                 "Each adjust row targets exactly one point by letter OR alias and must make a real change. "
-                "Prior zoom metadata is preserved unless zoom_factor is changed on the adjust row. "
+                "Prior scale and zoom metadata are preserved unless scale_x, scale_y, or zoom_factor is changed on the adjust row. "
                 "Use numeric shift_norm (e.g. [0.015, 0.0]) — not natural-language movement. "
                 "Prior crop-set refs remain valid; adjustment mints a new master overlay and new crop refs. "
                 "POINT_CROPS_VIEW — ref_id must be a prior crop-set master overlay ref. "
@@ -208,11 +210,11 @@ def build_transcript_edit_tool_specs() -> tuple[SemanticToolSpec, ...]:
                             "adjust_px?: {...}, adjust_norm?: {...}}]}. "
                             "reference_overlay: {cols: int, rows: int, line_color: [R,G,B], label_color: [R,G,B]}. "
                             "render_evidence_locators: {locators: evidence_locators[]} — the durable evidence path. "
-                            "point_crops: {zoom_factor?: number, points: [{alias: str, point_norm: [x,y], "
-                            "size: small|medium|large, shape: wide|portrait|square, zoom_factor?: number}], "
+                            "point_crops: {scale_x?: number, scale_y?: number, zoom_factor?: number, points: [{alias: str, point_norm: [x,y], "
+                            "size: small|small_plus|medium|large, shape: wide|portrait|square, scale_x?: number, scale_y?: number, zoom_factor?: number}], "
                             "show?: [pin|box|letter]} — template crop packets; "
                             "master overlay only in image_evidence; per-point crops are zoomed for legibility. "
-                            "point_crops_adjust: {adjust: [{letter|alias, point_norm?, shift_norm?, size?, shape?, "
+                            "point_crops_adjust: {adjust: [{letter|alias, point_norm?, shift_norm?, size?, shape?, scale_x?, scale_y?, "
                             "zoom_factor?}], show?: [pin|box|letter]} — adjust an existing crop set via prior master overlay ref_id. "
                             "point_crops_view: {filter?: {letters?, aliases?}, show?: [pin|box|letter]} — filtered overlay view."
                         ),
@@ -226,10 +228,11 @@ def build_transcript_edit_tool_specs() -> tuple[SemanticToolSpec, ...]:
                 "params": {
                     "points": [
                         {
-                            "alias": "parcel_1_tie_bearing",
-                            "point_norm": [0.42, 0.58],
-                            "size": "medium",
+                            "alias": "cursive_atom_n4",
+                            "point_norm": [0.36, 0.63],
+                            "size": "small_plus",
                             "shape": "wide",
+                            "scale_x": 1.25,
                         }
                     ],
                     "show": ["pin", "box", "letter"],
@@ -263,14 +266,15 @@ def build_transcript_edit_tool_specs() -> tuple[SemanticToolSpec, ...]:
                 "Per-point crop refs are zoomed for legibility; geometry fields (point_norm, box_px, box_norm) "
                 "remain local to the input ref. When projection_available is true, root_point_norm/root_box_norm "
                 "map nested points back to the original source; false means the parent chain was not composable. "
-                "Each crop point records zoom_factor, unzoomed_width_height, "
+                "Each crop point records zoom_factor, scale_x, scale_y, template_width_height_norm, "
+                "resolved_width_height_norm, unzoomed_width_height, "
                 "output_width_height, and zoom_cap_applied when relevant. "
                 "Per-crop parent_ref_id is the immediate input/local source ref; root_source_ref/root_* "
                 "fields map back to the original source when projection is available; "
                 "crop_set_overlay_ref links back to the master. "
                 "For point_crops_adjust: same result shape as point_crops plus outputs.previous_crop_set_overlay_ref, "
                 "outputs.adjustment_source_ref, and outputs.adjustments_applied with prior/new point_norm/size/shape "
-                "and prior/new zoom_factor when changed per adjusted target. Old master/crop refs are not mutated. "
+                "and prior/new scale_x/scale_y and prior/new zoom_factor when changed per adjusted target. Old master/crop refs are not mutated. "
                 "For point_crops_view: outputs.derived_ref_id is a filtered overlay ref; artifact_refs contains only "
                 "that overlay; crop_set.points preserves original crop refs for delegation/hydration. "
                 "Filtered overlay views use the same grid/legend master rendering as point_crops. "

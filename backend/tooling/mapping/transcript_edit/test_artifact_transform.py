@@ -1472,6 +1472,11 @@ def test_point_crop_templates_match_retuned_normalized_sizes() -> None:
             "square": (0.18, 0.18),
             "portrait": (0.18, 0.24),
         },
+        "small_plus": {
+            "wide": (0.32, 0.24),
+            "square": (0.24, 0.24),
+            "portrait": (0.24, 0.32),
+        },
         "medium": {
             "wide": (0.42, 0.30),
             "square": (0.30, 0.30),
@@ -1492,6 +1497,9 @@ def test_point_crop_templates_match_retuned_normalized_sizes() -> None:
         ("small", "wide"),
         ("small", "square"),
         ("small", "portrait"),
+        ("small_plus", "wide"),
+        ("small_plus", "square"),
+        ("small_plus", "portrait"),
         ("medium", "wide"),
         ("medium", "square"),
         ("medium", "portrait"),
@@ -1576,6 +1584,230 @@ def test_point_crop_large_template_still_applies_zoom_output_cap(tmp_path, monke
 
 
 # ---------------------------------------------------------------------------
+# point_crops — small_plus, axis scaling (M7)
+# ---------------------------------------------------------------------------
+
+
+def test_point_crop_invalid_size_rejects_updated_message() -> None:
+    import tooling.mapping.transcript_edit.point_crops as point_crops_mod
+
+    err = point_crops_mod.validate_point_crops_params(
+        {
+            "points": [
+                {
+                    "alias": "bad_size",
+                    "point_norm": [0.5, 0.5],
+                    "size": "tiny",
+                    "shape": "wide",
+                }
+            ]
+        }
+    )
+    assert err is not None
+    assert "small|small_plus|medium|large" in err
+
+
+def test_point_crop_global_scale_changes_box_size() -> None:
+    import tooling.mapping.transcript_edit.point_crops as point_crops_mod
+
+    img = _FakeImage(4000, 3000)
+    base = point_crops_mod._compute_single_point_geometry(
+        img,
+        point_norm=[0.5, 0.5],
+        size="medium",
+        shape="wide",
+    )
+    scaled = point_crops_mod._compute_single_point_geometry(
+        img,
+        point_norm=[0.5, 0.5],
+        size="medium",
+        shape="wide",
+        scale_x=1.25,
+        scale_y=1.1,
+    )
+    base_w = base["box_px"][2] - base["box_px"][0]
+    base_h = base["box_px"][3] - base["box_px"][1]
+    scaled_w = scaled["box_px"][2] - scaled["box_px"][0]
+    scaled_h = scaled["box_px"][3] - scaled["box_px"][1]
+    assert scaled_w > base_w
+    assert scaled_h > base_h
+    assert scaled["scale_x"] == 1.25
+    assert scaled["scale_y"] == 1.1
+    assert scaled["template_width_height_norm"] == [0.42, 0.30]
+    assert scaled["resolved_width_height_norm"] == [0.525, 0.33]
+
+
+def test_point_crop_per_point_scale_overrides_global() -> None:
+    import tooling.mapping.transcript_edit.point_crops as point_crops_mod
+
+    img = _FakeImage(1000, 800)
+    global_geo = point_crops_mod._compute_single_point_geometry(
+        img,
+        point_norm=[0.5, 0.5],
+        size="small",
+        shape="square",
+        scale_x=2.0,
+        scale_y=2.0,
+    )
+    override_geo = point_crops_mod._compute_single_point_geometry(
+        img,
+        point_norm=[0.5, 0.5],
+        size="small",
+        shape="square",
+        scale_x=1.0,
+        scale_y=1.0,
+    )
+    global_w = global_geo["box_px"][2] - global_geo["box_px"][0]
+    override_w = override_geo["box_px"][2] - override_geo["box_px"][0]
+    assert global_w > override_w
+    resolved = point_crops_mod.resolve_point_axis_scale(
+        global_scale_x=2.0,
+        global_scale_y=2.0,
+        point_scale_x=1.0,
+        point_scale_y=1.0,
+    )
+    assert resolved == (1.0, 1.0)
+
+
+def test_point_crop_scale_bounds_reject() -> None:
+    import tooling.mapping.transcript_edit.point_crops as point_crops_mod
+
+    low = point_crops_mod.validate_point_crops_params(
+        {
+            "scale_x": 0.25,
+            "points": [
+                {
+                    "alias": "a",
+                    "point_norm": [0.5, 0.5],
+                    "size": "medium",
+                    "shape": "wide",
+                }
+            ],
+        }
+    )
+    high = point_crops_mod.validate_point_crops_params(
+        {
+            "points": [
+                {
+                    "alias": "a",
+                    "point_norm": [0.5, 0.5],
+                    "size": "medium",
+                    "shape": "wide",
+                    "scale_y": 3.5,
+                }
+            ],
+        }
+    )
+    assert low is not None and "0.5" in low and "3.0" in low
+    assert high is not None and "scale_y" in high
+
+
+def test_point_crop_scale_metadata_persists_in_sidecar_and_descriptor(tmp_path, monkeypatch) -> None:
+    from tooling.mapping.transcript_edit.artifact_hydration import _load_derived_image_descriptor
+
+    handler, ref_id = _make_handler(tmp_path, monkeypatch, d="d1", tx="tx-1", ws="ws-1")
+    result = handler({
+        "ref_id": ref_id,
+        "sub_action": "point_crops",
+        "params": {
+            "scale_x": 1.2,
+            "points": [
+                {
+                    "alias": "cursive_atom",
+                    "point_norm": [0.36, 0.63],
+                    "size": "small_plus",
+                    "shape": "wide",
+                    "scale_y": 1.15,
+                }
+            ],
+        },
+    })
+    assert result["executed"] is True
+    point = result["outputs"]["crop_set"]["points"][0]
+    assert point["size"] == "small_plus"
+    assert point["scale_x"] == 1.2
+    assert point["scale_y"] == 1.15
+    assert point["template_width_height_norm"] == [0.32, 0.24]
+    assert point["resolved_width_height_norm"] == [0.384, 0.276]
+
+    master_ref = result["outputs"]["derived_ref_id"]
+    master_desc = _load_derived_image_descriptor("d1", "tx-1", "ws-1", master_ref)
+    sidecar_point = master_desc["transform_metadata"]["crop_set"]["points"][0]
+    assert sidecar_point["scale_x"] == 1.2
+    assert sidecar_point["resolved_width_height_norm"] == [0.384, 0.276]
+
+    crop_desc = _load_derived_image_descriptor("d1", "tx-1", "ws-1", point["crop_ref"])
+    meta = crop_desc["transform_metadata"]
+    assert meta["scale_x"] == 1.2
+    assert meta["scale_y"] == 1.15
+    assert meta["template_width_height_norm"] == [0.32, 0.24]
+
+
+def test_point_crops_adjust_can_change_only_scale(tmp_path, monkeypatch) -> None:
+    handler, source_ref = _make_handler(tmp_path, monkeypatch)
+    created = handler({
+        "ref_id": source_ref,
+        "sub_action": "point_crops",
+        "params": {
+            "points": [
+                {
+                    "alias": "parcel_1_tie_bearing",
+                    "point_norm": [0.42, 0.58],
+                    "size": "medium",
+                    "shape": "wide",
+                }
+            ]
+        },
+    })
+    prior_master = created["outputs"]["derived_ref_id"]
+    prior_point = created["outputs"]["crop_set"]["points"][0]
+    prior_w = prior_point["box_px"][2] - prior_point["box_px"][0]
+    adjusted = handler(_point_crops_adjust_request(
+        master_ref=prior_master,
+        adjust=[{"letter": "A", "scale_x": 1.5, "scale_y": 1.2}],
+    ))
+    assert adjusted["executed"] is True
+    new_point = adjusted["outputs"]["crop_set"]["points"][0]
+    new_w = new_point["box_px"][2] - new_point["box_px"][0]
+    assert new_w > prior_w
+    assert new_point["scale_x"] == 1.5
+    assert new_point["scale_y"] == 1.2
+    applied = adjusted["outputs"]["adjustments_applied"][0]
+    assert applied["prior_scale_x"] == 1.0
+    assert applied["new_scale_x"] == 1.5
+    assert applied["prior_scale_y"] == 1.0
+    assert applied["new_scale_y"] == 1.2
+
+
+def test_point_crop_scaled_expansion_still_applies_zoom_output_cap(tmp_path, monkeypatch) -> None:
+    import tooling.mapping.transcript_edit.point_crops as point_crops_mod
+
+    monkeypatch.setattr(point_crops_mod, "MAX_CROP_OUTPUT_DIMENSION", 20)
+    handler, ref_id = _make_handler(tmp_path, monkeypatch)
+    result = handler({
+        "ref_id": ref_id,
+        "sub_action": "point_crops",
+        "params": {
+            "points": [
+                {
+                    "alias": "large_scaled",
+                    "point_norm": [0.5, 0.5],
+                    "size": "large",
+                    "shape": "wide",
+                    "scale_x": 1.5,
+                    "scale_y": 1.5,
+                    "zoom_factor": 6.0,
+                }
+            ]
+        },
+    })
+    assert result["executed"] is True
+    point = result["outputs"]["crop_set"]["points"][0]
+    assert point["zoom_cap_applied"] is True
+    assert max(point["output_width_height"]) <= 20
+
+
+# ---------------------------------------------------------------------------
 # point_crops — master overlay grid + legend (M2)
 # ---------------------------------------------------------------------------
 
@@ -1590,8 +1822,10 @@ def test_point_crops_master_overlay_includes_grid_metadata(tmp_path, monkeypatch
     assert grid["coordinate_space"] == "source_image_norm"
     legend = result["outputs"]["crop_set"]["legend"]
     assert legend["size_colors"]["small"] == [220, 70, 70]
+    assert legend["size_colors"]["small_plus"] == [245, 166, 35]
     assert legend["size_colors"]["medium"] == [70, 130, 220]
     assert legend["size_colors"]["large"] == [80, 180, 100]
+    assert legend["size_labels"]["small_plus"] == "small+"
 
 
 def test_point_crops_master_overlay_renders_grid_on_image_area(tmp_path, monkeypatch):
