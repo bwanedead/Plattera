@@ -483,6 +483,7 @@ _ALWAYS_KEEP_OBSERVABILITY_KEYS: tuple[str, ...] = (
     "shared_unlocated_evidence_for_earned_units_count",
     "notebook_shaped_graph_rows_count",
     "artifact_claim_inventory_suspect_count",
+    "performance_evaluation",
 )
 _OPTIONAL_OBSERVABILITY_COUNTERS: tuple[str, ...] = (
     "repeated_state_patch_reason_code_streak",

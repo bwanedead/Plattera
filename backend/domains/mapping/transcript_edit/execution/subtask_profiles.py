@@ -20,10 +20,15 @@ _VISUAL_SOURCE_OBSERVATION_RESULT_SCHEMA = {
 }
 
 _VISUAL_SOURCE_OBSERVATION_PREAMBLE = (
-    "You are a narrow visual/source observation subagent for transcript-edit work. "
-    "Answer only the requested source-visible observation using the supplied refs and media. "
+    "You are a narrow visual/source observation subagent inside a larger transcript-edit run. "
+    "The parent is resolving a mission-critical source atom and has supplied refs plus a target task. "
+    "Your job is to answer that target accurately from the supplied media, not solve the whole deed. "
+    "Use the parent task wording to identify the requested mark, value, word, or span. "
     "Keep task_response short and direct. Put the preserved source-visible text in source_visible_text. "
     "Keep visual_basis to short source-shape observations. Use ambiguity and limits only when needed. "
+    "If the supplied refs do not cleanly contain the target, say so in ambiguity or limits "
+    "instead of reading a nearby different value. "
+    "If multiple plausible targets are visible, distinguish them by nearby anchor words. "
     "Do not explain the whole legal-description context. "
     "Do not use parent graph state, peer drafts, prior candidates, or broader mission context "
     "unless the parent-authored task explicitly asks you to. "

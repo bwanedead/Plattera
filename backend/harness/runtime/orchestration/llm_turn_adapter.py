@@ -135,9 +135,17 @@ class LlmTurnOrchestrationAdapter(OrchestrationAdapter):
             parse_error_detail: str | None = None,
             original_action_count_attempted: int | None = None,
         ) -> None:
-            observer = context.raw_llm_io_observer
-            if observer is None:
-                return
+            structured_state = prompt_doc.prompt_body.get("structured_state")
+            prompt_observability_summary = None
+            if isinstance(structured_state, dict):
+                prompt_observability_summary = structured_state.get("prompt_observability_summary")
+            context.loop_memory.telemetry.register_turn_contact(
+                turn_index=int(context.loop_memory.iterations),
+                prompt_char_count=prompt_char_count,
+                started_at_epoch_seconds=_t0,
+                finished_at_epoch_seconds=time.time(),
+                resolution_state_before=rs_before if isinstance(rs_before, dict) else None,
+            )
             record = build_llm_io_audit_record(
                 context=context,
                 started_at_epoch_seconds=_t0,
@@ -153,7 +161,15 @@ class LlmTurnOrchestrationAdapter(OrchestrationAdapter):
                 mission_state_before=ms_before,
                 resolution_state_before=rs_before,
                 latest_refs_before=refs_before,
+                prompt_observability_summary=(
+                    prompt_observability_summary
+                    if isinstance(prompt_observability_summary, dict)
+                    else None
+                ),
             )
+            observer = context.raw_llm_io_observer
+            if observer is None:
+                return
             try:
                 observer.observe_llm_io(record)
             except Exception:

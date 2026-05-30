@@ -123,10 +123,11 @@ def build_llm_io_audit_record(
     mission_state_before: Any,
     resolution_state_before: Any,
     latest_refs_before: Mapping[str, Any],
+    prompt_observability_summary: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     raw_response_text = extract_audit_text(raw_response)
     provider_audit = provider_audit_fields(raw_response, raw_response_text=raw_response_text)
-    return lifecycle_jsonable(
+    record = lifecycle_jsonable(
         {
             "turn_index": int(context.loop_memory.iterations),
             "started_at_epoch_seconds": started_at_epoch_seconds,
@@ -160,6 +161,9 @@ def build_llm_io_audit_record(
             ),
         }
     )
+    if isinstance(prompt_observability_summary, Mapping) and prompt_observability_summary:
+        record["prompt_observability_summary"] = dict(prompt_observability_summary)
+    return record
 
 
 def build_repair_audit_record(repair_attempt: RepairAttempt) -> dict[str, Any]:

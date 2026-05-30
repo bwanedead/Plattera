@@ -82,6 +82,11 @@ def test_surface_payload_includes_visual_source_observation_subtask_profile() ->
     preamble = profile["prompt_preamble"].lower()
     assert "source-visible" in preamble or "source visible" in preamble
     assert "peer draft" in preamble or "broader mission context" in preamble
+    assert "larger transcript-edit run" in preamble
+    assert "mission-critical source atom" in preamble
+    assert "requested mark, value, word, or span" in preamble
+    assert "do not cleanly contain the target" in preamble
+    assert "nearby anchor words" in preamble
     assert "task_response" in preamble
     assert "confidence" in preamble
     assert "do not include confidence" in preamble
@@ -186,8 +191,10 @@ def test_procedural_guidance_teaches_delegate_subtask_lightly() -> None:
     assert "run in parallel" in text
     assert "context_refs" in text
     assert "delegation_lines" in text
-    assert "what the source visibly says" in text
-    assert "observation only" in text
+    assert "name the non-leading target" in text
+    assert "read the visible text" in text
+    assert "do not feed the expected answer" in text
+    assert "cleanly contained" in text
     assert "batch independent delegate reads" in text
     assert "must delegate" not in text
     assert "always delegate" not in text
@@ -311,13 +318,22 @@ def test_domain_pack_declares_semantic_prompt_blocks() -> None:
     assert "master overlay" in text
     assert "small_plus" in guidance.text
     assert "small+" in guidance.text
+    assert "bullseye-close" in text
+    assert "vague dot near the paragraph is weak targeting" in text
+    assert "small_plus` / `small+` wide is the normal atom/line starting shape" in text
+    assert "width_norm" in guidance.text
+    assert "height_norm" in guidance.text
     assert "scale_x" in guidance.text
     assert "scale_y" in guidance.text
     assert "batch qa and placement-control surface" in text
     assert "control-room artifact" in text
+    assert "pin + letter" in text
+    assert "did the dot land on the target atom" in text
     assert "stable pinned object" in text
     assert "top-down placement sanity" in text
     assert "master overlay is for packet sanity" in text
+    assert "the thing being determined must be cleanly contained" in text
+    assert "if the target is a span, the full span must be visible" in text
     assert "individual per-point" in text or "individual crop refs" in text
     assert "batch motion and integration" in text
     assert "hydrate_next" in guidance.text

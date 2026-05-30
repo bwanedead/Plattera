@@ -755,6 +755,7 @@ def test_summary_returns_all_required_top_level_keys() -> None:
         "work_universe_posture",
         "closure_readiness_projection",
         "mechanical_flags",
+        "performance_evaluation",
     ):
         assert key in result, f"missing key: {key}"
 

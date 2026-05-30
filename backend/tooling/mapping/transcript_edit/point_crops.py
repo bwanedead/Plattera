@@ -19,7 +19,7 @@ _POINT_CROP_TEMPLATES: dict[str, dict[str, tuple[float, float]]] = {
         "portrait": (0.18, 0.24),
     },
     "small_plus": {
-        "wide": (0.48, 0.24),
+        "wide": (0.48, 0.13),
         "square": (0.24, 0.24),
         "portrait": (0.24, 0.32),
     },
@@ -46,12 +46,14 @@ _POINT_COLORS: list[tuple[int, int, int]] = [
 ]
 
 MAX_POINT_CROP_COUNT = 16
-DEFAULT_SHOW = ["pin", "box", "letter"]
+DEFAULT_SHOW = ["pin", "letter"]
 ALLOWED_SHOW = frozenset({"pin", "box", "letter"})
 ALLOWED_SIZES = frozenset({"small", "small_plus", "medium", "large"})
 _SIZE_OPTIONS_TEXT = "small|small_plus|medium|large"
 _SIZE_LEGEND_ORDER = ("small", "small_plus", "medium", "large")
 ALLOWED_SHAPES = frozenset({"wide", "portrait", "square"})
+MIN_EXPLICIT_DIM_NORM = 0.02
+MAX_EXPLICIT_DIM_NORM = 1.0
 MAX_GRAPH_REF_KEYS = 8
 MAX_GRAPH_REF_VALUE_CHARS = 120
 MIN_ZOOM_FACTOR = 1.0
@@ -74,19 +76,21 @@ _ZOOM_METADATA_KEYS = (
     "max_output_dimension",
 )
 OVERLAY_GRID_MAJOR_STEP_NORM = 0.10
-OVERLAY_GRID_MINOR_STEP_NORM = 0.05
+OVERLAY_GRID_MINOR_STEP_NORM = 0.025
 OVERLAY_LEGEND_HEIGHT = 120
-_OVERLAY_GRID_MINOR_COLOR = (228, 228, 228)
+_OVERLAY_GRID_MINOR_COLOR = (232, 232, 232)
 _OVERLAY_GRID_MAJOR_COLOR = (140, 140, 140)
 _OVERLAY_GRID_MINOR_WIDTH = 1
 _OVERLAY_GRID_MAJOR_WIDTH = 2
 _OVERLAY_GRID_LABEL_COLOR = (50, 50, 50)
 _BOX_FILL_ALPHA = 52
 _BOX_OUTLINE_WIDTH = 3
-_PIN_RADIUS = 6
-_PIN_LINE_WIDTH = 3
-_LETTER_PAD = 3
-_LETTER_BG_RGBA = (255, 255, 255, 230)
+_PIN_RADIUS = 10
+_PIN_HALO_PADDING = 3
+_PIN_FILL_ALPHA = 215
+_PIN_HALO_RGBA = (255, 255, 255, 190)
+_LETTER_PAD = 4
+_LETTER_BG_RGBA = (255, 255, 255, 235)
 _LEGEND_SIZE_COLORS: dict[str, tuple[int, int, int]] = {
     "small": (220, 70, 70),
     "small_plus": (245, 166, 35),
@@ -180,6 +184,9 @@ def validate_point_crops_params(params: dict[str, Any]) -> str | None:
             if scale_err:
                 return scale_err
             p[axis] = _normalize_axis_scale(p[axis])
+        dim_err = _validate_point_explicit_dimensions(p, f"params.points[{i}]")
+        if dim_err:
+            return dim_err
     return _validate_show_param(params) or None
 
 
@@ -188,10 +195,16 @@ def point_crops_repair_hint_for(message: str) -> str | None:
         return (
             'Provide params.points = [{"alias": "...", "point_norm": [x,y], '
             f'"size": "{_SIZE_OPTIONS_TEXT}", "shape": "wide|portrait|square", '
+            '"width_norm?: number, height_norm?: number (both required together), '
             '"scale_x?: number, scale_y?: number}, ...]'
         )
     if "exceeds safety cap" in message:
         return "Reduce the number of points in a single call."
+    if "width_norm" in message or "height_norm" in message:
+        return (
+            f"Provide width_norm and height_norm together, each between "
+            f"{MIN_EXPLICIT_DIM_NORM} and {MAX_EXPLICIT_DIM_NORM}."
+        )
     if "zoom_factor" in message:
         return f"Use zoom_factor between {MIN_ZOOM_FACTOR} and {MAX_ZOOM_FACTOR} (global or per-point)."
     if "scale_x" in message or "scale_y" in message:
@@ -234,6 +247,64 @@ def _validate_axis_scale_raw(raw: Any, field_name: str) -> str | None:
 
 def _normalize_axis_scale(raw: Any) -> float:
     return round(float(raw), 4)
+
+
+def _normalize_explicit_dim(raw: Any) -> float:
+    return round(float(raw), 6)
+
+
+def _validate_explicit_dim_raw(raw: Any, field_name: str) -> str | None:
+    if raw is None:
+        return None
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return f"{field_name} must be a numeric normalized dimension."
+    if not (MIN_EXPLICIT_DIM_NORM <= value <= MAX_EXPLICIT_DIM_NORM):
+        return (
+            f"{field_name} must be between {MIN_EXPLICIT_DIM_NORM} and {MAX_EXPLICIT_DIM_NORM}."
+        )
+    return None
+
+
+def _validate_point_explicit_dimensions(point: dict[str, Any], field_prefix: str) -> str | None:
+    has_w = point.get("width_norm") is not None
+    has_h = point.get("height_norm") is not None
+    if has_w != has_h:
+        return f"{field_prefix} must include both width_norm and height_norm together."
+    if not has_w:
+        return None
+    for key in ("width_norm", "height_norm"):
+        err = _validate_explicit_dim_raw(point.get(key), f"{field_prefix}.{key}")
+        if err:
+            return err
+        point[key] = _normalize_explicit_dim(point[key])
+    return None
+
+
+def _explicit_dims_from_point(point: Mapping[str, Any]) -> tuple[float | None, float | None]:
+    explicit = point.get("explicit_width_height_norm")
+    if isinstance(explicit, (list, tuple)) and len(explicit) == 2:
+        return float(explicit[0]), float(explicit[1])
+    if point.get("width_norm") is not None and point.get("height_norm") is not None:
+        return float(point["width_norm"]), float(point["height_norm"])
+    return None, None
+
+
+def _explicit_dimensions_equal(
+    prior_w: float | None,
+    prior_h: float | None,
+    new_w: float | None,
+    new_h: float | None,
+) -> bool:
+    if prior_w is None and prior_h is None and new_w is None and new_h is None:
+        return True
+    if prior_w is None or prior_h is None or new_w is None or new_h is None:
+        return False
+    return (
+        _normalize_explicit_dim(prior_w) == _normalize_explicit_dim(new_w)
+        and _normalize_explicit_dim(prior_h) == _normalize_explicit_dim(new_h)
+    )
 
 
 def resolve_point_axis_scale(
@@ -347,11 +418,21 @@ def _compute_single_point_geometry(
     shape: str,
     scale_x: float = 1.0,
     scale_y: float = 1.0,
+    width_norm: float | None = None,
+    height_norm: float | None = None,
 ) -> dict[str, Any]:
     x, y = float(point_norm[0]), float(point_norm[1])
     template_w, template_h = _POINT_CROP_TEMPLATES[size][shape]
-    w = template_w * scale_x
-    h = template_h * scale_y
+    if width_norm is not None and height_norm is not None:
+        base_w = float(width_norm)
+        base_h = float(height_norm)
+        explicit_dims = [_normalize_explicit_dim(base_w), _normalize_explicit_dim(base_h)]
+    else:
+        base_w = template_w
+        base_h = template_h
+        explicit_dims = None
+    w = base_w * scale_x
+    h = base_h * scale_y
 
     desired_w = w * img.width
     desired_h = h * img.height
@@ -380,8 +461,10 @@ def _compute_single_point_geometry(
     bottom = max(top + 1, min(bottom, img.height))
 
     box = (int(left), int(top), int(right), int(bottom))
-    return {
+    pin_px = [int(round(x * img.width)), int(round(y * img.height))]
+    result: dict[str, Any] = {
         "point_norm": [round(x, 6), round(y, 6)],
+        "pin_px": pin_px,
         "box_px": [box[0], box[1], box[2], box[3]],
         "box_norm": [
             round(left / img.width, 6),
@@ -395,6 +478,9 @@ def _compute_single_point_geometry(
         "template_width_height_norm": [round(template_w, 6), round(template_h, 6)],
         "resolved_width_height_norm": [round(w, 6), round(h, 6)],
     }
+    if explicit_dims is not None:
+        result["explicit_width_height_norm"] = explicit_dims
+    return result
 
 
 def build_overlay_render_metadata() -> dict[str, Any]:
@@ -418,6 +504,12 @@ def build_overlay_render_metadata() -> dict[str, Any]:
         "box_render": {
             "fill_alpha": _BOX_FILL_ALPHA,
             "outline_width": _BOX_OUTLINE_WIDTH,
+        },
+        "pin_render": {
+            "radius_px": _PIN_RADIUS,
+            "halo_padding_px": _PIN_HALO_PADDING,
+            "fill_alpha": _PIN_FILL_ALPHA,
+            "anchor": "point_norm",
         },
         "legend": {
             "size_colors": {
@@ -610,21 +702,21 @@ def _render_master_overlay(
                 width=_BOX_OUTLINE_WIDTH,
             )
         if "pin" in show:
-            cx = (b[0] + b[2]) // 2
-            cy = (b[1] + b[3]) // 2
+            pin_px = pt.get("pin_px")
+            if isinstance(pin_px, (list, tuple)) and len(pin_px) == 2:
+                cx, cy = int(pin_px[0]), int(pin_px[1])
+            else:
+                cx = (b[0] + b[2]) // 2
+                cy = (b[1] + b[3]) // 2
             r = _PIN_RADIUS
-            box_draw.line(
-                [(cx - r, cy), (cx + r, cy)],
-                fill=(*outline, 255),
-                width=_PIN_LINE_WIDTH,
-            )
-            box_draw.line(
-                [(cx, cy - r), (cx, cy + r)],
-                fill=(*outline, 255),
-                width=_PIN_LINE_WIDTH,
+            halo = _PIN_HALO_PADDING
+            box_draw.ellipse(
+                [cx - r - halo, cy - r - halo, cx + r + halo, cy + r + halo],
+                fill=_PIN_HALO_RGBA,
             )
             box_draw.ellipse(
                 [cx - r, cy - r, cx + r, cy + r],
+                fill=(*col, _PIN_FILL_ALPHA),
                 outline=(*outline, 255),
                 width=2,
             )
@@ -636,13 +728,19 @@ def _render_master_overlay(
     for pt in per_point_data:
         if "letter" not in show:
             continue
-        b = tuple(pt["box_px"])
         col = tuple(int(v) for v in pt["color"][:3])
         outline = _saturate_outline_color(col)
-        lx, ly = b[0] + 2, max(0, b[1] - 16)
+        pin_px = pt.get("pin_px")
+        if isinstance(pin_px, (list, tuple)) and len(pin_px) == 2:
+            cx, cy = int(pin_px[0]), int(pin_px[1])
+        else:
+            b = tuple(pt["box_px"])
+            cx = (b[0] + b[2]) // 2
+            cy = (b[1] + b[3]) // 2
+        lx, ly = min(cx + 8, img.width - 18), max(0, cy - 20)
         pad = _LETTER_PAD
         letter_draw.rectangle(
-            [lx - pad, ly - pad, lx + 14 + pad, ly + 14 + pad],
+            [lx - pad, ly - pad, lx + 16 + pad, ly + 16 + pad],
             fill=_LETTER_BG_RGBA,
             outline=(*outline, 255),
             width=2,
@@ -692,6 +790,7 @@ def compute_point_crops(img: Any, params: dict[str, Any]) -> dict[str, Any]:
             point_scale_x=point_scale_x,
             point_scale_y=point_scale_y,
         )
+        explicit_w, explicit_h = _explicit_dims_from_point(p)
         geo = _compute_single_point_geometry(
             img,
             point_norm=[float(p["point_norm"][0]), float(p["point_norm"][1])],
@@ -699,6 +798,8 @@ def compute_point_crops(img: Any, params: dict[str, Any]) -> dict[str, Any]:
             shape=p["shape"],
             scale_x=scale_x,
             scale_y=scale_y,
+            width_norm=explicit_w,
+            height_norm=explicit_h,
         )
         crop_img = img.crop(tuple(geo["box"]))
         point_zoom = p.get("zoom_factor")
@@ -714,6 +815,7 @@ def compute_point_crops(img: Any, params: dict[str, Any]) -> dict[str, Any]:
             "letter": letters[i],
             "color": list(colors[i]),
             "point_norm": geo["point_norm"],
+            "pin_px": geo["pin_px"],
             "box_px": geo["box_px"],
             "box_norm": geo["box_norm"],
             "crop_img": zoomed_crop,
@@ -725,6 +827,8 @@ def compute_point_crops(img: Any, params: dict[str, Any]) -> dict[str, Any]:
             "resolved_width_height_norm": geo["resolved_width_height_norm"],
             **zoom_meta,
         }
+        if geo.get("explicit_width_height_norm") is not None:
+            row["explicit_width_height_norm"] = geo["explicit_width_height_norm"]
         if isinstance(p.get("graph_ref"), dict):
             row["graph_ref"] = dict(p["graph_ref"])
         per_point_data.append(row)
@@ -759,6 +863,7 @@ def compute_point_crops_view(img: Any, points: list[dict[str, Any]], *, show: li
             color = list(_POINT_COLORS[i % len(_POINT_COLORS)])
         scale_x = float(p["scale_x"]) if p.get("scale_x") is not None else 1.0
         scale_y = float(p["scale_y"]) if p.get("scale_y") is not None else 1.0
+        explicit_w, explicit_h = _explicit_dims_from_point(p)
         geo = _compute_single_point_geometry(
             img,
             point_norm=[float(p["point_norm"][0]), float(p["point_norm"][1])],
@@ -766,12 +871,15 @@ def compute_point_crops_view(img: Any, points: list[dict[str, Any]], *, show: li
             shape=str(p["shape"]),
             scale_x=scale_x,
             scale_y=scale_y,
+            width_norm=explicit_w,
+            height_norm=explicit_h,
         )
         row: dict[str, Any] = {
             "alias": alias,
             "letter": letter,
             "color": color,
             "point_norm": geo["point_norm"],
+            "pin_px": geo["pin_px"],
             "box_px": geo["box_px"],
             "box_norm": geo["box_norm"],
             "size": p["size"],
@@ -781,6 +889,8 @@ def compute_point_crops_view(img: Any, points: list[dict[str, Any]], *, show: li
             "template_width_height_norm": geo["template_width_height_norm"],
             "resolved_width_height_norm": geo["resolved_width_height_norm"],
         }
+        if geo.get("explicit_width_height_norm") is not None:
+            row["explicit_width_height_norm"] = geo["explicit_width_height_norm"]
         crop_ref = p.get("crop_ref")
         if isinstance(crop_ref, str) and crop_ref.strip():
             row["crop_ref"] = crop_ref.strip()
@@ -826,7 +936,13 @@ def build_crop_set_point_record(point: dict[str, Any], *, crop_ref: str | None =
 
 def _copy_scale_metadata(source: Mapping[str, Any]) -> dict[str, Any]:
     out: dict[str, Any] = {}
-    for key in ("scale_x", "scale_y", "template_width_height_norm", "resolved_width_height_norm"):
+    for key in (
+        "scale_x",
+        "scale_y",
+        "explicit_width_height_norm",
+        "template_width_height_norm",
+        "resolved_width_height_norm",
+    ):
         if key in source:
             out[key] = source[key]
     return out
@@ -905,8 +1021,13 @@ def point_crops_adjust_repair_hint_for(message: str) -> str | None:
         return "Each adjustment row must target exactly one point via letter OR alias, not both."
     if "no actual change" in message:
         return (
-            "Provide point_norm, shift_norm, size, shape, scale_x, scale_y, "
+            "Provide point_norm, shift_norm, size, shape, width_norm, height_norm, scale_x, scale_y, "
             "and/or zoom_factor values that change the target point."
+        )
+    if "width_norm" in message or "height_norm" in message:
+        return (
+            f"Provide width_norm and height_norm together, each between "
+            f"{MIN_EXPLICIT_DIM_NORM} and {MAX_EXPLICIT_DIM_NORM}."
         )
     if "scale_x" in message or "scale_y" in message:
         return (
@@ -982,6 +1103,10 @@ def prepare_point_crops_adjust(
                     row[axis] = _normalize_axis_scale(prior_scale)
                 except (TypeError, ValueError):
                     pass
+        explicit_w, explicit_h = _explicit_dims_from_point(pt)
+        if explicit_w is not None and explicit_h is not None:
+            row["width_norm"] = explicit_w
+            row["height_norm"] = explicit_h
         working_points.append(row)
         by_letter[letter] = row
         by_alias[alias] = row
@@ -1037,18 +1162,31 @@ def prepare_point_crops_adjust(
         prior_zoom_factor = target_row.get("zoom_factor")
         prior_scale_x = float(target_row.get("scale_x", 1.0))
         prior_scale_y = float(target_row.get("scale_y", 1.0))
+        prior_width_norm, prior_height_norm = _explicit_dims_from_point(target_row)
         new_point_norm = list(prior_point_norm)
         new_size = prior_size
         new_shape = prior_shape
         new_zoom_factor = prior_zoom_factor
         new_scale_x = prior_scale_x
         new_scale_y = prior_scale_y
+        new_width_norm = prior_width_norm
+        new_height_norm = prior_height_norm
         shift_applied: list[float] | None = None
 
-        change_fields = ("point_norm", "shift_norm", "size", "shape", "zoom_factor", "scale_x", "scale_y")
+        change_fields = (
+            "point_norm",
+            "shift_norm",
+            "size",
+            "shape",
+            "zoom_factor",
+            "scale_x",
+            "scale_y",
+            "width_norm",
+            "height_norm",
+        )
         if not any(field in adj for field in change_fields):
             raise PointCropParamError(
-                f"params.adjust[{i}] specifies no actual change (need point_norm, shift_norm, size, shape, scale_x, scale_y, and/or zoom_factor).",
+                f"params.adjust[{i}] specifies no actual change (need point_norm, shift_norm, size, shape, width_norm, height_norm, scale_x, scale_y, and/or zoom_factor).",
                 repair_hint=point_crops_adjust_repair_hint_for("no actual change"),
             )
 
@@ -1119,6 +1257,22 @@ def prepare_point_crops_adjust(
                 raise PointCropParamError(scale_err)
             new_scale_y = _normalize_axis_scale(adj["scale_y"])
 
+        if "width_norm" in adj or "height_norm" in adj:
+            if "width_norm" not in adj or "height_norm" not in adj:
+                raise PointCropParamError(
+                    f"params.adjust[{i}] must include both width_norm and height_norm together.",
+                    repair_hint=point_crops_adjust_repair_hint_for("width_norm"),
+                )
+            for key in ("width_norm", "height_norm"):
+                dim_err = _validate_explicit_dim_raw(
+                    adj.get(key),
+                    f"params.adjust[{i}].{key}",
+                )
+                if dim_err:
+                    raise PointCropParamError(dim_err)
+            new_width_norm = _normalize_explicit_dim(adj["width_norm"])
+            new_height_norm = _normalize_explicit_dim(adj["height_norm"])
+
         prior_zoom_effective = resolve_point_zoom_factor(
             size=prior_size,
             point_zoom=float(prior_zoom_factor) if prior_zoom_factor is not None else None,
@@ -1135,6 +1289,12 @@ def prepare_point_crops_adjust(
             and new_zoom_effective == prior_zoom_effective
             and _normalize_axis_scale(new_scale_x) == _normalize_axis_scale(prior_scale_x)
             and _normalize_axis_scale(new_scale_y) == _normalize_axis_scale(prior_scale_y)
+            and _explicit_dimensions_equal(
+                prior_width_norm,
+                prior_height_norm,
+                new_width_norm,
+                new_height_norm,
+            )
         ):
             raise PointCropParamError(
                 f"params.adjust[{i}] specifies no actual change for the selected target.",
@@ -1156,6 +1316,12 @@ def prepare_point_crops_adjust(
             target_row["scale_y"] = _normalize_axis_scale(new_scale_y)
         else:
             target_row.pop("scale_y", None)
+        if new_width_norm is not None and new_height_norm is not None:
+            target_row["width_norm"] = _normalize_explicit_dim(new_width_norm)
+            target_row["height_norm"] = _normalize_explicit_dim(new_height_norm)
+        else:
+            target_row.pop("width_norm", None)
+            target_row.pop("height_norm", None)
 
         applied: dict[str, Any] = {
             "target": target,
@@ -1175,6 +1341,17 @@ def prepare_point_crops_adjust(
         if _normalize_axis_scale(prior_scale_y) != _normalize_axis_scale(new_scale_y):
             applied["prior_scale_y"] = _normalize_axis_scale(prior_scale_y)
             applied["new_scale_y"] = _normalize_axis_scale(new_scale_y)
+        if prior_width_norm != new_width_norm or prior_height_norm != new_height_norm:
+            applied["prior_width_height_norm"] = (
+                [_normalize_explicit_dim(prior_width_norm), _normalize_explicit_dim(prior_height_norm)]
+                if prior_width_norm is not None and prior_height_norm is not None
+                else None
+            )
+            applied["new_width_height_norm"] = (
+                [_normalize_explicit_dim(new_width_norm), _normalize_explicit_dim(new_height_norm)]
+                if new_width_norm is not None and new_height_norm is not None
+                else None
+            )
         if shift_applied is not None:
             applied["shift_norm"] = shift_applied
         adjustments_applied.append(applied)
@@ -1194,6 +1371,9 @@ def prepare_point_crops_adjust(
         for axis in ("scale_x", "scale_y"):
             if pt.get(axis) is not None:
                 point_row[axis] = pt[axis]
+        if pt.get("width_norm") is not None and pt.get("height_norm") is not None:
+            point_row["width_norm"] = pt["width_norm"]
+            point_row["height_norm"] = pt["height_norm"]
         compute_points.append(point_row)
 
     return {

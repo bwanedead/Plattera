@@ -35,6 +35,17 @@ def test_harness_surface_defines_inventory_and_resolution_motion_gate() -> None:
     assert "retroflect immediately" in text
 
 
+def test_harness_surface_teaches_user_messages_and_resolution_course() -> None:
+    text = _HARNESS_TRUNK_METHOD_TEXT.lower()
+    assert "user messages are first-class run information" in text
+    assert "highest-signal input for the run" in text
+    assert "do not quietly override user-provided information" in text
+    assert "resolution motion should have a course" in text
+    assert "not just reactions" in text
+    assert "reset the method from a cleaner view of the landscape" in text
+    assert "better trial quality, not surrender" in text
+
+
 def test_harness_surface_teaches_hitl_self_audit_and_async_default() -> None:
     surface = build_harness_turn_surface()
     text = "\n".join(block.content for block in surface.blocks).lower()

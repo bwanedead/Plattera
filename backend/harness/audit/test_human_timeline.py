@@ -1246,3 +1246,35 @@ def test_timeline_renders_user_message_ledger(tmp_path: Path) -> None:
     assert "text_truncated" in body
     assert "defer_reason:" in body
     assert "out of scope for this turn" in body
+
+
+def test_timeline_renders_performance_evaluation_section(tmp_path: Path) -> None:
+    writer = RunAuditWriter(tmp_path / "run1")
+    writer.observe_llm_io(
+        {
+            "turn_index": 1,
+            "parse_ok": True,
+            "prompt_observability_summary": {
+                "performance_evaluation": {
+                    "accuracy_status": "not_live_scored",
+                    "work_graph": {
+                        "work_units_total": 5,
+                        "closed_units": 2,
+                        "open_units": 3,
+                        "blocked_units": 1,
+                    },
+                    "productivity": {
+                        "determinations_changed_total": 2,
+                        "units_closed_total": 1,
+                        "determinations_per_turn": 2.0,
+                        "units_closed_per_turn": 1.0,
+                    },
+                    "current_pressure": ["accuracy_not_live_scored"],
+                }
+            },
+        }
+    )
+    body = _timeline_path(tmp_path / "run1").read_text(encoding="utf-8")
+    assert "Performance evaluation:" in body
+    assert "accuracy: not live scored" in body
+    assert "work graph: 5 total / 2 closed / 3 open / 1 blocked" in body

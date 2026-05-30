@@ -73,7 +73,7 @@ def _overlay_metadata_fields(transform_metadata: Mapping[str, Any]) -> dict[str,
     if not isinstance(overlay, Mapping):
         return {}
     fields: dict[str, Any] = {}
-    for key in ("grid", "legend", "box_render"):
+    for key in ("grid", "legend", "box_render", "pin_render"):
         if key in overlay:
             fields[key] = overlay[key]
     return fields
@@ -155,6 +155,7 @@ def _persist_point_crop_set(
                     "max_output_dimension",
                     "scale_x",
                     "scale_y",
+                    "explicit_width_height_norm",
                     "template_width_height_norm",
                     "resolved_width_height_norm",
                 )

@@ -6,6 +6,7 @@ Extracted from ``orchestrator`` to keep the main loop focused on control flow.
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any
 
 from ...execution.contracts import ExecutionStepResult
@@ -17,6 +18,7 @@ from .pinned_refs import build_pinned_refs_projection
 from .action_batch import summarize_image_evidence_for_projection
 from .contracts import ActionPlan
 from .lifecycle import TurnCompletionObserver, lifecycle_jsonable
+from ..memory.performance_evaluation import delegate_count_for_turn, turn_graph_delta
 
 _LOG = logging.getLogger(__name__)
 
@@ -124,8 +126,6 @@ def observe_turn_completed(
     mechanical_audit: dict[str, Any] | None = None,
 ) -> None:
     """Send an explicit post-turn mechanical record to the lifecycle observer."""
-    if observer is None:
-        return
     actions = effective_actions(action_plan)
     tool_request: dict[str, Any] | None = None
     if actions and not action_plan.complete_run and not action_plan.wait_for_human:
@@ -192,7 +192,43 @@ def observe_turn_completed(
     )
     if mechanical_audit:
         record.update(mechanical_audit)
+    _finalize_turn_performance_contact(
+        loop_memory=loop_memory,
+        turn_index=iteration,
+        completion_record=record,
+    )
+    if observer is None:
+        return
     try:
         observer.observe_turn_completed(record)
     except Exception:
         _LOG.warning("turn_completion_observer raised; ignoring", exc_info=True)
+
+
+def _finalize_turn_performance_contact(
+    *,
+    loop_memory: LoopMemoryState,
+    turn_index: int,
+    completion_record: dict[str, Any],
+) -> None:
+    before: dict[str, Any] | None = None
+    for row in reversed(loop_memory.telemetry.turn_contact_records):
+        if int(row.get("turn_index") or -1) == int(turn_index):
+            prior_before = row.get("resolution_state_before")
+            if isinstance(prior_before, dict):
+                before = prior_before
+            break
+
+    merged = dict(completion_record)
+    if before is not None and "resolution_state_before" not in merged:
+        merged["resolution_state_before"] = before
+    delta = turn_graph_delta(merged)
+    after = merged.get("resolution_state_after")
+    loop_memory.telemetry.finalize_turn_contact(
+        turn_index=int(turn_index),
+        finished_at_epoch_seconds=time.time(),
+        resolution_state_after=after if isinstance(after, dict) else None,
+        delegate_count=delegate_count_for_turn(merged),
+        determinations_changed=delta["determinations_changed"],
+        units_closed=delta["units_closed"],
+    )

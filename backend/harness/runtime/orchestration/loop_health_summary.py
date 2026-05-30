@@ -21,6 +21,7 @@ from ..user_messages.ledger import (
 )
 from ..memory import LoopMemoryState
 from ..memory.tool_result_slices import check_outputs_excerpt_truncated
+from ..memory.performance_evaluation import build_performance_evaluation
 from .evidence_locality import (
     BROAD_IMAGE_AREA_THRESHOLD,
     count_earned_exact_units_with_broad_image_locator,
@@ -31,6 +32,7 @@ def build_prompt_observability_summary(
     loop_memory: LoopMemoryState,
     *,
     closure_policy: Mapping[str, Any] | None = None,
+    turn_records: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Return host-owned loop-health facts safe to expose in prompts and audits."""
     telemetry = loop_memory.telemetry
@@ -472,6 +474,10 @@ def build_prompt_observability_summary(
         complete_with_unconsumed_hitl_count=hitl_ledger_metrics["complete_with_unconsumed_hitl_count"],
         hitl_consumed_unknown_prompt_count=hitl_ledger_metrics["hitl_consumed_unknown_prompt_count"],
         artifact_state_dirty_since_write_count=artifact_state_dirty_since_write_count,
+    )
+    summary["performance_evaluation"] = build_performance_evaluation(
+        loop_memory,
+        turn_records=turn_records,
     )
     return summary
 

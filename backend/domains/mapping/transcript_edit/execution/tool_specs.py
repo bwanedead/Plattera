@@ -137,7 +137,7 @@ def build_transcript_edit_tool_specs() -> tuple[SemanticToolSpec, ...]:
                 "returned image evidence and use them in a subsequent crop or zoom. "
                 "params: {cols: int (default 10), rows: int (default 10), "
                 "line_color: [R,G,B] (default [140,140,140]), label_color: [R,G,B] (default [180,0,0])}. "
-                "Default overlay includes major grid every 0.10, minor every 0.05, plus labeled 10x10 cells. "
+                "Default overlay includes major grid every 0.10, minor every 0.025, plus labeled 10x10 cells. "
                 "Each cell label shows (col,row) and its exact box_norm bounds. "
                 "RENDER_EVIDENCE_LOCATORS — params: {locators: evidence_locators[]}. "
                 "This is the preferred path for claim-local evidence that should survive in the work graph "
@@ -145,16 +145,19 @@ def build_transcript_edit_tool_specs() -> tuple[SemanticToolSpec, ...]:
                 "Image_region locators whose ref_id matches ref_id are rendered as highlights/boxes; "
                 "text_span, log_span, code_span, table_cell, json_path, and unknown kinds are summarized explicitly. "
                 "POINT_CROPS — params: {scale_x?: number, scale_y?: number, zoom_factor?: number, points: [{alias, point_norm: [x,y], "
-                "size: small|small_plus|medium|large, shape: wide|portrait|square, scale_x?: number, scale_y?: number, zoom_factor?: number}, ...], "
+                "size: small|small_plus|medium|large, shape: wide|portrait|square, width_norm?: number, height_norm?: number (both required), scale_x?: number, scale_y?: number, zoom_factor?: number}, ...], "
                 "show?: [pin|box|letter]}. "
-                "Default show is [pin, box, letter]. Per-point scale_x/scale_y override params.scale_x/scale_y; "
+                "Default show is [pin, letter]; include box when you want the crop window drawn on the master overlay. "
+                "Per-point width_norm/height_norm override template dimensions (both required together); then scale_x/scale_y may apply. "
+                "Per-point scale_x/scale_y override params.scale_x/scale_y; "
                 "1.0 leaves the template unchanged, >1.0 expands that axis, <1.0 condenses. "
                 "Per-point zoom_factor overrides params.zoom_factor; "
                 "when neither is set, default zoom by size (small 3.0, small_plus 2.75, medium 2.25, large 1.5). "
                 "Zoom applies to per-point crop refs only; master overlay stays unzoomed. "
                 "Wide templates are width-heavy for deed-clause context (heights unchanged). "
-                "Master overlay includes a dense normalized coordinate grid (major 0.10 / minor 0.05), "
-                "translucent filled crop boxes with saturated outlines, and a compact template "
+                "small_plus wide is atom/line scoped (wide width with reduced height). "
+                "Master overlay includes a dense normalized coordinate grid (major 0.10 / minor 0.025), "
+                "large point-norm pins with halo, and optional translucent crop boxes; "
                 "legend (size colors + wide/portrait cues) for placement review. "
                 "Per-point crop output is capped at max_output_dimension 3200 px on the longest side "
                 "(zoom_cap_applied metadata when reduced). "
@@ -166,7 +169,7 @@ def build_transcript_edit_tool_specs() -> tuple[SemanticToolSpec, ...]:
                 "hydrate_artifact_refs, delegate_subtask.context_refs, and HITL evidence packets. "
                 "Aliases are stored in metadata; letters are local A/B/C labels. "
                 "POINT_CROPS_ADJUST — ref_id must be a prior point_crops master overlay ref (image:derived:*). "
-                "params: {adjust: [{letter|alias, point_norm?, shift_norm?, size?, shape?, scale_x?, scale_y?, zoom_factor?}, ...], "
+                "params: {adjust: [{letter|alias, point_norm?, shift_norm?, size?, shape?, width_norm?, height_norm?, scale_x?, scale_y?, zoom_factor?}, ...], "
                 "show?: [pin|box|letter]}. "
                 "Each adjust row targets exactly one point by letter OR alias and must make a real change. "
                 "Prior scale and zoom metadata are preserved unless scale_x, scale_y, or zoom_factor is changed on the adjust row. "
@@ -216,10 +219,10 @@ def build_transcript_edit_tool_specs() -> tuple[SemanticToolSpec, ...]:
                             "reference_overlay: {cols: int, rows: int, line_color: [R,G,B], label_color: [R,G,B]}. "
                             "render_evidence_locators: {locators: evidence_locators[]} — the durable evidence path. "
                             "point_crops: {scale_x?: number, scale_y?: number, zoom_factor?: number, points: [{alias: str, point_norm: [x,y], "
-                            "size: small|small_plus|medium|large, shape: wide|portrait|square, scale_x?: number, scale_y?: number, zoom_factor?: number}], "
-                            "show?: [pin|box|letter]} — template crop packets; "
+                            "size: small|small_plus|medium|large, shape: wide|portrait|square, width_norm?: number, height_norm?: number, scale_x?: number, scale_y?: number, zoom_factor?: number}], "
+                            "show?: [pin|box|letter]} — template crop packets; default show pin+letter. "
                             "master overlay only in image_evidence; per-point crops are zoomed for legibility. "
-                            "point_crops_adjust: {adjust: [{letter|alias, point_norm?, shift_norm?, size?, shape?, scale_x?, scale_y?, "
+                            "point_crops_adjust: {adjust: [{letter|alias, point_norm?, shift_norm?, size?, shape?, width_norm?, height_norm?, scale_x?, scale_y?, "
                             "zoom_factor?}], show?: [pin|box|letter]} — adjust an existing crop set via prior master overlay ref_id. "
                             "point_crops_view: {filter?: {letters?, aliases?}, show?: [pin|box|letter]} — filtered overlay view."
                         ),
@@ -237,10 +240,9 @@ def build_transcript_edit_tool_specs() -> tuple[SemanticToolSpec, ...]:
                             "point_norm": [0.36, 0.63],
                             "size": "small_plus",
                             "shape": "wide",
-                            "scale_x": 1.25,
                         }
                     ],
-                    "show": ["pin", "box", "letter"],
+                    "show": ["pin", "letter"],
                 },
             },
             batching={
@@ -265,7 +267,7 @@ def build_transcript_edit_tool_specs() -> tuple[SemanticToolSpec, ...]:
                 "and outputs.unsupported_locators preserve per-locator lineage. "
                 "For point_crops: outputs.derived_ref_id is the master overlay ref; image_evidence contains "
                 "ONLY that master overlay (not every crop). Master overlay includes a dense coordinate grid "
-                "(major 0.10 / minor 0.05), translucent filled boxes with saturated outlines, and template "
+                "(major 0.10 / minor 0.025), large point-norm pins with halo, optional translucent boxes, and template "
                 "legend for point_norm/shift_norm review. "
                 "outputs.crop_set and outputs.crop_records map "
                 "letters/aliases/colors/geometry to individual crop refs in artifact_refs. "

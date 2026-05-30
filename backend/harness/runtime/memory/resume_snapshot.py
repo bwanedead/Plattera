@@ -123,6 +123,7 @@ def build_kernel_resume_snapshot(
             "prompt_event_count": int(loop_memory.telemetry.prompt_event_count),
             "last_prompt_event_id": loop_memory.telemetry.last_prompt_event_id,
             "last_prompt_event_surface": loop_memory.telemetry.last_prompt_event_surface,
+            "turn_contact_records": list(loop_memory.telemetry.turn_contact_records),
         },
         "turn_recovery": loop_memory.turn_recovery.to_wire(),
         "execution_session": exec_wire,
@@ -540,11 +541,18 @@ def parse_kernel_resume_snapshot(payload: Mapping[str, Any]) -> tuple[LoopMemory
         return empty, 1, psurf_err
 
     try:
+        turn_contact_records_raw = tel_raw.get("turn_contact_records")
+        turn_contact_records: list[dict[str, Any]] = []
+        if isinstance(turn_contact_records_raw, list):
+            for row in turn_contact_records_raw:
+                if isinstance(row, dict):
+                    turn_contact_records.append(dict(row))
         telemetry = PromptContactTelemetry(
             llm_contact_count=int(tel_raw.get("llm_contact_count", 0)),
             prompt_event_count=int(tel_raw.get("prompt_event_count", 0)),
             last_prompt_event_id=last_peid,
             last_prompt_event_surface=last_psurf,
+            turn_contact_records=turn_contact_records,
         )
     except (TypeError, ValueError):
         return empty, 1, "resume_snapshot_telemetry_invalid"

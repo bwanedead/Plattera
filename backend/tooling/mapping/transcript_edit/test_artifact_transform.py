@@ -226,14 +226,14 @@ def test_reference_overlay_default_grid_is_denser(tmp_path, monkeypatch):
     desc = _load_derived_image_descriptor("d1", "tx-1", "ws-1", result["outputs"]["derived_ref_id"])
     grid = desc["transform_metadata"]["overlay"]["grid"]
     assert grid["major_step_norm"] == 0.10
-    assert grid["minor_step_norm"] == 0.05
+    assert grid["minor_step_norm"] == 0.025
     assert grid["cols"] == 10
     assert grid["rows"] == 10
     from PIL import Image
 
     img = Image.open(desc["absolute_path"])
     bg = (200, 200, 200)
-    assert img.getpixel((5, 5)) != bg
+    assert img.getpixel((2, 5)) != bg
     assert img.getpixel((10, 5)) != bg
 
 
@@ -1492,7 +1492,7 @@ def test_point_crop_templates_match_retuned_normalized_sizes() -> None:
             "portrait": (0.18, 0.24),
         },
         "small_plus": {
-            "wide": (0.48, 0.24),
+            "wide": (0.48, 0.13),
             "square": (0.24, 0.24),
             "portrait": (0.24, 0.32),
         },
@@ -1515,7 +1515,7 @@ def test_point_crop_wide_templates_widened_heights_unchanged() -> None:
 
     templates = point_crops_mod._POINT_CROP_TEMPLATES
     assert templates["small"]["wide"] == (0.32, 0.18)
-    assert templates["small_plus"]["wide"] == (0.48, 0.24)
+    assert templates["small_plus"]["wide"] == (0.48, 0.13)
     assert templates["medium"]["wide"] == (0.62, 0.30)
     assert templates["large"]["wide"] == (0.82, 0.48)
     assert templates["small"]["wide"][1] == 0.18
@@ -1769,20 +1769,20 @@ def test_point_crop_scale_metadata_persists_in_sidecar_and_descriptor(tmp_path, 
     assert point["size"] == "small_plus"
     assert point["scale_x"] == 1.2
     assert point["scale_y"] == 1.15
-    assert point["template_width_height_norm"] == [0.48, 0.24]
-    assert point["resolved_width_height_norm"] == [0.576, 0.276]
+    assert point["template_width_height_norm"] == [0.48, 0.13]
+    assert point["resolved_width_height_norm"] == [0.576, 0.1495]
 
     master_ref = result["outputs"]["derived_ref_id"]
     master_desc = _load_derived_image_descriptor("d1", "tx-1", "ws-1", master_ref)
     sidecar_point = master_desc["transform_metadata"]["crop_set"]["points"][0]
     assert sidecar_point["scale_x"] == 1.2
-    assert sidecar_point["resolved_width_height_norm"] == [0.576, 0.276]
+    assert sidecar_point["resolved_width_height_norm"] == [0.576, 0.1495]
 
     crop_desc = _load_derived_image_descriptor("d1", "tx-1", "ws-1", point["crop_ref"])
     meta = crop_desc["transform_metadata"]
     assert meta["scale_x"] == 1.2
     assert meta["scale_y"] == 1.15
-    assert meta["template_width_height_norm"] == [0.48, 0.24]
+    assert meta["template_width_height_norm"] == [0.48, 0.13]
 
 
 def test_point_crops_adjust_can_change_only_scale(tmp_path, monkeypatch) -> None:
@@ -1883,6 +1883,180 @@ def test_point_crop_widened_medium_wide_stays_readable_with_output_cap(tmp_path,
 
 
 # ---------------------------------------------------------------------------
+# point_crops — targeting ergonomics (M10)
+# ---------------------------------------------------------------------------
+
+
+def test_point_crop_small_plus_wide_is_atom_line_scoped() -> None:
+    import tooling.mapping.transcript_edit.point_crops as point_crops_mod
+
+    wide = point_crops_mod._POINT_CROP_TEMPLATES["small_plus"]["wide"]
+    assert wide == (0.48, 0.13)
+    assert wide[1] < 0.24
+
+
+def test_point_crop_explicit_dimensions_override_template() -> None:
+    import tooling.mapping.transcript_edit.point_crops as point_crops_mod
+
+    img = _FakeImage(4000, 3000)
+    explicit_geo = point_crops_mod._compute_single_point_geometry(
+        img,
+        point_norm=[0.45, 0.56],
+        size="medium",
+        shape="wide",
+        width_norm=0.48,
+        height_norm=0.13,
+    )
+    assert explicit_geo["explicit_width_height_norm"] == [0.48, 0.13]
+    assert explicit_geo["template_width_height_norm"] == [0.62, 0.30]
+    assert explicit_geo["resolved_width_height_norm"] == [0.48, 0.13]
+    assert explicit_geo["box_px"][3] - explicit_geo["box_px"][1] == int(round(0.13 * 3000))
+
+
+def test_point_crop_explicit_dimensions_reject_partial_pair() -> None:
+    import tooling.mapping.transcript_edit.point_crops as point_crops_mod
+
+    err = point_crops_mod.validate_point_crops_params(
+        {
+            "points": [
+                {
+                    "alias": "partial_dims",
+                    "point_norm": [0.5, 0.5],
+                    "size": "small_plus",
+                    "shape": "wide",
+                    "width_norm": 0.48,
+                }
+            ]
+        }
+    )
+    assert err is not None
+    assert "both width_norm and height_norm" in err
+
+
+def test_point_crop_explicit_dimensions_reject_out_of_bounds() -> None:
+    import tooling.mapping.transcript_edit.point_crops as point_crops_mod
+
+    err = point_crops_mod.validate_point_crops_params(
+        {
+            "points": [
+                {
+                    "alias": "too_tall",
+                    "point_norm": [0.5, 0.5],
+                    "size": "small_plus",
+                    "shape": "wide",
+                    "width_norm": 0.48,
+                    "height_norm": 1.5,
+                }
+            ]
+        }
+    )
+    assert err is not None
+    assert "height_norm" in err
+
+
+def test_point_crops_default_show_omits_box_but_still_creates_crop_refs(tmp_path, monkeypatch) -> None:
+    handler, ref_id = _make_handler(tmp_path, monkeypatch)
+    result = handler({"ref_id": ref_id, **_point_crops_request()})
+    assert result["executed"] is True
+    assert result["outputs"]["crop_set"]["show"] == ["pin", "letter"]
+    point = result["outputs"]["crop_set"]["points"][0]
+    assert point["crop_ref"].startswith("image:derived:")
+    assert point["box_norm"][2] > point["box_norm"][0]
+
+
+def test_point_crops_explicit_show_includes_box(tmp_path, monkeypatch) -> None:
+    from tooling.mapping.transcript_edit.artifact_hydration import _load_derived_image_descriptor
+
+    handler, ref_id = _make_handler(tmp_path, monkeypatch, d="d1", tx="tx-1", ws="ws-1")
+    result = handler({"ref_id": ref_id, **_point_crops_request(show=["pin", "letter", "box"])})
+    assert result["outputs"]["crop_set"]["show"] == ["pin", "letter", "box"]
+    desc = _load_derived_image_descriptor("d1", "tx-1", "ws-1", result["outputs"]["derived_ref_id"])
+    from PIL import Image
+
+    img = Image.open(desc["absolute_path"])
+    point = result["outputs"]["crop_set"]["points"][0]
+    cx = (point["box_px"][0] + point["box_px"][2]) // 2
+    cy = (point["box_px"][1] + point["box_px"][3]) // 2
+    assert img.getpixel((cx, cy)) != (200, 200, 200)
+
+
+def test_point_crops_explicit_dimensions_persist_in_sidecar(tmp_path, monkeypatch) -> None:
+    handler, ref_id = _make_handler(tmp_path, monkeypatch)
+    result = handler({
+        "ref_id": ref_id,
+        "sub_action": "point_crops",
+        "params": {
+            "points": [
+                {
+                    "alias": "parcel1_tie_bearing",
+                    "point_norm": [0.45, 0.56],
+                    "size": "small_plus",
+                    "shape": "wide",
+                    "width_norm": 0.48,
+                    "height_norm": 0.13,
+                }
+            ]
+        },
+    })
+    assert result["executed"] is True
+    point = result["outputs"]["crop_set"]["points"][0]
+    assert point["explicit_width_height_norm"] == [0.48, 0.13]
+    assert point["resolved_width_height_norm"] == [0.48, 0.13]
+
+
+def test_point_crops_adjust_preserves_and_updates_explicit_dimensions(tmp_path, monkeypatch) -> None:
+    handler, source_ref = _make_handler(tmp_path, monkeypatch)
+    created = handler({
+        "ref_id": source_ref,
+        "sub_action": "point_crops",
+        "params": {
+            "points": [
+                {
+                    "alias": "parcel1_tie_bearing",
+                    "point_norm": [0.45, 0.56],
+                    "size": "small_plus",
+                    "shape": "wide",
+                    "width_norm": 0.48,
+                    "height_norm": 0.13,
+                }
+            ]
+        },
+    })
+    prior_master = created["outputs"]["derived_ref_id"]
+    prior_point = created["outputs"]["crop_set"]["points"][0]
+    prior_h = prior_point["box_px"][3] - prior_point["box_px"][1]
+    adjusted = handler(_point_crops_adjust_request(
+        master_ref=prior_master,
+        adjust=[{"letter": "A", "width_norm": 0.48, "height_norm": 0.18}],
+    ))
+    assert adjusted["executed"] is True
+    new_point = adjusted["outputs"]["crop_set"]["points"][0]
+    new_h = new_point["box_px"][3] - new_point["box_px"][1]
+    assert new_h > prior_h
+    assert new_point["explicit_width_height_norm"] == [0.48, 0.18]
+    applied = adjusted["outputs"]["adjustments_applied"][0]
+    assert applied["prior_width_height_norm"] == [0.48, 0.13]
+    assert applied["new_width_height_norm"] == [0.48, 0.18]
+
+
+def test_point_crops_master_overlay_pin_renders_at_point_norm(tmp_path, monkeypatch) -> None:
+    from tooling.mapping.transcript_edit.artifact_hydration import _load_derived_image_descriptor
+
+    handler, ref_id = _make_handler(tmp_path, monkeypatch, d="d1", tx="tx-1", ws="ws-1")
+    result = handler({
+        "ref_id": ref_id,
+        **_point_crops_request(point_norm=[0.42, 0.58], size="small_plus", shape="wide"),
+    })
+    desc = _load_derived_image_descriptor("d1", "tx-1", "ws-1", result["outputs"]["derived_ref_id"])
+    from PIL import Image
+
+    img = Image.open(desc["absolute_path"])
+    px = int(round(0.42 * 100))
+    py = int(round(0.58 * 80))
+    assert img.getpixel((px, py)) != (200, 200, 200)
+
+
+# ---------------------------------------------------------------------------
 # point_crops — master overlay grid + legend (M2)
 # ---------------------------------------------------------------------------
 
@@ -1894,10 +2068,12 @@ def test_point_crops_master_overlay_includes_grid_metadata(tmp_path, monkeypatch
     grid = result["outputs"]["crop_set"]["grid"]
     assert grid["enabled"] is True
     assert grid["major_step_norm"] == 0.10
-    assert grid["minor_step_norm"] == 0.05
+    assert grid["minor_step_norm"] == 0.025
     assert grid["coordinate_space"] == "source_image_norm"
     assert grid["major_line"]["width"] == 2
     assert result["outputs"]["crop_set"]["box_render"]["fill_alpha"] == 52
+    assert result["outputs"]["crop_set"]["pin_render"]["radius_px"] == 10
+    assert result["outputs"]["crop_set"]["show"] == ["pin", "letter"]
     legend = result["outputs"]["crop_set"]["legend"]
     assert legend["size_colors"]["small"] == [220, 70, 70]
     assert legend["size_colors"]["small_plus"] == [245, 166, 35]
@@ -1918,8 +2094,8 @@ def test_point_crops_master_overlay_renders_dense_grid_on_image_area(tmp_path, m
 
     img = Image.open(desc["absolute_path"])
     bg = (200, 200, 200)
-    # Minor grid at x=5 (0.05) and major at x=10 (0.10) on a 100px-wide source.
-    assert img.getpixel((5, 10)) != bg
+    # Minor grid at x=2 (0.025) and major at x=10 (0.10) on a 100px-wide source.
+    assert img.getpixel((2, 10)) != bg
     assert img.getpixel((10, 10)) != bg
     assert img.height == 200
 
@@ -1928,7 +2104,7 @@ def test_point_crops_master_overlay_renders_box_fill_and_letter(tmp_path, monkey
     from tooling.mapping.transcript_edit.artifact_hydration import _load_derived_image_descriptor
 
     handler, ref_id = _make_handler(tmp_path, monkeypatch, d="d1", tx="tx-1", ws="ws-1")
-    result = handler({"ref_id": ref_id, **_point_crops_request()})
+    result = handler({"ref_id": ref_id, **_point_crops_request(show=["pin", "letter", "box"])})
     master_ref = result["outputs"]["derived_ref_id"]
     desc = _load_derived_image_descriptor("d1", "tx-1", "ws-1", master_ref)
     from PIL import Image
@@ -1939,8 +2115,10 @@ def test_point_crops_master_overlay_renders_box_fill_and_letter(tmp_path, monkey
     cy = (point["box_px"][1] + point["box_px"][3]) // 2
     bg = (200, 200, 200)
     assert img.getpixel((cx, cy)) != bg
-    lx = point["box_px"][0] + 2
-    ly = max(0, point["box_px"][1] - 16)
+    px = int(round(point["point_norm"][0] * 100))
+    py = int(round(point["point_norm"][1] * 80))
+    lx = min(px + 8, 100 - 18)
+    ly = max(0, py - 20)
     assert img.getpixel((lx + 1, ly + 1)) != bg
 
 
