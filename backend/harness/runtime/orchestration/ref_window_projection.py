@@ -70,6 +70,7 @@ def collect_hot_refs_for_prompt(
     pinned_refs_projection: Mapping[str, Any] | None = None,
     agent_requested_hydration: Mapping[str, Any] | None = None,
     recent_action_sequence_result: Mapping[str, Any] | None = None,
+    delegate_subtask_results: Sequence[Mapping[str, Any]] | None = None,
     resolution_items: Sequence[Mapping[str, Any]] | None = None,
     active_item_id: str | None = None,
     hot_latest_ref_keys: frozenset[str] | None = None,
@@ -119,6 +120,16 @@ def collect_hot_refs_for_prompt(
                         ref = _normalize_ref(entry)
                         if ref:
                             hot.add(ref)
+                delegate_ref = row.get("delegate_result_ref")
+                if isinstance(delegate_ref, str) and delegate_ref.strip():
+                    hot.add(delegate_ref.strip())
+
+    if delegate_subtask_results:
+        for record in delegate_subtask_results:
+            if isinstance(record, Mapping):
+                ref_id = _normalize_ref(record.get("ref_id"))
+                if ref_id:
+                    hot.add(ref_id)
 
     if resolution_items:
         for item in resolution_items:

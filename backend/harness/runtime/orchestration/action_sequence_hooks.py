@@ -36,6 +36,11 @@ from .state_patch_apply import (
     sync_state_patch_when_no_step_dispatched,
 )
 from .subtasks.contracts import DELEGATE_SUBTASK_ACTION_TYPE
+from .subtasks.delegate_result_refs import (
+    build_delegate_result_record,
+    build_delegate_result_ref_id,
+    register_delegate_result_record,
+)
 from .tool_batch_policy import ToolBatchPolicy
 
 _LOG = logging.getLogger(__name__)
@@ -144,6 +149,7 @@ def _execute_sequence_items(
     item_rows: list[dict[str, Any]] = []
     last_step_result: Any | None = None
     stop_remaining = False
+    alias_counts: dict[str, int] = {}
 
     for item in actions:
         if stop_remaining:
@@ -224,6 +230,32 @@ def _execute_sequence_items(
         if step_result.dashboard is not None:
             loop_memory.continuity.latest_refs = step_result.dashboard.latest_refs.model_dump(mode="json")
 
+        delegate_result_ref: str | None = None
+        if item.action_type == DELEGATE_SUBTASK_ACTION_TYPE and outputs:
+            action_index = len(item_rows) + 1
+            alias_key = str(item.alias or "").strip() or f"action{action_index}"
+            alias_counts[alias_key] = alias_counts.get(alias_key, 0) + 1
+            duplicate_index = alias_counts[alias_key]
+            delegate_result_ref = build_delegate_result_ref_id(
+                turn_index=int(iteration),
+                alias=item.alias,
+                action_index=action_index,
+                duplicate_index=duplicate_index,
+            )
+            register_delegate_result_record(
+                loop_memory.continuity,
+                build_delegate_result_record(
+                    ref_id=delegate_result_ref,
+                    turn_index=int(iteration),
+                    alias=item.alias,
+                    action_index=action_index,
+                    action_inputs=dict(item.action_inputs),
+                    outputs=outputs,
+                ),
+            )
+            if delegate_result_ref not in artifact_refs:
+                artifact_refs.append(delegate_result_ref)
+
         item_rows.append(
             build_batch_item_result_row(
                 alias=item.alias,
@@ -232,6 +264,7 @@ def _execute_sequence_items(
                 outputs=outputs,
                 artifact_refs=artifact_refs,
                 image_evidence=image_evidence,
+                delegate_result_ref=delegate_result_ref,
             )
         )
 

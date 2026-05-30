@@ -214,6 +214,9 @@ def project_batch_item_row(row: Mapping[str, Any]) -> dict[str, Any]:
         out["artifact_refs"] = [
             str(x) for x in artifact_refs if isinstance(x, str) and x.strip()
         ][:_MAX_ARTIFACT_REFS_PER_ITEM]
+    delegate_result_ref = row.get("delegate_result_ref")
+    if isinstance(delegate_result_ref, str) and delegate_result_ref.strip():
+        out["delegate_result_ref"] = delegate_result_ref.strip()
     outputs_excerpt = row.get("outputs_excerpt")
     if isinstance(outputs_excerpt, Mapping) and outputs_excerpt:
         subtask_projection = project_subtask_output(outputs_excerpt)
@@ -368,6 +371,7 @@ def build_batch_item_result_row(
     artifact_refs: list[str] | tuple[str, ...] | None = None,
     image_evidence: list[Any] | None = None,
     error: Mapping[str, Any] | None = None,
+    delegate_result_ref: str | None = None,
 ) -> dict[str, Any]:
     row: dict[str, Any] = {
         "alias": alias,
@@ -376,6 +380,8 @@ def build_batch_item_result_row(
     }
     if artifact_refs:
         row["artifact_refs"] = list(artifact_refs)[:_MAX_ARTIFACT_REFS_PER_ITEM]
+    if delegate_result_ref:
+        row["delegate_result_ref"] = str(delegate_result_ref)
     if action_type == DELEGATE_SUBTASK_ACTION_TYPE and isinstance(outputs, Mapping):
         subtask_projection = project_subtask_output(outputs)
         if subtask_projection:

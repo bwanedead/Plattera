@@ -31,6 +31,7 @@ _REPAIR_FEEDBACK_KEYS = (
     "validation_errors",
     "repair_targets",
     "repair_hint",
+    "state_patch_repair_bundle",
 )
 
 

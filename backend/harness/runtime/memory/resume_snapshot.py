@@ -22,6 +22,7 @@ from ..user_messages.ledger import validate_stored_user_message
 from ..orchestration.action_batch import validate_stored_action_batch_result as validate_stored_action_sequence_result
 from ..orchestration.hydrate_next import validate_stored_hydrate_next_record
 from ..orchestration.pinned_refs import validate_stored_pinned_ref_row
+from ..orchestration.subtasks.delegate_result_refs import validate_stored_delegate_result_record
 from .continuity import OrchestrationContinuity
 from .continuity_journal import (
     clamp_compacted_summary_text,
@@ -97,6 +98,7 @@ def build_kernel_resume_snapshot(
                 if loop_memory.continuity.recent_action_sequence_result is not None
                 else None
             ),
+            "delegate_subtask_results": list(loop_memory.continuity.delegate_subtask_results),
             "pinned_refs": list(loop_memory.continuity.pinned_refs),
             "pinned_refs_hydration": (
                 dict(loop_memory.continuity.pinned_refs_hydration)
@@ -348,6 +350,18 @@ def parse_kernel_resume_snapshot(payload: Mapping[str, Any]) -> tuple[LoopMemory
             return empty, 1, "resume_snapshot_recent_action_sequence_result_invalid"
         recent_action_sequence_result_out = normalized_ras
 
+    delegate_subtask_results_out: list[dict[str, Any]] = []
+    if "delegate_subtask_results" in cont:
+        dsr_raw = cont.get("delegate_subtask_results")
+        if dsr_raw is not None:
+            if not isinstance(dsr_raw, list):
+                return empty, 1, "resume_snapshot_delegate_subtask_results_invalid"
+            for row in dsr_raw:
+                norm = validate_stored_delegate_result_record(row)
+                if norm is None:
+                    return empty, 1, "resume_snapshot_delegate_subtask_results_invalid"
+                delegate_subtask_results_out.append(norm)
+
     pinned_refs_out: list[dict[str, Any]] = []
     if "pinned_refs" in cont:
         pr_raw = cont.get("pinned_refs")
@@ -432,6 +446,7 @@ def parse_kernel_resume_snapshot(payload: Mapping[str, Any]) -> tuple[LoopMemory
         user_message_consumed_unknown_count=user_message_consumed_unknown_count,
         pending_agent_hydration=pending_agent_hydration_out,
         recent_action_sequence_result=recent_action_sequence_result_out,
+        delegate_subtask_results=delegate_subtask_results_out,
         pinned_refs=pinned_refs_out,
         pinned_refs_hydration=pinned_refs_hydration_out,
         missing_required_output_complete_attempts=missing_required_output_complete_attempts,

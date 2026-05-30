@@ -246,6 +246,13 @@ def run_orchestration_kernel_loop(
         raw_llm_io_observer=active_lifecycle.raw_llm_io_observer,
     )
 
+    from .subtasks.delegate_result_hydration import install_delegate_result_hydration
+
+    install_delegate_result_hydration(
+        session_manager.executor,
+        lambda: loop_memory.continuity.delegate_subtask_results,
+    )
+
     tracer = tracer if tracer is not None else KernelTraceCollector(session_id=session_id, request_id=request_id_prefix, run_id=run_id)
     tracer.emit_request_start(
         opaque_run_context=run_ctx,

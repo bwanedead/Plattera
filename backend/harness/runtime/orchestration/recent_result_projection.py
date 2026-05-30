@@ -29,6 +29,9 @@ def _refs_from_slice(row: Mapping[str, Any]) -> frozenset[str]:
         for entry in artifact_refs:
             if isinstance(entry, str) and entry.strip():
                 refs.add(entry.strip())
+    delegate_ref = row.get("delegate_result_ref")
+    if isinstance(delegate_ref, str) and delegate_ref.strip():
+        refs.add(delegate_ref.strip())
     summary = row.get("evidence_artifact_summary")
     if isinstance(summary, Mapping):
         for key in ("derived_ref", "source_ref"):
@@ -139,6 +142,7 @@ def compact_stale_result_slice(row: dict[str, Any], *, stale: bool) -> dict[str,
         "result_truncated",
         "latest_artifact_ref",
         "artifact_refs",
+        "delegate_result_ref",
         "artifact_count",
         "output_shape",
         "outputs_structural_metadata",

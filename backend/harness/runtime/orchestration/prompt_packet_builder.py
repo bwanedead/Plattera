@@ -245,6 +245,7 @@ def _prompt_ref_projection_context(
         pinned_refs_projection=pinned_projection,
         agent_requested_hydration=_build_agent_requested_hydration(cont.pending_agent_hydration),
         recent_action_sequence_result=cont.recent_action_sequence_result,
+        delegate_subtask_results=cont.delegate_subtask_results,
         resolution_items=resolution_items,
         active_item_id=active_item_id,
         hot_latest_ref_keys=hot_latest_ref_keys,
@@ -314,6 +315,26 @@ def _build_structured_state(
     )
     if sequence_lane is not None:
         structured["recent_action_sequence_result"] = sequence_lane
+    from .subtasks.delegate_result_refs import project_recent_delegate_results_for_prompt
+
+    repair_pending = bool(
+        isinstance(cont.state_patch_feedback, Mapping)
+        and isinstance(cont.state_patch_feedback.get("state_patch_repair_bundle"), Mapping)
+        and cont.state_patch_feedback.get("state_patch_repair_bundle", {}).get("fragments")
+    )
+    delegate_lane = project_recent_delegate_results_for_prompt(
+        cont.delegate_subtask_results,
+        current_turn=int(context.loop_memory.iterations),
+        hot_refs=hot_refs,
+    )
+    if delegate_lane is not None:
+        if repair_pending:
+            delegate_lane = dict(delegate_lane)
+            delegate_lane["repair_note"] = (
+                "Delegate results are already available as refs. "
+                "Hydrate them or repair the rejected patch before re-running delegates."
+            )
+        structured["recent_delegate_results"] = delegate_lane
     from .pinned_refs import build_pinned_refs_projection
 
     pinned_projection = build_pinned_refs_projection(
@@ -484,6 +505,7 @@ _ALWAYS_KEEP_OBSERVABILITY_KEYS: tuple[str, ...] = (
     "notebook_shaped_graph_rows_count",
     "artifact_claim_inventory_suspect_count",
     "performance_evaluation",
+    "state_patch_repair_bundle",
 )
 _OPTIONAL_OBSERVABILITY_COUNTERS: tuple[str, ...] = (
     "repeated_state_patch_reason_code_streak",

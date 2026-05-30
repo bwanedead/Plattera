@@ -105,6 +105,13 @@ def render_delegate_subtask_section(
             lines.extend(_blockquote_excerpt(task, max_chars=_DELEGATE_PROMPT_MAX_CHARS))
 
     if include_result and projected:
+        delegate_ref = None
+        if item is not None:
+            raw_ref = item.get("delegate_result_ref")
+            if isinstance(raw_ref, str) and raw_ref.strip():
+                delegate_ref = raw_ref.strip()
+        if delegate_ref:
+            lines.append(f"- ref: `{delegate_ref}`")
         lines.extend(_render_projected_result(projected, link_context=link_context))
 
     if item is not None and include_result and not projected:

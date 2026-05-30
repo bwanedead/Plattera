@@ -11,6 +11,7 @@ from harness.runtime.orchestration import state_patch_apply as state_patch_apply
 from harness.runtime.orchestration.state_patch_apply import (
     StatePatchError,
     apply_state_patch,
+    row_skip_report_has_skips,
 )
 
 
@@ -1697,3 +1698,295 @@ def test_salvage_feedback_names_exact_field_path() -> None:
     omitted = " ".join(event["omitted_invalid_fields"])
     assert "closure_summary" in omitted
     assert event.get("note")
+
+
+# ---------------------------------------------------------------------------
+# Container shape repair (M11)
+# ---------------------------------------------------------------------------
+
+
+def test_covered_unit_reopen_triggers_string_coerced_and_applies() -> None:
+    ms, rs = _base_states()
+    _, rs2, skips = apply_state_patch(
+        mission_state=ms,
+        resolution_state=rs,
+        state_patch={
+            "resolution": {
+                "items": [
+                    {
+                        "item_id": "visible_map_claims",
+                        "title": "Visible map claims",
+                        "kind": "claim_group",
+                        "status": "open",
+                        "covered_units": [
+                            {
+                                "unit_id": "parcel1_acreage",
+                                "title": "Parcel acreage",
+                                "status": "closed",
+                                "determined_value": "1.9 acres, more or less",
+                                "evidence_refs": ["image:derived:abc"],
+                                "reopen_triggers": "Reopen if a tighter crop reads differently.",
+                            }
+                        ],
+                    }
+                ]
+            }
+        },
+    )
+    assert not row_skip_report_has_skips(skips)
+    unit = rs2.items[0].covered_units[0]
+    assert unit.reopen_triggers == ["Reopen if a tighter crop reads differently."]
+    assert unit.determined_value == "1.9 acres, more or less"
+    assert unit.status == "closed"
+
+
+def test_resolution_item_reopen_triggers_string_coerced_and_applies() -> None:
+    ms, rs = _base_states()
+    _, rs2, skips = apply_state_patch(
+        mission_state=ms,
+        resolution_state=rs,
+        state_patch={
+            "resolution": {
+                "items": [
+                    {
+                        "item_id": "i1",
+                        "title": "First",
+                        "kind": "work_unit",
+                        "status": "closed",
+                        "reopen_triggers": "Reopen if conflicting source appears.",
+                    }
+                ]
+            }
+        },
+    )
+    assert not row_skip_report_has_skips(skips)
+    assert rs2.items[0].reopen_triggers == ["Reopen if conflicting source appears."]
+
+
+def test_evidence_refs_string_coerced_to_singleton_list() -> None:
+    ms, rs = _base_states()
+    _, rs2, skips = apply_state_patch(
+        mission_state=ms,
+        resolution_state=rs,
+        state_patch={
+            "resolution": {
+                "items": [
+                    {
+                        "item_id": "i1",
+                        "title": "First",
+                        "kind": "work_unit",
+                        "status": "open",
+                        "evidence_refs": "artifact://only-one",
+                    }
+                ]
+            }
+        },
+    )
+    assert not row_skip_report_has_skips(skips)
+    assert rs2.items[0].evidence_refs == ["artifact://only-one"]
+
+
+def test_candidate_values_string_coerced_to_singleton_list() -> None:
+    ms, rs = _base_states()
+    _, rs2, skips = apply_state_patch(
+        mission_state=ms,
+        resolution_state=rs,
+        state_patch={
+            "resolution": {
+                "items": [
+                    {
+                        "item_id": "i1",
+                        "title": "First",
+                        "kind": "work_unit",
+                        "status": "open",
+                        "candidate_values": "1.9 acres",
+                    }
+                ]
+            }
+        },
+    )
+    assert not row_skip_report_has_skips(skips)
+    assert rs2.items[0].candidate_values == ["1.9 acres"]
+
+
+def test_evidence_locators_mapping_coerced_to_singleton_list() -> None:
+    ms, rs = _base_states()
+    _, rs2, skips = apply_state_patch(
+        mission_state=ms,
+        resolution_state=rs,
+        state_patch={
+            "resolution": {
+                "items": [
+                    {
+                        "item_id": "i1",
+                        "title": "First",
+                        "kind": "work_unit",
+                        "status": "open",
+                        "evidence_locators": {
+                            "ref_id": "artifact://a",
+                            "locator_kind": "json_path",
+                            "json_path": "$.field",
+                        },
+                    }
+                ]
+            }
+        },
+    )
+    assert not row_skip_report_has_skips(skips)
+    assert len(rs2.items[0].evidence_locators) == 1
+    assert rs2.items[0].evidence_locators[0].ref_id == "artifact://a"
+
+
+def test_single_covered_units_mapping_coerced_to_list_and_applies() -> None:
+    ms, rs = _base_states()
+    _, rs2, skips = apply_state_patch(
+        mission_state=ms,
+        resolution_state=rs,
+        state_patch={
+            "resolution": {
+                "items": [
+                    {
+                        "item_id": "g1",
+                        "title": "Group",
+                        "kind": "claim_group",
+                        "status": "open",
+                        "covered_units": {
+                            "unit_id": "u1",
+                            "title": "Unit one",
+                            "status": "closed",
+                            "determined_value": "42",
+                        },
+                    }
+                ]
+            }
+        },
+    )
+    assert not row_skip_report_has_skips(skips)
+    assert len(rs2.items[0].covered_units) == 1
+    assert rs2.items[0].covered_units[0].unit_id == "u1"
+    assert rs2.items[0].covered_units[0].determined_value == "42"
+
+
+def test_shape_repair_feedback_recorded_in_state_patch_feedback() -> None:
+    _, fb = _apply_with_feedback(
+        {
+            "resolution": {
+                "items": [
+                    {
+                        "item_id": "i1",
+                        "title": "First",
+                        "kind": "work_unit",
+                        "status": "closed",
+                        "reopen_triggers": "Reopen on conflict.",
+                    }
+                ]
+            }
+        }
+    )
+    repairs = fb.get("shape_repairs") or []
+    assert repairs
+    assert repairs[0]["repair"] == "string_to_singleton_list"
+    assert "reopen_triggers" in repairs[0]["path"]
+
+
+def test_invalid_semantic_fields_are_not_coerced_and_still_fail() -> None:
+    ms, rs = _base_states()
+    _, rs2, skips = apply_state_patch(
+        mission_state=ms,
+        resolution_state=rs,
+        state_patch={
+            "resolution": {
+                "items": [
+                    {
+                        "item_id": "i1",
+                        "title": "First",
+                        "kind": "work_unit",
+                        "status": "open",
+                        "reopen_triggers": 42,
+                    }
+                ]
+            }
+        },
+    )
+    assert len(rs2.items) == 0
+    assert skips["resolution"]["items"]["validation_failed"] == 1
+
+
+def test_existing_list_values_are_unchanged_by_shape_repair() -> None:
+    ms, rs = _base_states()
+    _, rs2, skips = apply_state_patch(
+        mission_state=ms,
+        resolution_state=rs,
+        state_patch={
+            "resolution": {
+                "items": [
+                    {
+                        "item_id": "i1",
+                        "title": "First",
+                        "kind": "work_unit",
+                        "status": "open",
+                        "reopen_triggers": ["already", "a", "list"],
+                        "evidence_refs": ["ref-a", "ref-b"],
+                    }
+                ]
+            }
+        },
+    )
+    assert not row_skip_report_has_skips(skips)
+    assert rs2.items[0].reopen_triggers == ["already", "a", "list"]
+    assert rs2.items[0].evidence_refs == ["ref-a", "ref-b"]
+
+
+def test_shape_repair_feedback_is_capped_at_twenty_entries() -> None:
+    from harness.runtime.orchestration.state_patch_shape_repair import MAX_SHAPE_REPAIRS
+
+    items = [
+        {
+            "item_id": f"i{index}",
+            "title": f"Item {index}",
+            "kind": "work_unit",
+            "status": "open",
+            "reopen_triggers": f"trigger {index}",
+        }
+        for index in range(MAX_SHAPE_REPAIRS + 5)
+    ]
+    _, fb = _apply_with_feedback({"resolution": {"items": items}})
+    repairs = fb.get("shape_repairs") or []
+    assert len(repairs) == MAX_SHAPE_REPAIRS
+
+
+def test_timeline_renders_state_patch_repair_bundle(tmp_path) -> None:
+    from pathlib import Path
+
+    from harness.audit.run_audit_writer import RunAuditWriter
+    from harness.audit.test_human_timeline import _timeline_path
+
+    writer = RunAuditWriter(tmp_path / "run1")
+    writer.observe_llm_io(
+        {
+            "turn_index": 1,
+            "parse_ok": True,
+            "state_patch_feedback": {
+                "outcome": "applied",
+                "state_patch_repair_bundle": {
+                    "reason": "state_patch_rows_skipped",
+                    "fragments": [
+                        {
+                            "path": "resolution.items[visible_map_claims].covered_units[parcel1_bearing_from_beginning]",
+                            "validation_errors": ["reopen_triggers must be list"],
+                            "fragment": {
+                                "unit_id": "parcel1_bearing_from_beginning",
+                                "status": "closed",
+                                "determined_value": "N. 4° 00' W., 1638 feet distant,",
+                            },
+                        }
+                    ],
+                },
+            },
+        }
+    )
+    body = _timeline_path(Path(tmp_path / "run1")).read_text(encoding="utf-8")
+    assert "State patch repair bundle:" in body
+    assert "state_patch_rows_skipped" in body
+    assert "parcel1_bearing_from_beginning" in body
+    assert "determined_value=" in body

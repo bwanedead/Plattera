@@ -26,6 +26,7 @@ from .evidence_locality import (
     BROAD_IMAGE_AREA_THRESHOLD,
     count_earned_exact_units_with_broad_image_locator,
 )
+from .state_patch_repair_bundle import project_state_patch_repair_bundle_for_prompt
 
 
 def build_prompt_observability_summary(
@@ -479,6 +480,9 @@ def build_prompt_observability_summary(
         loop_memory,
         turn_records=turn_records,
     )
+    repair_bundle_projection = project_state_patch_repair_bundle_for_prompt(feedback)
+    if repair_bundle_projection:
+        summary["state_patch_repair_bundle"] = repair_bundle_projection
     return summary
 
 
@@ -1638,6 +1642,11 @@ def _mechanical_flags(
     artifact_state_dirty_since_write_count: int = 0,
 ) -> list[str]:
     flags: list[str] = []
+    repair_bundle = feedback.get("state_patch_repair_bundle")
+    if isinstance(repair_bundle, Mapping):
+        fragments = repair_bundle.get("fragments")
+        if isinstance(fragments, list) and fragments:
+            flags.append(f"state_patch_repair_pending:{len(fragments)}")
     if semantic_repair_debt_kinds:
         flags.append("semantic_repair_debt:" + ",".join(semantic_repair_debt_kinds))
     if pending_hitl_integration_ids:

@@ -28,6 +28,8 @@ from ...mission_state import (
 from ..memory import LoopMemoryState
 from .contracts import ActionPlan
 from .evidence_sequencing import apply_sequencing_debt_from_patch
+from .state_patch_repair_bundle import build_state_patch_repair_bundle
+from .state_patch_shape_repair import repair_state_patch_container_shapes
 from .trace_collector import KernelTraceCollector
 
 _LOG = logging.getLogger(__name__)
@@ -431,6 +433,8 @@ def _build_state_patch_feedback(
             "skipped_resolution_rows",
             "row_skip_details",
             "salvaged_rows",
+            "shape_repairs",
+            "state_patch_repair_bundle",
             "failing_path",
             "validation_errors",
             "repair_hint",
@@ -505,6 +509,28 @@ def _build_state_patch_feedback(
     if pending_hitl:
         feedback["pending_hitl_integration_prompt_ids"] = pending_hitl
 
+    prior_bundle = previous.get("state_patch_repair_bundle")
+    new_bundle = (
+        detail.get("state_patch_repair_bundle")
+        if isinstance(detail, Mapping) and isinstance(detail.get("state_patch_repair_bundle"), Mapping)
+        else None
+    )
+    if outcome in ("no_patch", "not_applied"):
+        if isinstance(prior_bundle, Mapping) and prior_bundle.get("fragments"):
+            feedback["state_patch_repair_bundle"] = prior_bundle
+    elif outcome == "applied":
+        if isinstance(new_bundle, Mapping) and new_bundle.get("fragments"):
+            feedback["state_patch_repair_bundle"] = new_bundle
+        elif not has_skipped_rows and not merged:
+            pass
+        elif isinstance(prior_bundle, Mapping) and prior_bundle.get("fragments"):
+            feedback["state_patch_repair_bundle"] = prior_bundle
+    elif outcome == "rejected":
+        if isinstance(new_bundle, Mapping) and new_bundle.get("fragments"):
+            feedback["state_patch_repair_bundle"] = new_bundle
+        elif isinstance(prior_bundle, Mapping) and prior_bundle.get("fragments"):
+            feedback["state_patch_repair_bundle"] = prior_bundle
+
     return feedback
 
 
@@ -574,7 +600,7 @@ def apply_action_plan_state_patch_to_loop_memory(
     )
     try:
         before_rs = loop_memory.continuity.resolution_state
-        ms_applied, rs_applied, row_skips, row_skip_details, salvage_events = _apply_state_patch_detailed(
+        ms_applied, rs_applied, row_skips, row_skip_details, salvage_events, shape_repairs = _apply_state_patch_detailed(
             mission_state=loop_memory.continuity.mission_state,
             resolution_state=before_rs,
             state_patch=action_plan.state_patch,
@@ -589,6 +615,8 @@ def apply_action_plan_state_patch_to_loop_memory(
             loop_memory, before_rs=before_rs, after_rs=rs_applied, iteration=iteration
         )
         detail: dict[str, Any] = {}
+        if shape_repairs:
+            detail["shape_repairs"] = shape_repairs
         if salvage_events:
             detail["salvaged_rows"] = salvage_events
         if row_skip_report_has_skips(row_skips):
@@ -596,6 +624,12 @@ def apply_action_plan_state_patch_to_loop_memory(
             detail["skipped_resolution_rows"] = True
             if row_skip_details:
                 detail["row_skip_details"] = row_skip_details
+            repair_bundle = build_state_patch_repair_bundle(
+                state_patch=action_plan.state_patch,
+                row_skip_details=row_skip_details,
+            )
+            if repair_bundle:
+                detail["state_patch_repair_bundle"] = repair_bundle
             hint = _row_skip_feedback_hint(row_skips)
             if hint is not None:
                 detail["repair_hint"] = hint
@@ -750,7 +784,7 @@ def apply_state_patch(
     resolution_state: ResolutionState,
     state_patch: Mapping[str, Any] | None,
 ) -> tuple[MissionState, ResolutionState, dict[str, Any]]:
-    ms, rs, row_skips, _row_skip_details, _salvage = _apply_state_patch_detailed(
+    ms, rs, row_skips, _row_skip_details, _salvage, _shape_repairs = _apply_state_patch_detailed(
         mission_state=mission_state,
         resolution_state=resolution_state,
         state_patch=state_patch,
@@ -763,7 +797,7 @@ def _apply_state_patch_detailed(
     mission_state: MissionState,
     resolution_state: ResolutionState,
     state_patch: Mapping[str, Any] | None,
-) -> tuple[MissionState, ResolutionState, dict[str, Any], dict[str, Any], list[dict[str, Any]]]:
+) -> tuple[MissionState, ResolutionState, dict[str, Any], dict[str, Any], list[dict[str, Any]], list[dict[str, str]]]:
     """
     Merge a bounded generic patch into existing state.
 
@@ -777,10 +811,11 @@ def _apply_state_patch_detailed(
     """
     if not state_patch:
         ms = mission_state.model_copy(update={"resolution_state": resolution_state})
-        return ms, resolution_state, _empty_row_skip_report(), {}, []
+        return ms, resolution_state, _empty_row_skip_report(), {}, [], []
 
     patch = dict(state_patch)
     patch = _normalize_state_patch_aliases(patch)
+    patch, shape_repairs = repair_state_patch_container_shapes(patch)
     try:
         blob = json.dumps(patch, ensure_ascii=False, default=str)
     except (TypeError, ValueError) as exc:
@@ -816,7 +851,7 @@ def _apply_state_patch_detailed(
         ms = _apply_mission_branch(ms, patch["mission"])
 
     ms = ms.model_copy(update={"resolution_state": rs})
-    return ms, rs, row_skips, row_skip_details, salvage_events
+    return ms, rs, row_skips, row_skip_details, salvage_events, shape_repairs
 
 
 def _merge_covered_units_rows(

@@ -31,6 +31,7 @@ from harness.audit.delegate_subtask_timeline import render_delegate_subtask_sect
 from harness.audit.point_crop_set_timeline import render_point_crop_set_tool_output
 from harness.audit.turn_action_flags import render_turn_action_flags
 from harness.audit.performance_evaluation_timeline import render_performance_evaluation_timeline
+from harness.audit.state_patch_repair_bundle_timeline import render_state_patch_repair_bundle_timeline
 from harness.runtime.orchestration.subtasks.contracts import DELEGATE_SUBTASK_ACTION_TYPE
 
 _LOG = logging.getLogger(__name__)
@@ -219,6 +220,7 @@ def _render_turn(
     out.extend(_render_tool_result(turn, link_context=link_context))
     out.extend(_render_saved_artifact(turn))
     out.extend(_render_state_patch(turn))
+    out.extend(render_state_patch_repair_bundle_timeline(turn))
     out.extend(_render_motion_posture_transition(turn))
     out.extend(_render_hitl(turn))
     out.extend(_render_user_messages(turn))
