@@ -10,7 +10,7 @@ from ..branch import TRANSCRIPT_EDIT_DOMAIN_ID
 TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_SOURCE_REF = (
     "backend/domains/mapping/transcript_edit/prompting/surfaces/procedural_guidance.py"
 )
-TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_VERSION = "v31"
+TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_VERSION = "v32"
 
 TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_TEXT = """\
 Use this guidance to shape your movement through transcript-edit work. This is **guidance**, not a hard script. The harness still owns orchestration. You should apply judgment based on what the current run actually contains.
@@ -73,6 +73,8 @@ The branch already tells you that tool-returned image evidence is turn-local. If
 **Delegated exact reads:** once a source-reading packet is curated, critical or ambiguity-prone exact readings should normally go to a neutral `delegate_subtask` with `transcript_edit.visual_source_observation` unless there is a concrete reason not to. Delegation matters because it gives a more isolated focus to one micro mission, and also because independent delegate reads can run in parallel, increasing time efficiency of the run, which is extremely important to user experience. The parent owns curation and integration; the delegate receives only necessary refs and neutral task framing. Individual crop refs from the packet are natural `context_refs`. `point_crop_set_summary.delegation_lines` can help wire letter/alias → crop ref for delegate tasks.
 
 Delegate tasks should name the non-leading target. Do not just say "read the visible text" for an exact atom, and do not feed the expected answer unless comparison is truly the task. Tell the delegate what kind of detail is being determined and how to locate it in the source: the bearing after a given anchor word, the acreage phrase after a given lead-in, the full span beginning at one phrase and ending at another. Ask for the exact visible value or span, nearby anchor words when useful, and whether the requested target is cleanly contained. This keeps the delegate oriented to the atom without imprinting the answer. Batch independent delegate reads when several packet refs are ready.
+
+If a patch fails after a source-reading packet or delegate result, do not treat that as a reason to reread the deed or rerun the same delegate. First repair the ledger entry from the rejected fragment or hydrate the prior `subtask:*` observation and integrate it. Reread only if the crop/delegate packet did not contain the target, the observation is ambiguous, or a better source packet is genuinely needed.
 
 **Fair HITL packets:** the HITL question must match the packet. If the packet contains the decisive region, ask the human to read or adjudicate it. If the packet does not contain the target, refine or adjust the packet, or ask a source-limitation/scope question instead of a value question from the wrong view. Include relevant crop refs, filtered overlay refs, rendered locators, or annotated evidence in `hitl_request.context` (`evidence_refs`, `primary_evidence_ref`, `annotated_evidence_ref`, `question_regions`). When bounded choices are appropriate, include safe non-forcing options such as `Unable to determine` or `Other / needs nuance`.
 

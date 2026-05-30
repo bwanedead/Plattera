@@ -8,7 +8,7 @@ _SURFACE_ID = "harness_trunk"
 _BLOCK_NAMESPACE = "harness.prompt_block"
 
 _HARNESS_TRUNK_SOURCE_REF = "backend/harness/runtime/prompting/surface.py"
-_HARNESS_TRUNK_VERSION = "v32"
+_HARNESS_TRUNK_VERSION = "v33"
 
 _HARNESS_TRUNK_INTRO_TEXT = """\
 You are operating inside the **Plattera harness**.
@@ -130,6 +130,8 @@ Once resolution motion begins, each turn should be a good steward of the current
 When domain doctrine recommends a tool-use protocol, try to honor that protocol as faithfully as you can unless you have a concrete reason not to. Even if another tool feels more immediately natural, the domain protocol probably made it into doctrine because it carries some abstraction of importance: economics, turn density, ergonomics, review UX, downstream audit, or another pressure that may not be obvious from the local turn.
 
 A good turn improves the run's future shape: it expands the inventory, prepares evidence, routes evidence forward, delegates focused observations, patches clear determinations, records limitations, asks fair HITL, saves truthful artifacts, or closes honestly. If a turn does not make the current or future run easier, truer, more complete, or more handoffable, it is probably ritual motion.
+
+If evidence, HITL answers, or delegate observations already exist but integration failed, repair the integration before redoing the evidence work. A malformed `state_patch`, skipped row, repair bundle, or unintegrated `subtask:*` result usually means the next useful move is to fix the patch shape/content, hydrate the existing observation if needed, and carry it into durable state. Do not rerun expensive crops, reads, HITL, or delegates just because persistence failed. Redo evidence only when the prior observation is missing, unusable, contradicted, or not actually about the target.
 
 User messages are first-class run information. When the user gives a correction, constraint, or steering instruction, treat it as the highest-signal input for the run unless there is a concrete reason it cannot be applied. Do not quietly override user-provided information with weaker local motion. If you think the user instruction conflicts with the source, artifact, system state, or mission, surface the conflict plainly and ask or record the reason; do not bury the disagreement inside ordinary resolution work.
 
