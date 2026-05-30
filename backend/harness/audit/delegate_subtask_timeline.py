@@ -13,6 +13,9 @@ from harness.audit.artifact_ref_links import (
     resolve_artifact_image_link,
 )
 from harness.runtime.orchestration.subtasks.projection import project_subtask_output, task_excerpt
+from harness.runtime.orchestration.subtasks.delegate_integration_status import (
+    compute_delegate_ref_integration_status,
+)
 
 _MAX_JSON_TEXT = 1_200
 _DELEGATE_PROMPT_MAX_CHARS = 400
@@ -56,6 +59,7 @@ def render_delegate_subtask_section(
     link_context: ArtifactLinkContext | None = None,
     include_request: bool = True,
     include_result: bool = True,
+    integration_status: str | None = None,
 ) -> list[str]:
     projected = _projected_subtask(item)
     subtask_id = (
@@ -112,6 +116,8 @@ def render_delegate_subtask_section(
                 delegate_ref = raw_ref.strip()
         if delegate_ref:
             lines.append(f"- ref: `{delegate_ref}`")
+        if integration_status:
+            lines.append(f"- integration: {integration_status}")
         lines.extend(_render_projected_result(projected, link_context=link_context))
 
     if item is not None and include_result and not projected:
@@ -125,6 +131,83 @@ def render_delegate_subtask_section(
             lines.append(notice)
 
     return lines
+
+
+def render_delegate_turn_integration_summary(
+    turn: Mapping[str, Any],
+    *,
+    link_context: ArtifactLinkContext | None = None,
+) -> list[str]:
+    """Compact per-turn delegate ref summary when sequence items carry delegate refs."""
+    sequence = turn.get("recent_action_sequence_result")
+    if not isinstance(sequence, Mapping):
+        return []
+    items = sequence.get("items")
+    if not isinstance(items, list) or not items:
+        return []
+
+    try:
+        turn_index = int(turn.get("turn_index") or sequence.get("source_turn_index") or 0)
+    except (TypeError, ValueError):
+        turn_index = 0
+
+    mission = _coerce_mapping(turn.get("mission_state_after")) or _coerce_mapping(
+        turn.get("mission_state_before")
+    )
+    resolution = _coerce_mapping(turn.get("resolution_state_after")) or _coerce_mapping(
+        turn.get("resolution_state_before")
+    )
+    feedback = _coerce_mapping(turn.get("state_patch_feedback"))
+    repair_bundle = (
+        feedback.get("state_patch_repair_bundle")
+        if isinstance(feedback.get("state_patch_repair_bundle"), Mapping)
+        else None
+    )
+
+    rows: list[str] = []
+    for item in items:
+        if not isinstance(item, Mapping):
+            continue
+        ref_id = str(item.get("delegate_result_ref") or "").strip()
+        if not ref_id:
+            continue
+        alias = str(item.get("alias") or "").strip() or "?"
+        status = compute_delegate_ref_integration_status(
+            ref_id=ref_id,
+            record_turn_index=turn_index,
+            current_turn=turn_index,
+            mission_state=mission,
+            resolution_state=resolution,
+            repair_bundle=repair_bundle,
+        )
+        context_refs = item.get("context_refs") or []
+        if not isinstance(context_refs, list):
+            context = item.get("action_inputs")
+            if isinstance(context, Mapping):
+                context_refs = context.get("context_refs") or []
+        context_text = ", ".join(
+            str(ref).strip() for ref in context_refs[:3] if str(ref or "").strip()
+        )
+        line = f"  - `{ref_id}` ({alias}): {status}"
+        if context_text:
+            line += f"; context: {context_text}"
+        rows.append(line)
+
+    if not rows:
+        return []
+
+    lines = ["  Delegate result refs:"]
+    lines.extend(rows)
+    lines.append("  hydrate_hint: use hydrate_artifact_refs with subtask:* ref_ids to recover observations")
+    if link_context is not None:
+        notice = inline_cap_notice(link_context)
+        if notice:
+            lines.append(f"  {notice}")
+    return lines
+
+
+def _coerce_mapping(value: Any) -> Mapping[str, Any]:
+    return value if isinstance(value, Mapping) else {}
 
 
 def _render_context_ref(ref_id: str, link_context: ArtifactLinkContext | None) -> str:
@@ -236,7 +319,3 @@ def _bounded_mapping_text(value: Mapping[str, Any]) -> str:
     if len(text) <= _MAX_JSON_TEXT:
         return text
     return text[:_MAX_JSON_TEXT]
-
-
-def _coerce_mapping(value: Any) -> Mapping[str, Any]:
-    return value if isinstance(value, Mapping) else {}

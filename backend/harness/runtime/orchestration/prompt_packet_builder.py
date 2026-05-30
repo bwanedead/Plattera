@@ -317,23 +317,21 @@ def _build_structured_state(
         structured["recent_action_sequence_result"] = sequence_lane
     from .subtasks.delegate_result_refs import project_recent_delegate_results_for_prompt
 
-    repair_pending = bool(
-        isinstance(cont.state_patch_feedback, Mapping)
-        and isinstance(cont.state_patch_feedback.get("state_patch_repair_bundle"), Mapping)
-        and cont.state_patch_feedback.get("state_patch_repair_bundle", {}).get("fragments")
+    feedback = cont.state_patch_feedback if isinstance(cont.state_patch_feedback, Mapping) else {}
+    repair_bundle = (
+        feedback.get("state_patch_repair_bundle")
+        if isinstance(feedback.get("state_patch_repair_bundle"), Mapping)
+        else None
     )
     delegate_lane = project_recent_delegate_results_for_prompt(
         cont.delegate_subtask_results,
         current_turn=int(context.loop_memory.iterations),
         hot_refs=hot_refs,
+        mission_state=cont.mission_state.model_dump(mode="json"),
+        resolution_state=cont.resolution_state.model_dump(mode="json"),
+        repair_bundle=repair_bundle,
     )
     if delegate_lane is not None:
-        if repair_pending:
-            delegate_lane = dict(delegate_lane)
-            delegate_lane["repair_note"] = (
-                "Delegate results are already available as refs. "
-                "Hydrate them or repair the rejected patch before re-running delegates."
-            )
         structured["recent_delegate_results"] = delegate_lane
     from .pinned_refs import build_pinned_refs_projection
 

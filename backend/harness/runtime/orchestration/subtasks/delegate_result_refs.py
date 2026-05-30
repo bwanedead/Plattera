@@ -10,6 +10,12 @@ import re
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from .delegate_integration_status import (
+    DELEGATE_INTEGRATION_REPAIR_NOTE,
+    STATUS_UNREFERENCED_STALE,
+    scan_delegate_results_integration,
+    should_show_delegate_integration_repair_note,
+)
 from .projection import project_subtask_output
 
 DELEGATE_RESULT_REF_PREFIX = "subtask:"
@@ -197,11 +203,21 @@ def project_recent_delegate_results_for_prompt(
     *,
     current_turn: int,
     hot_refs: frozenset[str] | None = None,
+    mission_state: Mapping[str, Any] | None = None,
+    resolution_state: Mapping[str, Any] | None = None,
+    repair_bundle: Mapping[str, Any] | None = None,
 ) -> dict[str, Any] | None:
     """Prompt-visible recent delegate result refs (mechanical only)."""
     if not records:
         return None
     hot = hot_refs or frozenset()
+    integration_by_ref = scan_delegate_results_integration(
+        records,
+        current_turn=int(current_turn),
+        mission_state=mission_state,
+        resolution_state=resolution_state,
+        repair_bundle=repair_bundle,
+    )
     rows: list[dict[str, Any]] = []
     for record in reversed(list(records)):
         if not isinstance(record, Mapping):
@@ -221,6 +237,7 @@ def project_recent_delegate_results_for_prompt(
             "status": record.get("status"),
             "context_refs": list(record.get("context_refs") or [])[:4],
             "summary": build_delegate_result_summary(record),
+            "integration_status": integration_by_ref.get(ref_id, STATUS_UNREFERENCED_STALE),
         }
         if not keep_hot:
             row["stale"] = True
@@ -229,7 +246,13 @@ def project_recent_delegate_results_for_prompt(
             break
     if not rows:
         return None
-    return {"items": list(reversed(rows))}
+    out: dict[str, Any] = {"items": list(reversed(rows))}
+    if should_show_delegate_integration_repair_note(
+        repair_bundle=repair_bundle,
+        integration_by_ref=integration_by_ref,
+    ):
+        out["repair_note"] = DELEGATE_INTEGRATION_REPAIR_NOTE
+    return out
 
 
 def validate_stored_delegate_result_record(row: Any) -> dict[str, Any] | None:

@@ -27,12 +27,18 @@ from pathlib import Path
 from typing import Any
 
 from harness.audit.artifact_ref_links import ArtifactLinkContext, build_run_ref_path_index
-from harness.audit.delegate_subtask_timeline import render_delegate_subtask_section
+from harness.audit.delegate_subtask_timeline import (
+    render_delegate_subtask_section,
+    render_delegate_turn_integration_summary,
+)
 from harness.audit.point_crop_set_timeline import render_point_crop_set_tool_output
 from harness.audit.turn_action_flags import render_turn_action_flags
 from harness.audit.performance_evaluation_timeline import render_performance_evaluation_timeline
 from harness.audit.state_patch_repair_bundle_timeline import render_state_patch_repair_bundle_timeline
 from harness.runtime.orchestration.subtasks.contracts import DELEGATE_SUBTASK_ACTION_TYPE
+from harness.runtime.orchestration.subtasks.delegate_integration_status import (
+    compute_delegate_ref_integration_status,
+)
 
 _LOG = logging.getLogger(__name__)
 
@@ -440,6 +446,9 @@ def _render_action(
         lines.append(f"  actions: {len(actions)}")
         for row in actions:
             lines.extend(_render_action_row(row, turn=turn, link_context=link_context))
+        summary = render_delegate_turn_integration_summary(turn, link_context=link_context)
+        if summary:
+            lines.extend(summary)
     else:
         action_type = tool_request.get("action_type") or parsed.get("action_type")
         lines.append(f"  action_type: {action_type or 'none'}")
@@ -663,11 +672,43 @@ def _render_action_row(
                     lines.append(f"      execution_reason_code: {item_reason}")
                 break
     if action_type == DELEGATE_SUBTASK_ACTION_TYPE:
+        integration_status: str | None = None
+        delegate_ref = (
+            str(sequence_item.get("delegate_result_ref") or "").strip()
+            if isinstance(sequence_item, Mapping)
+            else ""
+        )
+        if delegate_ref:
+            try:
+                turn_index = int(turn.get("turn_index") or 0)
+            except (TypeError, ValueError):
+                turn_index = 0
+            mission = _coerce_mapping(turn.get("mission_state_after")) or _coerce_mapping(
+                turn.get("mission_state_before")
+            )
+            resolution = _coerce_mapping(turn.get("resolution_state_after")) or _coerce_mapping(
+                turn.get("resolution_state_before")
+            )
+            feedback = _coerce_mapping(turn.get("state_patch_feedback"))
+            repair_bundle = (
+                feedback.get("state_patch_repair_bundle")
+                if isinstance(feedback.get("state_patch_repair_bundle"), Mapping)
+                else None
+            )
+            integration_status = compute_delegate_ref_integration_status(
+                ref_id=delegate_ref,
+                record_turn_index=turn_index,
+                current_turn=turn_index,
+                mission_state=mission,
+                resolution_state=resolution,
+                repair_bundle=repair_bundle,
+            )
         section = render_delegate_subtask_section(
             alias=alias,
             inputs=inputs,
             item=sequence_item,
             link_context=link_context,
+            integration_status=integration_status,
         )
         for section_line in section:
             lines.append(f"      {section_line}")
