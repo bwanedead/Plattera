@@ -191,10 +191,15 @@ def test_procedural_guidance_teaches_delegate_subtask_lightly() -> None:
     assert "run in parallel" in text
     assert "context_refs" in text
     assert "delegation_lines" in text
-    assert "name the non-leading target" in text
-    assert "read the visible text" in text
-    assert "do not feed the expected answer" in text
-    assert "cleanly contained" in text
+    assert "atom-oriented" in text
+    assert "source neighborhood or anchor" in text
+    assert "not the expected value" in text
+    assert "visible value/text at the target area" in text
+    assert "target atom as the main payload" in text
+    assert "higher-signal packet" in text
+    assert "larger phrase is clipped" in text
+    assert "integrate the atom and move on" in text
+    assert "insufficiently anchored" in text
     assert "batch independent delegate reads" in text
     assert "must delegate" not in text
     assert "always delegate" not in text
@@ -295,6 +300,11 @@ def test_domain_pack_declares_semantic_prompt_blocks() -> None:
     assert "`mission.closure_state`" in guidance.text
     assert "`resolution_state.items`" in guidance.text
     assert "use t0 drafts aggressively for initial shape, not for earned truth" in text
+    assert "broad model read over the available source image" in text
+    assert "not repeat the same broad-read method as if it were a new proof tier" in text
+    assert "four closure layers reliable" in text
+    assert "downstream operational decisions" in text
+    assert "without consuming the same atom-verification budget" in text
     assert "visible document structure" in text
     assert "fast practical substrate for the opening work universe" in text
     assert "build the atomized work universe quickly" in text
@@ -312,6 +322,17 @@ def test_domain_pack_declares_semantic_prompt_blocks() -> None:
     assert "motion_posture: resolution" in guidance.text
     assert "provisional vs earned distinction" in text
     assert "source-reading packet workflow" in text
+    assert "instead of closing exact atoms from broad source view" in text
+    assert "not normally claim-local proof for a small exact map-critical atom" in text
+    assert "intended signal upgrade is deliberate localization" in text
+    assert "delegate the focused crop" in text
+    assert "conscious exception" in text
+    assert "broad reads cannot do well" in text
+    assert "targeted packet that directly demonstrates the claimed determination" in text
+    assert "poor isolation economics" in text
+    assert "same low-locality read pattern as t0" in text
+    assert "pivotal atoms" in text
+    assert "localized packets for exact atom truth" in text
     assert "point_crops" in guidance.text
     assert "point_crops_adjust" in guidance.text
     assert "point_crops_view" in guidance.text
@@ -332,8 +353,13 @@ def test_domain_pack_declares_semantic_prompt_blocks() -> None:
     assert "stable pinned object" in text
     assert "top-down placement sanity" in text
     assert "master overlay is for packet sanity" in text
-    assert "the thing being determined must be cleanly contained" in text
-    assert "if the target is a span, the full span must be visible" in text
+    assert "point placement must be precise" in text
+    assert "atom must be visible at useful resolution" in text
+    assert "sufficiently anchored to the intended source neighborhood" in text
+    assert "do not turn an atom-verification task into a span-containment task" in text
+    assert "do not accept vague targeting" in text
+    assert "a dot near the paragraph is weak evidence" in text
+    assert "run-performance, ui, ux, and audit value" in text
     assert "individual per-point" in text or "individual crop refs" in text
     assert "batch motion and integration" in text
     assert "hydrate_next" in guidance.text
