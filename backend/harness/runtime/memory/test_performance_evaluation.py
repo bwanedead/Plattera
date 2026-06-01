@@ -153,6 +153,42 @@ def test_delegate_totals_and_delegates_since_last_determination() -> None:
     assert metrics["delegate_yield"]["delegates_since_last_determination"] == 2
 
 
+def test_stale_recent_action_sequence_result_does_not_double_count_delegates() -> None:
+    turn_records = [
+        {
+            "turn_index": 7,
+            "tool_request": {
+                "actions": [
+                    {"action_type": "delegate_subtask"},
+                    {"action_type": "delegate_subtask"},
+                ]
+            },
+            "recent_action_sequence_result": {
+                "source_turn_index": 7,
+                "items": [
+                    {"action_type": "delegate_subtask"},
+                    {"action_type": "delegate_subtask"},
+                ],
+            },
+        },
+        {
+            "turn_index": 8,
+            "tool_request": {"actions": []},
+            "recent_action_sequence_result": {
+                "source_turn_index": 7,
+                "items": [
+                    {"action_type": "delegate_subtask"},
+                    {"action_type": "delegate_subtask"},
+                ],
+            },
+        },
+    ]
+
+    metrics = build_performance_evaluation(_mem(iterations=8), turn_records=turn_records)
+
+    assert metrics["delegate_yield"]["delegates_total"] == 2
+
+
 def test_input_char_metrics_use_raw_prompt_text_lengths() -> None:
     turn_records = [
         {"turn_index": 1, "raw_prompt_text": "x" * 1000},

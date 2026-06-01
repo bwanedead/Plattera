@@ -350,7 +350,7 @@ def _delegate_count_for_turn(row: Mapping[str, Any]) -> int:
     )
     sequence = _coerce_mapping(row.get("recent_action_sequence_result"))
     items = sequence.get("items")
-    if isinstance(items, list):
+    if isinstance(items, list) and _sequence_belongs_to_turn(sequence, row):
         delegate_count = max(
             delegate_count,
             sum(
@@ -361,6 +361,18 @@ def _delegate_count_for_turn(row: Mapping[str, Any]) -> int:
             ),
         )
     return delegate_count
+
+
+def _sequence_belongs_to_turn(sequence: Mapping[str, Any], row: Mapping[str, Any]) -> bool:
+    """Return whether a recent action sequence was produced by this turn."""
+    source_turn = sequence.get("source_turn_index")
+    turn_index = row.get("turn_index")
+    if source_turn is None or turn_index is None:
+        return True
+    try:
+        return int(source_turn) == int(turn_index)
+    except (TypeError, ValueError):
+        return True
 
 
 def _resolution_items(loop_memory: LoopMemoryState) -> list[Any]:
