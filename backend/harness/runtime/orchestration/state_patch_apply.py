@@ -816,6 +816,34 @@ def _apply_state_patch_detailed(
     patch = dict(state_patch)
     patch = _normalize_state_patch_aliases(patch)
     patch, shape_repairs = repair_state_patch_container_shapes(patch)
+    resolution_raw = patch.get("resolution")
+    if isinstance(resolution_raw, dict):
+        items_raw = resolution_raw.get("items")
+        if isinstance(items_raw, dict):
+            raise StatePatchError(
+                "items_not_array",
+                "resolution.items must be an array",
+                detail={
+                    "failing_path": "state_patch.resolution.items",
+                    "expected_shape": "array",
+                    "shape_repairs": shape_repairs,
+                    "repair_hint": (
+                        "Use a canonical array for resolution.items, or fix keyed-map "
+                        "key/id alignment before resubmitting."
+                    ),
+                },
+            )
+        relations_raw = resolution_raw.get("relations")
+        if isinstance(relations_raw, dict):
+            raise StatePatchError(
+                "relations_not_array",
+                "resolution.relations must be an array",
+                detail={
+                    "failing_path": "state_patch.resolution.relations",
+                    "expected_shape": "array",
+                    "shape_repairs": shape_repairs,
+                },
+            )
     try:
         blob = json.dumps(patch, ensure_ascii=False, default=str)
     except (TypeError, ValueError) as exc:

@@ -1,12 +1,13 @@
 """Mechanical container-shape repair for model-authored ``state_patch`` payloads.
 
-Coerces obvious singleton scalars/mappings into list-shaped fields before
-Pydantic validation. Does not invent semantics or alter field meaning.
+Coerces obvious singleton scalars/mappings into list-shaped fields, normalizes
+unambiguous keyed object maps to canonical arrays, and strips known host-derived
+projection fields before Pydantic validation. Does not invent semantics.
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import Any
 
 from pydantic import ValidationError
@@ -25,6 +26,15 @@ _STRING_LIST_FIELDS = frozenset(
         "dependencies",
     }
 )
+
+# Host-derived / projection-only fields agents sometimes copy back into patches.
+READ_ONLY_PATCH_FIELDS = frozenset(
+    {
+        "evidence_ref_count",
+    }
+)
+
+_CLOSED_LIKE_STATUSES = frozenset({"closed", "earned", "resolved", "complete"})
 
 
 def repair_state_patch_container_shapes(
@@ -48,11 +58,11 @@ def _repair_patch_root(patch: dict[str, Any], *, repairs: list[dict[str, str]]) 
 def _repair_resolution_branch(raw: dict[str, Any], *, path: str, repairs: list[dict[str, str]]) -> dict[str, Any]:
     out = dict(raw)
     if "items" in out:
-        out["items"] = _coerce_object_list(
+        out["items"] = _normalize_object_list_field(
             out["items"],
-            predicate=_looks_like_resolution_item,
+            id_field="item_id",
+            row_predicate=_looks_like_resolution_item,
             path=f"{path}.items",
-            repair_kind="mapping_to_singleton_list",
             repairs=repairs,
         )
         if isinstance(out["items"], list):
@@ -63,12 +73,13 @@ def _repair_resolution_branch(raw: dict[str, Any], *, path: str, repairs: list[d
                 for index, row in enumerate(out["items"])
             ]
     if "relations" in out:
-        out["relations"] = _coerce_object_list(
+        out["relations"] = _normalize_object_list_field(
             out["relations"],
-            predicate=_looks_like_resolution_relation,
+            id_field="relation_id",
+            row_predicate=_looks_like_resolution_relation,
             path=f"{path}.relations",
-            repair_kind="mapping_to_singleton_list",
             repairs=repairs,
+            allow_keyed_map=False,
         )
     return out
 
@@ -81,29 +92,31 @@ def _repair_mission_branch(raw: dict[str, Any], *, path: str, repairs: list[dict
             _record_repair(repairs, path=f"{path}.high_signal_artifact_refs", repair=repair_kind)
             out["high_signal_artifact_refs"] = coerced
     if "success_conditions" in out:
-        out["success_conditions"] = _coerce_object_list(
+        out["success_conditions"] = _normalize_object_list_field(
             out["success_conditions"],
-            predicate=_looks_like_success_condition,
+            id_field="condition_id",
+            row_predicate=_looks_like_success_condition,
             path=f"{path}.success_conditions",
-            repair_kind="mapping_to_singleton_list",
             repairs=repairs,
+            allow_keyed_map=False,
         )
     if "closure_state" in out and isinstance(out["closure_state"], dict):
         closure = dict(out["closure_state"])
         if "dimensions" in closure:
-            closure["dimensions"] = _coerce_object_list(
+            closure["dimensions"] = _normalize_object_list_field(
                 closure["dimensions"],
-                predicate=_looks_like_closure_dimension,
+                id_field="dimension_id",
+                row_predicate=_looks_like_closure_dimension,
                 path=f"{path}.closure_state.dimensions",
-                repair_kind="mapping_to_singleton_list",
                 repairs=repairs,
+                allow_keyed_map=False,
             )
         out["closure_state"] = closure
     return out
 
 
 def _repair_resolution_item_row(row: dict[str, Any], *, path: str, repairs: list[dict[str, str]]) -> dict[str, Any]:
-    out = dict(row)
+    out = _strip_read_only_fields(row, path=path, repairs=repairs)
     for field in _STRING_LIST_FIELDS:
         if field not in out:
             continue
@@ -116,19 +129,20 @@ def _repair_resolution_item_row(row: dict[str, Any], *, path: str, repairs: list
             out["evidence_locators"], path=f"{path}.evidence_locators", repairs=repairs
         )
     if "history" in out:
-        out["history"] = _coerce_object_list(
+        out["history"] = _normalize_object_list_field(
             out["history"],
-            predicate=_looks_like_history_entry,
+            id_field="event_kind",
+            row_predicate=_looks_like_history_entry,
             path=f"{path}.history",
-            repair_kind="mapping_to_singleton_list",
             repairs=repairs,
+            allow_keyed_map=False,
         )
     if "covered_units" in out:
-        out["covered_units"] = _coerce_object_list(
+        out["covered_units"] = _normalize_object_list_field(
             out["covered_units"],
-            predicate=_looks_like_covered_unit,
+            id_field="unit_id",
+            row_predicate=_looks_like_covered_unit,
             path=f"{path}.covered_units",
-            repair_kind="mapping_to_singleton_list",
             repairs=repairs,
         )
         if isinstance(out["covered_units"], list):
@@ -138,11 +152,12 @@ def _repair_resolution_item_row(row: dict[str, Any], *, path: str, repairs: list
                 else unit
                 for index, unit in enumerate(out["covered_units"])
             ]
+    _maybe_record_stale_live_field_advisory(out, path=path, repairs=repairs)
     return out
 
 
 def _repair_covered_unit_row(row: dict[str, Any], *, path: str, repairs: list[dict[str, str]]) -> dict[str, Any]:
-    out = dict(row)
+    out = _strip_read_only_fields(row, path=path, repairs=repairs)
     for field in _STRING_LIST_FIELDS:
         if field not in out:
             continue
@@ -154,7 +169,94 @@ def _repair_covered_unit_row(row: dict[str, Any], *, path: str, repairs: list[di
         out["evidence_locators"] = _coerce_evidence_locators(
             out["evidence_locators"], path=f"{path}.evidence_locators", repairs=repairs
         )
+    _maybe_record_stale_live_field_advisory(out, path=path, repairs=repairs)
     return out
+
+
+def _normalize_object_list_field(
+    value: Any,
+    *,
+    id_field: str,
+    row_predicate: Callable[[Mapping[str, Any]], bool],
+    path: str,
+    repairs: list[dict[str, str]],
+    allow_keyed_map: bool = True,
+) -> Any:
+    if isinstance(value, list):
+        return value
+    if not isinstance(value, dict):
+        return value
+    if row_predicate(value):
+        _record_repair(repairs, path=path, repair="mapping_to_singleton_list")
+        return [value]
+    if not allow_keyed_map:
+        _record_repair(repairs, path=path, repair="invalid_keyed_map_rejected")
+        return value
+    normalized, code = _try_keyed_map_to_array(
+        value,
+        id_field=id_field,
+        path=path,
+    )
+    if code:
+        _record_repair(repairs, path=path, repair=code)
+    if code == "keyed_map_to_array":
+        return normalized
+    return value
+
+
+def _try_keyed_map_to_array(
+    value: Mapping[str, Any],
+    *,
+    id_field: str,
+    path: str,
+) -> tuple[Any, str | None]:
+    if not value:
+        return value, None
+    rows: list[dict[str, Any]] = []
+    for key, inner in value.items():
+        if not isinstance(key, str) or not key.strip():
+            return value, "invalid_keyed_map_rejected"
+        if not isinstance(inner, Mapping):
+            return value, "invalid_keyed_map_rejected"
+        key_text = key.strip()
+        inner_id_raw = inner.get(id_field) if isinstance(inner, Mapping) else None
+        inner_id = str(inner_id_raw).strip() if inner_id_raw is not None else ""
+        if inner_id and inner_id != key_text:
+            return value, "key_id_conflict_rejected"
+        row = dict(inner)
+        if not inner_id:
+            row[id_field] = key_text
+        rows.append(row)
+    return rows, "keyed_map_to_array"
+
+
+def _strip_read_only_fields(
+    row: Mapping[str, Any],
+    *,
+    path: str,
+    repairs: list[dict[str, str]],
+) -> dict[str, Any]:
+    out = dict(row)
+    for field in READ_ONLY_PATCH_FIELDS:
+        if field not in out:
+            continue
+        del out[field]
+        _record_repair(repairs, path=f"{path}.{field}", repair="read_only_field_ignored")
+    return out
+
+
+def _maybe_record_stale_live_field_advisory(
+    row: Mapping[str, Any],
+    *,
+    path: str,
+    repairs: list[dict[str, str]],
+) -> None:
+    status = str(row.get("status") or "").strip().lower()
+    if status not in _CLOSED_LIKE_STATUSES:
+        return
+    next_step = row.get("next_needed_step")
+    if isinstance(next_step, str) and next_step.strip():
+        _record_repair(repairs, path=f"{path}.next_needed_step", repair="stale_live_field_advisory")
 
 
 def _coerce_string_to_singleton_list(value: Any) -> tuple[Any, str | None]:
@@ -183,22 +285,6 @@ def _coerce_evidence_locators(
         return value
     _record_repair(repairs, path=path, repair="mapping_to_singleton_list")
     return [value]
-
-
-def _coerce_object_list(
-    value: Any,
-    *,
-    predicate,
-    path: str,
-    repair_kind: str,
-    repairs: list[dict[str, str]],
-) -> Any:
-    if isinstance(value, list):
-        return value
-    if isinstance(value, dict) and predicate(value):
-        _record_repair(repairs, path=path, repair=repair_kind)
-        return [value]
-    return value
 
 
 def _looks_like_resolution_item(row: Mapping[str, Any]) -> bool:
@@ -243,9 +329,12 @@ def _looks_like_history_entry(row: Mapping[str, Any]) -> bool:
 def _record_repair(repairs: list[dict[str, str]], *, path: str, repair: str) -> None:
     if len(repairs) >= MAX_SHAPE_REPAIRS:
         return
-    repairs.append(
-        {
-            "path": path[:MAX_SHAPE_REPAIR_PATH_CHARS],
-            "repair": repair[:MAX_SHAPE_REPAIR_KIND_CHARS],
-        }
-    )
+    entry: dict[str, str] = {
+        "path": path[:MAX_SHAPE_REPAIR_PATH_CHARS],
+        "repair": repair[:MAX_SHAPE_REPAIR_KIND_CHARS],
+    }
+    if repair == "keyed_map_to_array":
+        entry["expected_shape"] = "array"
+    if repair in ("key_id_conflict_rejected", "invalid_keyed_map_rejected"):
+        entry["expected_shape"] = "array"
+    repairs.append(entry)

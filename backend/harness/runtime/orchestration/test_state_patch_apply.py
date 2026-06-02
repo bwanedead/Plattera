@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from unittest.mock import patch
 
 import pytest
@@ -1990,3 +1991,301 @@ def test_timeline_renders_state_patch_repair_bundle(tmp_path) -> None:
     assert "state_patch_rows_skipped" in body
     assert "parcel1_bearing_from_beginning" in body
     assert "determined_value=" in body
+
+
+def test_resolution_items_keyed_map_normalizes_to_array() -> None:
+    ms, rs = _base_states()
+    _, rs2, skips = apply_state_patch(
+        mission_state=ms,
+        resolution_state=rs,
+        state_patch={
+            "resolution": {
+                "items": {
+                    "parcel_1_call_1": {
+                        "item_id": "parcel_1_call_1",
+                        "title": "Parcel 1 call 1",
+                        "kind": "work_unit",
+                        "status": "open",
+                    }
+                }
+            }
+        },
+    )
+    assert not row_skip_report_has_skips(skips)
+    assert len(rs2.items) == 1
+    assert rs2.items[0].item_id == "parcel_1_call_1"
+
+
+def test_nested_covered_units_keyed_map_normalizes_to_array() -> None:
+    ms, rs = _base_states()
+    _, rs2, skips = apply_state_patch(
+        mission_state=ms,
+        resolution_state=rs,
+        state_patch={
+            "resolution": {
+                "items": {
+                    "g1": {
+                        "item_id": "g1",
+                        "title": "Group",
+                        "kind": "claim_group",
+                        "status": "open",
+                        "covered_units": {
+                            "call_1_bearing": {
+                                "unit_id": "call_1_bearing",
+                                "title": "Call 1 bearing",
+                                "status": "open",
+                            }
+                        },
+                    }
+                }
+            }
+        },
+    )
+    assert not row_skip_report_has_skips(skips)
+    assert len(rs2.items) == 1
+    assert len(rs2.items[0].covered_units) == 1
+    assert rs2.items[0].covered_units[0].unit_id == "call_1_bearing"
+
+
+def test_keyed_items_rejects_key_item_id_conflict() -> None:
+    ms, rs = _base_states()
+    with pytest.raises(StatePatchError) as excinfo:
+        apply_state_patch(
+            mission_state=ms,
+            resolution_state=rs,
+            state_patch={
+                "resolution": {
+                    "items": {
+                        "parcel_1_call_1": {
+                            "item_id": "different_id",
+                            "title": "Parcel 1 call 1",
+                            "kind": "work_unit",
+                            "status": "open",
+                        }
+                    }
+                }
+            },
+        )
+    assert excinfo.value.reason_code == "items_not_array"
+
+
+def test_keyed_items_conflict_records_shape_repair_feedback() -> None:
+    from harness.runtime.orchestration.state_patch_shape_repair import (
+        repair_state_patch_container_shapes,
+    )
+
+    patch = {
+        "resolution": {
+            "items": {
+                "parcel_1_call_1": {
+                    "item_id": "different_id",
+                    "title": "Parcel 1 call 1",
+                    "kind": "work_unit",
+                    "status": "open",
+                }
+            }
+        }
+    }
+    _, repairs = repair_state_patch_container_shapes(patch)
+    assert any(row.get("repair") == "key_id_conflict_rejected" for row in repairs)
+
+
+def test_keyed_covered_units_rejects_key_unit_id_conflict() -> None:
+    ms, rs = _base_states()
+    _, rs2, skips = apply_state_patch(
+        mission_state=ms,
+        resolution_state=rs,
+        state_patch={
+            "resolution": {
+                "items": [
+                    {
+                        "item_id": "g1",
+                        "title": "Group",
+                        "kind": "claim_group",
+                        "status": "open",
+                        "covered_units": {
+                            "call_1_bearing": {
+                                "unit_id": "other_unit",
+                                "title": "Call 1 bearing",
+                                "status": "open",
+                            }
+                        },
+                    }
+                ]
+            }
+        },
+    )
+    assert len(rs2.items) == 0
+    assert skips["resolution"]["items"]["validation_failed"] >= 1
+
+
+def test_nested_covered_units_key_conflict_surfaces_in_state_patch_feedback() -> None:
+    """Partial apply must carry key_id_conflict_rejected in feedback, not only row skips."""
+    _, fb = _apply_with_feedback(
+        {
+            "resolution": {
+                "items": [
+                    {
+                        "item_id": "g1",
+                        "title": "Group",
+                        "kind": "claim_group",
+                        "status": "open",
+                        "covered_units": {
+                            "call_1_bearing": {
+                                "unit_id": "other_unit",
+                                "title": "Call 1 bearing",
+                                "status": "open",
+                            }
+                        },
+                    }
+                ]
+            }
+        }
+    )
+    assert fb.get("outcome") == "applied"
+    assert fb.get("skipped_resolution_rows") is True
+    repairs = fb.get("shape_repairs") or []
+    conflict_rows = [
+        row
+        for row in repairs
+        if isinstance(row, Mapping) and row.get("repair") == "key_id_conflict_rejected"
+    ]
+    assert conflict_rows, repairs
+    assert any("covered_units" in str(row.get("path") or "") for row in conflict_rows)
+    ms, rs = _base_states()
+    with pytest.raises(StatePatchError) as excinfo:
+        apply_state_patch(
+            mission_state=ms,
+            resolution_state=rs,
+            state_patch={
+                "resolution": {
+                    "items": {
+                        "parcel_1_call_1": "not-an-object",
+                    }
+                }
+            },
+        )
+    assert excinfo.value.reason_code == "items_not_array"
+
+
+def test_evidence_ref_count_stripped_with_feedback() -> None:
+    _, fb = _apply_with_feedback(
+        {
+            "resolution": {
+                "items": [
+                    {
+                        "item_id": "i1",
+                        "title": "First",
+                        "kind": "work_unit",
+                        "status": "open",
+                        "evidence_ref_count": 3,
+                        "evidence_refs": ["artifact://a"],
+                    }
+                ]
+            }
+        }
+    )
+    repairs = fb.get("shape_repairs") or []
+    ignored = [row for row in repairs if row.get("repair") == "read_only_field_ignored"]
+    assert ignored
+    assert any("evidence_ref_count" in row.get("path", "") for row in ignored)
+
+
+def test_keyed_map_and_read_only_strip_still_apply_semantic_patch() -> None:
+    ms, rs = _base_states()
+    _, rs2, skips = apply_state_patch(
+        mission_state=ms,
+        resolution_state=rs,
+        state_patch={
+            "resolution": {
+                "items": {
+                    "i1": {
+                        "item_id": "i1",
+                        "title": "First",
+                        "kind": "work_unit",
+                        "status": "closed",
+                        "determined_value": "42",
+                        "evidence_ref_count": 2,
+                    }
+                }
+            }
+        },
+    )
+    assert not row_skip_report_has_skips(skips)
+    assert rs2.items[0].status == "closed"
+    assert rs2.items[0].determined_value == "42"
+    assert not hasattr(rs2.items[0], "evidence_ref_count")
+
+
+def test_shape_repair_feedback_has_no_binary_or_raw_prompt_fields() -> None:
+    _, fb = _apply_with_feedback(
+        {
+            "resolution": {
+                "items": {
+                    "i1": {
+                        "item_id": "i1",
+                        "title": "First",
+                        "kind": "work_unit",
+                        "status": "open",
+                        "evidence_ref_count": 1,
+                        "reopen_triggers": "Reopen on conflict.",
+                    }
+                }
+            }
+        }
+    )
+    blob = str(fb.get("shape_repairs") or [])
+    lowered = blob.lower()
+    assert "b64" not in lowered
+    assert "raw_prompt" not in lowered
+    assert "bytes" not in lowered
+
+
+def test_keyed_map_shape_repair_recorded_in_feedback() -> None:
+    _, fb = _apply_with_feedback(
+        {
+            "resolution": {
+                "items": {
+                    "i1": {
+                        "item_id": "i1",
+                        "title": "First",
+                        "kind": "work_unit",
+                        "status": "open",
+                    }
+                }
+            }
+        }
+    )
+    repairs = fb.get("shape_repairs") or []
+    assert any(row.get("repair") == "keyed_map_to_array" for row in repairs)
+
+
+def test_invalid_patch_not_safe_to_repair_still_rejects() -> None:
+    with pytest.raises(StatePatchError) as excinfo:
+        apply_state_patch(
+            mission_state=_base_states()[0],
+            resolution_state=_base_states()[1],
+            state_patch={"resolution": {"items": {"bad": 42}}},
+        )
+    assert excinfo.value.reason_code == "items_not_array"
+
+
+def test_stale_next_needed_step_advisory_does_not_reject_patch() -> None:
+    _, fb = _apply_with_feedback(
+        {
+            "resolution": {
+                "items": [
+                    {
+                        "item_id": "i1",
+                        "title": "First",
+                        "kind": "work_unit",
+                        "status": "closed",
+                        "next_needed_step": "Read the source image again",
+                    }
+                ]
+            }
+        }
+    )
+    repairs = fb.get("shape_repairs") or []
+    assert any(row.get("repair") == "stale_live_field_advisory" for row in repairs)
+    assert fb.get("outcome") == "applied"
