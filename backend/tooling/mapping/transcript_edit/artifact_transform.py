@@ -74,7 +74,7 @@ def _overlay_metadata_fields(transform_metadata: Mapping[str, Any]) -> dict[str,
     if not isinstance(overlay, Mapping):
         return {}
     fields: dict[str, Any] = {}
-    for key in ("grid", "legend", "box_render", "pin_render"):
+    for key in ("coordinate_lattice", "grid", "legend", "box_render", "pin_render"):
         if key in overlay:
             fields[key] = overlay[key]
     return fields
@@ -1293,9 +1293,14 @@ def _apply_transform(
                     draw.text((cx - 2, cy - 8 + i * 12), part, fill=label_color)
 
         overlay_meta = build_overlay_render_metadata()
-        overlay_meta["grid"]["cols"] = cols
-        overlay_meta["grid"]["rows"] = rows
-        overlay_meta["grid"]["cell_labels"] = True
+        lattice = dict(overlay_meta.get("coordinate_lattice") or {})
+        lattice["reference_cells"] = {"cols": cols, "rows": rows, "cell_labels": True}
+        overlay_meta["coordinate_lattice"] = lattice
+        grid = dict(overlay_meta.get("grid") or {})
+        grid["cols"] = cols
+        grid["rows"] = rows
+        grid["cell_labels"] = True
+        overlay_meta["grid"] = grid
         transform_metadata["overlay"] = overlay_meta
 
     elif sub_action == "annotate":

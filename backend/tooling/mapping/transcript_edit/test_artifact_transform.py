@@ -224,7 +224,14 @@ def test_reference_overlay_default_grid_is_denser(tmp_path, monkeypatch):
     result = handler({"ref_id": ref_id, "sub_action": "reference_overlay", "params": {}})
     assert result["executed"] is True
     desc = _load_derived_image_descriptor("d1", "tx-1", "ws-1", result["outputs"]["derived_ref_id"])
-    grid = desc["transform_metadata"]["overlay"]["grid"]
+    overlay = desc["transform_metadata"]["overlay"]
+    grid = overlay["grid"]
+    lattice = overlay["coordinate_lattice"]
+    assert lattice["major_step_norm"] == 0.10
+    assert lattice["minor_step_norm"] == 0.025
+    assert lattice["x_increases"] == "right"
+    assert lattice["y_increases"] == "down"
+    assert lattice["major_labels"][0] == "0.10"
     assert grid["major_step_norm"] == 0.10
     assert grid["minor_step_norm"] == 0.025
     assert grid["cols"] == 10
@@ -2093,7 +2100,13 @@ def test_point_crops_master_overlay_includes_grid_metadata(tmp_path, monkeypatch
     result = handler({"ref_id": ref_id, **_point_crops_request()})
     assert result["executed"] is True
     assert result["outputs"]["width_height"] == [100, 200]
-    grid = result["outputs"]["crop_set"]["grid"]
+    crop_set = result["outputs"]["crop_set"]
+    lattice = crop_set["coordinate_lattice"]
+    assert lattice["major_step_norm"] == 0.10
+    assert lattice["minor_step_norm"] == 0.025
+    assert lattice["coordinate_space"] == "normalized_source_image"
+    assert lattice["label_placement"]["major_x"] == ["top", "bottom"]
+    grid = crop_set["grid"]
     assert grid["enabled"] is True
     assert grid["major_step_norm"] == 0.10
     assert grid["minor_step_norm"] == 0.025
@@ -2125,6 +2138,9 @@ def test_point_crops_master_overlay_renders_dense_grid_on_image_area(tmp_path, m
     # Minor grid at x=2 (0.025) and major at x=10 (0.10) on a 100px-wide source.
     assert img.getpixel((2, 10)) != bg
     assert img.getpixel((10, 10)) != bg
+    # Major margin labels render on top and bottom edges near x=10.
+    assert img.getpixel((12, 2)) != bg
+    assert img.getpixel((12, 78)) != bg
     assert img.height == 200
 
 
@@ -2173,8 +2189,10 @@ def test_point_crops_view_includes_grid_and_legend(tmp_path, monkeypatch):
     })
     assert viewed["executed"] is True
     assert viewed["outputs"]["width_height"][1] == 200
-    assert viewed["outputs"]["crop_set"]["grid"]["enabled"] is True
-    assert viewed["outputs"]["crop_set"]["legend"]["size_colors"]["medium"] == [70, 130, 220]
+    crop_set = viewed["outputs"]["crop_set"]
+    assert crop_set["grid"]["enabled"] is True
+    assert crop_set["coordinate_lattice"]["major_step_norm"] == 0.10
+    assert crop_set["legend"]["size_colors"]["medium"] == [70, 130, 220]
 
 
 def test_point_crops_adjust_preserves_prior_zoom(tmp_path, monkeypatch):
@@ -2291,6 +2309,7 @@ def test_point_crops_adjust_by_letter(tmp_path, monkeypatch):
     review_b = next(r for r in adjusted["outputs"]["crop_set"]["review_rows"] if r["letter"] == "B")
     assert review_b["point_norm"] == new_b["point_norm"]
     assert review_b["offset_from_anchor"] != prior_review_b["offset_from_anchor"]
+    assert adjusted["outputs"]["crop_set"]["coordinate_lattice"]["major_step_norm"] == 0.10
 
 
 def test_point_crops_adjust_by_alias(tmp_path, monkeypatch):

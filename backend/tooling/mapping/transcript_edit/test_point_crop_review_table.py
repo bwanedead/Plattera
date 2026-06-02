@@ -4,12 +4,11 @@ from __future__ import annotations
 
 import json
 
+from tooling.mapping.transcript_edit.coordinate_lattice import nearest_lattice_anchor
 from tooling.mapping.transcript_edit.point_crop_review_table import (
     attach_review_table_to_crop_set,
     build_crop_set_review_table,
     build_review_row,
-    nearest_major_anchor,
-    offset_from_anchor,
     render_review_line,
     review_table_from_crop_set,
 )
@@ -31,8 +30,10 @@ def _sample_point(**overrides) -> dict:
 
 
 def test_nearest_major_anchor_and_offset_example() -> None:
-    anchor = nearest_major_anchor([0.732, 0.684])
+    anchor = nearest_lattice_anchor([0.732, 0.684])
     assert anchor == [0.7, 0.7]
+    from tooling.mapping.transcript_edit.coordinate_lattice import offset_from_anchor
+
     assert offset_from_anchor([0.732, 0.684], anchor) == [0.032, -0.016]
 
 
@@ -69,8 +70,31 @@ def test_review_rows_exclude_b64_paths_and_prompt_fields() -> None:
 
 
 def test_attach_and_reconstruct_from_crop_set() -> None:
-    crop_set = {"points": [_sample_point()], "grid": {"major_step_norm": 0.1}}
+    crop_set = {
+        "points": [_sample_point()],
+        "coordinate_lattice": {"major_step_norm": 0.1},
+        "grid": {"major_step_norm": 0.2},
+    }
     attach_review_table_to_crop_set(crop_set)
     assert crop_set["review_lines"]
-    reconstructed = review_table_from_crop_set({"points": crop_set["points"], "grid": crop_set["grid"]})
+    reconstructed = review_table_from_crop_set(
+        {
+            "points": crop_set["points"],
+            "coordinate_lattice": crop_set["coordinate_lattice"],
+            "grid": crop_set["grid"],
+        }
+    )
     assert reconstructed["review_lines"] == crop_set["review_lines"]
+
+
+def test_review_table_uses_coordinate_lattice_major_step() -> None:
+    point = _sample_point(point_norm=[0.23, 0.27])
+    table = build_crop_set_review_table(
+        [point],
+        overlay_metadata={
+            "coordinate_lattice": {"major_step_norm": 0.05},
+            "grid": {"major_step_norm": 0.10},
+        },
+    )
+    row = table["review_rows"][0]
+    assert row["nearest_major_anchor"] == [0.25, 0.25]

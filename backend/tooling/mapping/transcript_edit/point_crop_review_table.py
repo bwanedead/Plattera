@@ -5,7 +5,13 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from .point_crops import MAX_POINT_CROP_COUNT, OVERLAY_GRID_MAJOR_STEP_NORM
+from .coordinate_lattice import (
+    DEFAULT_MAJOR_STEP_NORM,
+    major_step_from_metadata,
+    nearest_lattice_anchor,
+    offset_from_anchor,
+)
+from .point_crops import MAX_POINT_CROP_COUNT
 
 MAX_REVIEW_ROWS = MAX_POINT_CROP_COUNT
 _DECIMALS = 3
@@ -31,56 +37,10 @@ _STRIP_REVIEW_KEYS = frozenset(
 )
 
 
-def major_step_from_overlay(overlay_metadata: Mapping[str, Any] | None) -> float:
-    """Read major grid step from overlay metadata when present."""
-    if not isinstance(overlay_metadata, Mapping):
-        return OVERLAY_GRID_MAJOR_STEP_NORM
-    grid = overlay_metadata.get("grid")
-    if isinstance(grid, Mapping):
-        raw = grid.get("major_step_norm")
-        if raw is not None:
-            try:
-                step = float(raw)
-                if step > 0.0:
-                    return step
-            except (TypeError, ValueError):
-                pass
-    return OVERLAY_GRID_MAJOR_STEP_NORM
-
-
-def nearest_major_anchor(
-    point_norm: Sequence[float],
-    *,
-    major_step: float = OVERLAY_GRID_MAJOR_STEP_NORM,
-) -> list[float]:
-    """Nearest major grid intersection in normalized source-image space."""
-    try:
-        x = float(point_norm[0])
-        y = float(point_norm[1])
-    except (TypeError, ValueError, IndexError):
-        return [0.0, 0.0]
-    ax = _clamp01(_snap_to_step(x, major_step))
-    ay = _clamp01(_snap_to_step(y, major_step))
-    return [_round_coord(ax), _round_coord(ay)]
-
-
-def offset_from_anchor(
-    point_norm: Sequence[float],
-    anchor: Sequence[float],
-) -> list[float]:
-    """``point_norm - anchor`` for review-table adjustment hints."""
-    try:
-        dx = float(point_norm[0]) - float(anchor[0])
-        dy = float(point_norm[1]) - float(anchor[1])
-    except (TypeError, ValueError, IndexError):
-        return [0.0, 0.0]
-    return [_round_coord(dx), _round_coord(dy)]
-
-
 def build_review_row(
     point: Mapping[str, Any],
     *,
-    major_step: float = OVERLAY_GRID_MAJOR_STEP_NORM,
+    major_step: float = DEFAULT_MAJOR_STEP_NORM,
 ) -> dict[str, Any]:
     """Structured review row for one crop-set point (bounded, no media payloads)."""
     letter = str(point.get("letter") or "").strip()
@@ -89,7 +49,7 @@ def build_review_row(
     if point_norm is None:
         point_norm = [0.0, 0.0]
 
-    anchor = nearest_major_anchor(point_norm, major_step=major_step)
+    anchor = nearest_lattice_anchor(point_norm, major_step_norm=major_step)
     offset = offset_from_anchor(point_norm, anchor)
 
     row: dict[str, Any] = {
@@ -179,7 +139,7 @@ def build_crop_set_review_table(
     overlay_metadata: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build bounded ``review_rows`` and ``review_lines`` for a crop set."""
-    major_step = major_step_from_overlay(overlay_metadata)
+    major_step = major_step_from_metadata(overlay_metadata)
     rows: list[dict[str, Any]] = []
     lines: list[str] = []
     for point in points[:MAX_REVIEW_ROWS]:
@@ -227,16 +187,6 @@ def review_table_from_crop_set(crop_set: Mapping[str, Any] | None) -> dict[str, 
             overlay_metadata=crop_set,
         )
     return {}
-
-
-def _snap_to_step(value: float, step: float) -> float:
-    if step <= 0.0:
-        return value
-    return round(value / step) * step
-
-
-def _clamp01(value: float) -> float:
-    return max(0.0, min(1.0, float(value)))
 
 
 def _round_coord(value: float) -> float:

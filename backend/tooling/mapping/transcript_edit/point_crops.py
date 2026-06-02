@@ -9,6 +9,14 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
+from .coordinate_lattice import (
+    DEFAULT_MAJOR_STEP_NORM,
+    DEFAULT_MINOR_STEP_NORM,
+    build_compat_grid_metadata,
+    build_coordinate_lattice_metadata,
+    draw_coordinate_lattice,
+    draw_norm_step_coordinate_grid,
+)
 from .root_projection import copy_projection_fields
 
 # Normalized box sizes centered on ``point_norm``.
@@ -75,14 +83,10 @@ _ZOOM_METADATA_KEYS = (
     "requested_zoom_factor",
     "max_output_dimension",
 )
-OVERLAY_GRID_MAJOR_STEP_NORM = 0.10
-OVERLAY_GRID_MINOR_STEP_NORM = 0.025
+
+OVERLAY_GRID_MAJOR_STEP_NORM = DEFAULT_MAJOR_STEP_NORM
+OVERLAY_GRID_MINOR_STEP_NORM = DEFAULT_MINOR_STEP_NORM
 OVERLAY_LEGEND_HEIGHT = 120
-_OVERLAY_GRID_MINOR_COLOR = (232, 232, 232)
-_OVERLAY_GRID_MAJOR_COLOR = (140, 140, 140)
-_OVERLAY_GRID_MINOR_WIDTH = 1
-_OVERLAY_GRID_MAJOR_WIDTH = 2
-_OVERLAY_GRID_LABEL_COLOR = (50, 50, 50)
 _BOX_FILL_ALPHA = 52
 _BOX_OUTLINE_WIDTH = 3
 _PIN_RADIUS = 10
@@ -485,22 +489,10 @@ def _compute_single_point_geometry(
 
 def build_overlay_render_metadata() -> dict[str, Any]:
     """Mechanical metadata for point-crop master overlay grid/legend rendering."""
+    lattice = build_coordinate_lattice_metadata()
     return {
-        "grid": {
-            "enabled": True,
-            "coordinate_space": "source_image_norm",
-            "major_step_norm": OVERLAY_GRID_MAJOR_STEP_NORM,
-            "minor_step_norm": OVERLAY_GRID_MINOR_STEP_NORM,
-            "major_line": {
-                "color": list(_OVERLAY_GRID_MAJOR_COLOR),
-                "width": _OVERLAY_GRID_MAJOR_WIDTH,
-            },
-            "minor_line": {
-                "color": list(_OVERLAY_GRID_MINOR_COLOR),
-                "width": _OVERLAY_GRID_MINOR_WIDTH,
-            },
-            "edge_labels": "major_only",
-        },
+        "coordinate_lattice": lattice,
+        "grid": build_compat_grid_metadata(lattice, enabled=True),
         "box_render": {
             "fill_alpha": _BOX_FILL_ALPHA,
             "outline_width": _BOX_OUTLINE_WIDTH,
@@ -522,13 +514,6 @@ def build_overlay_render_metadata() -> dict[str, Any]:
             },
         },
     }
-
-
-def _format_norm_axis_label(axis: str, frac: float) -> str:
-    value = f"{frac:.2f}"
-    if value.startswith("0"):
-        value = value[1:]
-    return f"{axis}={value}"
 
 
 def _draw_dashed_line(
@@ -564,11 +549,6 @@ def _draw_dashed_line(
     draw.line([start, end], fill=fill, width=width)
 
 
-def _is_major_grid_fraction(frac: float) -> bool:
-    major_tick = round(frac / OVERLAY_GRID_MAJOR_STEP_NORM)
-    return abs(frac - major_tick * OVERLAY_GRID_MAJOR_STEP_NORM) < 1e-9
-
-
 def _saturate_outline_color(rgb: tuple[int, int, int]) -> tuple[int, int, int]:
     r, g, b = rgb
     peak = max(r, g, b)
@@ -582,62 +562,9 @@ def _saturate_outline_color(rgb: tuple[int, int, int]) -> tuple[int, int, int]:
     )
 
 
-def draw_norm_step_coordinate_grid(
-    draw: Any,
-    img_w: int,
-    img_h: int,
-    *,
-    edge_labels: bool = True,
-) -> None:
-    """Draw major/minor normalized-coordinate grid on the source image area."""
-    frac = OVERLAY_GRID_MINOR_STEP_NORM
-    while frac < 1.0:
-        if not _is_major_grid_fraction(frac):
-            x = int(round(frac * img_w))
-            y = int(round(frac * img_h))
-            draw.line(
-                [(x, 0), (x, img_h)],
-                fill=_OVERLAY_GRID_MINOR_COLOR,
-                width=_OVERLAY_GRID_MINOR_WIDTH,
-            )
-            draw.line(
-                [(0, y), (img_w, y)],
-                fill=_OVERLAY_GRID_MINOR_COLOR,
-                width=_OVERLAY_GRID_MINOR_WIDTH,
-            )
-        frac = round(frac + OVERLAY_GRID_MINOR_STEP_NORM, 6)
-
-    frac = OVERLAY_GRID_MAJOR_STEP_NORM
-    while frac < 1.0:
-        x = int(round(frac * img_w))
-        y = int(round(frac * img_h))
-        draw.line(
-            [(x, 0), (x, img_h)],
-            fill=_OVERLAY_GRID_MAJOR_COLOR,
-            width=_OVERLAY_GRID_MAJOR_WIDTH,
-        )
-        draw.line(
-            [(0, y), (img_w, y)],
-            fill=_OVERLAY_GRID_MAJOR_COLOR,
-            width=_OVERLAY_GRID_MAJOR_WIDTH,
-        )
-        if edge_labels:
-            draw.text(
-                (min(x + 2, max(0, img_w - 36)), 2),
-                _format_norm_axis_label("x", frac),
-                fill=_OVERLAY_GRID_LABEL_COLOR,
-            )
-            draw.text(
-                (2, min(y + 2, max(0, img_h - 14))),
-                _format_norm_axis_label("y", frac),
-                fill=_OVERLAY_GRID_LABEL_COLOR,
-            )
-        frac = round(frac + OVERLAY_GRID_MAJOR_STEP_NORM, 6)
-
-
 def _draw_coordinate_grid(draw: Any, img_w: int, img_h: int) -> None:
     """Light normalized-coordinate grid on the source image area only."""
-    draw_norm_step_coordinate_grid(draw, img_w, img_h, edge_labels=True)
+    draw_coordinate_lattice(draw, img_w, img_h, edge_labels=True)
 
 
 def _draw_template_legend(draw: Any, *, img_w: int, img_h: int) -> None:
