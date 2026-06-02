@@ -2112,8 +2112,11 @@ def test_point_crops_master_overlay_includes_grid_metadata(tmp_path, monkeypatch
     assert grid["minor_step_norm"] == 0.025
     assert grid["coordinate_space"] == "source_image_norm"
     assert grid["major_line"]["width"] == 2
-    assert result["outputs"]["crop_set"]["box_render"]["fill_alpha"] == 52
-    assert result["outputs"]["crop_set"]["pin_render"]["radius_px"] == 10
+    assert result["outputs"]["crop_set"]["box_render"]["fill_alpha"] == 48
+    assert result["outputs"]["crop_set"]["pin_render"]["radius_px"] == 12
+    assert result["outputs"]["crop_set"]["pin_render"]["halo_padding_px"] == 5
+    assert result["outputs"]["crop_set"]["letter_render"]["font_size_px"] == 14
+    assert lattice["label_style"]["background"] is True
     assert result["outputs"]["crop_set"]["show"] == ["pin", "letter"]
     legend = result["outputs"]["crop_set"]["legend"]
     assert legend["size_colors"]["small"] == [220, 70, 70]
@@ -2138,9 +2141,11 @@ def test_point_crops_master_overlay_renders_dense_grid_on_image_area(tmp_path, m
     # Minor grid at x=2 (0.025) and major at x=10 (0.10) on a 100px-wide source.
     assert img.getpixel((2, 10)) != bg
     assert img.getpixel((10, 10)) != bg
-    # Major margin labels render on top and bottom edges near x=10.
+    # Major margin labels with backgrounds on all four edges near x=10 / y=20 (0.20).
     assert img.getpixel((12, 2)) != bg
     assert img.getpixel((12, 78)) != bg
+    assert img.getpixel((2, 22)) != bg
+    assert img.getpixel((88, 22)) != bg
     assert img.height == 200
 
 
@@ -2159,11 +2164,59 @@ def test_point_crops_master_overlay_renders_box_fill_and_letter(tmp_path, monkey
     cy = (point["box_px"][1] + point["box_px"][3]) // 2
     bg = (200, 200, 200)
     assert img.getpixel((cx, cy)) != bg
-    px = int(round(point["point_norm"][0] * 100))
-    py = int(round(point["point_norm"][1] * 80))
-    lx = min(px + 8, 100 - 18)
-    ly = max(0, py - 20)
+    from tooling.mapping.transcript_edit.point_crops import _letter_position_near_pin, _pin_center_px
+
+    cx, cy = _pin_center_px(point)
+    lx, ly = _letter_position_near_pin(cx, cy, img_w=100, img_h=80)
     assert img.getpixel((lx + 1, ly + 1)) != bg
+    assert img.getpixel((cx, cy)) != bg
+
+
+def test_point_crops_default_show_remains_pin_and_letter_only(tmp_path, monkeypatch) -> None:
+    handler, ref_id = _make_handler(tmp_path, monkeypatch)
+    result = handler({"ref_id": ref_id, **_point_crops_request()})
+    assert result["outputs"]["crop_set"]["show"] == ["pin", "letter"]
+
+
+def test_point_crops_master_overlay_box_renders_when_requested(tmp_path, monkeypatch) -> None:
+    from tooling.mapping.transcript_edit.artifact_hydration import _load_derived_image_descriptor
+
+    handler, ref_id = _make_handler(tmp_path, monkeypatch, d="d1", tx="tx-1", ws="ws-1")
+    result = handler({"ref_id": ref_id, **_point_crops_request(show=["pin", "letter", "box"])})
+    point = result["outputs"]["crop_set"]["points"][0]
+    desc = _load_derived_image_descriptor("d1", "tx-1", "ws-1", result["outputs"]["derived_ref_id"])
+    from PIL import Image
+
+    img = Image.open(desc["absolute_path"])
+    bg = (200, 200, 200)
+    edge = (
+        point["box_px"][0] + 2,
+        point["box_px"][1] + 2,
+    )
+    assert img.getpixel(edge) != bg
+    assert result["outputs"]["crop_set"]["box_render"]["outline_width"] == 4
+
+
+def test_point_crops_overlay_render_metadata_has_no_paths_or_b64(tmp_path, monkeypatch) -> None:
+    import json
+
+    handler, ref_id = _make_handler(tmp_path, monkeypatch)
+    result = handler({"ref_id": ref_id, **_point_crops_request()})
+    dumped = json.dumps(result["outputs"]["crop_set"]).lower()
+    assert "b64" not in dumped
+    assert "absolute_path" not in dumped
+    assert "c:\\" not in dumped
+
+
+def test_reference_overlay_preserves_lattice_label_style(tmp_path, monkeypatch) -> None:
+    from tooling.mapping.transcript_edit.artifact_hydration import _load_derived_image_descriptor
+
+    handler, ref_id = _make_handler(tmp_path, monkeypatch, d="d1", tx="tx-1", ws="ws-1")
+    result = handler({"ref_id": ref_id, "sub_action": "reference_overlay", "params": {}})
+    desc = _load_derived_image_descriptor("d1", "tx-1", "ws-1", result["outputs"]["derived_ref_id"])
+    lattice = desc["transform_metadata"]["overlay"]["coordinate_lattice"]
+    assert lattice["label_style"]["background"] is True
+    assert lattice["major_step_norm"] == 0.10
 
 
 def test_point_crops_per_point_crop_refs_exclude_grid(tmp_path, monkeypatch):

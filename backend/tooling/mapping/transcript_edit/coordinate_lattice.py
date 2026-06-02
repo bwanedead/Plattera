@@ -12,11 +12,15 @@ DEFAULT_MINOR_STEP_NORM = 0.025
 OVERLAY_GRID_MAJOR_STEP_NORM = DEFAULT_MAJOR_STEP_NORM
 OVERLAY_GRID_MINOR_STEP_NORM = DEFAULT_MINOR_STEP_NORM
 
-_GRID_MINOR_COLOR = (232, 232, 232)
-_GRID_MAJOR_COLOR = (140, 140, 140)
+_GRID_MINOR_COLOR = (235, 235, 235)
+_GRID_MAJOR_COLOR = (115, 115, 115)
 _GRID_MINOR_WIDTH = 1
 _GRID_MAJOR_WIDTH = 2
-_GRID_LABEL_COLOR = (50, 50, 50)
+_GRID_LABEL_COLOR = (25, 25, 25)
+_GRID_LABEL_BG_COLOR = (255, 255, 255)
+_GRID_LABEL_BG_ALPHA = 215
+_GRID_LABEL_FONT_SIZE = 11
+_GRID_LABEL_PAD_PX = 2
 
 _DECIMALS = 3
 _STRIP_LATTICE_KEYS = frozenset(
@@ -53,6 +57,17 @@ def build_coordinate_lattice_metadata(
             "major_x": ["top", "bottom"],
             "major_y": ["left", "right"],
             "minor": False,
+        },
+        "label_style": {
+            "background": True,
+            "opposite_margins": True,
+            "font_size_px": _GRID_LABEL_FONT_SIZE,
+        },
+        "line_style": {
+            "major_width_px": _GRID_MAJOR_WIDTH,
+            "minor_width_px": _GRID_MINOR_WIDTH,
+            "major_color": list(_GRID_MAJOR_COLOR),
+            "minor_color": list(_GRID_MINOR_COLOR),
         },
     }
     if cols is not None and rows is not None:
@@ -250,32 +265,78 @@ def _draw_major_margin_labels(
     y_px: int,
     opposite_margins: bool,
 ) -> None:
+    font = _lattice_font()
     x_label = _format_x_margin_label(frac)
     y_label = _format_y_margin_label(frac)
-    x_text_w = len(x_label) * 6
-    y_text_w = len(y_label) * 6
+    x_bbox = _text_bbox(draw, x_label, font=font)
+    y_bbox = _text_bbox(draw, y_label, font=font)
+    x_text_w = x_bbox[2] - x_bbox[0]
+    y_text_w = y_bbox[2] - y_bbox[0]
 
-    draw.text(
-        (min(x_px + 2, max(0, img_w - x_text_w - 2)), 2),
-        x_label,
-        fill=_GRID_LABEL_COLOR,
-    )
-    draw.text(
-        (2, min(y_px + 2, max(0, img_h - 14))),
-        y_label,
-        fill=_GRID_LABEL_COLOR,
-    )
+    top_x = min(max(2, x_px + 2), max(2, img_w - x_text_w - 4))
+    _draw_margin_label(draw, (top_x, 2), x_label, font=font)
+    _draw_margin_label(draw, (2, min(y_px + 2, max(2, img_h - (y_bbox[3] - y_bbox[1]) - 4))), y_label, font=font)
     if opposite_margins:
-        draw.text(
-            (min(x_px + 2, max(0, img_w - x_text_w - 2)), max(0, img_h - 14)),
-            x_label,
-            fill=_GRID_LABEL_COLOR,
-        )
-        draw.text(
-            (max(2, img_w - y_text_w - 4), min(y_px + 2, max(0, img_h - 14))),
+        bottom_y = max(2, img_h - (x_bbox[3] - x_bbox[1]) - 4)
+        _draw_margin_label(draw, (top_x, bottom_y), x_label, font=font)
+        right_x = max(2, img_w - y_text_w - 4)
+        _draw_margin_label(
+            draw,
+            (right_x, min(y_px + 2, max(2, img_h - (y_bbox[3] - y_bbox[1]) - 4))),
             y_label,
-            fill=_GRID_LABEL_COLOR,
+            font=font,
         )
+
+
+def _draw_margin_label(
+    draw: Any,
+    xy: tuple[int, int],
+    text: str,
+    *,
+    font: Any,
+) -> None:
+    """Draw a lattice label with a small high-contrast background pad."""
+    bbox = _text_bbox(draw, text, font=font, anchor_xy=xy)
+    pad = _GRID_LABEL_PAD_PX
+    draw.rectangle(
+        [bbox[0] - pad, bbox[1] - pad, bbox[2] + pad, bbox[3] + pad],
+        fill=_GRID_LABEL_BG_COLOR,
+        outline=(60, 60, 60),
+        width=1,
+    )
+    draw.text(xy, text, fill=_GRID_LABEL_COLOR, font=font)
+
+
+def _lattice_font() -> Any:
+    from PIL import ImageFont  # type: ignore[import]
+
+    size = _GRID_LABEL_FONT_SIZE
+    candidates = (
+        "arial.ttf",
+        "Arial.ttf",
+        "DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "C:/Windows/Fonts/arial.ttf",
+        "C:/Windows/Fonts/segoeui.ttf",
+    )
+    for path in candidates:
+        try:
+            return ImageFont.truetype(path, size)
+        except OSError:
+            continue
+    return ImageFont.load_default()
+
+
+def _text_bbox(
+    draw: Any,
+    text: str,
+    *,
+    font: Any,
+    anchor_xy: tuple[int, int] | None = None,
+) -> tuple[int, int, int, int]:
+    if anchor_xy is None:
+        return draw.textbbox((0, 0), text, font=font)
+    return draw.textbbox(anchor_xy, text, font=font)
 
 
 def _format_x_margin_label(frac: float) -> str:

@@ -33,6 +33,8 @@ def test_build_coordinate_lattice_metadata_shape() -> None:
     assert lattice["origin"] == "top_left"
     assert lattice["x_increases"] == "right"
     assert lattice["y_increases"] == "down"
+    assert lattice["label_style"]["background"] is True
+    assert lattice["label_style"]["opposite_margins"] is True
 
 
 def test_compat_grid_metadata_mirrors_lattice_steps() -> None:

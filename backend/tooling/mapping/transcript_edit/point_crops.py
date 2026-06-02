@@ -87,14 +87,19 @@ _ZOOM_METADATA_KEYS = (
 OVERLAY_GRID_MAJOR_STEP_NORM = DEFAULT_MAJOR_STEP_NORM
 OVERLAY_GRID_MINOR_STEP_NORM = DEFAULT_MINOR_STEP_NORM
 OVERLAY_LEGEND_HEIGHT = 120
-_BOX_FILL_ALPHA = 52
-_BOX_OUTLINE_WIDTH = 3
-_PIN_RADIUS = 10
-_PIN_HALO_PADDING = 3
-_PIN_FILL_ALPHA = 215
-_PIN_HALO_RGBA = (255, 255, 255, 190)
-_LETTER_PAD = 4
-_LETTER_BG_RGBA = (255, 255, 255, 235)
+_BOX_FILL_ALPHA = 48
+_BOX_OUTLINE_WIDTH = 4
+_PIN_RADIUS = 12
+_PIN_HALO_PADDING = 5
+_PIN_FILL_ALPHA = 225
+_PIN_HALO_RGBA = (255, 255, 255, 245)
+_PIN_RING_RGBA = (35, 35, 35, 255)
+_LETTER_PAD = 5
+_LETTER_BG_RGBA = (255, 255, 255, 245)
+_LETTER_TEXT_RGBA = (15, 15, 15, 255)
+_LETTER_OUTLINE_RGBA = (30, 30, 30, 255)
+_LETTER_FONT_SIZE = 14
+_LETTER_BOX_PX = 18
 _LEGEND_SIZE_COLORS: dict[str, tuple[int, int, int]] = {
     "small": (220, 70, 70),
     "small_plus": (245, 166, 35),
@@ -496,12 +501,24 @@ def build_overlay_render_metadata() -> dict[str, Any]:
         "box_render": {
             "fill_alpha": _BOX_FILL_ALPHA,
             "outline_width": _BOX_OUTLINE_WIDTH,
+            "color_matches_point": True,
         },
         "pin_render": {
             "radius_px": _PIN_RADIUS,
             "halo_padding_px": _PIN_HALO_PADDING,
+            "halo_rgba": list(_PIN_HALO_RGBA),
+            "ring_rgba": list(_PIN_RING_RGBA),
             "fill_alpha": _PIN_FILL_ALPHA,
+            "outline_width_px": 3,
             "anchor": "point_norm",
+        },
+        "letter_render": {
+            "pad_px": _LETTER_PAD,
+            "font_size_px": _LETTER_FONT_SIZE,
+            "bg_rgba": list(_LETTER_BG_RGBA),
+            "text_rgba": list(_LETTER_TEXT_RGBA),
+            "outline_rgba": list(_LETTER_OUTLINE_RGBA),
+            "placement": "upper_right_of_pin",
         },
         "legend": {
             "size_colors": {
@@ -547,6 +564,98 @@ def _draw_dashed_line(
             x += step
         return
     draw.line([start, end], fill=fill, width=width)
+
+
+def _overlay_letter_font() -> Any:
+    from PIL import ImageFont  # type: ignore[import]
+
+    candidates = (
+        "arialbd.ttf",
+        "Arialbd.ttf",
+        "arial.ttf",
+        "Arial.ttf",
+        "DejaVuSans-Bold.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "C:/Windows/Fonts/arialbd.ttf",
+        "C:/Windows/Fonts/arial.ttf",
+    )
+    for path in candidates:
+        try:
+            return ImageFont.truetype(path, _LETTER_FONT_SIZE)
+        except OSError:
+            continue
+    return ImageFont.load_default()
+
+
+def _pin_center_px(pt: Mapping[str, Any]) -> tuple[int, int]:
+    pin_px = pt.get("pin_px")
+    if isinstance(pin_px, (list, tuple)) and len(pin_px) == 2:
+        return int(pin_px[0]), int(pin_px[1])
+    b = tuple(pt["box_px"])
+    return (b[0] + b[2]) // 2, (b[1] + b[3]) // 2
+
+
+def _letter_position_near_pin(cx: int, cy: int, *, img_w: int, img_h: int) -> tuple[int, int]:
+    lx = min(cx + _PIN_RADIUS + 6, max(2, img_w - _LETTER_BOX_PX - _LETTER_PAD * 2 - 4))
+    ly = max(2, cy - _PIN_RADIUS - _LETTER_BOX_PX - _LETTER_PAD)
+    return lx, ly
+
+
+def _draw_point_pin(
+    draw: Any,
+    *,
+    cx: int,
+    cy: int,
+    color: tuple[int, int, int],
+    outline: tuple[int, int, int],
+) -> None:
+    r = _PIN_RADIUS
+    halo = _PIN_HALO_PADDING
+    draw.ellipse(
+        [cx - r - halo, cy - r - halo, cx + r + halo, cy + r + halo],
+        fill=_PIN_HALO_RGBA,
+    )
+    draw.ellipse(
+        [cx - r - 1, cy - r - 1, cx + r + 1, cy + r + 1],
+        outline=_PIN_RING_RGBA,
+        width=1,
+    )
+    draw.ellipse(
+        [cx - r, cy - r, cx + r, cy + r],
+        fill=(*color, _PIN_FILL_ALPHA),
+        outline=(*outline, 255),
+        width=3,
+    )
+
+
+def _draw_point_letter(
+    draw: Any,
+    *,
+    cx: int,
+    cy: int,
+    letter: str,
+    color: tuple[int, int, int],
+    outline: tuple[int, int, int],
+    img_w: int,
+    img_h: int,
+) -> None:
+    lx, ly = _letter_position_near_pin(cx, cy, img_w=img_w, img_h=img_h)
+    pad = _LETTER_PAD
+    font = _overlay_letter_font()
+    bbox = draw.textbbox((lx, ly), letter, font=font)
+    letter_draw_box = [bbox[0] - pad, bbox[1] - pad, bbox[2] + pad, bbox[3] + pad]
+    draw.rectangle(
+        letter_draw_box,
+        fill=_LETTER_BG_RGBA,
+        outline=_LETTER_OUTLINE_RGBA,
+        width=2,
+    )
+    draw.rectangle(
+        letter_draw_box,
+        outline=(*outline, 255),
+        width=1,
+    )
+    draw.text((lx, ly), letter, fill=_LETTER_TEXT_RGBA, font=font)
 
 
 def _saturate_outline_color(rgb: tuple[int, int, int]) -> tuple[int, int, int]:
@@ -629,24 +738,8 @@ def _render_master_overlay(
                 width=_BOX_OUTLINE_WIDTH,
             )
         if "pin" in show:
-            pin_px = pt.get("pin_px")
-            if isinstance(pin_px, (list, tuple)) and len(pin_px) == 2:
-                cx, cy = int(pin_px[0]), int(pin_px[1])
-            else:
-                cx = (b[0] + b[2]) // 2
-                cy = (b[1] + b[3]) // 2
-            r = _PIN_RADIUS
-            halo = _PIN_HALO_PADDING
-            box_draw.ellipse(
-                [cx - r - halo, cy - r - halo, cx + r + halo, cy + r + halo],
-                fill=_PIN_HALO_RGBA,
-            )
-            box_draw.ellipse(
-                [cx - r, cy - r, cx + r, cy + r],
-                fill=(*col, _PIN_FILL_ALPHA),
-                outline=(*outline, 255),
-                width=2,
-            )
+            cx, cy = _pin_center_px(pt)
+            _draw_point_pin(box_draw, cx=cx, cy=cy, color=col, outline=outline)
 
     composed = Image.alpha_composite(rgba_base, box_layer)
 
@@ -657,22 +750,17 @@ def _render_master_overlay(
             continue
         col = tuple(int(v) for v in pt["color"][:3])
         outline = _saturate_outline_color(col)
-        pin_px = pt.get("pin_px")
-        if isinstance(pin_px, (list, tuple)) and len(pin_px) == 2:
-            cx, cy = int(pin_px[0]), int(pin_px[1])
-        else:
-            b = tuple(pt["box_px"])
-            cx = (b[0] + b[2]) // 2
-            cy = (b[1] + b[3]) // 2
-        lx, ly = min(cx + 8, img.width - 18), max(0, cy - 20)
-        pad = _LETTER_PAD
-        letter_draw.rectangle(
-            [lx - pad, ly - pad, lx + 16 + pad, ly + 16 + pad],
-            fill=_LETTER_BG_RGBA,
-            outline=(*outline, 255),
-            width=2,
+        cx, cy = _pin_center_px(pt)
+        _draw_point_letter(
+            letter_draw,
+            cx=cx,
+            cy=cy,
+            letter=str(pt["letter"]),
+            color=col,
+            outline=outline,
+            img_w=img.width,
+            img_h=img.height,
         )
-        letter_draw.text((lx, ly), pt["letter"], fill=(20, 20, 20, 255))
 
     composed = Image.alpha_composite(composed, letter_layer)
     canvas = composed.convert("RGB")

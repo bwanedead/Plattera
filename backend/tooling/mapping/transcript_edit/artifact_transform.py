@@ -74,7 +74,14 @@ def _overlay_metadata_fields(transform_metadata: Mapping[str, Any]) -> dict[str,
     if not isinstance(overlay, Mapping):
         return {}
     fields: dict[str, Any] = {}
-    for key in ("coordinate_lattice", "grid", "legend", "box_render", "pin_render"):
+    for key in (
+        "coordinate_lattice",
+        "grid",
+        "legend",
+        "box_render",
+        "pin_render",
+        "letter_render",
+    ):
         if key in overlay:
             fields[key] = overlay[key]
     return fields
