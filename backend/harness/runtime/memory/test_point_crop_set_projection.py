@@ -66,6 +66,9 @@ def test_project_point_crops_result_as_compact_summary() -> None:
     assert summary["delegation_lines"] == [
         "A parcel_1_tie_bearing -> image:derived:crop-a root=[0.51,0.63] zoom=2.25"
     ]
+    assert summary["review_lines"]
+    assert "offset=[" in summary["review_lines"][0]
+    assert "anchor=[" in summary["review_lines"][0]
 
 
 def test_project_point_crops_adjust_includes_previous_overlay_ref() -> None:
@@ -139,6 +142,14 @@ def test_projection_includes_unavailable_reason_when_projection_false() -> None:
     point = summary["points"][0]
     assert point["projection_available"] is False
     assert "reference_overlay" in point["projection_unavailable_reason"]
+
+
+def test_projection_caps_review_lines_at_sixteen() -> None:
+    outputs = _crop_set_outputs()
+    outputs["crop_set"]["review_lines"] = [f"line-{i}" for i in range(20)]
+    summary = project_point_crop_set_summary(outputs)
+    assert summary is not None
+    assert len(summary["review_lines"]) == 16
 
 
 def test_projection_caps_points_at_sixteen() -> None:

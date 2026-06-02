@@ -61,6 +61,9 @@ def test_timeline_renders_point_crop_set_creation() -> None:
     assert "zoom=2.25" in body
     assert "root=[" in body
     assert "overlay grid: yes" in body
+    assert "Review table:" in body
+    assert "anchor=[" in body
+    assert "offset=[" in body
     assert "b64" not in body.lower()
     assert "C:\\" not in body
 

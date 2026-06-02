@@ -31,6 +31,7 @@ from .root_projection import (
     enrich_point_geometry_with_projection,
     resolve_root_projection_context,
 )
+from .point_crop_review_table import attach_review_table_to_crop_set
 from .point_crops import (
     PointCropParamError,
     build_crop_set_point_record,
@@ -200,10 +201,16 @@ def _persist_point_crop_set(
     if adjustments_applied:
         crop_set["adjustments_applied"] = list(adjustments_applied)
     crop_set.update(_overlay_metadata_fields(transform_metadata))
+    attach_review_table_to_crop_set(crop_set)
 
     (derived_dir / f"{master_uuid}_crop_set.json").write_text(
         json.dumps(crop_set, ensure_ascii=False, indent=2), encoding="utf-8"
     )
+
+    master_crop_set_meta: dict[str, Any] = {"points": list(crop_refs)}
+    for key in ("review_rows", "review_lines"):
+        if key in crop_set:
+            master_crop_set_meta[key] = crop_set[key]
 
     master_transform_metadata: dict[str, Any] = {
         "source_ref": source_ref,
@@ -211,7 +218,7 @@ def _persist_point_crop_set(
         "legend_height": legend_height,
         "source_width_height": source_width_height,
         "point_count": point_count,
-        "crop_set": {"points": list(crop_refs)},
+        "crop_set": master_crop_set_meta,
     }
     if previous_crop_set_overlay_ref:
         master_transform_metadata["previous_crop_set_overlay_ref"] = previous_crop_set_overlay_ref
@@ -306,6 +313,12 @@ def _persist_point_crop_view(
     if filter_applied:
         crop_set["filter"] = filter_applied
     crop_set.update(_overlay_metadata_fields(transform_metadata))
+    attach_review_table_to_crop_set(crop_set)
+
+    view_crop_set_meta: dict[str, Any] = {"points": view_points}
+    for key in ("review_rows", "review_lines"):
+        if key in crop_set:
+            view_crop_set_meta[key] = crop_set[key]
 
     master_transform_metadata: dict[str, Any] = {
         "source_ref": source_ref,
@@ -313,7 +326,7 @@ def _persist_point_crop_view(
         "legend_height": legend_height,
         "source_width_height": source_width_height,
         "point_count": len(view_points),
-        "crop_set": {"points": view_points},
+        "crop_set": view_crop_set_meta,
         "view_of_crop_set_overlay_ref": view_of_ref,
     }
     if filter_applied:

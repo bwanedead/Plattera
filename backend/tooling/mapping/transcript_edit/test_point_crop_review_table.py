@@ -1,0 +1,76 @@
+"""Unit tests for point-crop review table helpers."""
+
+from __future__ import annotations
+
+import json
+
+from tooling.mapping.transcript_edit.point_crop_review_table import (
+    attach_review_table_to_crop_set,
+    build_crop_set_review_table,
+    build_review_row,
+    nearest_major_anchor,
+    offset_from_anchor,
+    render_review_line,
+    review_table_from_crop_set,
+)
+
+
+def _sample_point(**overrides) -> dict:
+    base = {
+        "letter": "B",
+        "alias": "parcel_1_call_1_bearing",
+        "crop_ref": "image:derived:crop-b",
+        "point_norm": [0.732, 0.684],
+        "box_norm": [0.652, 0.604, 0.812, 0.764],
+        "size": "small_plus",
+        "shape": "wide",
+        "zoom_factor": 2.75,
+    }
+    base.update(overrides)
+    return base
+
+
+def test_nearest_major_anchor_and_offset_example() -> None:
+    anchor = nearest_major_anchor([0.732, 0.684])
+    assert anchor == [0.7, 0.7]
+    assert offset_from_anchor([0.732, 0.684], anchor) == [0.032, -0.016]
+
+
+def test_rendered_line_includes_signed_offsets() -> None:
+    row = build_review_row(_sample_point())
+    line = render_review_line(row)
+    assert "offset=[+0.032,-0.016]" in line
+    assert "anchor=[0.7,0.7]" in line
+    assert "crop=image:derived:crop-b" in line
+
+
+def test_build_crop_set_review_table_bounded_ordered() -> None:
+    points = [_sample_point(letter=chr(ord("A") + i), alias=f"p{i}") for i in range(20)]
+    table = build_crop_set_review_table(points)
+    assert len(table["review_rows"]) == 16
+    assert len(table["review_lines"]) == 16
+    assert table["review_rows"][0]["letter"] == "A"
+    assert table["review_rows"][-1]["letter"] == "P"
+
+
+def test_review_rows_exclude_b64_paths_and_prompt_fields() -> None:
+    point = _sample_point(
+        b64="secret",
+        absolute_path="C:\\tmp\\x.png",
+        prompt="do not include",
+        crop_img=b"bytes",
+    )
+    row = build_review_row(point)
+    dumped = json.dumps(row).lower()
+    assert "b64" not in dumped
+    assert "c:\\" not in dumped
+    assert "prompt" not in dumped
+    assert "bytes" not in dumped
+
+
+def test_attach_and_reconstruct_from_crop_set() -> None:
+    crop_set = {"points": [_sample_point()], "grid": {"major_step_norm": 0.1}}
+    attach_review_table_to_crop_set(crop_set)
+    assert crop_set["review_lines"]
+    reconstructed = review_table_from_crop_set({"points": crop_set["points"], "grid": crop_set["grid"]})
+    assert reconstructed["review_lines"] == crop_set["review_lines"]

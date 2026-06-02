@@ -1139,7 +1139,24 @@ def test_point_crops_outputs_crop_set_geometry_and_alias_map(tmp_path, monkeypat
     handler, ref_id = _make_handler(tmp_path, monkeypatch)
     result = handler({"ref_id": ref_id, **_point_crops_request()})
 
-    point = result["outputs"]["crop_set"]["points"][0]
+    crop_set = result["outputs"]["crop_set"]
+    assert crop_set.get("review_rows")
+    assert crop_set.get("review_lines")
+    review_row = crop_set["review_rows"][0]
+    assert review_row["letter"] == "A"
+    assert review_row["alias"] == "parcel_1_tie_bearing"
+    assert review_row["crop_ref"].startswith("image:derived:")
+    assert len(review_row["point_norm"]) == 2
+    assert len(review_row["box_norm"]) == 4
+    assert review_row["size"] == "medium"
+    assert review_row["shape"] == "wide"
+    assert review_row.get("zoom_factor") is not None
+    assert "nearest_major_anchor" in review_row
+    assert "offset_from_anchor" in review_row
+    assert "+0." in crop_set["review_lines"][0] or "-0." in crop_set["review_lines"][0]
+    assert not _dict_has_b64_key(crop_set.get("review_rows"))
+
+    point = crop_set["points"][0]
     assert point["alias"] == "parcel_1_tie_bearing"
     assert point["letter"] == "A"
     assert point["color"] == [255, 200, 0]
@@ -1189,6 +1206,17 @@ def test_point_crops_master_and_crop_descriptors_hydrate_with_metadata(tmp_path,
     assert master_meta["point_count"] == 1
     assert master_meta["crop_set"]["points"][0]["alias"] == "parcel_1_tie_bearing"
     assert master_meta["crop_set"]["points"][0]["crop_ref"] == crop_ref
+    assert master_meta["crop_set"]["review_rows"][0]["letter"] == "A"
+    assert master_meta["crop_set"]["review_lines"]
+
+    import json
+    from tooling.mapping.transcript_edit.paths import transcript_edit_derived_images_dir
+
+    derived_dir = transcript_edit_derived_images_dir("d1", "tx-1", "ws-1")
+    sidecar_path = next(derived_dir.glob("*_crop_set.json"))
+    sidecar = json.loads(sidecar_path.read_text(encoding="utf-8"))
+    assert sidecar["review_rows"][0]["letter"] == "A"
+    assert sidecar["review_lines"]
 
     crop_meta = crop_desc["transform_metadata"]
     assert crop_meta["alias"] == "parcel_1_tie_bearing"
@@ -2242,6 +2270,7 @@ def test_point_crops_adjust_by_letter(tmp_path, monkeypatch):
     prior_master = created["outputs"]["derived_ref_id"]
     prior_b = created["outputs"]["crop_set"]["points"][1]
     prior_b_norm = list(prior_b["point_norm"])
+    prior_review_b = created["outputs"]["crop_set"]["review_rows"][1]
 
     adjusted = handler(_point_crops_adjust_request(
         master_ref=prior_master,
@@ -2259,6 +2288,9 @@ def test_point_crops_adjust_by_letter(tmp_path, monkeypatch):
     assert new_b["crop_ref"] != prior_b["crop_ref"]
     assert new_b["point_norm"][0] > prior_b_norm[0]
     assert adjusted["outputs"]["adjustments_applied"][0]["target"] == {"letter": "B"}
+    review_b = next(r for r in adjusted["outputs"]["crop_set"]["review_rows"] if r["letter"] == "B")
+    assert review_b["point_norm"] == new_b["point_norm"]
+    assert review_b["offset_from_anchor"] != prior_review_b["offset_from_anchor"]
 
 
 def test_point_crops_adjust_by_alias(tmp_path, monkeypatch):
@@ -2538,6 +2570,9 @@ def test_point_crops_view_filters_by_letters(tmp_path, monkeypatch):
     assert viewed["executed"] is True
     assert len(viewed["outputs"]["crop_set"]["points"]) == 1
     assert viewed["outputs"]["crop_set"]["points"][0]["letter"] == "B"
+    assert len(viewed["outputs"]["crop_set"]["review_rows"]) == 1
+    assert viewed["outputs"]["crop_set"]["review_rows"][0]["letter"] == "B"
+    assert viewed["outputs"]["crop_set"]["review_lines"][0].startswith("B ")
 
 
 def test_point_crops_view_filters_by_aliases(tmp_path, monkeypatch):

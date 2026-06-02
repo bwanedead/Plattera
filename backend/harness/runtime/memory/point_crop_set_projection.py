@@ -5,6 +5,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
+from tooling.mapping.transcript_edit.point_crop_review_table import review_table_from_crop_set
+
 MAX_POINT_CROP_SET_POINTS = 16
 _MAX_PROJECTION_REASON_CHARS = 120
 _POINT_CROP_SUB_ACTIONS = frozenset({"point_crops", "point_crops_adjust", "point_crops_view"})
@@ -204,5 +206,10 @@ def project_point_crop_set_summary(outputs: Mapping[str, Any] | None) -> dict[st
     delegation_lines = build_delegation_lines(points)
     if delegation_lines:
         summary["delegation_lines"] = delegation_lines
+
+    review_table = review_table_from_crop_set(crop_set)
+    review_lines = review_table.get("review_lines")
+    if isinstance(review_lines, list) and review_lines:
+        summary["review_lines"] = review_lines[:MAX_POINT_CROP_SET_POINTS]
 
     return {k: v for k, v in summary.items() if v not in (None, "", [], {})}

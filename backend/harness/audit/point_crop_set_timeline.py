@@ -5,6 +5,11 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
+from tooling.mapping.transcript_edit.point_crop_review_table import (
+    render_review_line,
+    review_table_from_crop_set,
+)
+
 from harness.audit.artifact_ref_links import (
     ArtifactLinkContext,
     format_ref_with_link,
@@ -113,6 +118,8 @@ def render_point_crop_set_tool_output(
                 continue
             lines.extend(_render_point_row(pt, link_context=link_context))
 
+    lines.extend(_render_review_table_section(crop_set, link_context=link_context))
+
     adjustments = outputs.get("adjustments_applied") or crop_set.get("adjustments_applied")
     if isinstance(adjustments, list) and adjustments:
         lines.append("- adjustments_applied:")
@@ -152,6 +159,36 @@ def render_point_crop_set_tool_output(
             lines.append(notice)
 
     lines.append("")
+    return lines
+
+
+def _render_review_table_section(
+    crop_set: Mapping[str, Any],
+    *,
+    link_context: ArtifactLinkContext | None,
+) -> list[str]:
+    table = review_table_from_crop_set(crop_set)
+    review_rows = table.get("review_rows")
+    review_lines = table.get("review_lines")
+    if not review_rows and not review_lines:
+        return []
+
+    lines = ["Review table:"]
+    if isinstance(review_rows, list) and review_rows:
+        for row in review_rows[:MAX_POINT_CROP_TIMELINE_POINTS]:
+            if not isinstance(row, Mapping):
+                continue
+            line = render_review_line(row)
+            crop_ref = str(row.get("crop_ref") or "").strip()
+            if crop_ref and link_context is not None:
+                linked = _render_ref_line(crop_ref, link_context, label="open crop")
+                line = line.replace(f"crop={crop_ref}", f"crop: {linked}")
+            lines.append(f"- {line}")
+        return lines
+
+    if isinstance(review_lines, list):
+        for line in review_lines[:MAX_POINT_CROP_TIMELINE_POINTS]:
+            lines.append(f"- {line}")
     return lines
 
 

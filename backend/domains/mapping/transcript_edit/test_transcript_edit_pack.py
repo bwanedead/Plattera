@@ -803,6 +803,8 @@ def test_tool_spec_transform_teaches_point_crops_as_default_path() -> None:
     assert "old refs are not mutated" in combined
     assert "does not mint new per-point crop refs" in combined
     assert "delegate_subtask.context_refs" in combined or "delegate_subtask" in combined
+    assert "review_rows" in combined or "review table" in combined
+    assert "offset" in combined
 
 
 # ---------------------------------------------------------------------------
