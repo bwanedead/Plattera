@@ -780,6 +780,7 @@ def test_tool_spec_transform_teaches_point_crops_as_default_path() -> None:
             transform.purpose,
             transform.expected_request_shape,
             transform.expected_result_shape,
+            str(transform.expected_request_json_shape),
         ]
     ).lower()
 
@@ -791,19 +792,29 @@ def test_tool_spec_transform_teaches_point_crops_as_default_path() -> None:
     ):
         assert sub_action in combined
 
-    assert "ergonomic default" in combined
-    assert "coordinate-grid fallback" in combined or "fallback coordinate grid" in combined
+    assert "primary" in combined or "template pin crop packet" in combined
+    assert "richer coordinate" in combined or "richer coordinate/control" in combined
+    assert "coordinate_lattice" in combined
+    assert "review_rows" in combined
+    assert "review_lines" in combined
+    assert "plain coordinate-grid" in combined or "plain coordinate-grid orientation" in combined
+    assert "does not carry point letters" in combined or "does not place point pins" in combined
+    assert "not a prerequisite for point_crops" in combined
     assert "typical workflow" not in combined
+    assert "reference_overlay ->" not in combined
+    assert "overlay first" not in combined
+    assert "crop with box_norm" not in combined
+    assert "needed before crop" not in combined
+    assert "before crop/zoom" not in combined
     assert "outputs.crop_set.points" in combined or "crop_set.points" in combined
     assert "crop_records" in combined
     assert "only the master overlay" in combined or "only that master overlay" in combined
     assert "zoom_factor" in combined
-    assert "coordinate grid" in combined or "grid" in combined
     assert "projection_available" in combined or "root_point_norm" in combined
     assert "old refs are not mutated" in combined
     assert "does not mint new per-point crop refs" in combined
     assert "delegate_subtask.context_refs" in combined or "delegate_subtask" in combined
-    assert "review_rows" in combined or "review table" in combined
+    assert "delegation_lines" in combined
     assert "offset" in combined
 
 
