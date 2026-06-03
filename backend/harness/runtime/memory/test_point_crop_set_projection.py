@@ -37,8 +37,13 @@ def _crop_set_outputs(*, sub_action: str = "point_crops", previous: str | None =
                     "absolute_path": "C:\\secret\\crop-a.png",
                 }
             ],
+            "overlay_role": "point_crop_master",
+            "coordinate_lattice": {"major_step_norm": 0.10, "minor_step_norm": 0.025},
             "grid": {"enabled": True, "divisions": 4, "coordinate_space": "source_image_norm"},
             "legend": {"size_colors": {"small": [1, 2, 3], "medium": [4, 5, 6], "large": [7, 8, 9]}},
+            "review_lines": [
+                "A parcel_1_tie_bearing -> crop=image:derived:crop-a point=[0.420,0.580] anchor=[0.4,0.6] offset=[+0.020,-0.020]"
+            ],
         },
     }
     if previous:
@@ -51,6 +56,8 @@ def test_project_point_crops_result_as_compact_summary() -> None:
     summary = project_point_crop_set_summary(_crop_set_outputs())
     assert summary is not None
     assert summary["kind"] == "point_crop_set"
+    assert summary["overlay_role"] == "point_crop_master"
+    assert summary["coordinate_lattice"] == {"major_step_norm": 0.10, "minor_step_norm": 0.025}
     assert summary["master_overlay_ref"] == "image:derived:master-1"
     assert summary["source_ref"] == "image:assoc:tx-1:original"
     point = summary["points"][0]
@@ -69,6 +76,15 @@ def test_project_point_crops_result_as_compact_summary() -> None:
     assert summary["review_lines"]
     assert "offset=[" in summary["review_lines"][0]
     assert "anchor=[" in summary["review_lines"][0]
+
+
+def test_projection_includes_overlay_role_for_view() -> None:
+    outputs = _crop_set_outputs(sub_action="point_crops_view")
+    outputs["overlay_role"] = "point_crop_view"
+    outputs["crop_set"]["overlay_role"] = "point_crop_view"
+    summary = project_point_crop_set_summary(outputs)
+    assert summary is not None
+    assert summary["overlay_role"] == "point_crop_view"
 
 
 def test_project_point_crops_adjust_includes_previous_overlay_ref() -> None:

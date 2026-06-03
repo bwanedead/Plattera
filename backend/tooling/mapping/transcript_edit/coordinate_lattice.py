@@ -8,6 +8,10 @@ from typing import Any
 DEFAULT_MAJOR_STEP_NORM = 0.10
 DEFAULT_MINOR_STEP_NORM = 0.025
 
+OVERLAY_ROLE_POINT_CROP_MASTER = "point_crop_master"
+OVERLAY_ROLE_POINT_CROP_VIEW = "point_crop_view"
+OVERLAY_ROLE_PLAIN_COORDINATE_REFERENCE = "plain_coordinate_reference"
+
 # Backward-compatible aliases used across transcript-edit tooling.
 OVERLAY_GRID_MAJOR_STEP_NORM = DEFAULT_MAJOR_STEP_NORM
 OVERLAY_GRID_MINOR_STEP_NORM = DEFAULT_MINOR_STEP_NORM

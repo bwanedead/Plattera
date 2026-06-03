@@ -131,8 +131,22 @@ def build_delegation_lines(points: list[Mapping[str, Any]]) -> list[str]:
     return lines
 
 
+def _compact_coordinate_lattice(crop_set: Mapping[str, Any]) -> dict[str, Any] | None:
+    lattice = crop_set.get("coordinate_lattice")
+    if not isinstance(lattice, Mapping):
+        return None
+    compact: dict[str, Any] = {}
+    for key in ("major_step_norm", "minor_step_norm"):
+        if lattice.get(key) is not None:
+            compact[key] = lattice[key]
+    return compact or None
+
+
 def _compact_overlay_markers(crop_set: Mapping[str, Any]) -> dict[str, Any]:
     markers: dict[str, Any] = {}
+    lattice = _compact_coordinate_lattice(crop_set)
+    if lattice:
+        markers["coordinate_lattice"] = lattice
     grid = crop_set.get("grid")
     if isinstance(grid, Mapping) and grid.get("enabled") is True:
         markers["grid"] = {
@@ -146,6 +160,21 @@ def _compact_overlay_markers(crop_set: Mapping[str, Any]) -> dict[str, Any]:
         if isinstance(size_colors, Mapping):
             markers["legend"] = {"size_colors": sorted(str(k) for k in size_colors.keys())}
     return markers
+
+
+def _overlay_role_for_summary(
+    outputs: Mapping[str, Any],
+    crop_set: Mapping[str, Any],
+    *,
+    sub_action: str,
+) -> str:
+    for container in (crop_set, outputs):
+        role = container.get("overlay_role")
+        if isinstance(role, str) and role.strip():
+            return role.strip()
+    if sub_action == "point_crops_view":
+        return "point_crop_view"
+    return "point_crop_master"
 
 
 def project_point_crop_set_summary(outputs: Mapping[str, Any] | None) -> dict[str, Any] | None:
@@ -180,6 +209,7 @@ def project_point_crop_set_summary(outputs: Mapping[str, Any] | None) -> dict[st
     summary: dict[str, Any] = {
         "kind": "point_crop_set",
         "sub_action": sub_action,
+        "overlay_role": _overlay_role_for_summary(outputs, crop_set, sub_action=sub_action),
         "master_overlay_ref": master_overlay_ref.strip(),
         "source_ref": str(source_ref).strip() if source_ref else None,
         "point_count": len(points),

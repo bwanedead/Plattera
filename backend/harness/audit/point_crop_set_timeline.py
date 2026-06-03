@@ -48,6 +48,19 @@ def render_point_crop_set_tool_output(
         return []
 
     lines = ["Point crop set:"]
+    overlay_role = str(
+        crop_set.get("overlay_role") or outputs.get("overlay_role") or ""
+    ).strip()
+    if overlay_role:
+        lines.append(f"- overlay_role: {overlay_role}")
+
+    lattice = crop_set.get("coordinate_lattice")
+    if isinstance(lattice, Mapping):
+        major = lattice.get("major_step_norm")
+        minor = lattice.get("minor_step_norm")
+        if major is not None and minor is not None:
+            lines.append(f"- coordinate_lattice: major={major} minor={minor}")
+
     derived_ref = str(outputs.get("derived_ref_id") or crop_set.get("master_overlay_ref") or "").strip()
     if sub_action == "point_crops_view":
         if derived_ref:

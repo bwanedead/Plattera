@@ -35,10 +35,26 @@ def _outputs(*, sub_action: str = "point_crops") -> dict:
                     "root_box_norm": [0.47, 0.6, 0.56, 0.66],
                 }
             ],
+            "overlay_role": "point_crop_master",
+            "coordinate_lattice": {"major_step_norm": 0.10, "minor_step_norm": 0.025},
             "grid": {"enabled": True, "divisions": 4},
             "legend": {"size_colors": {"small": [1, 2, 3]}},
+            "review_lines": [
+                "A parcel_1_tie_bearing -> crop=image:derived:crop-a point=[0.420,0.580] "
+                "anchor=[0.40,0.60] offset=[+0.020,-0.020]"
+            ],
         },
     }
+
+
+def test_timeline_renders_point_crop_view_role() -> None:
+    outputs = _outputs(sub_action="point_crops_view")
+    outputs["overlay_role"] = "point_crop_view"
+    outputs["crop_set"]["overlay_role"] = "point_crop_view"
+    lines = render_point_crop_set_tool_output(outputs)
+    rendered = "\n".join(lines)
+    assert "overlay_role: point_crop_view" in rendered
+    assert "filtered view overlay:" in rendered
 
 
 def test_timeline_renders_point_crop_set_creation() -> None:
@@ -56,6 +72,9 @@ def test_timeline_renders_point_crop_set_creation() -> None:
         ]
     )
     assert "Point crop set:" in body
+    assert "overlay_role: point_crop_master" in body
+    assert "coordinate_lattice: major=" in body
+    assert "minor=0.025" in body
     assert "master overlay: `image:derived:master-1`" in body
     assert "A `parcel_1_tie_bearing`" in body
     assert "zoom=2.25" in body

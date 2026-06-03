@@ -31,6 +31,7 @@ from .root_projection import (
     enrich_point_geometry_with_projection,
     resolve_root_projection_context,
 )
+from .coordinate_lattice import OVERLAY_ROLE_PLAIN_COORDINATE_REFERENCE
 from .point_crop_review_table import attach_review_table_to_crop_set
 from .point_crops import (
     PointCropParamError,
@@ -75,6 +76,7 @@ def _overlay_metadata_fields(transform_metadata: Mapping[str, Any]) -> dict[str,
         return {}
     fields: dict[str, Any] = {}
     for key in (
+        "overlay_role",
         "coordinate_lattice",
         "grid",
         "legend",
@@ -85,6 +87,18 @@ def _overlay_metadata_fields(transform_metadata: Mapping[str, Any]) -> dict[str,
         if key in overlay:
             fields[key] = overlay[key]
     return fields
+
+
+def _overlay_role_from_metadata(transform_metadata: Mapping[str, Any]) -> str | None:
+    overlay = transform_metadata.get("overlay")
+    if isinstance(overlay, Mapping):
+        role = overlay.get("overlay_role")
+        if isinstance(role, str) and role.strip():
+            return role.strip()
+    role = transform_metadata.get("overlay_role")
+    if isinstance(role, str) and role.strip():
+        return role.strip()
+    return None
 
 
 def _persist_point_crop_set(
@@ -215,7 +229,7 @@ def _persist_point_crop_set(
     )
 
     master_crop_set_meta: dict[str, Any] = {"points": list(crop_refs)}
-    for key in ("review_rows", "review_lines"):
+    for key in ("review_rows", "review_lines", "overlay_role"):
         if key in crop_set:
             master_crop_set_meta[key] = crop_set[key]
 
@@ -267,6 +281,9 @@ def _persist_point_crop_set(
         outputs["adjustment_source_ref"] = adjustment_source_ref
     if adjustments_applied:
         outputs["adjustments_applied"] = list(adjustments_applied)
+    overlay_role = crop_set.get("overlay_role")
+    if isinstance(overlay_role, str) and overlay_role.strip():
+        outputs["overlay_role"] = overlay_role.strip()
 
     result: dict[str, Any] = {
         "executed": True,
@@ -323,7 +340,7 @@ def _persist_point_crop_view(
     attach_review_table_to_crop_set(crop_set)
 
     view_crop_set_meta: dict[str, Any] = {"points": view_points}
-    for key in ("review_rows", "review_lines"):
+    for key in ("review_rows", "review_lines", "overlay_role"):
         if key in crop_set:
             view_crop_set_meta[key] = crop_set[key]
 
@@ -368,6 +385,9 @@ def _persist_point_crop_view(
     }
     if filter_applied:
         outputs["filter"] = filter_applied
+    overlay_role = crop_set.get("overlay_role")
+    if isinstance(overlay_role, str) and overlay_role.strip():
+        outputs["overlay_role"] = overlay_role.strip()
 
     result: dict[str, Any] = {
         "executed": True,
@@ -613,6 +633,9 @@ def make_transform_artifact_handler(
         }
         if transform_metadata:
             result["outputs"].update(transform_metadata)
+        overlay_role = _overlay_role_from_metadata(transform_metadata)
+        if overlay_role:
+            result["outputs"]["overlay_role"] = overlay_role
         evidence = image_evidence_from_path(derived_ref_id, derived_path)
         if evidence:
             result["image_evidence"] = [evidence]
@@ -1308,6 +1331,7 @@ def _apply_transform(
         grid["rows"] = rows
         grid["cell_labels"] = True
         overlay_meta["grid"] = grid
+        overlay_meta["overlay_role"] = OVERLAY_ROLE_PLAIN_COORDINATE_REFERENCE
         transform_metadata["overlay"] = overlay_meta
 
     elif sub_action == "annotate":

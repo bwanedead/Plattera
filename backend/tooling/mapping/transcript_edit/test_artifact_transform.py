@@ -232,6 +232,8 @@ def test_reference_overlay_default_grid_is_denser(tmp_path, monkeypatch):
     assert lattice["x_increases"] == "right"
     assert lattice["y_increases"] == "down"
     assert lattice["major_labels"][0] == "0.10"
+    assert overlay["overlay_role"] == "plain_coordinate_reference"
+    assert result["outputs"]["overlay_role"] == "plain_coordinate_reference"
     assert grid["major_step_norm"] == 0.10
     assert grid["minor_step_norm"] == 0.025
     assert grid["cols"] == 10
@@ -2106,6 +2108,8 @@ def test_point_crops_master_overlay_includes_grid_metadata(tmp_path, monkeypatch
     assert lattice["minor_step_norm"] == 0.025
     assert lattice["coordinate_space"] == "normalized_source_image"
     assert lattice["label_placement"]["major_x"] == ["top", "bottom"]
+    assert crop_set["overlay_role"] == "point_crop_master"
+    assert result["outputs"]["overlay_role"] == "point_crop_master"
     grid = crop_set["grid"]
     assert grid["enabled"] is True
     assert grid["major_step_norm"] == 0.10
@@ -2245,6 +2249,8 @@ def test_point_crops_view_includes_grid_and_legend(tmp_path, monkeypatch):
     crop_set = viewed["outputs"]["crop_set"]
     assert crop_set["grid"]["enabled"] is True
     assert crop_set["coordinate_lattice"]["major_step_norm"] == 0.10
+    assert crop_set["overlay_role"] == "point_crop_view"
+    assert viewed["outputs"]["overlay_role"] == "point_crop_view"
     assert crop_set["legend"]["size_colors"]["medium"] == [70, 130, 220]
 
 
@@ -2363,6 +2369,8 @@ def test_point_crops_adjust_by_letter(tmp_path, monkeypatch):
     assert review_b["point_norm"] == new_b["point_norm"]
     assert review_b["offset_from_anchor"] != prior_review_b["offset_from_anchor"]
     assert adjusted["outputs"]["crop_set"]["coordinate_lattice"]["major_step_norm"] == 0.10
+    assert adjusted["outputs"]["crop_set"]["overlay_role"] == "point_crop_master"
+    assert adjusted["outputs"]["overlay_role"] == "point_crop_master"
 
 
 def test_point_crops_adjust_by_alias(tmp_path, monkeypatch):

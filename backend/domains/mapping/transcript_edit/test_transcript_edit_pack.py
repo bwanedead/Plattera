@@ -816,6 +816,10 @@ def test_tool_spec_transform_teaches_point_crops_as_default_path() -> None:
     assert "delegate_subtask.context_refs" in combined or "delegate_subtask" in combined
     assert "delegation_lines" in combined
     assert "offset" in combined
+    assert "overlay_role" in combined
+    assert "point_crop_master" in combined
+    assert "point_crop_view" in combined
+    assert "plain_coordinate_reference" in combined
 
 
 # ---------------------------------------------------------------------------

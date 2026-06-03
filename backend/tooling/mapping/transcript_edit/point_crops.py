@@ -12,6 +12,8 @@ from typing import Any
 from .coordinate_lattice import (
     DEFAULT_MAJOR_STEP_NORM,
     DEFAULT_MINOR_STEP_NORM,
+    OVERLAY_ROLE_POINT_CROP_MASTER,
+    OVERLAY_ROLE_POINT_CROP_VIEW,
     build_compat_grid_metadata,
     build_coordinate_lattice_metadata,
     draw_coordinate_lattice,
@@ -492,10 +494,14 @@ def _compute_single_point_geometry(
     return result
 
 
-def build_overlay_render_metadata() -> dict[str, Any]:
+def build_overlay_render_metadata(
+    *,
+    overlay_role: str = OVERLAY_ROLE_POINT_CROP_MASTER,
+) -> dict[str, Any]:
     """Mechanical metadata for point-crop master overlay grid/legend rendering."""
     lattice = build_coordinate_lattice_metadata()
     return {
+        "overlay_role": overlay_role,
         "coordinate_lattice": lattice,
         "grid": build_compat_grid_metadata(lattice, enabled=True),
         "box_render": {
@@ -713,6 +719,8 @@ def _render_master_overlay(
     img: Any,
     per_point_data: list[dict[str, Any]],
     show: list[str],
+    *,
+    overlay_role: str = OVERLAY_ROLE_POINT_CROP_MASTER,
 ) -> tuple[Any, int, dict[str, Any]]:
     from PIL import Image, ImageDraw  # type: ignore[import]
 
@@ -767,7 +775,7 @@ def _render_master_overlay(
 
     draw = ImageDraw.Draw(canvas)
     _draw_template_legend(draw, img_w=img.width, img_h=img.height)
-    return canvas, legend_h, build_overlay_render_metadata()
+    return canvas, legend_h, build_overlay_render_metadata(overlay_role=overlay_role)
 
 
 def compute_point_crops(img: Any, params: dict[str, Any]) -> dict[str, Any]:
@@ -913,7 +921,12 @@ def compute_point_crops_view(img: Any, points: list[dict[str, Any]], *, show: li
             row["graph_ref"] = dict(p["graph_ref"])
         per_point_data.append(row)
 
-    canvas, legend_h, overlay = _render_master_overlay(img, per_point_data, show)
+    canvas, legend_h, overlay = _render_master_overlay(
+        img,
+        per_point_data,
+        show,
+        overlay_role=OVERLAY_ROLE_POINT_CROP_VIEW,
+    )
     return {
         "master_pil": canvas,
         "per_point": per_point_data,
