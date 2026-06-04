@@ -312,10 +312,13 @@ def test_domain_pack_declares_semantic_prompt_blocks() -> None:
     assert "missed, merged, split, or misread a unit" in text
     assert "the early job is not to investigate each atom's truth" in text
     assert "walk the t0 landscape top-to-bottom" in text
-    assert "numbers are strongly presumed atomic" in text
-    assert "quiet numbers still count" in text
-    assert "degrees, bearings, distances, acreage" in text
-    assert "paragraph-level or parcel-level group is useful only as an organizer" in text
+    assert "keep one t0 draft pinned during inventory phase work" in text
+    assert "graph parity" in text
+    assert "every map-critical atom needs to be an independent covered unit" in text
+    assert "covered units should not contain multiple atoms" in text
+    assert "dates, headers, and general document-identity details should not become resolution atoms" in text
+    assert "values that can be independently wrong" in text
+    assert "paragraph-level, parcel-level, or call-sequence group is useful only as an organizer" in text
     assert "fast t0-shaped atomization pass" in text
     assert "obvious t0-visible atoms should not be deferred" in text
     assert "do not crop or source-investigate just to prove inventory exists" in text
@@ -350,8 +353,13 @@ def test_domain_pack_declares_semantic_prompt_blocks() -> None:
     assert "control-room artifact" in text
     assert "pin + letter" in text
     assert "did the dot land on the target atom" in text
-    assert "stable pinned object" in text
-    assert "top-down placement sanity" in text
+    assert "pin the master overlay ref for every-turn hydration" in text
+    assert "hydration pinning keeps the master overlay omnipresent" in text
+    assert "crop pins mark source targets" in text
+    assert "do not hydrate all individual crop refs just to inspect basic placement" in text
+    assert "costly and becomes a spin vector" in text
+    assert "five to ten well-scoped atom pins" in text
+    assert "one overlay review, one delegate batch, and one dense integration pass" in text
     assert "master overlay is for packet sanity" in text
     assert "point placement must be precise" in text
     assert "atom must be visible at useful resolution" in text
@@ -360,8 +368,13 @@ def test_domain_pack_declares_semantic_prompt_blocks() -> None:
     assert "do not accept vague targeting" in text
     assert "a dot near the paragraph is weak evidence" in text
     assert "run-performance, ui, ux, and audit value" in text
+    assert "contained-and-readable is enough to move" in text
+    assert "use the point table as the current coordinate record" in text
+    assert "change the existing letter or alias from its recorded coordinate" in text
     assert "individual per-point" in text or "individual crop refs" in text
     assert "batch motion and integration" in text
+    assert "a good resolution turn may mix compatible motion" in text
+    assert "do not force one micro-step per turn" in text
     assert "hydrate_next" in guidance.text
     assert "fair hitl packets" in text
     assert "save and handoff rhythm" in text
