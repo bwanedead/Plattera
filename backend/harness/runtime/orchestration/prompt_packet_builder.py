@@ -14,6 +14,7 @@ from ..memory.continuity_journal import (
     recent_step_result_records_for_prompt,
     verbatim_turn_indices,
 )
+from ..memory.atom_evidence_worklist_projection import compact_atom_evidence_worklist_for_prompt
 from ..memory.tool_result_slices import build_recent_tool_result_slices
 from .contracts import OrchestratorContext, SharedStateProjection
 from .loop_health_summary import build_prompt_observability_summary
@@ -504,6 +505,7 @@ _ALWAYS_KEEP_OBSERVABILITY_KEYS: tuple[str, ...] = (
     "artifact_claim_inventory_suspect_count",
     "performance_evaluation",
     "state_patch_repair_bundle",
+    "atom_evidence_worklist",
 )
 _OPTIONAL_OBSERVABILITY_COUNTERS: tuple[str, ...] = (
     "repeated_state_patch_reason_code_streak",
@@ -598,6 +600,14 @@ def _compact_prompt_observability_summary(full_summary: Mapping[str, Any]) -> di
         val = full_summary.get(key)
         if val:  # drop None and 0
             compact[key] = val
+
+    worklist = full_summary.get("atom_evidence_worklist")
+    if isinstance(worklist, Mapping):
+        compact_worklist = compact_atom_evidence_worklist_for_prompt(worklist)
+        if compact_worklist is not None:
+            compact["atom_evidence_worklist"] = compact_worklist
+        elif "atom_evidence_worklist" in compact:
+            del compact["atom_evidence_worklist"]
 
     return compact
 

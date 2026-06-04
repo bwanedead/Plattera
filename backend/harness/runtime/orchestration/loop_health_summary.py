@@ -21,6 +21,10 @@ from ..user_messages.ledger import (
 )
 from ..memory import LoopMemoryState
 from ..memory.tool_result_slices import check_outputs_excerpt_truncated
+from ..memory.atom_evidence_worklist_projection import (
+    build_atom_evidence_worklist_for_prompt,
+    resolution_state_as_mapping,
+)
 from ..memory.performance_evaluation import build_performance_evaluation
 from .evidence_locality import (
     BROAD_IMAGE_AREA_THRESHOLD,
@@ -480,6 +484,13 @@ def build_prompt_observability_summary(
         loop_memory,
         turn_records=turn_records,
     )
+    atom_worklist = build_atom_evidence_worklist_for_prompt(
+        resolution_state=resolution_state_as_mapping(cont.resolution_state),
+        recent_result_records=step_result_records,
+        delegate_result_records=list(getattr(cont, "delegate_subtask_results", ()) or ()),
+    )
+    if atom_worklist is not None:
+        summary["atom_evidence_worklist"] = atom_worklist
     repair_bundle_projection = project_state_patch_repair_bundle_for_prompt(feedback)
     if repair_bundle_projection:
         summary["state_patch_repair_bundle"] = repair_bundle_projection
