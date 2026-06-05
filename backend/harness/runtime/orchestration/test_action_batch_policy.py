@@ -8,11 +8,19 @@ from domains.mapping.transcript_edit.domain_pack import build_transcript_edit_do
 from harness.runtime.orchestration.action_batch import ActionBatchItem
 from harness.runtime.orchestration.action_batch import validate_action_batch_policy
 from harness.runtime.orchestration.action_batch import ActionBatchValidationError
+from domains.mapping.transcript_edit.execution.action_batch_policy import (
+    TRANSCRIPT_EDIT_VISUAL_DELEGATE_MAX_BATCH,
+    build_transcript_edit_action_batch_policy,
+)
+from harness.runtime.orchestration.subtasks.batch_policy import delegate_subtask_tool_batch_policy
+from harness.runtime.orchestration.subtasks.contracts import DELEGATE_SUBTASK_ACTION_TYPE
 from harness.runtime.orchestration.tool_batch_policy import (
     DomainActionBatchPolicy,
     ToolBatchPolicy,
+    effective_max_batch_size,
     effective_tool_cap,
     policy_from_tool_spec_row,
+    resolve_domain_action_batch_policy,
     resolve_tool_batch_policies,
 )
 
@@ -132,6 +140,81 @@ def test_resolve_tool_batch_policies_from_surface_payloads() -> None:
     })
     assert "hydrate_artifact_refs" in policies
     assert policies["hydrate_artifact_refs"].side_effect_class == "read_only"
+
+
+def test_default_global_rejects_more_than_five_batch_items() -> None:
+    policy = _read_only_policy(max_calls=5)
+    items = tuple(
+        ActionBatchItem(alias=f"a{index}", action_type=policy.tool_id, action_inputs={})
+        for index in range(6)
+    )
+    with pytest.raises(ActionBatchValidationError, match="max batch size 5"):
+        validate_action_batch_policy(
+            items,
+            available_tool_ids=(policy.tool_id,),
+            tool_batch_policies={policy.tool_id: policy},
+            domain_batch_policy=None,
+        )
+
+
+def test_transcript_edit_domain_allows_fifteen_delegate_subtasks() -> None:
+    domain = DomainActionBatchPolicy.from_mapping(build_transcript_edit_action_batch_policy())
+    delegate_policy = delegate_subtask_tool_batch_policy()
+    items = tuple(
+        ActionBatchItem(
+            alias=f"read_{index}",
+            action_type=DELEGATE_SUBTASK_ACTION_TYPE,
+            action_inputs={"profile": "transcript_edit.visual_source_observation", "task": "read", "context_refs": ["image:derived:c1"]},
+        )
+        for index in range(10)
+    )
+    validate_action_batch_policy(
+        items,
+        available_tool_ids=(DELEGATE_SUBTASK_ACTION_TYPE,),
+        tool_batch_policies={DELEGATE_SUBTASK_ACTION_TYPE: delegate_policy},
+        domain_batch_policy=domain,
+    )
+    assert effective_max_batch_size(global_default=5, domain_policy=domain) == 15
+
+
+def test_transcript_edit_domain_rejects_more_than_fifteen_delegates() -> None:
+    domain = DomainActionBatchPolicy.from_mapping(build_transcript_edit_action_batch_policy())
+    delegate_policy = delegate_subtask_tool_batch_policy()
+    items = tuple(
+        ActionBatchItem(
+            alias=f"read_{index}",
+            action_type=DELEGATE_SUBTASK_ACTION_TYPE,
+            action_inputs={"profile": "x", "task": "t", "context_refs": ["image:derived:c1"]},
+        )
+        for index in range(TRANSCRIPT_EDIT_VISUAL_DELEGATE_MAX_BATCH + 1)
+    )
+    with pytest.raises(ActionBatchValidationError, match="max batch size 15"):
+        validate_action_batch_policy(
+            items,
+            available_tool_ids=(DELEGATE_SUBTASK_ACTION_TYPE,),
+            tool_batch_policies={DELEGATE_SUBTASK_ACTION_TYPE: delegate_policy},
+            domain_batch_policy=domain,
+        )
+
+
+def test_transcript_edit_domain_does_not_raise_transform_artifact_cap() -> None:
+    domain = DomainActionBatchPolicy.from_mapping(build_transcript_edit_action_batch_policy())
+    derived = _derived_policy(max_calls=4)
+    cap = effective_tool_cap(
+        tool_id="transform_artifact",
+        tool_policy=derived,
+        global_default=effective_max_batch_size(global_default=5, domain_policy=domain),
+        domain_policy=domain,
+    )
+    assert cap == 4
+
+
+def test_resolve_domain_action_batch_policy_from_transcript_edit_launch_context() -> None:
+    domain = resolve_domain_action_batch_policy(
+        {"action_batch_policy": build_transcript_edit_action_batch_policy()}
+    )
+    assert domain is not None
+    assert domain.tool_caps.get(DELEGATE_SUBTASK_ACTION_TYPE) == 15
 
 
 def test_resolve_tool_batch_policies_finds_nested_runtime_shape() -> None:

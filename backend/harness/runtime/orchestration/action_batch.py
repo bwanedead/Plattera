@@ -13,6 +13,7 @@ from .tool_batch_policy import (
     DomainActionBatchPolicy,
     ToolBatchPolicy,
     effective_max_batch_size,
+    effective_max_resolved_actions,
     effective_tool_cap,
 )
 from .subtasks.contracts import DELEGATE_SUBTASK_ACTION_TYPE
@@ -122,20 +123,18 @@ def validate_action_batch_policy(
         global_default=DEFAULT_MAX_BATCH_SIZE,
         domain_policy=domain_batch_policy,
     )
+    max_resolved = effective_max_resolved_actions(
+        global_default=DEFAULT_MAX_RESOLVED_ACTIONS,
+        domain_policy=domain_batch_policy,
+    )
     if len(items) > max_batch:
         raise ActionBatchValidationError(
             f"action_batch exceeds max batch size {max_batch}"
         )
-    if len(items) > DEFAULT_MAX_RESOLVED_ACTIONS:
+    if len(items) > max_resolved:
         raise ActionBatchValidationError(
-            f"action_batch exceeds max resolved actions {DEFAULT_MAX_RESOLVED_ACTIONS}"
+            f"action_batch exceeds max resolved actions {max_resolved}"
         )
-    if domain_batch_policy is not None and domain_batch_policy.max_resolved_actions is not None:
-        cap = max(1, int(domain_batch_policy.max_resolved_actions))
-        if len(items) > cap:
-            raise ActionBatchValidationError(
-                f"action_batch exceeds domain max_resolved_actions {cap}"
-            )
 
     per_tool_counts: dict[str, int] = {}
     side_effect_classes: set[str] = set()

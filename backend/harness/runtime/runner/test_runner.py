@@ -512,6 +512,47 @@ def test_runner_injects_domain_closure_policy_into_orchestration_context(tmp_pat
     assert captured["domain_closure_policy"]["required_dimension_ids"] == ["layer_a"]
 
 
+def test_runner_injects_transcript_edit_action_batch_policy(tmp_path: Path, monkeypatch) -> None:
+    captured: dict[str, Any] = {}
+    adapter = build_transcript_edit_runtime_adapter()
+
+    def fake_loop(**kwargs: Any) -> Any:
+        captured.update(kwargs["opaque_run_context"])
+        return SimpleNamespace(
+            terminal_class="completed",
+            reason_code="complete_run",
+            terminal_summary="done",
+            iterations=1,
+            session_id="sess",
+            run_artifact_ref=None,
+            latest_refs={},
+            runtime_state={},
+            trace_events=[],
+            kernel_resume_snapshot=None,
+        )
+
+    monkeypatch.setattr(runner_module, "run_orchestration_kernel_loop", fake_loop)
+    monkeypatch.setattr(runner_module, "_build_audit_writer", lambda **kwargs: SimpleNamespace(finalize=lambda **kw: None))
+    monkeypatch.setattr(runner_module, "_build_resume_checkpoint_writer", lambda: None)
+    monkeypatch.setattr(runner_module, "_build_run_control_reader", lambda: None)
+
+    runner = RuntimeRunner(adapter=adapter, model_caller=lambda *args, **kwargs: "", targets=_targets(tmp_path))
+    runner.run(
+        launch_context={
+            "run_id": "r-te",
+            "session_id": "s-te",
+            "request_id_prefix": "req-te",
+            "dossier_id": "d1",
+            "transcription_id": "t1",
+        }
+    )
+
+    policy = captured.get("action_batch_policy")
+    assert isinstance(policy, dict)
+    assert policy.get("max_batch_size") == 15
+    assert policy["tool_caps"]["delegate_subtask"] == 15
+
+
 @pytest.mark.parametrize(
     ("terminal_class", "reason_code", "command"),
     [

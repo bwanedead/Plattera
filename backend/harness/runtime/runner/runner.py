@@ -1014,4 +1014,10 @@ def _with_domain_policy_context(
     closure_policy = getattr(manifest, "closure_policy", None)
     if closure_policy is not None:
         merged["domain_closure_policy"] = _jsonable(closure_policy)
+    if domain_id == "transcript_edit" and "action_batch_policy" not in merged:
+        from domains.mapping.transcript_edit.execution.action_batch_policy import (
+            build_transcript_edit_action_batch_policy,
+        )
+
+        merged["action_batch_policy"] = build_transcript_edit_action_batch_policy()
     return merged

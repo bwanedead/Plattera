@@ -30,7 +30,14 @@ from harness.runtime.orchestration.subtasks.batch_policy import (
 from harness.runtime.orchestration.subtasks.contracts import DELEGATE_SUBTASK_ACTION_TYPE
 from harness.runtime.orchestration.subtasks.handler import make_delegate_subtask_handler
 from harness.runtime.orchestration.subtasks.registry import DEFAULT_SUBTASK_REGISTRY
-from harness.runtime.orchestration.tool_batch_policy import resolve_tool_batch_policies
+from domains.mapping.transcript_edit.execution.action_batch_policy import (
+    TRANSCRIPT_EDIT_VISUAL_DELEGATE_MAX_BATCH,
+    build_transcript_edit_action_batch_policy,
+)
+from harness.runtime.orchestration.tool_batch_policy import (
+    DomainActionBatchPolicy,
+    resolve_tool_batch_policies,
+)
 
 
 def _delegate_inputs(*, alias: str = "local_subtask") -> dict:
@@ -47,6 +54,12 @@ def _batch_payload(*, actions: list[dict]) -> str:
 
 def _delegate_policies():
     return {DELEGATE_SUBTASK_ACTION_TYPE: delegate_subtask_tool_batch_policy()}
+
+
+def _transcript_edit_domain_policy() -> DomainActionBatchPolicy:
+    policy = DomainActionBatchPolicy.from_mapping(build_transcript_edit_action_batch_policy())
+    assert policy is not None
+    return policy
 
 
 def _delegate_action(alias: str) -> dict:
@@ -111,6 +124,31 @@ def test_parser_rejects_delegate_subtask_over_cap_before_execution() -> None:
         )
     assert excinfo.value.reason_code == "invalid_model_action_json"
     assert "cap" in str(excinfo.value).lower() or "batch" in str(excinfo.value).lower()
+
+
+def test_parser_accepts_ten_delegates_with_transcript_edit_domain_policy() -> None:
+    actions = [_delegate_action(f"read_{index}") for index in range(10)]
+    plan = parse_action_plan_response(
+        _batch_payload(actions=actions),
+        available_tool_ids=(DELEGATE_SUBTASK_ACTION_TYPE,),
+        tool_batch_policies=_delegate_policies(),
+        domain_batch_policy=_transcript_edit_domain_policy(),
+    )
+    assert len(plan.actions) == 10
+
+
+def test_parser_rejects_sixteen_delegates_with_transcript_edit_domain_policy() -> None:
+    actions = [
+        _delegate_action(f"read_{index}")
+        for index in range(TRANSCRIPT_EDIT_VISUAL_DELEGATE_MAX_BATCH + 1)
+    ]
+    with pytest.raises(ModelActionParseError):
+        parse_action_plan_response(
+            _batch_payload(actions=actions),
+            available_tool_ids=(DELEGATE_SUBTASK_ACTION_TYPE,),
+            tool_batch_policies=_delegate_policies(),
+            domain_batch_policy=_transcript_edit_domain_policy(),
+        )
 
 
 def test_parser_rejects_unknown_delegate_profile_before_execution() -> None:

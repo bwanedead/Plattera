@@ -199,7 +199,17 @@ def effective_max_batch_size(
     domain_policy: DomainActionBatchPolicy | None,
 ) -> int:
     if domain_policy is not None and domain_policy.max_batch_size is not None:
-        return min(global_default, max(1, int(domain_policy.max_batch_size)))
+        return max(1, int(domain_policy.max_batch_size))
+    return global_default
+
+
+def effective_max_resolved_actions(
+    *,
+    global_default: int,
+    domain_policy: DomainActionBatchPolicy | None,
+) -> int:
+    if domain_policy is not None and domain_policy.max_resolved_actions is not None:
+        return max(1, int(domain_policy.max_resolved_actions))
     return global_default
 
 
@@ -267,9 +277,14 @@ def effective_tool_cap(
     global_default: int,
     domain_policy: DomainActionBatchPolicy | None,
 ) -> int:
-    cap = min(global_default, tool_policy.max_calls_per_batch)
+    batch_ceiling = max(1, int(global_default))
+    spec_cap = max(1, int(tool_policy.max_calls_per_batch))
     if domain_policy is not None:
         domain_cap = domain_policy.tool_caps.get(tool_id)
         if domain_cap is not None:
-            cap = min(cap, max(1, int(domain_cap)))
-    return cap
+            per_tool = max(1, int(domain_cap))
+        else:
+            per_tool = spec_cap
+    else:
+        per_tool = spec_cap
+    return min(batch_ceiling, per_tool)
