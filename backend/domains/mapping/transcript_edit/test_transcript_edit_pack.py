@@ -192,15 +192,16 @@ def test_procedural_guidance_teaches_delegate_subtask_lightly() -> None:
     assert "context_refs" in text
     assert "delegation_lines" in text
     assert "atom-oriented" in text
-    assert "source neighborhood or anchor" in text
-    assert "not the expected value" in text
-    assert "visible value/text at the target area" in text
-    assert "target atom as the main payload" in text
-    assert "higher-signal packet" in text
+    assert "respect what the delegate can actually know from its isolated crop" in text
+    assert "do not ask the delegate to reason about parcel order" in text
+    assert "transcript of all clearly visible text" in text
+    assert "peripheral net for adjacent atoms" in text
+    assert "opportunistic harvesting moments" in text
     assert "larger phrase is clipped" in text
     assert "integrate the atom and move on" in text
     assert "insufficiently anchored" in text
-    assert "batch independent delegate reads" in text
+    assert "send what you can in a coherent delegate wave" in text
+    assert "send them in the next wave" in text
     assert "must delegate" not in text
     assert "always delegate" not in text
     assert "required to delegate" not in text
@@ -312,7 +313,8 @@ def test_domain_pack_declares_semantic_prompt_blocks() -> None:
     assert "missed, merged, split, or misread a unit" in text
     assert "the early job is not to investigate each atom's truth" in text
     assert "walk the t0 landscape top-to-bottom" in text
-    assert "keep one t0 draft pinned during inventory phase work" in text
+    assert "pin one useful t0 draft for every-turn hydration" in text
+    assert "persistent shape reference" in text
     assert "graph parity" in text
     assert "every map-critical atom needs to be an independent covered unit" in text
     assert "covered units should not contain multiple atoms" in text
@@ -349,18 +351,23 @@ def test_domain_pack_declares_semantic_prompt_blocks() -> None:
     assert "height_norm" in guidance.text
     assert "scale_x" in guidance.text
     assert "scale_y" in guidance.text
-    assert "batch qa and placement-control surface" in text
-    assert "control-room artifact" in text
+    assert "master-overlay-native" in text
+    assert "control surface for the crop universe" in text
     assert "pin + letter" in text
     assert "did the dot land on the target atom" in text
     assert "pin the master overlay ref for every-turn hydration" in text
+    assert "force-pin it mechanically" in text
     assert "hydration pinning keeps the master overlay omnipresent" in text
     assert "crop pins mark source targets" in text
-    assert "do not hydrate all individual crop refs just to inspect basic placement" in text
-    assert "costly and becomes a spin vector" in text
-    assert "five to ten well-scoped atom pins" in text
-    assert "one overlay review, one delegate batch, and one dense integration pass" in text
+    assert "hydrating every individual crop ref just to inspect basic placement" in text
+    assert "costly, becomes a spin vector" in text
+    assert "largest coherent point packet" in text
+    assert "selecting the smallest safe subset" in text
+    assert "one overlay review, one delegate wave, and one dense integration pass" in text
     assert "master overlay is for packet sanity" in text
+    assert "atom evidence worklist" in text
+    assert "packet-ready-unused crop ref" in text
+    assert "a point packet is not done just because it was created" in text
     assert "point placement must be precise" in text
     assert "atom must be visible at useful resolution" in text
     assert "sufficiently anchored to the intended source neighborhood" in text
@@ -375,6 +382,8 @@ def test_domain_pack_declares_semantic_prompt_blocks() -> None:
     assert "batch motion and integration" in text
     assert "a good resolution turn may mix compatible motion" in text
     assert "do not force one micro-step per turn" in text
+    assert "use coordinate overlays as scaffolding" not in text
+    assert "the coordinate view is useful for placement" not in text
     assert "hydrate_next" in guidance.text
     assert "fair hitl packets" in text
     assert "save and handoff rhythm" in text
