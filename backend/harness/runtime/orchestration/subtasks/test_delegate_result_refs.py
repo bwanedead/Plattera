@@ -43,6 +43,12 @@ def _sample_outputs(*, status: str = "completed", result: dict | None = None) ->
             "model": "gpt-5.4",
             "prompt_char_count": 4151,
             "image_attachment_count": 1,
+            "hydration_seconds": 0.12,
+            "prompt_build_seconds": 0.01,
+            "model_call_seconds": 18.42,
+            "output_normalize_seconds": 0.01,
+            "total_seconds": 18.56,
+            "retry_count": 0,
             "raw_prompt_text": "must strip",
             "b64": "must strip",
         },
@@ -219,6 +225,8 @@ def test_record_stores_bounded_fields_and_strips_binary() -> None:
     assert "source_visible_text" in record["result"]
     trace = record.get("subtask_trace") or {}
     assert trace.get("model") == "gpt-5.4"
+    assert trace.get("model_call_seconds") == 18.42
+    assert trace.get("total_seconds") == 18.56
     assert "raw_prompt_text" not in trace
     assert "b64" not in trace
 

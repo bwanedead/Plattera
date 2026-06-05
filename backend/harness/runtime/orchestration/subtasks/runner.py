@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable, Mapping
+from time import perf_counter
 from typing import Any
 
 from services.llm.call_options import LlmCallOptions
@@ -41,14 +42,20 @@ def run_delegate_subtask(
 ) -> dict[str, Any]:
     """Execute one isolated child model call and return a bounded tool result."""
 
+    total_start = perf_counter()
+    hydration_start = perf_counter()
     context = resolve_context_refs(
         request=request,
         profile=profile,
         hydration_handler=hydration_handler,
         parent_request=parent_request,
     )
+    hydration_seconds = _elapsed(hydration_start)
+    prompt_start = perf_counter()
     prompt = build_child_prompt(profile=profile, request=request, context=context)
+    prompt_build_seconds = _elapsed(prompt_start)
     model_name = profile.model_policy.model_name or default_model_name
+    model_start = perf_counter()
     try:
         raw = model_caller(
             prompt,
@@ -70,18 +77,35 @@ def run_delegate_subtask(
             image_attachment_count=len(context.image_attachments),
             hydration_errors=context.errors,
             profile=profile,
+            timing_trace={
+                "hydration_seconds": hydration_seconds,
+                "prompt_build_seconds": prompt_build_seconds,
+                "model_call_seconds": _elapsed(model_start),
+                "output_normalize_seconds": 0.0,
+                "total_seconds": _elapsed(total_start),
+                "retry_count": 0,
+            },
         )
 
+    model_call_seconds = _elapsed(model_start)
+    normalize_start = perf_counter()
     normalized = normalize_child_output(
         raw,
         subtask_id=subtask_id,
         request=request,
         profile=profile,
     )
+    output_normalize_seconds = _elapsed(normalize_start)
     normalized["subtask_trace"] = {
         "model": model_name,
         "prompt_char_count": len(prompt),
         "image_attachment_count": len(context.image_attachments),
+        "hydration_seconds": hydration_seconds,
+        "prompt_build_seconds": prompt_build_seconds,
+        "model_call_seconds": model_call_seconds,
+        "output_normalize_seconds": output_normalize_seconds,
+        "total_seconds": _elapsed(total_start),
+        "retry_count": 0,
     }
     if context.errors:
         normalized.setdefault("errors", [])
@@ -268,6 +292,7 @@ def _failed_output(
     image_attachment_count: int | None = None,
     hydration_errors: tuple[Mapping[str, Any], ...] = (),
     profile: SubtaskProfile | None = None,
+    timing_trace: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     failed_result = (
         empty_result_for_profile(profile, message=message)
@@ -297,9 +322,24 @@ def _failed_output(
         trace["prompt_char_count"] = int(prompt_char_count)
     if image_attachment_count is not None:
         trace["image_attachment_count"] = int(image_attachment_count)
+    if isinstance(timing_trace, Mapping):
+        for key in (
+            "hydration_seconds",
+            "prompt_build_seconds",
+            "model_call_seconds",
+            "output_normalize_seconds",
+            "total_seconds",
+            "retry_count",
+        ):
+            if key in timing_trace:
+                trace[key] = timing_trace[key]
     if trace:
         out["subtask_trace"] = trace
     return out
+
+
+def _elapsed(start: float) -> float:
+    return round(max(0.0, perf_counter() - start), 3)
 
 
 def _bound_text(value: Any, limit: int) -> str:

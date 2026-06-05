@@ -484,7 +484,9 @@ def _with_delegate_subtask_tool(
                         "isolation": "optional known boolean flags",
                         "output_contract": "optional bounded object",
                     },
-                    "batching": delegate_subtask_tool_batch_spec(),
+                    "batching": delegate_subtask_tool_batch_spec(
+                        max_calls_per_batch=_delegate_subtask_visible_cap(opaque_run_context)
+                    ),
                 }
             ]
         },
@@ -494,6 +496,23 @@ def _with_delegate_subtask_tool(
         surface_payloads=surface_payloads,
         tool_handlers=tool_handlers,
     )
+
+
+def _delegate_subtask_visible_cap(opaque_run_context: Mapping[str, Any] | None) -> int | None:
+    if not isinstance(opaque_run_context, Mapping):
+        return None
+    raw_policy = opaque_run_context.get("action_batch_policy")
+    if not isinstance(raw_policy, Mapping):
+        return None
+    tool_caps = raw_policy.get("tool_caps")
+    if not isinstance(tool_caps, Mapping):
+        return None
+    raw_cap = tool_caps.get(DELEGATE_SUBTASK_ACTION_TYPE)
+    try:
+        cap = int(raw_cap)
+    except (TypeError, ValueError):
+        return None
+    return cap if cap > 0 else None
 
 
 def run_runtime_from_env(

@@ -23,6 +23,8 @@ from harness.runtime.orchestration.action_sequence_hooks import (
     capture_hydrate_after_sequence,
 )
 from harness.runtime.orchestration.hydrate_next import MAX_HYDRATE_NEXT_REFS
+from harness.runtime.orchestration.subtasks.batch_policy import delegate_subtask_tool_batch_policy
+from harness.runtime.orchestration.subtasks.contracts import DELEGATE_SUBTASK_ACTION_TYPE
 from harness.runtime.orchestration.tool_batch_policy import ToolBatchPolicy
 
 
@@ -251,3 +253,34 @@ def test_capture_hydrate_after_sequence_caps_aggregate_resolved_refs() -> None:
         e.get("reason_code") == "aggregate_hydrate_next_cap_exceeded"
         for e in pending.get("errors") or []
     )
+
+
+def test_mixed_delegate_and_read_only_batch_stays_serial() -> None:
+    sm = _SequenceFakeSessionManager()
+    lm = LoopMemoryState()
+    actions = (
+        ActionPlanAction("d1", DELEGATE_SUBTASK_ACTION_TYPE, {"profile": "p", "task": "t", "context_refs": ["a"]}),
+        ActionPlanAction("h1", "hydrate_artifact_refs", {"ref_ids": ["b"]}),
+    )
+    policies = {
+        DELEGATE_SUBTASK_ACTION_TYPE: delegate_subtask_tool_batch_policy(),
+        "hydrate_artifact_refs": ToolBatchPolicy(
+            tool_id="hydrate_artifact_refs",
+            allowed=True,
+            max_calls_per_batch=3,
+            side_effect_class="read_only",
+        ),
+    }
+    sequence_result, _ = _execute_sequence_items(
+        loop_memory=lm,
+        session_manager=sm,
+        session_id="s",
+        actions=actions,
+        iteration=4,
+        request_id_prefix="req",
+        run_id="r",
+        tool_batch_policies=policies,
+        multi_action=True,
+    )
+    assert "delegate_parallel" not in sequence_result
+    assert len(sm.requests) == 2

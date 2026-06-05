@@ -35,6 +35,11 @@ from .state_patch_apply import (
     sync_state_patch_after_step_refusal,
     sync_state_patch_when_no_step_dispatched,
 )
+from .delegate_batch_execution import (
+    can_run_delegate_batch_parallel,
+    execute_delegate_batch_parallel,
+    record_delegate_dispatch,
+)
 from .subtasks.contracts import DELEGATE_SUBTASK_ACTION_TYPE
 from .subtasks.delegate_result_refs import (
     build_delegate_result_record,
@@ -141,11 +146,28 @@ def _execute_sequence_items(
     tool_batch_policies: dict[str, ToolBatchPolicy],
     multi_action: bool,
 ) -> tuple[dict[str, Any], Any | None]:
-    sequence_id = (
-        f"{request_id_prefix}:iter:{int(iteration)}:actions"
-        if multi_action
-        else f"{request_id_prefix}:iter:{int(iteration)}:dispatch:{actions[0].action_type}"
+    sequence_id = _sequence_id_for_actions(
+        actions,
+        iteration=iteration,
+        request_id_prefix=request_id_prefix,
+        multi_action=multi_action,
     )
+    if can_run_delegate_batch_parallel(
+        actions,
+        tool_batch_policies,
+        multi_action=multi_action,
+    ):
+        return _execute_parallel_delegate_sequence(
+            loop_memory=loop_memory,
+            session_manager=session_manager,
+            session_id=session_id,
+            actions=actions,
+            iteration=iteration,
+            request_id_prefix=request_id_prefix,
+            run_id=run_id,
+            sequence_id=sequence_id,
+        )
+
     item_rows: list[dict[str, Any]] = []
     last_step_result: Any | None = None
     stop_remaining = False
@@ -164,20 +186,13 @@ def _execute_sequence_items(
             continue
 
         policy = tool_batch_policies.get(item.action_type)
-        idem_key = (
-            f"{request_id_prefix}:iter:{int(iteration)}:batch:{item.alias}"
-            if multi_action
-            else f"{request_id_prefix}:iter:{int(iteration)}:dispatch:{item.action_type}"
-        )
-        step_inputs = dict(item.action_inputs)
-        if item.action_type == DELEGATE_SUBTASK_ACTION_TYPE:
-            step_inputs["_subtask_alias"] = item.alias
-        req = ExecutionStepRequest(
+        req = _build_sequence_item_request(
+            item,
             session_id=session_id,
-            action_id=item.action_type,
-            inputs=step_inputs,
-            idempotency_key=idem_key,
-            run_id=run_id or None,
+            iteration=iteration,
+            request_id_prefix=request_id_prefix,
+            run_id=run_id,
+            multi_action=multi_action,
         )
         try:
             step_result = session_manager.step(req)
@@ -196,81 +211,244 @@ def _execute_sequence_items(
             last_step_result = None
             continue
 
-        last_step_result = step_result
-        append_kernel_step_result_continuity(
+        last_step_result, stop_remaining = _consume_sequence_step_result(
             loop_memory=loop_memory,
-            iteration=iteration,
-            action_type=item.action_type,
+            item=item,
             step_result=step_result,
+            item_rows=item_rows,
+            alias_counts=alias_counts,
+            iteration=iteration,
+            multi_action=multi_action,
+            policy=policy,
+            stop_remaining=stop_remaining,
         )
-        accumulate_image_evidence(loop_memory=loop_memory, step_result=step_result)
 
-        if step_result.execution_state != ExecutionState.EXECUTED:
-            refusal = step_result.refusal
-            reason = refusal.reason_code if refusal is not None else "step_execution_refused"
-            retryable = bool(refusal.retryable) if refusal is not None else False
-            state_label = "retryable_error" if retryable else "refused"
-            item_rows.append(
-                build_batch_item_result_row(
-                    alias=item.alias,
-                    action_type=item.action_type,
-                    execution_state=state_label,
-                    error={"reason_code": reason, "retryable": retryable},
-                )
-            )
-            if multi_action and (policy is None or not policy.continues_after_item_failure):
-                stop_remaining = True
-            continue
+    return _finalize_sequence_result(
+        loop_memory=loop_memory,
+        sequence_id=sequence_id,
+        items=item_rows,
+        iteration=iteration,
+        last_step_result=last_step_result,
+    )
 
-        rec = step_result.record
-        result = rec.result if rec is not None else None
-        outputs = dict(result.outputs or {}) if result is not None else {}
-        artifact_refs = list(result.artifact_refs or ()) if result is not None else []
-        image_evidence = list(result.image_evidence) if result is not None and result.image_evidence else []
-        if step_result.dashboard is not None:
-            loop_memory.continuity.latest_refs = step_result.dashboard.latest_refs.model_dump(mode="json")
 
-        delegate_result_ref: str | None = None
-        if item.action_type == DELEGATE_SUBTASK_ACTION_TYPE and outputs:
-            action_index = len(item_rows) + 1
-            alias_key = str(item.alias or "").strip() or f"action{action_index}"
-            alias_counts[alias_key] = alias_counts.get(alias_key, 0) + 1
-            duplicate_index = alias_counts[alias_key]
-            delegate_result_ref = build_delegate_result_ref_id(
-                turn_index=int(iteration),
-                alias=item.alias,
-                action_index=action_index,
-                duplicate_index=duplicate_index,
-            )
-            register_delegate_result_record(
-                loop_memory.continuity,
-                build_delegate_result_record(
-                    ref_id=delegate_result_ref,
-                    turn_index=int(iteration),
-                    alias=item.alias,
-                    action_index=action_index,
-                    action_inputs=dict(item.action_inputs),
-                    outputs=outputs,
-                ),
-            )
-            if delegate_result_ref not in artifact_refs:
-                artifact_refs.append(delegate_result_ref)
+def _sequence_id_for_actions(
+    actions: tuple[ActionPlanAction, ...],
+    *,
+    iteration: int,
+    request_id_prefix: str,
+    multi_action: bool,
+) -> str:
+    if multi_action:
+        return f"{request_id_prefix}:iter:{int(iteration)}:actions"
+    return f"{request_id_prefix}:iter:{int(iteration)}:dispatch:{actions[0].action_type}"
 
+
+def _build_sequence_item_request(
+    item: ActionPlanAction,
+    *,
+    session_id: str,
+    iteration: int,
+    request_id_prefix: str,
+    run_id: str,
+    multi_action: bool,
+) -> ExecutionStepRequest:
+    idem_key = (
+        f"{request_id_prefix}:iter:{int(iteration)}:batch:{item.alias}"
+        if multi_action
+        else f"{request_id_prefix}:iter:{int(iteration)}:dispatch:{item.action_type}"
+    )
+    step_inputs = dict(item.action_inputs)
+    if item.action_type == DELEGATE_SUBTASK_ACTION_TYPE:
+        step_inputs["_subtask_alias"] = item.alias
+    return ExecutionStepRequest(
+        session_id=session_id,
+        action_id=item.action_type,
+        inputs=step_inputs,
+        idempotency_key=idem_key,
+        run_id=run_id or None,
+    )
+
+
+def _consume_sequence_step_result(
+    *,
+    loop_memory: LoopMemoryState,
+    item: ActionPlanAction,
+    step_result: Any,
+    item_rows: list[dict[str, Any]],
+    alias_counts: dict[str, int],
+    iteration: int,
+    multi_action: bool,
+    policy: ToolBatchPolicy | None,
+    stop_remaining: bool,
+) -> tuple[Any | None, bool]:
+    last_step_result = step_result
+    append_kernel_step_result_continuity(
+        loop_memory=loop_memory,
+        iteration=iteration,
+        action_type=item.action_type,
+        step_result=step_result,
+    )
+    accumulate_image_evidence(loop_memory=loop_memory, step_result=step_result)
+
+    if step_result.execution_state not in (ExecutionState.EXECUTED, ExecutionState.DEDUPED):
+        refusal = step_result.refusal
+        reason = refusal.reason_code if refusal is not None else "step_execution_refused"
+        retryable = bool(refusal.retryable) if refusal is not None else False
+        state_label = "retryable_error" if retryable else "refused"
         item_rows.append(
             build_batch_item_result_row(
                 alias=item.alias,
                 action_type=item.action_type,
-                execution_state="executed",
-                outputs=outputs,
-                artifact_refs=artifact_refs,
-                image_evidence=image_evidence,
-                delegate_result_ref=delegate_result_ref,
+                execution_state=state_label,
+                error={"reason_code": reason, "retryable": retryable},
             )
         )
+        if multi_action and (policy is None or not policy.continues_after_item_failure):
+            stop_remaining = True
+        return last_step_result, stop_remaining
 
-    sequence_result = build_sequence_result_record(
+    rec = step_result.record
+    result = rec.result if rec is not None else None
+    outputs = dict(result.outputs or {}) if result is not None else {}
+    artifact_refs = list(result.artifact_refs or ()) if result is not None else []
+    image_evidence = list(result.image_evidence) if result is not None and result.image_evidence else []
+    if step_result.dashboard is not None:
+        loop_memory.continuity.latest_refs = step_result.dashboard.latest_refs.model_dump(mode="json")
+
+    delegate_result_ref: str | None = None
+    if item.action_type == DELEGATE_SUBTASK_ACTION_TYPE and outputs:
+        action_index = len(item_rows) + 1
+        alias_key = str(item.alias or "").strip() or f"action{action_index}"
+        alias_counts[alias_key] = alias_counts.get(alias_key, 0) + 1
+        duplicate_index = alias_counts[alias_key]
+        delegate_result_ref = build_delegate_result_ref_id(
+            turn_index=int(iteration),
+            alias=item.alias,
+            action_index=action_index,
+            duplicate_index=duplicate_index,
+        )
+        register_delegate_result_record(
+            loop_memory.continuity,
+            build_delegate_result_record(
+                ref_id=delegate_result_ref,
+                turn_index=int(iteration),
+                alias=item.alias,
+                action_index=action_index,
+                action_inputs=dict(item.action_inputs),
+                outputs=outputs,
+            ),
+        )
+        if delegate_result_ref not in artifact_refs:
+            artifact_refs.append(delegate_result_ref)
+
+    item_rows.append(
+        build_batch_item_result_row(
+            alias=item.alias,
+            action_type=item.action_type,
+            execution_state="executed",
+            outputs=outputs,
+            artifact_refs=artifact_refs,
+            image_evidence=image_evidence,
+            delegate_result_ref=delegate_result_ref,
+        )
+    )
+    return last_step_result, stop_remaining
+
+
+def _execute_parallel_delegate_sequence(
+    *,
+    loop_memory: LoopMemoryState,
+    session_manager: ExecutionSessionManager,
+    session_id: str,
+    actions: tuple[ActionPlanAction, ...],
+    iteration: int,
+    request_id_prefix: str,
+    run_id: str,
+    sequence_id: str,
+) -> tuple[dict[str, Any], Any | None]:
+    prepared = [
+        (
+            item,
+            _build_sequence_item_request(
+                item,
+                session_id=session_id,
+                iteration=iteration,
+                request_id_prefix=request_id_prefix,
+                run_id=run_id,
+                multi_action=True,
+            ),
+        )
+        for item in actions
+    ]
+    outcomes, wall_seconds = execute_delegate_batch_parallel(
+        session_manager=session_manager,
+        session_id=session_id,
+        prepared=prepared,
+    )
+
+    item_rows: list[dict[str, Any]] = []
+    last_step_result: Any | None = None
+    alias_counts: dict[str, int] = {}
+    policy = None
+
+    for (item, req), outcome in zip(prepared, outcomes, strict=True):
+        if outcome.deduped_result is not None:
+            step_result = outcome.deduped_result
+        else:
+            step_result = record_delegate_dispatch(
+                session_manager=session_manager,
+                session_id=session_id,
+                request=outcome.normalized_request or req,
+                dispatch_result=outcome.dispatch_result,
+            )
+        if step_result is None:
+            item_rows.append(
+                build_batch_item_result_row(
+                    alias=item.alias,
+                    action_type=item.action_type,
+                    execution_state="retryable_error",
+                    error={"reason_code": "sequence_dispatch_exception"},
+                )
+            )
+            continue
+        last_step_result, _ = _consume_sequence_step_result(
+            loop_memory=loop_memory,
+            item=item,
+            step_result=step_result,
+            item_rows=item_rows,
+            alias_counts=alias_counts,
+            iteration=iteration,
+            multi_action=True,
+            policy=policy,
+            stop_remaining=False,
+        )
+
+    sequence_result, last_step_result = _finalize_sequence_result(
+        loop_memory=loop_memory,
         sequence_id=sequence_id,
         items=item_rows,
+        iteration=iteration,
+        last_step_result=last_step_result,
+    )
+    sequence_result["delegate_parallel"] = True
+    sequence_result["delegate_count"] = len(actions)
+    sequence_result["delegate_wall_seconds_total"] = wall_seconds
+    loop_memory.continuity.recent_action_sequence_result = sequence_result
+    return sequence_result, last_step_result
+
+
+def _finalize_sequence_result(
+    *,
+    loop_memory: LoopMemoryState,
+    sequence_id: str,
+    items: list[dict[str, Any]],
+    iteration: int,
+    last_step_result: Any | None,
+) -> tuple[dict[str, Any], Any | None]:
+    sequence_result = build_sequence_result_record(
+        sequence_id=sequence_id,
+        items=items,
         source_turn_index=int(iteration),
     )
     loop_memory.continuity.recent_action_sequence_result = sequence_result

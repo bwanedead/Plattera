@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import json
+import threading
+import time
 
 import pytest
 
 from harness.execution.contracts import (
     ExecutionDashboard,
     ExecutionLatestRefs,
+    ExecutionSessionStartRequest,
     ExecutionState,
     ExecutionStepRequest,
     ExecutionStepResult,
@@ -79,29 +82,19 @@ class _DelegateHandlerSessionManager(ExecutionSessionManager):
             hydration_handler=None,
             registry=registry or DEFAULT_SUBTASK_REGISTRY,
         )
+        self.executor.register(DELEGATE_SUBTASK_ACTION_TYPE, self.handler)
+        self.start_session(
+            ExecutionSessionStartRequest(
+                run_id="r",
+                session_id="s",
+                initial_latest_refs={},
+            )
+        )
         self.requests: list[ExecutionStepRequest] = []
 
     def step(self, request: ExecutionStepRequest) -> ExecutionStepResult:  # type: ignore[override]
         self.requests.append(request)
-        dispatch = self.handler(request)
-        record = SessionExecutionRecord(
-            session_id=request.session_id,
-            run_id="r",
-            request=request,
-            result=dispatch,
-        )
-        return ExecutionStepResult(
-            session_id=request.session_id,
-            idempotency_key=request.idempotency_key,
-            execution_state=ExecutionState.EXECUTED if dispatch.executed else ExecutionState.REFUSED,
-            dashboard=ExecutionDashboard(
-                latest_refs=ExecutionLatestRefs(refs={}),
-                budgets_remaining={},
-                last_refusal=dispatch.refusal,
-            ),
-            refusal=dispatch.refusal,
-            record=record,
-        )
+        return super().step(request)
 
 
 def test_parser_accepts_two_delegate_subtask_actions_in_one_batch() -> None:
@@ -183,6 +176,7 @@ def test_runner_surface_spec_resolves_delegate_batch_policy() -> None:
     assert policy.max_calls_per_batch == DELEGATE_SUBTASK_MAX_CALLS_PER_BATCH
     assert policy.side_effect_class == "model_observation"
     assert policy.continues_after_item_failure is True
+    assert policy.can_run_parallel is True
 
 
 def test_two_delegate_subtask_actions_both_succeed() -> None:
@@ -216,13 +210,16 @@ def test_two_delegate_subtask_actions_both_succeed() -> None:
         tool_batch_policies=_delegate_policies(),
         multi_action=True,
     )
+    assert sequence_result.get("delegate_parallel") is True
+    assert sequence_result.get("delegate_count") == 2
     by_alias = {row["alias"]: row for row in sequence_result["items"]}
+    assert [row["alias"] for row in sequence_result["items"]] == ["read_a", "read_b"]
     assert by_alias["read_a"]["execution_state"] == "executed"
     assert by_alias["read_b"]["execution_state"] == "executed"
     assert by_alias["read_a"]["outputs_excerpt"]["status"] == "completed"
     assert by_alias["read_b"]["outputs_excerpt"]["status"] == "completed"
-    assert sm.requests[0].inputs["_subtask_alias"] == "read_a"
-    assert sm.requests[1].inputs["_subtask_alias"] == "read_b"
+    assert by_alias["read_a"]["delegate_result_ref"] == "subtask:turn2:read_a"
+    assert by_alias["read_b"]["delegate_result_ref"] == "subtask:turn2:read_b"
 
 
 def test_one_malformed_child_json_does_not_fail_successful_sibling() -> None:
@@ -462,3 +459,140 @@ def test_transcript_edit_visual_batch_executes_with_one_truncated_sibling() -> N
     assert "b64" not in joined
     assert projected[0]["delegate_subtask"]["result"]["source_visible_text"] == "N. 2° 00' W."
     assert projected[1]["delegate_subtask"]["result_truncated"] is True
+
+
+def test_parallel_delegate_batch_preserves_action_order_and_refs() -> None:
+    def model_caller(prompt: str, model_name: str, *, call_options):
+        del prompt, model_name, call_options
+        return json.dumps(
+            {
+                "status": "completed",
+                "result": {
+                    "reading": "A",
+                    "ambiguity": "",
+                    "observations": [],
+                    "limits": [],
+                },
+            }
+        )
+
+    sm = _DelegateHandlerSessionManager(model_caller=model_caller)
+    actions = tuple(
+        ActionPlanAction(
+            f"read_{index}",
+            DELEGATE_SUBTASK_ACTION_TYPE,
+            _delegate_inputs(alias=f"read_{index}"),
+        )
+        for index in range(4)
+    )
+    sequence_result, _ = _execute_sequence_items(
+        loop_memory=LoopMemoryState(),
+        session_manager=sm,
+        session_id="s",
+        actions=actions,
+        iteration=7,
+        request_id_prefix="req",
+        run_id="r",
+        tool_batch_policies=_delegate_policies(),
+        multi_action=True,
+    )
+    assert sequence_result.get("delegate_parallel") is True
+    assert sequence_result.get("delegate_count") == 4
+    aliases = [row["alias"] for row in sequence_result["items"]]
+    assert aliases == ["read_0", "read_1", "read_2", "read_3"]
+    assert sequence_result["items"][2]["delegate_result_ref"] == "subtask:turn7:read_2"
+
+
+def test_parallel_delegate_batch_dedupes_before_model_execution_on_replay() -> None:
+    calls: list[str] = []
+
+    def model_caller(prompt: str, model_name: str, *, call_options):
+        del prompt, model_name, call_options
+        calls.append("model")
+        return json.dumps(
+            {
+                "status": "completed",
+                "result": {
+                    "reading": "A",
+                    "ambiguity": "",
+                    "observations": [],
+                    "limits": [],
+                },
+            }
+        )
+
+    sm = _DelegateHandlerSessionManager(model_caller=model_caller)
+    actions = (
+        ActionPlanAction("read_a", DELEGATE_SUBTASK_ACTION_TYPE, _delegate_inputs(alias="read_a")),
+        ActionPlanAction("read_b", DELEGATE_SUBTASK_ACTION_TYPE, _delegate_inputs(alias="read_b")),
+    )
+    kwargs = dict(
+        loop_memory=LoopMemoryState(),
+        session_manager=sm,
+        session_id="s",
+        actions=actions,
+        iteration=5,
+        request_id_prefix="req",
+        run_id="r",
+        tool_batch_policies=_delegate_policies(),
+        multi_action=True,
+    )
+    first_result, _ = _execute_sequence_items(**kwargs)
+    assert len(calls) == 2
+    assert all(row["execution_state"] == "executed" for row in first_result["items"])
+
+    calls.clear()
+    replay_result, _ = _execute_sequence_items(**kwargs)
+    assert len(calls) == 0
+    assert all(row["execution_state"] == "executed" for row in replay_result["items"])
+
+
+def test_parallel_delegate_batch_runs_concurrently() -> None:
+    lock = threading.Lock()
+    state = {"active": 0, "max_active": 0}
+
+    def model_caller(prompt: str, model_name: str, *, call_options):
+        del prompt, model_name, call_options
+        with lock:
+            state["active"] += 1
+            state["max_active"] = max(state["max_active"], state["active"])
+        time.sleep(0.08)
+        with lock:
+            state["active"] -= 1
+        return json.dumps(
+            {
+                "status": "completed",
+                "result": {
+                    "reading": "A",
+                    "ambiguity": "",
+                    "observations": [],
+                    "limits": [],
+                },
+            }
+        )
+
+    sm = _DelegateHandlerSessionManager(model_caller=model_caller)
+    actions = tuple(
+        ActionPlanAction(
+            f"read_{index}",
+            DELEGATE_SUBTASK_ACTION_TYPE,
+            _delegate_inputs(alias=f"read_{index}"),
+        )
+        for index in range(4)
+    )
+    started = time.perf_counter()
+    sequence_result, _ = _execute_sequence_items(
+        loop_memory=LoopMemoryState(),
+        session_manager=sm,
+        session_id="s",
+        actions=actions,
+        iteration=3,
+        request_id_prefix="req",
+        run_id="r",
+        tool_batch_policies=_delegate_policies(),
+        multi_action=True,
+    )
+    elapsed = time.perf_counter() - started
+    assert sequence_result.get("delegate_parallel") is True
+    assert state["max_active"] >= 2
+    assert elapsed < 0.28

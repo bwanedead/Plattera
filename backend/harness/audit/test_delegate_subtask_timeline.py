@@ -52,6 +52,10 @@ def test_timeline_renders_delegate_subtask_mechanics_without_raw_media() -> None
                                     "model": "model-a",
                                     "prompt_char_count": 512,
                                     "image_attachment_count": 1,
+                                    "hydration_seconds": 0.12,
+                                    "model_call_seconds": 18.42,
+                                    "total_seconds": 18.56,
+                                    "retry_count": 0,
                                 },
                             },
                         }
@@ -74,6 +78,8 @@ def test_timeline_renders_delegate_subtask_mechanics_without_raw_media() -> None
     assert "reading:" in body
     assert "Only supplied input was used." in body
     assert "prompt_char_count" in body
+    assert "model_call_seconds" in body
+    assert "total_seconds" in body
     assert "SHOULD_NOT_RENDER" not in body
     assert "b64" not in body.lower()
 

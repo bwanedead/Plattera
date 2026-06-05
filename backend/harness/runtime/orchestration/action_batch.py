@@ -21,6 +21,8 @@ from .subtasks.projection import project_subtask_output
 
 DEFAULT_MAX_BATCH_SIZE = 5
 DEFAULT_MAX_RESOLVED_ACTIONS = 5
+# Homogeneous delegate waves may retain up to the transcript-edit visual cap.
+MAX_HOMOGENEOUS_DELEGATE_SEQUENCE_RESULT_ITEMS = 15
 MAX_ACTION_INPUTS_JSON_CHARS_PER_ITEM = 12_000
 MAX_TOTAL_ACTION_INPUTS_JSON_CHARS = 36_000
 MAX_ALIAS_LEN = 64
@@ -258,6 +260,24 @@ def build_batch_tool_request_summary(action_plan: Any) -> dict[str, Any]:
     }
 
 
+def sequence_result_items_cap(items: list[Any] | tuple[Any, ...]) -> int:
+    """Bounded retention cap for ``recent_action_sequence_result.items``."""
+
+    if not items:
+        return DEFAULT_MAX_BATCH_SIZE
+    if all(
+        isinstance(row, Mapping)
+        and str(row.get("action_type") or "") == DELEGATE_SUBTASK_ACTION_TYPE
+        for row in items
+    ):
+        return MAX_HOMOGENEOUS_DELEGATE_SEQUENCE_RESULT_ITEMS
+    return DEFAULT_MAX_BATCH_SIZE
+
+
+def bound_sequence_result_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return items[: sequence_result_items_cap(items)]
+
+
 def build_batch_tool_result_summary(batch_result: Mapping[str, Any] | None) -> dict[str, Any] | None:
     """Bounded audit/lifecycle result shape for an ``action_batch`` turn."""
     if not batch_result:
@@ -273,7 +293,7 @@ def build_batch_tool_result_summary(batch_result: Mapping[str, Any] | None) -> d
     return {
         "batch_id": str(batch_result.get("batch_id") or ""),
         "source_turn_index": int(batch_result.get("source_turn_index") or 0),
-        "items": items[:DEFAULT_MAX_BATCH_SIZE],
+        "items": bound_sequence_result_items(items),
     }
 
 
@@ -294,7 +314,7 @@ def validate_stored_action_batch_result(row: Any) -> dict[str, Any] | None:
     if not isinstance(items_raw, (list, tuple)) or len(items_raw) < 1:
         return None
     items: list[dict[str, Any]] = []
-    for entry in items_raw[:DEFAULT_MAX_BATCH_SIZE]:
+    for entry in items_raw[: sequence_result_items_cap(items_raw)]:
         if not isinstance(entry, Mapping):
             return None
         alias = str(entry.get("alias") or "").strip()
@@ -411,7 +431,7 @@ def build_action_batch_result_record(
     return {
         "batch_id": batch_id,
         "source_turn_index": int(source_turn_index),
-        "items": items[:DEFAULT_MAX_BATCH_SIZE],
+        "items": bound_sequence_result_items(items),
     }
 
 

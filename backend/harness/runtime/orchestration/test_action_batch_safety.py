@@ -11,7 +11,11 @@ from harness.runtime.memory.resume_snapshot import (
     parse_kernel_resume_snapshot,
 )
 from harness.mission_state import new_mission_state, new_resolution_state
-from harness.runtime.orchestration.action_batch import build_batch_item_result_row
+from harness.runtime.orchestration.action_batch import (
+    build_action_batch_result_record,
+    build_batch_item_result_row,
+)
+from harness.runtime.orchestration.subtasks.contracts import DELEGATE_SUBTASK_ACTION_TYPE
 from harness.runtime.orchestration.action_sequence import (
     ActionPlanAction,
     action_plan_with_canonical_actions,
@@ -130,6 +134,43 @@ def test_roundtrip_recent_action_sequence_result_in_resume_snapshot() -> None:
     assert rec["batch_id"] == "req:iter:5:batch"
     assert rec["items"][0]["alias"] == "p1"
     assert "b64" not in str(rec)
+
+
+def test_homogeneous_delegate_sequence_result_retains_up_to_fifteen_items() -> None:
+    items = [
+        build_batch_item_result_row(
+            alias=f"read_{index}",
+            action_type=DELEGATE_SUBTASK_ACTION_TYPE,
+            execution_state="executed",
+            outputs={
+                "status": "completed",
+                "profile": "harness.observation",
+                "result": {"reading": "A"},
+            },
+        )
+        for index in range(12)
+    ]
+    record = build_action_batch_result_record(
+        batch_id="req:iter:9:batch",
+        items=items,
+        source_turn_index=9,
+    )
+    assert len(record["items"]) == 12
+
+    mixed_items = [
+        build_batch_item_result_row(
+            alias="hydrate",
+            action_type="hydrate_artifact_refs",
+            execution_state="executed",
+        ),
+        *items[:3],
+    ]
+    mixed_record = build_action_batch_result_record(
+        batch_id="req:iter:10:batch",
+        items=mixed_items,
+        source_turn_index=10,
+    )
+    assert len(mixed_record["items"]) == 4
 
 
 def test_sequence_audit_summaries_cover_all_items() -> None:

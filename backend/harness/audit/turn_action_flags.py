@@ -22,9 +22,14 @@ def render_turn_action_flags(turn: Mapping[str, Any]) -> list[str]:
     else:
         lines.append("- batch: no")
     if flags.delegate:
-        lines.append(f"- delegate: yes ({flags.delegate_count} subtasks)")
+        delegate_line = f"- delegate: yes ({flags.delegate_count} subtasks)"
+        if flags.delegate_parallel:
+            delegate_line += "; parallel: yes"
+        lines.append(delegate_line)
     else:
         lines.append("- delegate: no")
+    if flags.delegate_wall_seconds_total is not None:
+        lines.append(f"- delegate_wall_seconds_total: {flags.delegate_wall_seconds_total}")
     if flags.point_crops:
         detail = f"{flags.point_crop_sets} set"
         if flags.point_crop_sets != 1:
@@ -131,6 +136,8 @@ def compute_turn_action_flags(turn: Mapping[str, Any]) -> "TurnActionFlags":
             point_crop_points = max(point_crop_points, len(points))
 
     sequence = _coerce_mapping(turn.get("recent_action_sequence_result"))
+    delegate_parallel = False
+    delegate_wall_seconds_total = None
     items = sequence.get("items")
     if isinstance(items, list):
         action_rows = max(action_rows, len(items))
@@ -143,6 +150,14 @@ def compute_turn_action_flags(turn: Mapping[str, Any]) -> "TurnActionFlags":
                 and str(item.get("action_type") or "") == DELEGATE_SUBTASK_ACTION_TYPE
             ),
         )
+    if sequence.get("delegate_parallel") is True:
+        delegate_parallel = True
+    wall_raw = sequence.get("delegate_wall_seconds_total")
+    if wall_raw is not None:
+        try:
+            delegate_wall_seconds_total = round(float(wall_raw), 3)
+        except (TypeError, ValueError):
+            delegate_wall_seconds_total = None
 
     image_refs = _count_image_refs(turn, actions=actions, tool_result=tool_result, sequence=sequence)
     hitl = _detect_hitl(turn, tool_request=tool_request, parsed=parsed)
@@ -165,6 +180,8 @@ def compute_turn_action_flags(turn: Mapping[str, Any]) -> "TurnActionFlags":
         action_rows=action_rows,
         delegate=delegate_count > 0,
         delegate_count=delegate_count,
+        delegate_parallel=delegate_parallel,
+        delegate_wall_seconds_total=delegate_wall_seconds_total,
         point_crops=point_crop_sets > 0 or point_crop_points > 0,
         point_crop_sets=max(point_crop_sets, 1 if point_crop_points else 0),
         point_crop_points=point_crop_points,
@@ -203,6 +220,8 @@ class TurnActionFlags:
         "action_rows",
         "delegate",
         "delegate_count",
+        "delegate_parallel",
+        "delegate_wall_seconds_total",
         "point_crops",
         "point_crop_sets",
         "point_crop_points",
@@ -226,6 +245,8 @@ class TurnActionFlags:
         action_rows: int,
         delegate: bool,
         delegate_count: int,
+        delegate_parallel: bool,
+        delegate_wall_seconds_total: float | None,
         point_crops: bool,
         point_crop_sets: int,
         point_crop_points: int,
@@ -245,6 +266,8 @@ class TurnActionFlags:
         self.action_rows = action_rows
         self.delegate = delegate
         self.delegate_count = delegate_count
+        self.delegate_parallel = delegate_parallel
+        self.delegate_wall_seconds_total = delegate_wall_seconds_total
         self.point_crops = point_crops
         self.point_crop_sets = point_crop_sets
         self.point_crop_points = point_crop_points

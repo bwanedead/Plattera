@@ -7,6 +7,49 @@ from harness.audit.turn_action_flags import compute_turn_action_flags, _compute_
 from harness.runtime.orchestration.subtasks.contracts import DELEGATE_SUBTASK_ACTION_TYPE
 
 
+def test_action_flags_render_delegate_parallel_from_audit_projected_sequence() -> None:
+    turn = {
+        "turn_index": 9,
+        "tool_request": {
+            "actions": [
+                {
+                    "alias": f"read_{index}",
+                    "action_type": DELEGATE_SUBTASK_ACTION_TYPE,
+                    "action_inputs": {
+                        "profile": "harness.observation",
+                        "task": f"Read {index}.",
+                        "context_refs": [f"artifact:{index}"],
+                    },
+                }
+                for index in range(12)
+            ]
+        },
+        "recent_action_sequence_result": {
+            "sequence_id": "req:iter:9:batch",
+            "source_turn_index": 9,
+            "delegate_parallel": True,
+            "delegate_count": 12,
+            "delegate_wall_seconds_total": 3.25,
+            "items": [
+                {
+                    "alias": f"read_{index}",
+                    "action_type": DELEGATE_SUBTASK_ACTION_TYPE,
+                    "execution_state": "executed",
+                }
+                for index in range(12)
+            ],
+        },
+    }
+    flags = compute_turn_action_flags(turn)
+    assert flags.delegate_parallel is True
+    assert flags.delegate_count == 12
+    assert flags.delegate_wall_seconds_total == 3.25
+
+    body = render_timeline([{"turn_index": 9, "parse_ok": True, **turn}])
+    assert "parallel: yes" in body
+    assert "delegate_wall_seconds_total: 3.25" in body
+
+
 def test_action_flags_batch_delegate_point_crops_and_images() -> None:
     turn = {
         "turn_index": 2,

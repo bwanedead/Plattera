@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
+from .action_batch import sequence_result_items_cap
 from .subtasks.projection import project_subtask_row
 
 
@@ -84,7 +85,7 @@ def project_action_sequence_for_audit(record: Mapping[str, Any] | None) -> dict[
     if not isinstance(items, (list, tuple)) or not items:
         return None
     rows: list[dict[str, Any]] = []
-    for raw in items[:8]:
+    for raw in items[: sequence_result_items_cap(items)]:
         if not isinstance(raw, Mapping):
             continue
         row = {
@@ -99,11 +100,26 @@ def project_action_sequence_for_audit(record: Mapping[str, Any] | None) -> dict[
         rows.append(row)
     if not rows:
         return None
-    return {
+    out: dict[str, Any] = {
         "sequence_id": str(record.get("sequence_id") or record.get("batch_id") or "")[:64],
         "source_turn_index": record.get("source_turn_index"),
         "items": rows,
     }
+    if record.get("delegate_parallel") is True:
+        out["delegate_parallel"] = True
+    delegate_count = record.get("delegate_count")
+    if delegate_count is not None:
+        try:
+            out["delegate_count"] = int(delegate_count)
+        except (TypeError, ValueError):
+            pass
+    wall_raw = record.get("delegate_wall_seconds_total")
+    if wall_raw is not None:
+        try:
+            out["delegate_wall_seconds_total"] = round(float(wall_raw), 3)
+        except (TypeError, ValueError):
+            pass
+    return out
 
 
 def build_host_hydration_before_turn(

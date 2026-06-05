@@ -17,6 +17,7 @@ from .delegate_integration_status import (
     should_show_delegate_integration_repair_note,
 )
 from .projection import project_subtask_output
+from .trace_fields import SUBTASK_TRACE_FIELDS, compact_subtask_trace
 
 DELEGATE_RESULT_REF_PREFIX = "subtask:"
 DELEGATE_RESULT_KIND = "delegate_subtask_result"
@@ -97,13 +98,9 @@ def build_delegate_result_record(
         "result": _sanitize_value(result_payload),
         "created_at_turn": int(turn_index),
     }
-    trace = projected.get("subtask_trace")
-    if isinstance(trace, Mapping) and trace:
-        record["subtask_trace"] = {
-            key: trace[key]
-            for key in ("model", "prompt_char_count", "image_attachment_count")
-            if key in trace
-        }
+    trace = compact_subtask_trace(projected.get("subtask_trace"))
+    if trace:
+        record["subtask_trace"] = trace
     if projected.get("result_truncated") is True:
         record["result_truncated"] = True
         truncated_fields = projected.get("truncated_fields")
@@ -239,6 +236,9 @@ def project_recent_delegate_results_for_prompt(
             "summary": build_delegate_result_summary(record),
             "integration_status": integration_by_ref.get(ref_id, STATUS_UNREFERENCED_STALE),
         }
+        trace = compact_subtask_trace(record.get("subtask_trace"))
+        if trace:
+            row["subtask_trace"] = trace
         if not keep_hot:
             row["stale"] = True
         rows.append(row)
@@ -292,13 +292,9 @@ def validate_stored_delegate_result_record(row: Any) -> dict[str, Any] | None:
             "created_at_turn": turn_index,
         }
     )
-    trace = row.get("subtask_trace")
-    if isinstance(trace, Mapping):
-        bounded["subtask_trace"] = {
-            key: trace[key]
-            for key in ("model", "prompt_char_count", "image_attachment_count")
-            if key in trace
-        }
+    trace = compact_subtask_trace(row.get("subtask_trace"))
+    if trace:
+        bounded["subtask_trace"] = trace
     if row.get("result_truncated") is True:
         bounded["result_truncated"] = True
     errors = row.get("errors")

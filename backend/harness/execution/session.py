@@ -100,7 +100,36 @@ class ExecutionSessionManager:
             dashboard=_build_dashboard(session),
         )
 
-    def step(self, request: ExecutionStepRequest) -> ExecutionStepResult:
+    def preflight_step(
+        self,
+        request: ExecutionStepRequest,
+    ) -> tuple[ExecutionStepRequest | None, ExecutionStepResult | None]:
+        """Normalize and apply session/idempotency checks without executing the handler."""
+
+        session = self._get_session(str(request.session_id or "").strip())
+        if session is None:
+            refusal = ExecutionRefusal(reason_code="session_not_found", retryable=False)
+            return None, ExecutionStepResult(
+                session_id=str(request.session_id or ""),
+                idempotency_key=str(request.idempotency_key or ""),
+                execution_state=ExecutionState.REFUSED,
+                dashboard=ExecutionDashboard(last_refusal=refusal),
+                refusal=refusal,
+            )
+
+        normalized_request = _normalize_step_request(request, session=session)
+        deduped = _dedupe_step_if_needed(session, normalized_request)
+        if deduped is not None:
+            return None, deduped
+        return normalized_request, None
+
+    def record_dispatch_result(
+        self,
+        request: ExecutionStepRequest,
+        dispatch_result: ActionDispatchResult,
+    ) -> ExecutionStepResult:
+        """Persist a pre-executed dispatch result using the same semantics as ``step``."""
+
         session = self._get_session(str(request.session_id or "").strip())
         if session is None:
             refusal = ExecutionRefusal(reason_code="session_not_found", retryable=False)
@@ -112,35 +141,11 @@ class ExecutionSessionManager:
                 refusal=refusal,
             )
 
-        normalized_request = ExecutionStepRequest(
-            session_id=session.session_id,
-            action_id=request.action_id,
-            inputs=dict(request.inputs),
-            idempotency_key=str(request.idempotency_key or "").strip(),
-            run_id=request.run_id or session.run_id,
-        )
+        normalized_request = _normalize_step_request(request, session=session)
+        deduped = _dedupe_step_if_needed(session, normalized_request)
+        if deduped is not None:
+            return deduped
 
-        key = normalized_request.idempotency_key
-        if key and session.is_duplicate(key):
-            cached = session.last_result_by_key.get(key)
-            if cached is not None:
-                return ExecutionStepResult(
-                    session_id=session.session_id,
-                    idempotency_key=key,
-                    execution_state=ExecutionState.DEDUPED,
-                    dashboard=_build_dashboard(session),
-                    record=_record_for_key(session, key),
-                )
-            refusal = ExecutionRefusal(reason_code="duplicate_idempotency_key", retryable=False)
-            return ExecutionStepResult(
-                session_id=session.session_id,
-                idempotency_key=key,
-                execution_state=ExecutionState.REFUSED,
-                dashboard=_build_dashboard(session, last_refusal=refusal),
-                refusal=refusal,
-            )
-
-        dispatch_result = self.executor.execute(normalized_request)
         record = session.record(request=normalized_request, result=dispatch_result)
         self._persist(session)
         state = ExecutionState.EXECUTED if dispatch_result.executed else ExecutionState.REFUSED
@@ -152,6 +157,14 @@ class ExecutionSessionManager:
             refusal=dispatch_result.refusal,
             record=record,
         )
+
+    def step(self, request: ExecutionStepRequest) -> ExecutionStepResult:
+        normalized_request, deduped = self.preflight_step(request)
+        if deduped is not None:
+            return deduped
+        assert normalized_request is not None
+        dispatch_result = self.executor.execute(normalized_request)
+        return self.record_dispatch_result(normalized_request, dispatch_result)
 
     def _get_session(self, session_id: str) -> ExecutionSession | None:
         if session_id in self.sessions:
@@ -168,6 +181,46 @@ class ExecutionSessionManager:
 def new_execution_session(*, session_id: str, run_id: str, run_artifact: RunArtifact | None = None) -> ExecutionSession:
     artifact = run_artifact or RunArtifact(run_id=run_id, session_id=session_id)
     return ExecutionSession(session_id=session_id, run_id=run_id, run_artifact=artifact)
+
+
+def _normalize_step_request(
+    request: ExecutionStepRequest,
+    *,
+    session: ExecutionSession,
+) -> ExecutionStepRequest:
+    return ExecutionStepRequest(
+        session_id=session.session_id,
+        action_id=request.action_id,
+        inputs=dict(request.inputs),
+        idempotency_key=str(request.idempotency_key or "").strip(),
+        run_id=request.run_id or session.run_id,
+    )
+
+
+def _dedupe_step_if_needed(
+    session: ExecutionSession,
+    normalized_request: ExecutionStepRequest,
+) -> ExecutionStepResult | None:
+    key = normalized_request.idempotency_key
+    if not key or not session.is_duplicate(key):
+        return None
+    cached = session.last_result_by_key.get(key)
+    if cached is not None:
+        return ExecutionStepResult(
+            session_id=session.session_id,
+            idempotency_key=key,
+            execution_state=ExecutionState.DEDUPED,
+            dashboard=_build_dashboard(session),
+            record=_record_for_key(session, key),
+        )
+    refusal = ExecutionRefusal(reason_code="duplicate_idempotency_key", retryable=False)
+    return ExecutionStepResult(
+        session_id=session.session_id,
+        idempotency_key=key,
+        execution_state=ExecutionState.REFUSED,
+        dashboard=_build_dashboard(session, last_refusal=refusal),
+        refusal=refusal,
+    )
 
 
 def _build_dashboard(

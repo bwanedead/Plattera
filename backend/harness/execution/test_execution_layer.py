@@ -59,6 +59,63 @@ def test_step_idempotency_dedupes_second_execution() -> None:
     assert calls == ["load_payload"]
 
 
+def test_preflight_step_dedupes_without_executing() -> None:
+    calls: list[str] = []
+    manager = ExecutionSessionManager()
+    manager.start_session(ExecutionSessionStartRequest(run_id="run-1", session_id="session-1"))
+    manager.executor.register(
+        "load_payload",
+        lambda request: calls.append(request.action_id) or {
+            "executed": True,
+            "artifact_refs": ["artifact://draft-1"],
+        },
+    )
+    request = ExecutionStepRequest(
+        session_id="session-1",
+        action_id="load_payload",
+        idempotency_key="same-step",
+    )
+    first = manager.step(request)
+    normalized, deduped = manager.preflight_step(request)
+    assert normalized is None
+    assert deduped is not None
+    assert deduped.execution_state == ExecutionState.DEDUPED
+    assert calls == ["load_payload"]
+    assert first.execution_state == ExecutionState.EXECUTED
+
+
+def test_record_dispatch_result_persists_without_reexecuting() -> None:
+    calls: list[str] = []
+    manager = ExecutionSessionManager()
+    manager.start_session(ExecutionSessionStartRequest(run_id="run-1", session_id="session-1"))
+    manager.executor.register(
+        "load_payload",
+        lambda request: calls.append(request.action_id) or {
+            "executed": True,
+            "artifact_refs": ["artifact://draft-2"],
+        },
+    )
+    request = ExecutionStepRequest(
+        session_id="session-1",
+        action_id="load_payload",
+        idempotency_key="preflight-step",
+    )
+    normalized, deduped = manager.preflight_step(request)
+    assert deduped is None
+    assert normalized is not None
+    dispatch = manager.executor.execute(normalized)
+    recorded = manager.record_dispatch_result(normalized, dispatch)
+    assert recorded.execution_state == ExecutionState.EXECUTED
+    assert calls == ["load_payload"]
+
+    calls.clear()
+    again, deduped_again = manager.preflight_step(request)
+    assert again is None
+    assert deduped_again is not None
+    assert deduped_again.execution_state == ExecutionState.DEDUPED
+    assert calls == []
+
+
 def test_unregistered_action_refuses() -> None:
     manager = ExecutionSessionManager()
     manager.start_session(ExecutionSessionStartRequest(run_id="run-1", session_id="session-1"))
