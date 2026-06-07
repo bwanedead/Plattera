@@ -56,6 +56,8 @@ def test_choose_action_instruction_teaches_pin_refs_as_attention_support() -> No
     assert "pin_refs" in text
     assert "unpin_refs" in text
     assert "small number of refs that should stay hot across turns" in lowered
+    assert "mechanically carried forward and auto-surfaced/hydrated" in lowered
+    assert "until it is unpinned or expires" in lowered
     assert "attention support, not proof" in lowered
     assert "prefer `hydrate_next` for one-shot next-turn visibility" in lowered
     assert "prefer `pin_refs` only when the same ref will likely matter across multiple turns" in lowered

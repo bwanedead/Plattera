@@ -192,13 +192,13 @@ def test_procedural_guidance_teaches_delegate_subtask_lightly() -> None:
     assert "context_refs" in text
     assert "delegation_lines" in text
     assert "atom-oriented" in text
-    assert "respect what the delegate can actually know from its isolated crop" in text
-    assert "do not ask the delegate to reason about parcel order" in text
-    assert "transcript of all clearly visible text" in text
-    assert "peripheral net for adjacent atoms" in text
-    assert "opportunistic harvesting moments" in text
-    assert "larger phrase is clipped" in text
-    assert "integrate the atom and move on" in text
+    assert "not blind to what the isolated crop can actually provide" in text
+    assert "do not ask the delegate to reason about broader document order" in text
+    assert "all clearly visible text" in text
+    assert "peripheral net for opportunistic harvesting" in text
+    assert "integrate it even if a larger phrase is clipped" in text
+    assert "span-containment anxiety" in text
+    assert "cleanly visible, anchored" in text
     assert "insufficiently anchored" in text
     assert "send what you can in a coherent delegate wave" in text
     assert "send them in the next wave" in text
@@ -301,53 +301,47 @@ def test_domain_pack_declares_semantic_prompt_blocks() -> None:
     assert "`mission.closure_state`" in guidance.text
     assert "`resolution_state.items`" in guidance.text
     assert "use t0 drafts aggressively for initial shape, not for earned truth" in text
-    assert "broad model read over the available source image" in text
-    assert "not repeat the same broad-read method as if it were a new proof tier" in text
-    assert "four closure layers reliable" in text
-    assert "downstream operational decisions" in text
-    assert "without consuming the same atom-verification budget" in text
+    assert "fast substrate for visible document structure" in text
+    assert "do not repeat the same broad-read method as if it were a new proof tier" in text
+    assert "small exact map-critical atoms" in text
     assert "visible document structure" in text
-    assert "fast practical substrate for the opening work universe" in text
-    assert "build the atomized work universe quickly" in text
     assert "every t0 reading remains candidate/open" in text
     assert "missed, merged, split, or misread a unit" in text
     assert "the early job is not to investigate each atom's truth" in text
-    assert "walk the t0 landscape top-to-bottom" in text
-    assert "put one useful t0 draft in `pin_refs` for every-turn hydration" in text
-    assert "persistent shape reference" in text
-    assert "graph parity" in text
+    assert "walk the t0/source shape top-to-bottom" in text
     assert "atomize actual atoms. this is a demand. do it." in text
-    assert "substructures are useful as groups, but they are not atoms" in text
+    assert "broader source structures are useful as groups, but they are not atoms" in text
     assert "more than a few words" in text
     assert "do not betray this rule" in text
-    assert "crop/delegate workflow gets sabotaged" in text
-    assert "inventory is the foundation" in text
+    assert "bad atomization poisons the rest of the run" in text
+    assert "packet workflow gets forced to chase spans" in text
+    assert "downstream mapping can inherit a false sense of earned truth" in text
     assert "before resolution, check the graph hard" in text
     assert "inventory is not done" in text
-    assert "broad containers standing in for atoms" in text
     assert "fast t0-shaped atomization pass" in text
     assert "obvious t0-visible atoms should not be deferred" in text
     assert "required persistent refs" in text
-    assert "one useful t0 draft must be in `pin_refs`" in text
-    assert "current point-crop master overlay must be in `pin_refs`" in text
-    assert "non-negotiable phase scaffolding" in text
+    assert "turn 1 inventory setup" in text
+    assert "put one useful t0 draft in `pin_refs`" in text
+    assert "first continued point-crop resolution pocket" in text
+    assert "current point-crop master overlay in `pin_refs`" in text
+    assert "do not treat this as optional housekeeping" in text
+    assert "mechanically carries the ref forward" in text
+    assert "auto-surfaces/hydrates" in text
+    assert "losing those control artifacts makes the run stupid and expensive" in text
     assert "persistent-ref obedience failed" in text
-    assert "instead of spending more hydrate turns" in text
+    assert "correct `pin_refs` immediately" in text
     assert "do not crop or source-investigate just to prove inventory exists" in text
     assert "motion_posture: resolution" in guidance.text
     assert "provisional vs earned distinction" in text
     assert "source-reading packet workflow" in text
-    assert "instead of closing exact atoms from broad source view" in text
-    assert "not normally claim-local proof for a small exact map-critical atom" in text
+    assert "source-reading packets" in text
+    assert "broad source view and t0 give orientation and span shape" in text
+    assert "they usually do not earn small exact values" in text
+    assert "do not turn atom verification into full-span proof" in text
     assert "intended signal upgrade is deliberate localization" in text
-    assert "delegate the focused crop" in text
-    assert "conscious exception" in text
-    assert "broad reads cannot do well" in text
     assert "targeted packet that directly demonstrates the claimed determination" in text
-    assert "poor isolation economics" in text
-    assert "same low-locality read pattern as t0" in text
     assert "pivotal atoms" in text
-    assert "localized packets for exact atom truth" in text
     assert "point_crops" in guidance.text
     assert "point_crops_adjust" in guidance.text
     assert "point_crops_view" in guidance.text
@@ -355,7 +349,7 @@ def test_domain_pack_declares_semantic_prompt_blocks() -> None:
     assert "small_plus" in guidance.text
     assert "small+" in guidance.text
     assert "bullseye-close" in text
-    assert "vague dot near the paragraph is weak targeting" in text
+    assert "vague dot near a paragraph is weak evidence" in text
     assert "small_plus` / `small+` wide is the normal atom/line starting shape" in text
     assert "width_norm" in guidance.text
     assert "height_norm" in guidance.text
@@ -363,35 +357,28 @@ def test_domain_pack_declares_semantic_prompt_blocks() -> None:
     assert "scale_y" in guidance.text
     assert "master-overlay-native" in text
     assert "control surface for the crop universe" in text
-    assert "pin + letter" in text
-    assert "did the dot land on the target atom" in text
-    assert "put the master overlay ref in `pin_refs` for every-turn hydration" in text
+    assert "put the master overlay ref in `pin_refs`" in text
     assert "force-pin it mechanically" in text
-    assert "persistent hydration keeps the master overlay omnipresent" in text
-    assert "point-crop target dots mark source targets" in text
-    assert "hydrating every individual crop ref just to inspect basic placement" in text
+    assert "agent-authored pinning preserves agency" in text
+    assert "do not hydrate every individual crop ref just to inspect basic placement" in text
     assert "costly, becomes a spin vector" in text
     assert "largest coherent point packet" in text
-    assert "selecting the smallest safe subset" in text
+    assert "resolve by local clusters, not isolated drips" in text
     assert "one overlay review, one delegate wave, and one dense integration pass" in text
     assert "master overlay is for packet sanity" in text
     assert "atom evidence worklist" in text
     assert "packet-ready-unused crop ref" in text
-    assert "a point packet is not done just because it was created" in text
-    assert "point placement must be precise" in text
-    assert "atom must be visible at useful resolution" in text
-    assert "sufficiently anchored to the intended source neighborhood" in text
-    assert "do not turn an atom-verification task into a span-containment task" in text
-    assert "do not accept vague targeting" in text
-    assert "a dot near the paragraph is weak evidence" in text
-    assert "run-performance, ui, ux, and audit value" in text
-    assert "contained-and-readable is enough to move" in text
-    assert "use the point table as the current coordinate record" in text
-    assert "change the existing letter or alias from its recorded coordinate" in text
+    assert "a point packet is not done when created" in text
+    assert "reraking the same source patch while old packet refs sit unused is waste" in text
+    assert "a vague dot near a paragraph is weak evidence" in text
+    assert "do not spin for perfect center" in text
+    assert "contained, readable, and anchored" in text
+    assert "use the point table as the coordinate record" in text
+    assert "adjust the existing letter or alias from its recorded coordinate" in text
     assert "individual per-point" in text or "individual crop refs" in text
     assert "batch motion and integration" in text
-    assert "a good resolution turn may mix compatible motion" in text
     assert "do not force one micro-step per turn" in text
+    assert "dense coordinated motion, not walking through mud" in text
     assert "use coordinate overlays as scaffolding" not in text
     assert "the coordinate view is useful for placement" not in text
     assert "hydrate_next" in guidance.text

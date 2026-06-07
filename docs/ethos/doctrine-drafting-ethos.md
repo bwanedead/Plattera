@@ -49,6 +49,41 @@ Useful emphasis can look like:
 
 Avoid fake certainty, but do not sand off useful emphasis just to sound official.
 
+### Sharp Language Is Sometimes Correct
+
+Do not flatten all doctrine into neutral legal speech. Some failures are catastrophic enough, common enough, or expensive enough that the doctrine should sound like a demand.
+
+Blunt language is not a manners failure when it carries meaning. Doctrine is written for capable agents operating under pressure, not for institutional politeness theater. If a direct, hard, non-polite sentence carries the priority, consequence, or nuance better than a softened version, use the direct sentence.
+
+If a behavior is genuinely load-bearing, it is acceptable for doctrine to use blunt or abrasive language such as:
+
+- Do not betray this rule.
+- This is not optional housekeeping.
+- If this is missing, the run is not ready.
+- This failure poisons the rest of the run.
+
+The point is not to be mean, theatrical, or hostile. The point is priority information and nuance preservation. Harsh phrasing can be the mechanism that tells the agent "this is different from the surrounding polite guidance." Do not sacrifice meaning, urgency, or delicate behavioral distinction just to make a sentence sound more official.
+
+Abrasive can mean direct, blunt, impatient with a known failure mode, or deliberately unsmoothed. It does not need to mean insulting. The standard is whether the wording makes the behavioral weight clearer. If polite phrasing would make the rule easier to ignore, blur the consequence, or wash out the lived failure mode, the polite phrasing is worse doctrine.
+
+Do not use abrasive language everywhere. If every paragraph yells, nothing stands out. Use it where the failure mode has repeatedly degraded correctness, economics, auditability, or user trust.
+
+## Keep Related Details Together
+
+When several details share one behavioral purpose, teach them together instead of scattering them as separate reminders.
+
+Good doctrine often binds:
+
+- the command
+- the reason it matters
+- the failure mode it prevents
+- the relevant action/state vocabulary
+- the downstream economics or UX value
+
+For example, if a pinned artifact matters because it preserves memory, prevents hydrate-only turns, and supports later adjustment, those details belong near the `pin_refs` instruction. Splitting them across distant sections makes the rule easier to forget and weaker to generalize.
+
+This is a Raptor 3 pressure: integrate the idea into one native method paragraph rather than leaving a pile of local warnings. Compression is good only when it preserves or increases behavioral force. Do not shorten doctrine by deleting the why, the economics, or the nuance that makes the rule usable.
+
 ## Prefer Sensibility Over Over-Scripting
 
 Do not turn every doctrine point into a checklist or rigid flow unless the contract truly requires it.
