@@ -34,6 +34,9 @@ from harness.audit.delegate_subtask_timeline import (
 from harness.audit.point_crop_set_timeline import render_point_crop_set_tool_output
 from harness.audit.turn_action_flags import render_turn_action_flags
 from harness.audit.atom_evidence_worklist_timeline import render_atom_evidence_worklist_timeline
+from harness.audit.delegate_observation_worklist_timeline import (
+    render_delegate_observation_worklist_timeline,
+)
 from harness.audit.performance_evaluation_timeline import render_performance_evaluation_timeline
 from harness.audit.state_patch_repair_bundle_timeline import render_state_patch_repair_bundle_timeline
 from harness.runtime.orchestration.subtasks.contracts import DELEGATE_SUBTASK_ACTION_TYPE
@@ -222,6 +225,7 @@ def _render_turn(
     out.extend(render_turn_action_flags(turn))
     out.extend(render_performance_evaluation_timeline(turn))
     out.extend(render_atom_evidence_worklist_timeline(turn, link_context=link_context))
+    out.extend(render_delegate_observation_worklist_timeline(turn, link_context=link_context))
     out.extend(_render_action_sequence_lane(turn))
     out.extend(_render_pinned_refs(turn))
     out.extend(_render_required_output_gate(turn))
@@ -603,6 +607,19 @@ def _render_pinned_refs(turn: Mapping[str, Any]) -> list[str]:
     pinned_auto = _coerce_mapping(host.get("pinned_refs_auto_hydration")) if host else None
     if pinned_auto:
         lines.extend(_render_hydration_lane(pinned_auto, indent="  ", title="auto_hydrated_before_turn"))
+    expiring_soon = pinned.get("expiring_soon") if pinned else None
+    if isinstance(expiring_soon, list) and expiring_soon:
+        lines.append("  expiring_soon:")
+        for row in expiring_soon[:8]:
+            if isinstance(row, Mapping):
+                ref = str(row.get("ref") or "").strip()
+                if not ref:
+                    continue
+                remaining = row.get("expires_in_turns")
+                if remaining is not None:
+                    lines.append(f"    - {ref} expires_in_turns={remaining}")
+                else:
+                    lines.append(f"    - {ref}")
     active = pinned.get("active") if pinned else None
     if isinstance(active, list) and active:
         lines.append("  active:")
@@ -610,7 +627,11 @@ def _render_pinned_refs(turn: Mapping[str, Any]) -> list[str]:
             if isinstance(row, Mapping):
                 ref = str(row.get("ref") or "").strip()
                 if ref:
-                    lines.append(f"    - {ref}")
+                    remaining = row.get("expires_in_turns")
+                    if remaining is not None:
+                        lines.append(f"    - {ref} expires_in_turns={remaining}")
+                    else:
+                        lines.append(f"    - {ref}")
     expired = pinned.get("expired") if pinned else None
     if isinstance(expired, list) and expired:
         lines.append("  expired:")

@@ -122,7 +122,7 @@ def _format_startup_context(inventory: object) -> str:
         "- `image:derived:*` → model-visible derived image evidence (actual pixels) + provenance/metadata\n\n"
         "**Capabilities:** `hydrate_artifact_refs` loads any of the above refs. "
         "`transform_artifact` creates reusable `image:derived:*` refs (model-visible evidence) via crop, expand, zoom, "
-        "annotate, reference_overlay, render_evidence_locators, point_crops, point_crops_adjust, and point_crops_view. "
+        "annotate, render_evidence_locators, point_crops, point_crops_adjust, and point_crops_view. "
         "Derived refs can be re-hydrated with `hydrate_artifact_refs`. "
         "`save_workspace_artifact` saves a working transcript revision. "
         "`publish_workspace_artifact` promotes a working revision to output."

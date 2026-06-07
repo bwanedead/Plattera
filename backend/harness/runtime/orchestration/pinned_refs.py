@@ -16,6 +16,7 @@ MAX_PINNED_REFS = 5
 MAX_PIN_UNPIN_LIST_REFS = MAX_PINNED_REFS
 MAX_EXPIRED_PIN_TAIL = MAX_PINNED_REFS
 DEFAULT_PIN_TTL_TURNS = 8
+PIN_EXPIRING_SOON_TURNS = 2
 
 
 class PinnedRefsValidationError(ValueError):
@@ -175,6 +176,14 @@ def apply_pin_updates(
     ]
 
 
+def expires_in_turns(row: Mapping[str, Any], *, current_turn: int) -> int:
+    """Mechanical turns remaining before pin TTL expiry (0 when at expiry boundary)."""
+
+    last = int(row.get("last_refreshed_turn") or 0)
+    ttl = int(row.get("ttl_turns") or DEFAULT_PIN_TTL_TURNS)
+    return max(0, last + ttl - int(current_turn))
+
+
 def build_pinned_refs_projection(
     rows: list[dict[str, Any]] | None,
     *,
@@ -182,17 +191,31 @@ def build_pinned_refs_projection(
 ) -> dict[str, Any]:
     active = active_pinned_rows(rows, current_turn=current_turn)
     expired = expired_pinned_rows(rows, current_turn=current_turn)
-    payload: dict[str, Any] = {
-        "active": [
+    active_rows: list[dict[str, Any]] = []
+    expiring_soon: list[dict[str, Any]] = []
+    for row in active:
+        remaining = expires_in_turns(row, current_turn=current_turn)
+        active_rows.append(
             {
                 "ref": row["ref"],
                 "pinned_at_turn": row["pinned_at_turn"],
                 "last_refreshed_turn": row["last_refreshed_turn"],
                 "ttl_turns": row["ttl_turns"],
+                "expires_in_turns": remaining,
             }
-            for row in active
-        ],
-    }
+        )
+        if remaining <= PIN_EXPIRING_SOON_TURNS:
+            expiring_soon.append(
+                {
+                    "ref": row["ref"],
+                    "expires_in_turns": remaining,
+                    "last_refreshed_turn": row["last_refreshed_turn"],
+                    "ttl_turns": row["ttl_turns"],
+                }
+            )
+    payload: dict[str, Any] = {"active": active_rows}
+    if expiring_soon:
+        payload["expiring_soon"] = expiring_soon
     if expired:
         payload["expired"] = [
             {

@@ -38,6 +38,8 @@ def test_choose_action_prompt_body_includes_pinned_refs_lane() -> None:
     )
     structured = doc.prompt_body["structured_state"]
     assert "pinned_refs" in structured
-    assert structured["pinned_refs"]["active"][0]["ref"] == "artifact://pinned-evidence"
+    active_row = structured["pinned_refs"]["active"][0]
+    assert active_row["ref"] == "artifact://pinned-evidence"
+    assert active_row["expires_in_turns"] == 8
     assert "pinned_refs_hydration" in structured
     assert structured["pinned_refs_hydration"]["status"] == "completed"

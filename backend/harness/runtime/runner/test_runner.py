@@ -151,7 +151,7 @@ def test_runner_invokes_orchestration_and_writes_loop_result_artifacts(tmp_path:
             )
         return json.dumps(
             {
-                "action_type": "noop",
+                "action_type": None,
                 "action_inputs": {},
                 "idempotency_key": "plan-2",
                 "skip_execution": True,
@@ -279,55 +279,13 @@ def test_runner_executes_transcript_edit_tool_and_writes_artifacts(tmp_path: Pat
             )
         return json.dumps(
             {
-                "action_type": "noop",
-                "action_inputs": {},
+                "action_type": None,
                 "idempotency_key": "ik-2",
                 "skip_execution": True,
                 "wait_for_human": False,
                 "complete_run": True,
-                    "rationale": "finished",
-                    "state_patch": {
-                        "resolution": {
-                            "items": [
-                                {
-                                    "item_id": "peer_alpha_review",
-                                    "title": "Peer alpha review",
-                                    "kind": "work_unit",
-                                    "status": "closed",
-                                }
-                            ]
-                        },
-                        "mission": {
-                            "work_universe_posture": "audited",
-                            "closure_state": {
-                                "overall_status": "complete_ready",
-                                "ready_to_close": True,
-                                "dimensions": [
-                                {
-                                    "dimension_id": "layer_1_delta_convergence",
-                                    "title": "Layer 1",
-                                    "status": "closed",
-                                },
-                                {
-                                    "dimension_id": "layer_2_intrinsic_source_integrity",
-                                    "title": "Layer 2",
-                                    "status": "open",
-                                },
-                                {
-                                    "dimension_id": "layer_3_external_dependency_completeness",
-                                    "title": "Layer 3",
-                                    "status": "no_further_progress",
-                                },
-                                {
-                                    "dimension_id": "layer_4_mapping_blocking_relevance",
-                                    "title": "Layer 4",
-                                    "status": "non_blocking",
-                                    "blocking": False,
-                                },
-                            ],
-                        }
-                    }
-                },
+                "rationale": "finished",
+                "state_patch": {"mission": {"work_universe_posture": "audited"}},
                 "continuity_journal_entry": {"runner_stub": True},
                 "operator_progress_message": None,
             }
@@ -346,6 +304,8 @@ def test_runner_executes_transcript_edit_tool_and_writes_artifacts(tmp_path: Pat
             "run_id": run_id,
             "model": "gpt-o4-mini",
             "max_iterations": 2,
+            # Smoke test targets hydrate execution, not hard closure enforcement.
+            "domain_closure_policy": {"hard_enforced": False},
         }
     )
 
@@ -551,6 +511,9 @@ def test_runner_injects_transcript_edit_action_batch_policy(tmp_path: Path, monk
     assert isinstance(policy, dict)
     assert policy.get("max_batch_size") == 15
     assert policy["tool_caps"]["delegate_subtask"] == 15
+    reminder = captured.get("delegate_observation_worklist_reminder")
+    assert isinstance(reminder, str)
+    assert "opportunistically harvest" in reminder
 
 
 @pytest.mark.parametrize(
@@ -633,7 +596,7 @@ def _blocking_hitl_model_caller() -> tuple[list[str], Any]:
         if len(model_calls) == 1:
             return json.dumps(
                 {
-                    "action_type": "noop",
+                    "action_type": None,
                     "action_inputs": {},
                     "idempotency_key": "ik-hitl-1",
                     "skip_execution": True,
@@ -653,7 +616,7 @@ def _blocking_hitl_model_caller() -> tuple[list[str], Any]:
         # Turn 2 — resumed after human answered.
         return json.dumps(
             {
-                "action_type": "noop",
+                "action_type": None,
                 "action_inputs": {},
                 "idempotency_key": "ik-hitl-2",
                 "skip_execution": True,
@@ -744,7 +707,7 @@ def test_async_hitl_does_not_pause_run(tmp_path: Path, monkeypatch) -> None:
             # Async HITL — wait_for_human=False, run keeps going.
             return json.dumps(
                 {
-                    "action_type": "noop",
+                    "action_type": None,
                     "action_inputs": {},
                     "idempotency_key": "ik-async-1",
                     "skip_execution": True,
@@ -763,7 +726,7 @@ def test_async_hitl_does_not_pause_run(tmp_path: Path, monkeypatch) -> None:
             )
         return json.dumps(
             {
-                "action_type": "noop",
+                "action_type": None,
                 "action_inputs": {},
                 "idempotency_key": "ik-async-2",
                 "skip_execution": True,
@@ -820,7 +783,7 @@ def test_blocking_hitl_timeout_returns_waiting_human(tmp_path: Path, monkeypatch
         model_calls.append(prompt)
         return json.dumps(
             {
-                "action_type": "noop",
+                "action_type": None,
                 "action_inputs": {},
                 "idempotency_key": "ik-timeout-1",
                 "skip_execution": True,
@@ -1212,7 +1175,7 @@ def test_hitl_routing_uses_canonical_run_id(tmp_path: Path, monkeypatch) -> None
         if len(model_calls) == 1:
             return json.dumps(
                 {
-                    "action_type": "noop",
+                    "action_type": None,
                     "action_inputs": {},
                     "idempotency_key": "ik-canon-1",
                     "skip_execution": True,
@@ -1231,7 +1194,7 @@ def test_hitl_routing_uses_canonical_run_id(tmp_path: Path, monkeypatch) -> None
             )
         return json.dumps(
             {
-                "action_type": "noop",
+                "action_type": None,
                 "action_inputs": {},
                 "idempotency_key": "ik-canon-2",
                 "skip_execution": True,

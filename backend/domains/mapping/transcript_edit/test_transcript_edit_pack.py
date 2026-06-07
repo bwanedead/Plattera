@@ -313,16 +313,26 @@ def test_domain_pack_declares_semantic_prompt_blocks() -> None:
     assert "missed, merged, split, or misread a unit" in text
     assert "the early job is not to investigate each atom's truth" in text
     assert "walk the t0 landscape top-to-bottom" in text
-    assert "pin one useful t0 draft for every-turn hydration" in text
+    assert "put one useful t0 draft in `pin_refs` for every-turn hydration" in text
     assert "persistent shape reference" in text
     assert "graph parity" in text
-    assert "every map-critical atom needs to be an independent covered unit" in text
-    assert "covered units should not contain multiple atoms" in text
-    assert "dates, headers, and general document-identity details should not become resolution atoms" in text
-    assert "values that can be independently wrong" in text
-    assert "paragraph-level, parcel-level, or call-sequence group is useful only as an organizer" in text
+    assert "atomize actual atoms. this is a demand. do it." in text
+    assert "substructures are useful as groups, but they are not atoms" in text
+    assert "more than a few words" in text
+    assert "do not betray this rule" in text
+    assert "crop/delegate workflow gets sabotaged" in text
+    assert "inventory is the foundation" in text
+    assert "before resolution, check the graph hard" in text
+    assert "inventory is not done" in text
+    assert "broad containers standing in for atoms" in text
     assert "fast t0-shaped atomization pass" in text
     assert "obvious t0-visible atoms should not be deferred" in text
+    assert "required persistent refs" in text
+    assert "one useful t0 draft must be in `pin_refs`" in text
+    assert "current point-crop master overlay must be in `pin_refs`" in text
+    assert "non-negotiable phase scaffolding" in text
+    assert "persistent-ref obedience failed" in text
+    assert "instead of spending more hydrate turns" in text
     assert "do not crop or source-investigate just to prove inventory exists" in text
     assert "motion_posture: resolution" in guidance.text
     assert "provisional vs earned distinction" in text
@@ -355,10 +365,10 @@ def test_domain_pack_declares_semantic_prompt_blocks() -> None:
     assert "control surface for the crop universe" in text
     assert "pin + letter" in text
     assert "did the dot land on the target atom" in text
-    assert "pin the master overlay ref for every-turn hydration" in text
+    assert "put the master overlay ref in `pin_refs` for every-turn hydration" in text
     assert "force-pin it mechanically" in text
-    assert "hydration pinning keeps the master overlay omnipresent" in text
-    assert "crop pins mark source targets" in text
+    assert "persistent hydration keeps the master overlay omnipresent" in text
+    assert "point-crop target dots mark source targets" in text
     assert "hydrating every individual crop ref just to inspect basic placement" in text
     assert "costly, becomes a spin vector" in text
     assert "largest coherent point packet" in text
@@ -788,6 +798,7 @@ def test_startup_context_advertises_point_crop_capabilities() -> None:
     assert "point_crops" in text
     assert "point_crops_adjust" in text
     assert "point_crops_view" in text
+    assert "reference_overlay" not in text
     assert "image:derived:*" in block.text
     assert "model-visible evidence" in text
     assert "master overlay" not in text
@@ -814,14 +825,17 @@ def test_tool_spec_transform_teaches_point_crops_as_default_path() -> None:
     ):
         assert sub_action in combined
 
-    assert "primary" in combined or "template pin crop packet" in combined
+    assert "primary" in combined or "template point-crop packet" in combined
     assert "richer coordinate" in combined or "richer coordinate/control" in combined
     assert "coordinate_lattice" in combined
     assert "review_rows" in combined
     assert "review_lines" in combined
-    assert "plain coordinate-grid" in combined or "plain coordinate-grid orientation" in combined
-    assert "does not carry point letters" in combined or "does not place point pins" in combined
-    assert "not a prerequisite for point_crops" in combined
+    assert "legacy/grid fallback" in combined or "legacy plain grid" in combined
+    assert "not part of the normal transcript-edit point-crop placement workflow" in combined
+    assert "does not carry point letters" in combined or "does not place point-crop target dots" in combined or "no point-crop target dots" in combined
+    assert "useful for general orientation" not in combined
+    assert "orientation view" not in combined
+    assert "coordinate-grid orientation" not in combined
     assert "typical workflow" not in combined
     assert "reference_overlay ->" not in combined
     assert "overlay first" not in combined

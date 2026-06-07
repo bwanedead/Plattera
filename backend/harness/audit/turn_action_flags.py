@@ -43,6 +43,7 @@ def render_turn_action_flags(turn: Mapping[str, Any]) -> list[str]:
     lines.append(f"- HITL: {'yes' if flags.hitl else 'no'}")
     lines.extend(_render_ref_motion_flag("hydrate_next", flags.hydrate_next_refs))
     lines.extend(_render_ref_motion_flag("pinned_refs", flags.pin_refs))
+    lines.extend(_render_ref_motion_flag("pinned_refs_expiring", flags.pin_refs_expiring))
     lines.extend(_render_ref_motion_flag("unpin_refs", flags.unpin_refs))
     lines.extend(_render_mission_posture_flags(turn))
     if flags.determinations_changed:
@@ -169,6 +170,7 @@ def compute_turn_action_flags(turn: Mapping[str, Any]) -> "TurnActionFlags":
     )
     hydrate_next_refs = _collect_hydrate_next_refs(actions, tool_request=tool_request, parsed=parsed)
     pin_refs = _collect_pin_refs(turn, tool_request=tool_request, parsed=parsed)
+    pin_refs_expiring = _collect_pinned_refs_expiring(turn)
     unpin_refs = _collect_unpin_refs(turn, tool_request=tool_request, parsed=parsed)
     graph_delta = _compute_resolution_graph_delta(
         _coerce_mapping(turn.get("resolution_state_before")),
@@ -189,6 +191,7 @@ def compute_turn_action_flags(turn: Mapping[str, Any]) -> "TurnActionFlags":
         hitl=hitl,
         hydrate_next_refs=hydrate_next_refs,
         pin_refs=pin_refs,
+        pin_refs_expiring=pin_refs_expiring,
         unpin_refs=unpin_refs,
         determinations_changed=graph_delta.determinations_changed,
         units_closed=graph_delta.units_closed,
@@ -229,6 +232,7 @@ class TurnActionFlags:
         "hitl",
         "hydrate_next_refs",
         "pin_refs",
+        "pin_refs_expiring",
         "unpin_refs",
         "determinations_changed",
         "units_closed",
@@ -254,6 +258,7 @@ class TurnActionFlags:
         hitl: bool,
         hydrate_next_refs: list[str],
         pin_refs: list[str],
+        pin_refs_expiring: list[str],
         unpin_refs: list[str],
         determinations_changed: int,
         units_closed: int,
@@ -275,6 +280,7 @@ class TurnActionFlags:
         self.hitl = hitl
         self.hydrate_next_refs = hydrate_next_refs
         self.pin_refs = pin_refs
+        self.pin_refs_expiring = pin_refs_expiring
         self.unpin_refs = unpin_refs
         self.determinations_changed = determinations_changed
         self.units_closed = units_closed
@@ -318,6 +324,25 @@ def _collect_pin_refs(
     pin_this_turn = turn.get("pin_refs_this_turn")
     if isinstance(pin_this_turn, list):
         _append_unique_refs(refs, seen, pin_this_turn)
+    return refs
+
+
+def _collect_pinned_refs_expiring(turn: Mapping[str, Any]) -> list[str]:
+    pinned = _coerce_mapping(turn.get("pinned_refs"))
+    if not pinned:
+        return []
+    rows = pinned.get("expiring_soon")
+    if not isinstance(rows, list):
+        return []
+    refs: list[str] = []
+    seen: set[str] = set()
+    for row in rows:
+        if not isinstance(row, Mapping):
+            continue
+        ref = str(row.get("ref") or "").strip()
+        if ref and ref not in seen:
+            seen.add(ref)
+            refs.append(ref)
     return refs
 
 

@@ -78,6 +78,45 @@ def test_timeline_renders_host_hydration_and_output_gate(tmp_path: Path) -> None
     assert "b64" not in body.lower()
 
 
+def test_timeline_renders_expiring_pinned_refs(tmp_path: Path) -> None:
+    writer = RunAuditWriter(tmp_path / "run-pins-expiring")
+    writer.observe_llm_io(
+        {
+            "turn_index": 8,
+            "parse_ok": True,
+            "tool_request": {
+                "actions": [{"alias": "a", "action_type": "noop", "action_inputs": {}}],
+            },
+        }
+    )
+    writer.observe_turn_completed(
+        {
+            "turn_index": 8,
+            "pinned_refs": {
+                "active": [
+                    {
+                        "ref": "image:derived:crop-a",
+                        "expires_in_turns": 1,
+                        "last_refreshed_turn": 7,
+                        "ttl_turns": 8,
+                    }
+                ],
+                "expiring_soon": [
+                    {
+                        "ref": "image:derived:crop-a",
+                        "expires_in_turns": 1,
+                        "last_refreshed_turn": 7,
+                        "ttl_turns": 8,
+                    }
+                ],
+            },
+        }
+    )
+    body = _timeline_path(tmp_path / "run-pins-expiring").read_text(encoding="utf-8")
+    assert "expiring_soon:" in body
+    assert "image:derived:crop-a expires_in_turns=1" in body
+
+
 def test_timeline_renders_pinned_refs_section(tmp_path: Path) -> None:
     writer = RunAuditWriter(tmp_path / "run-pins")
     writer.observe_llm_io(

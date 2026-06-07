@@ -25,6 +25,11 @@ from ..memory.atom_evidence_worklist_projection import (
     build_atom_evidence_worklist_for_prompt,
     resolution_state_as_mapping,
 )
+from ..memory.delegate_observation_worklist_projection import (
+    build_delegate_observation_worklist_for_prompt,
+    repair_bundle_from_feedback,
+    state_as_mapping,
+)
 from ..memory.performance_evaluation import build_performance_evaluation
 from .evidence_locality import (
     BROAD_IMAGE_AREA_THRESHOLD,
@@ -38,6 +43,7 @@ def build_prompt_observability_summary(
     *,
     closure_policy: Mapping[str, Any] | None = None,
     turn_records: list[dict[str, Any]] | None = None,
+    delegate_observation_worklist_reminder: str | None = None,
 ) -> dict[str, Any]:
     """Return host-owned loop-health facts safe to expose in prompts and audits."""
     telemetry = loop_memory.telemetry
@@ -491,6 +497,16 @@ def build_prompt_observability_summary(
     )
     if atom_worklist is not None:
         summary["atom_evidence_worklist"] = atom_worklist
+    delegate_obs_worklist = build_delegate_observation_worklist_for_prompt(
+        delegate_result_records=list(getattr(cont, "delegate_subtask_results", ()) or ()),
+        mission_state=state_as_mapping(cont.mission_state),
+        resolution_state=resolution_state_as_mapping(cont.resolution_state),
+        repair_bundle=repair_bundle_from_feedback(feedback),
+        current_turn=int(loop_memory.iterations or 0),
+        reminder=delegate_observation_worklist_reminder,
+    )
+    if delegate_obs_worklist is not None:
+        summary["delegate_observation_worklist"] = delegate_obs_worklist
     repair_bundle_projection = project_state_patch_repair_bundle_for_prompt(feedback)
     if repair_bundle_projection:
         summary["state_patch_repair_bundle"] = repair_bundle_projection

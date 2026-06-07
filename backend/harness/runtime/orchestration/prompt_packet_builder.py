@@ -15,6 +15,10 @@ from ..memory.continuity_journal import (
     verbatim_turn_indices,
 )
 from ..memory.atom_evidence_worklist_projection import compact_atom_evidence_worklist_for_prompt
+from ..memory.delegate_observation_worklist_projection import (
+    compact_delegate_observation_worklist_for_prompt,
+    delegate_observation_reminder_from_context,
+)
 from ..memory.tool_result_slices import build_recent_tool_result_slices
 from .contracts import OrchestratorContext, SharedStateProjection
 from .loop_health_summary import build_prompt_observability_summary
@@ -91,6 +95,7 @@ def build_turn_prompt_document(
             journal_verbatim_keep_n,
             closure_policy=visible_launch_context.get("domain_closure_policy"),
             hot_refs=hot_refs,
+            opaque_launch_context=opaque_launch_context,
         ),
     )
 
@@ -260,6 +265,7 @@ def _build_structured_state(
     *,
     closure_policy: Mapping[str, Any] | None,
     hot_refs: frozenset[str],
+    opaque_launch_context: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     cont = context.loop_memory.continuity
     structured: dict[str, Any] = {
@@ -286,6 +292,9 @@ def _build_structured_state(
             build_prompt_observability_summary(
                 context.loop_memory,
                 closure_policy=closure_policy,
+                delegate_observation_worklist_reminder=delegate_observation_reminder_from_context(
+                    opaque_launch_context,
+                ),
             )
         ),
     }
@@ -506,6 +515,7 @@ _ALWAYS_KEEP_OBSERVABILITY_KEYS: tuple[str, ...] = (
     "performance_evaluation",
     "state_patch_repair_bundle",
     "atom_evidence_worklist",
+    "delegate_observation_worklist",
 )
 _OPTIONAL_OBSERVABILITY_COUNTERS: tuple[str, ...] = (
     "repeated_state_patch_reason_code_streak",
@@ -608,6 +618,16 @@ def _compact_prompt_observability_summary(full_summary: Mapping[str, Any]) -> di
             compact["atom_evidence_worklist"] = compact_worklist
         elif "atom_evidence_worklist" in compact:
             del compact["atom_evidence_worklist"]
+
+    delegate_worklist = full_summary.get("delegate_observation_worklist")
+    if isinstance(delegate_worklist, Mapping):
+        compact_delegate_worklist = compact_delegate_observation_worklist_for_prompt(
+            delegate_worklist
+        )
+        if compact_delegate_worklist is not None:
+            compact["delegate_observation_worklist"] = compact_delegate_worklist
+        elif "delegate_observation_worklist" in compact:
+            del compact["delegate_observation_worklist"]
 
     return compact
 

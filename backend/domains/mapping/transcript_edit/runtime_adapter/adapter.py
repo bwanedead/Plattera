@@ -37,6 +37,24 @@ class TranscriptEditRuntimeAdapter:
             startup_inventory=startup_inventory,
         )
 
+    def enrich_launch_context(self, launch_context: Mapping[str, Any]) -> Mapping[str, Any]:
+        """Inject transcript-edit scoped opaque run-context keys (mechanical caps/reminders)."""
+        context = _require_launch_context(launch_context)
+        out: dict[str, Any] = {}
+        if "action_batch_policy" not in context:
+            from ..execution.action_batch_policy import build_transcript_edit_action_batch_policy
+
+            out["action_batch_policy"] = build_transcript_edit_action_batch_policy()
+        if "delegate_observation_worklist_reminder" not in context:
+            from ..execution.delegate_observation_reminder import (
+                TRANSCRIPT_EDIT_DELEGATE_OBSERVATION_REMINDER,
+            )
+
+            out["delegate_observation_worklist_reminder"] = (
+                TRANSCRIPT_EDIT_DELEGATE_OBSERVATION_REMINDER
+            )
+        return out
+
 
 def build_transcript_edit_runtime_adapter() -> TranscriptEditRuntimeAdapter:
     """Lazy factory used by the domain adapter registry."""

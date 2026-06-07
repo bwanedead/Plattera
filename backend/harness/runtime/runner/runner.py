@@ -1025,18 +1025,21 @@ def _with_domain_policy_context(
 ) -> dict[str, Any]:
     merged = dict(launch_context)
     manifest = getattr(adapter, "manifest", None)
-    if manifest is None:
-        return merged
-    domain_id = str(getattr(manifest, "domain_id", "") or "").strip()
-    if domain_id and "domain_id" not in merged:
-        merged["domain_id"] = domain_id
-    closure_policy = getattr(manifest, "closure_policy", None)
-    if closure_policy is not None:
-        merged["domain_closure_policy"] = _jsonable(closure_policy)
-    if domain_id == "transcript_edit" and "action_batch_policy" not in merged:
-        from domains.mapping.transcript_edit.execution.action_batch_policy import (
-            build_transcript_edit_action_batch_policy,
-        )
-
-        merged["action_batch_policy"] = build_transcript_edit_action_batch_policy()
+    if manifest is not None:
+        domain_id = str(getattr(manifest, "domain_id", "") or "").strip()
+        if domain_id and "domain_id" not in merged:
+            merged["domain_id"] = domain_id
+        closure_policy = getattr(manifest, "closure_policy", None)
+        if closure_policy is not None and "domain_closure_policy" not in merged:
+            merged["domain_closure_policy"] = _jsonable(closure_policy)
+    enrich = getattr(adapter, "enrich_launch_context", None)
+    if callable(enrich):
+        try:
+            enriched = enrich(merged)
+        except Exception:
+            enriched = None
+        if isinstance(enriched, Mapping):
+            for key, value in enriched.items():
+                if key not in merged:
+                    merged[key] = value
     return merged

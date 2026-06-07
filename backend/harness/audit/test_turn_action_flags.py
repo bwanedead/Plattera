@@ -131,6 +131,36 @@ def test_action_flags_single_action_not_batch() -> None:
     assert "- save: yes" in body
 
 
+def test_action_flags_render_pinned_refs_expiring() -> None:
+    turn = {
+        "turn_index": 4,
+        "pinned_refs": {
+            "active": [
+                {
+                    "ref": "image:derived:crop-a",
+                    "expires_in_turns": 1,
+                    "last_refreshed_turn": 3,
+                    "ttl_turns": 8,
+                }
+            ],
+            "expiring_soon": [
+                {
+                    "ref": "image:derived:crop-a",
+                    "expires_in_turns": 1,
+                    "last_refreshed_turn": 3,
+                    "ttl_turns": 8,
+                }
+            ],
+        },
+    }
+    flags = compute_turn_action_flags(turn)
+    assert flags.pin_refs_expiring == ["image:derived:crop-a"]
+
+    body = render_timeline([{"turn_index": 4, "parse_ok": True, **turn}])
+    assert "- pinned_refs_expiring: yes (1 refs)" in body
+    assert "  - image:derived:crop-a" in body
+
+
 def test_action_flags_render_hydrate_next_and_pinned_refs() -> None:
     turn = {
         "turn_index": 3,
