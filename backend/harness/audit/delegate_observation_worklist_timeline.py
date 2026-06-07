@@ -10,6 +10,7 @@ from harness.audit.artifact_ref_links import (
     format_ref_with_link,
     resolve_artifact_image_link,
 )
+from harness.runtime.orchestration.subtasks.trace_fields import format_delegate_trace_timing_parts
 
 _MAX_ROWS = 12
 
@@ -77,17 +78,7 @@ def _format_row(
 
     trace = _coerce_mapping(row.get("subtask_trace"))
     if trace:
-        parts: list[str] = []
-        if trace.get("total_seconds") is not None:
-            parts.append(f"total={trace['total_seconds']}s")
-        if trace.get("model_call_seconds") is not None:
-            parts.append(f"model={trace['model_call_seconds']}s")
-        if trace.get("retry_count") is not None:
-            parts.append(f"retries={trace['retry_count']}")
-        if trace.get("prompt_char_count") is not None:
-            parts.append(f"prompt_chars={trace['prompt_char_count']}")
-        if trace.get("image_attachment_count") is not None:
-            parts.append(f"images={trace['image_attachment_count']}")
+        parts = format_delegate_trace_timing_parts(trace)
         if parts:
             lines.append(f"  - timing: {' '.join(parts)}")
 

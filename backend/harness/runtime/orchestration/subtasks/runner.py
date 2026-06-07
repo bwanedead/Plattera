@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import time
 from collections.abc import Callable, Mapping
 from time import perf_counter
 from typing import Any
@@ -18,6 +19,7 @@ from .contracts import (
     SubtaskProfile,
 )
 from .prompting import build_child_prompt, prompt_ref_summary
+from .trace_fields import build_subtask_trace
 from .result_schema import (
     SubtaskResultSchemaError,
     empty_result_for_profile,
@@ -43,6 +45,7 @@ def run_delegate_subtask(
     """Execute one isolated child model call and return a bounded tool result."""
 
     total_start = perf_counter()
+    started_at_epoch = time.time()
     hydration_start = perf_counter()
     context = resolve_context_refs(
         request=request,
@@ -77,14 +80,15 @@ def run_delegate_subtask(
             image_attachment_count=len(context.image_attachments),
             hydration_errors=context.errors,
             profile=profile,
-            timing_trace={
-                "hydration_seconds": hydration_seconds,
-                "prompt_build_seconds": prompt_build_seconds,
-                "model_call_seconds": _elapsed(model_start),
-                "output_normalize_seconds": 0.0,
-                "total_seconds": _elapsed(total_start),
-                "retry_count": 0,
-            },
+            timing_trace=_timing_trace_payload(
+                started_at_epoch=started_at_epoch,
+                total_start=total_start,
+                hydration_seconds=hydration_seconds,
+                prompt_build_seconds=prompt_build_seconds,
+                model_call_seconds=_elapsed(model_start),
+                output_normalize_seconds=0.0,
+            ),
+            image_attachments=context.image_attachments,
         )
 
     model_call_seconds = _elapsed(model_start)
@@ -96,17 +100,20 @@ def run_delegate_subtask(
         profile=profile,
     )
     output_normalize_seconds = _elapsed(normalize_start)
-    normalized["subtask_trace"] = {
-        "model": model_name,
-        "prompt_char_count": len(prompt),
-        "image_attachment_count": len(context.image_attachments),
-        "hydration_seconds": hydration_seconds,
-        "prompt_build_seconds": prompt_build_seconds,
-        "model_call_seconds": model_call_seconds,
-        "output_normalize_seconds": output_normalize_seconds,
-        "total_seconds": _elapsed(total_start),
-        "retry_count": 0,
-    }
+    normalized["subtask_trace"] = build_subtask_trace(
+        model=model_name,
+        prompt_char_count=len(prompt),
+        image_attachment_count=len(context.image_attachments),
+        image_refs=context.image_attachments,
+        hydration_seconds=hydration_seconds,
+        prompt_build_seconds=prompt_build_seconds,
+        model_call_seconds=model_call_seconds,
+        output_normalize_seconds=output_normalize_seconds,
+        started_at_epoch_seconds=started_at_epoch,
+        finished_at_epoch_seconds=time.time(),
+        wall_seconds=_elapsed(total_start),
+        retry_count=0,
+    )
     if context.errors:
         normalized.setdefault("errors", [])
         normalized["errors"] = list(normalized["errors"]) + [dict(row) for row in context.errors]
@@ -293,6 +300,7 @@ def _failed_output(
     hydration_errors: tuple[Mapping[str, Any], ...] = (),
     profile: SubtaskProfile | None = None,
     timing_trace: Mapping[str, Any] | None = None,
+    image_attachments: tuple[Mapping[str, Any], ...] = (),
 ) -> dict[str, Any]:
     failed_result = (
         empty_result_for_profile(profile, message=message)
@@ -315,27 +323,56 @@ def _failed_output(
     }
     if hydration_errors:
         out["errors"] = list(out["errors"]) + [dict(row) for row in hydration_errors]
-    trace: dict[str, Any] = {}
-    if model_name:
-        trace["model"] = model_name
-    if prompt_char_count is not None:
-        trace["prompt_char_count"] = int(prompt_char_count)
-    if image_attachment_count is not None:
-        trace["image_attachment_count"] = int(image_attachment_count)
-    if isinstance(timing_trace, Mapping):
-        for key in (
-            "hydration_seconds",
-            "prompt_build_seconds",
-            "model_call_seconds",
-            "output_normalize_seconds",
-            "total_seconds",
-            "retry_count",
-        ):
-            if key in timing_trace:
-                trace[key] = timing_trace[key]
+    trace = build_subtask_trace(
+        model=model_name,
+        prompt_char_count=prompt_char_count,
+        image_attachment_count=image_attachment_count,
+        image_refs=image_attachments,
+        hydration_seconds=_trace_float(timing_trace, "hydration_seconds"),
+        prompt_build_seconds=_trace_float(timing_trace, "prompt_build_seconds"),
+        model_call_seconds=_trace_float(timing_trace, "model_call_seconds"),
+        output_normalize_seconds=_trace_float(timing_trace, "output_normalize_seconds"),
+        started_at_epoch_seconds=_trace_float(timing_trace, "started_at_epoch_seconds"),
+        finished_at_epoch_seconds=_trace_float(timing_trace, "finished_at_epoch_seconds"),
+        wall_seconds=_trace_float(timing_trace, "wall_seconds") or _trace_float(timing_trace, "total_seconds"),
+        retry_count=int(_trace_float(timing_trace, "retry_count") or 0),
+    )
     if trace:
         out["subtask_trace"] = trace
     return out
+
+
+def _timing_trace_payload(
+    *,
+    started_at_epoch: float,
+    total_start: float,
+    hydration_seconds: float,
+    prompt_build_seconds: float,
+    model_call_seconds: float,
+    output_normalize_seconds: float,
+) -> dict[str, float]:
+    finished_at_epoch = time.time()
+    wall_seconds = _elapsed(total_start)
+    return {
+        "hydration_seconds": hydration_seconds,
+        "prompt_build_seconds": prompt_build_seconds,
+        "model_call_seconds": model_call_seconds,
+        "output_normalize_seconds": output_normalize_seconds,
+        "started_at_epoch_seconds": round(started_at_epoch, 3),
+        "finished_at_epoch_seconds": round(finished_at_epoch, 3),
+        "wall_seconds": wall_seconds,
+        "total_seconds": wall_seconds,
+        "retry_count": 0.0,
+    }
+
+
+def _trace_float(trace: Mapping[str, Any] | None, key: str) -> float | None:
+    if not isinstance(trace, Mapping) or key not in trace:
+        return None
+    try:
+        return float(trace[key])
+    except (TypeError, ValueError):
+        return None
 
 
 def _elapsed(start: float) -> float:

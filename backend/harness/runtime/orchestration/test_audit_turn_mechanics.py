@@ -29,12 +29,18 @@ def test_project_action_sequence_for_audit_preserves_delegate_parallel_metadata(
             "items": items,
             "delegate_parallel": True,
             "delegate_count": 12,
+            "delegate_wave_elapsed_seconds": 4.512,
+            "delegate_sum_subtask_seconds": 10.0,
+            "delegate_max_subtask_seconds": 1.5,
             "delegate_wall_seconds_total": 4.512,
         }
     )
     assert projected is not None
     assert projected["delegate_parallel"] is True
     assert projected["delegate_count"] == 12
+    assert projected["delegate_wave_elapsed_seconds"] == 4.512
+    assert projected["delegate_sum_subtask_seconds"] == 10.0
+    assert projected["delegate_max_subtask_seconds"] == 1.5
     assert projected["delegate_wall_seconds_total"] == 4.512
     assert len(projected["items"]) == 12
 

@@ -47,8 +47,20 @@ def _sample_outputs(*, status: str = "completed", result: dict | None = None) ->
             "prompt_build_seconds": 0.01,
             "model_call_seconds": 18.42,
             "output_normalize_seconds": 0.01,
+            "wall_seconds": 18.56,
             "total_seconds": 18.56,
+            "started_at_epoch_seconds": 1_700_000_000.0,
+            "finished_at_epoch_seconds": 1_700_000_018.56,
             "retry_count": 0,
+            "image_refs": [
+                {
+                    "ref_id": "image:derived:abc123",
+                    "width_height": [800, 600],
+                    "size_bytes": 42_000,
+                    "mime_type": "image/png",
+                    "b64": "must strip",
+                }
+            ],
             "raw_prompt_text": "must strip",
             "b64": "must strip",
         },
@@ -225,8 +237,13 @@ def test_record_stores_bounded_fields_and_strips_binary() -> None:
     assert "source_visible_text" in record["result"]
     trace = record.get("subtask_trace") or {}
     assert trace.get("model") == "gpt-5.4"
+    assert trace.get("wall_seconds") == 18.56
     assert trace.get("model_call_seconds") == 18.42
     assert trace.get("total_seconds") == 18.56
+    image_refs = trace.get("image_refs")
+    assert isinstance(image_refs, list) and image_refs
+    assert image_refs[0].get("ref_id") == "image:derived:abc123"
+    assert "b64" not in image_refs[0]
     assert "raw_prompt_text" not in trace
     assert "b64" not in trace
 
@@ -314,6 +331,12 @@ def test_recent_prompt_projection_includes_delegate_refs() -> None:
     )
     assert projected is not None
     assert projected["items"][0]["ref_id"] == "subtask:turn8:read_parcel1_bearing"
+    prompt_trace = projected["items"][0].get("subtask_trace") or {}
+    assert prompt_trace.get("wall_seconds") == 18.56
+    assert prompt_trace.get("model_call_seconds") == 18.42
+    assert prompt_trace.get("prompt_char_count") == 4151
+    assert prompt_trace.get("image_attachment_count") == 1
+    assert "model" not in prompt_trace
     projected_with_note = dict(projected)
     projected_with_note["repair_note"] = "Delegate results are already available as refs."
     assert "repair_note" in projected_with_note

@@ -107,18 +107,25 @@ def project_action_sequence_for_audit(record: Mapping[str, Any] | None) -> dict[
     }
     if record.get("delegate_parallel") is True:
         out["delegate_parallel"] = True
-    delegate_count = record.get("delegate_count")
-    if delegate_count is not None:
+    for key in (
+        "delegate_count",
+        "delegate_wave_started_at_epoch_seconds",
+        "delegate_wave_finished_at_epoch_seconds",
+        "delegate_wave_elapsed_seconds",
+        "delegate_sum_subtask_seconds",
+        "delegate_max_subtask_seconds",
+        "delegate_wall_seconds_total",
+    ):
+        raw = record.get(key)
+        if raw is None:
+            continue
         try:
-            out["delegate_count"] = int(delegate_count)
+            if key == "delegate_count":
+                out[key] = int(raw)
+            else:
+                out[key] = round(float(raw), 3)
         except (TypeError, ValueError):
-            pass
-    wall_raw = record.get("delegate_wall_seconds_total")
-    if wall_raw is not None:
-        try:
-            out["delegate_wall_seconds_total"] = round(float(wall_raw), 3)
-        except (TypeError, ValueError):
-            pass
+            continue
     return out
 
 

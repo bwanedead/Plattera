@@ -98,6 +98,15 @@ def test_run_delegate_subtask_uses_stubbed_model_and_image_side_channel() -> Non
     assert "raw-pixels" not in prompts[0]
     assert "parent resolution graph" not in prompts[0]
     assert "broad doctrine" not in prompts[0]
+    trace = output.get("subtask_trace") or {}
+    assert trace.get("wall_seconds") is not None
+    assert trace.get("total_seconds") == trace.get("wall_seconds")
+    assert trace.get("started_at_epoch_seconds") is not None
+    assert trace.get("finished_at_epoch_seconds") is not None
+    image_refs = trace.get("image_refs")
+    assert isinstance(image_refs, list) and image_refs
+    assert image_refs[0].get("ref_id") == "artifact:sample"
+    assert "b64" not in image_refs[0]
 
 
 def test_normalize_child_output_accepts_allowed_statuses() -> None:

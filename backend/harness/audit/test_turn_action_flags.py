@@ -29,6 +29,9 @@ def test_action_flags_render_delegate_parallel_from_audit_projected_sequence() -
             "source_turn_index": 9,
             "delegate_parallel": True,
             "delegate_count": 12,
+            "delegate_wave_elapsed_seconds": 3.25,
+            "delegate_sum_subtask_seconds": 8.5,
+            "delegate_max_subtask_seconds": 1.2,
             "delegate_wall_seconds_total": 3.25,
             "items": [
                 {
@@ -43,10 +46,16 @@ def test_action_flags_render_delegate_parallel_from_audit_projected_sequence() -
     flags = compute_turn_action_flags(turn)
     assert flags.delegate_parallel is True
     assert flags.delegate_count == 12
+    assert flags.delegate_wave_elapsed_seconds == 3.25
+    assert flags.delegate_sum_subtask_seconds == 8.5
+    assert flags.delegate_max_subtask_seconds == 1.2
     assert flags.delegate_wall_seconds_total == 3.25
 
     body = render_timeline([{"turn_index": 9, "parse_ok": True, **turn}])
     assert "parallel: yes" in body
+    assert "delegate_wave_elapsed_seconds: 3.25" in body
+    assert "delegate_sum_subtask_seconds: 8.5" in body
+    assert "delegate_max_subtask_seconds: 1.2" in body
     assert "delegate_wall_seconds_total: 3.25" in body
 
 

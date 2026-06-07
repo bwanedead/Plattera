@@ -6,6 +6,7 @@ import logging
 from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+import time
 from time import perf_counter
 from ...execution.contracts import (
     ActionDispatchResult,
@@ -15,6 +16,7 @@ from ...execution.contracts import (
 )
 from ...execution.session import ExecutionSessionManager
 from .action_sequence import ActionPlanAction
+from .delegate_wave_trace import DelegateWaveTiming
 from .subtasks.contracts import DELEGATE_SUBTASK_ACTION_TYPE
 from .tool_batch_policy import ToolBatchPolicy
 
@@ -48,12 +50,17 @@ def execute_delegate_batch_parallel(
     session_manager: ExecutionSessionManager,
     session_id: str,
     prepared: list[tuple[ActionPlanAction, ExecutionStepRequest]],
-) -> tuple[list[DelegateParallelOutcome], float]:
+) -> tuple[list[DelegateParallelOutcome], DelegateWaveTiming]:
     """Run delegate handlers concurrently after idempotency preflight; record stays serial upstream."""
 
     del session_id  # session identity is carried on each request
     if not prepared:
-        return [], 0.0
+        now = round(time.time(), 3)
+        return [], DelegateWaveTiming(
+            wall_elapsed_seconds=0.0,
+            started_at_epoch_seconds=now,
+            finished_at_epoch_seconds=now,
+        )
 
     outcomes: list[DelegateParallelOutcome | None] = [None] * len(prepared)
     pending: list[tuple[int, ExecutionStepRequest]] = []
@@ -82,6 +89,7 @@ def execute_delegate_batch_parallel(
                 idempotency_key=request.idempotency_key,
             )
 
+    wave_started_at_epoch = time.time()
     wall_start = perf_counter()
     if pending:
         max_workers = min(len(pending), _MAX_PARALLEL_DELEGATES)
@@ -96,10 +104,14 @@ def execute_delegate_batch_parallel(
                 normalized_request=normalized_request,
                 dispatch_result=dispatch_result,
             )
-    wall_seconds = round(max(0.0, perf_counter() - wall_start), 3)
+    wall_elapsed = round(max(0.0, perf_counter() - wall_start), 3)
     if any(row is None for row in outcomes):
         raise RuntimeError("delegate_parallel_outcome_incomplete")
-    return outcomes, wall_seconds
+    return outcomes, DelegateWaveTiming(
+        wall_elapsed_seconds=wall_elapsed,
+        started_at_epoch_seconds=round(wave_started_at_epoch, 3),
+        finished_at_epoch_seconds=round(time.time(), 3),
+    )
 
 
 def record_delegate_dispatch(

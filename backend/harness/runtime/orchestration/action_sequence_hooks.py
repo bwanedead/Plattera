@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import logging
+import time
 from collections.abc import Mapping
+from time import perf_counter
 from dataclasses import dataclass, replace
 from typing import Any
 
@@ -39,6 +41,11 @@ from .delegate_batch_execution import (
     can_run_delegate_batch_parallel,
     execute_delegate_batch_parallel,
     record_delegate_dispatch,
+)
+from .delegate_wave_trace import (
+    DelegateWaveTiming,
+    attach_delegate_wave_metadata,
+    is_homogeneous_delegate_batch,
 )
 from .subtasks.contracts import DELEGATE_SUBTASK_ACTION_TYPE
 from .subtasks.delegate_result_refs import (
@@ -172,6 +179,8 @@ def _execute_sequence_items(
     last_step_result: Any | None = None
     stop_remaining = False
     alias_counts: dict[str, int] = {}
+    wave_started_at_epoch = time.time()
+    wave_wall_start = perf_counter()
 
     for item in actions:
         if stop_remaining:
@@ -223,13 +232,26 @@ def _execute_sequence_items(
             stop_remaining=stop_remaining,
         )
 
-    return _finalize_sequence_result(
+    sequence_result, last_step_result = _finalize_sequence_result(
         loop_memory=loop_memory,
         sequence_id=sequence_id,
         items=item_rows,
         iteration=iteration,
         last_step_result=last_step_result,
     )
+    if is_homogeneous_delegate_batch(actions):
+        attach_delegate_wave_metadata(
+            sequence_result,
+            item_rows=item_rows,
+            delegate_parallel=False,
+            wave_timing=DelegateWaveTiming(
+                wall_elapsed_seconds=round(max(0.0, perf_counter() - wave_wall_start), 3),
+                started_at_epoch_seconds=round(wave_started_at_epoch, 3),
+                finished_at_epoch_seconds=round(time.time(), 3),
+            ),
+        )
+        loop_memory.continuity.recent_action_sequence_result = sequence_result
+    return sequence_result, last_step_result
 
 
 def _sequence_id_for_actions(
@@ -381,7 +403,7 @@ def _execute_parallel_delegate_sequence(
         )
         for item in actions
     ]
-    outcomes, wall_seconds = execute_delegate_batch_parallel(
+    outcomes, wave_timing = execute_delegate_batch_parallel(
         session_manager=session_manager,
         session_id=session_id,
         prepared=prepared,
@@ -431,9 +453,12 @@ def _execute_parallel_delegate_sequence(
         iteration=iteration,
         last_step_result=last_step_result,
     )
-    sequence_result["delegate_parallel"] = True
-    sequence_result["delegate_count"] = len(actions)
-    sequence_result["delegate_wall_seconds_total"] = wall_seconds
+    attach_delegate_wave_metadata(
+        sequence_result,
+        item_rows=item_rows,
+        delegate_parallel=True,
+        wave_timing=wave_timing,
+    )
     loop_memory.continuity.recent_action_sequence_result = sequence_result
     return sequence_result, last_step_result
 

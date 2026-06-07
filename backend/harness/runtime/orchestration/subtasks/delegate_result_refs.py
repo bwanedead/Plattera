@@ -17,7 +17,7 @@ from .delegate_integration_status import (
     should_show_delegate_integration_repair_note,
 )
 from .projection import project_subtask_output
-from .trace_fields import SUBTASK_TRACE_FIELDS, compact_subtask_trace
+from .trace_fields import compact_subtask_trace, compact_subtask_trace_for_prompt
 
 DELEGATE_RESULT_REF_PREFIX = "subtask:"
 DELEGATE_RESULT_KIND = "delegate_subtask_result"
@@ -236,7 +236,7 @@ def project_recent_delegate_results_for_prompt(
             "summary": build_delegate_result_summary(record),
             "integration_status": integration_by_ref.get(ref_id, STATUS_UNREFERENCED_STALE),
         }
-        trace = compact_subtask_trace(record.get("subtask_trace"))
+        trace = compact_subtask_trace_for_prompt(record.get("subtask_trace"))
         if trace:
             row["subtask_trace"] = trace
         if not keep_hot:

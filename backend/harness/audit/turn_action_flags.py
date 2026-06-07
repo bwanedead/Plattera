@@ -28,6 +28,12 @@ def render_turn_action_flags(turn: Mapping[str, Any]) -> list[str]:
         lines.append(delegate_line)
     else:
         lines.append("- delegate: no")
+    if flags.delegate_wave_elapsed_seconds is not None:
+        lines.append(f"- delegate_wave_elapsed_seconds: {flags.delegate_wave_elapsed_seconds}")
+    if flags.delegate_sum_subtask_seconds is not None:
+        lines.append(f"- delegate_sum_subtask_seconds: {flags.delegate_sum_subtask_seconds}")
+    if flags.delegate_max_subtask_seconds is not None:
+        lines.append(f"- delegate_max_subtask_seconds: {flags.delegate_max_subtask_seconds}")
     if flags.delegate_wall_seconds_total is not None:
         lines.append(f"- delegate_wall_seconds_total: {flags.delegate_wall_seconds_total}")
     if flags.point_crops:
@@ -139,6 +145,9 @@ def compute_turn_action_flags(turn: Mapping[str, Any]) -> "TurnActionFlags":
     sequence = _coerce_mapping(turn.get("recent_action_sequence_result"))
     delegate_parallel = False
     delegate_wall_seconds_total = None
+    delegate_wave_elapsed_seconds = None
+    delegate_sum_subtask_seconds = None
+    delegate_max_subtask_seconds = None
     items = sequence.get("items")
     if isinstance(items, list):
         action_rows = max(action_rows, len(items))
@@ -153,12 +162,10 @@ def compute_turn_action_flags(turn: Mapping[str, Any]) -> "TurnActionFlags":
         )
     if sequence.get("delegate_parallel") is True:
         delegate_parallel = True
-    wall_raw = sequence.get("delegate_wall_seconds_total")
-    if wall_raw is not None:
-        try:
-            delegate_wall_seconds_total = round(float(wall_raw), 3)
-        except (TypeError, ValueError):
-            delegate_wall_seconds_total = None
+    delegate_wave_elapsed_seconds = _round_optional(sequence.get("delegate_wave_elapsed_seconds"))
+    delegate_sum_subtask_seconds = _round_optional(sequence.get("delegate_sum_subtask_seconds"))
+    delegate_max_subtask_seconds = _round_optional(sequence.get("delegate_max_subtask_seconds"))
+    delegate_wall_seconds_total = _round_optional(sequence.get("delegate_wall_seconds_total"))
 
     image_refs = _count_image_refs(turn, actions=actions, tool_result=tool_result, sequence=sequence)
     hitl = _detect_hitl(turn, tool_request=tool_request, parsed=parsed)
@@ -183,6 +190,9 @@ def compute_turn_action_flags(turn: Mapping[str, Any]) -> "TurnActionFlags":
         delegate=delegate_count > 0,
         delegate_count=delegate_count,
         delegate_parallel=delegate_parallel,
+        delegate_wave_elapsed_seconds=delegate_wave_elapsed_seconds,
+        delegate_sum_subtask_seconds=delegate_sum_subtask_seconds,
+        delegate_max_subtask_seconds=delegate_max_subtask_seconds,
         delegate_wall_seconds_total=delegate_wall_seconds_total,
         point_crops=point_crop_sets > 0 or point_crop_points > 0,
         point_crop_sets=max(point_crop_sets, 1 if point_crop_points else 0),
@@ -224,6 +234,9 @@ class TurnActionFlags:
         "delegate",
         "delegate_count",
         "delegate_parallel",
+        "delegate_wave_elapsed_seconds",
+        "delegate_sum_subtask_seconds",
+        "delegate_max_subtask_seconds",
         "delegate_wall_seconds_total",
         "point_crops",
         "point_crop_sets",
@@ -250,6 +263,9 @@ class TurnActionFlags:
         delegate: bool,
         delegate_count: int,
         delegate_parallel: bool,
+        delegate_wave_elapsed_seconds: float | None,
+        delegate_sum_subtask_seconds: float | None,
+        delegate_max_subtask_seconds: float | None,
         delegate_wall_seconds_total: float | None,
         point_crops: bool,
         point_crop_sets: int,
@@ -272,6 +288,9 @@ class TurnActionFlags:
         self.delegate = delegate
         self.delegate_count = delegate_count
         self.delegate_parallel = delegate_parallel
+        self.delegate_wave_elapsed_seconds = delegate_wave_elapsed_seconds
+        self.delegate_sum_subtask_seconds = delegate_sum_subtask_seconds
+        self.delegate_max_subtask_seconds = delegate_max_subtask_seconds
         self.delegate_wall_seconds_total = delegate_wall_seconds_total
         self.point_crops = point_crops
         self.point_crop_sets = point_crop_sets
@@ -580,6 +599,15 @@ def _extract_actions(
     if isinstance(legacy_batch, list) and legacy_batch:
         return [_coerce_mapping(row) for row in legacy_batch if isinstance(row, Mapping)]
     return []
+
+
+def _round_optional(value: Any) -> float | None:
+    if value is None:
+        return None
+    try:
+        return round(float(value), 3)
+    except (TypeError, ValueError):
+        return None
 
 
 def _coerce_mapping(value: Any) -> Mapping[str, Any]:

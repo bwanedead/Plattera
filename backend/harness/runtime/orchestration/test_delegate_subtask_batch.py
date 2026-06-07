@@ -59,6 +59,15 @@ def _delegate_policies():
     return {DELEGATE_SUBTASK_ACTION_TYPE: delegate_subtask_tool_batch_policy()}
 
 
+def _assert_parallel_wave_metadata(sequence_result: dict) -> None:
+    assert sequence_result.get("delegate_wave_elapsed_seconds") is not None
+    assert sequence_result.get("delegate_sum_subtask_seconds") is not None
+    assert sequence_result.get("delegate_max_subtask_seconds") is not None
+    assert sequence_result.get("delegate_wall_seconds_total") == sequence_result.get(
+        "delegate_wave_elapsed_seconds"
+    )
+
+
 def _transcript_edit_domain_policy() -> DomainActionBatchPolicy:
     policy = DomainActionBatchPolicy.from_mapping(build_transcript_edit_action_batch_policy())
     assert policy is not None
@@ -212,6 +221,7 @@ def test_two_delegate_subtask_actions_both_succeed() -> None:
     )
     assert sequence_result.get("delegate_parallel") is True
     assert sequence_result.get("delegate_count") == 2
+    _assert_parallel_wave_metadata(sequence_result)
     by_alias = {row["alias"]: row for row in sequence_result["items"]}
     assert [row["alias"] for row in sequence_result["items"]] == ["read_a", "read_b"]
     assert by_alias["read_a"]["execution_state"] == "executed"
@@ -498,6 +508,7 @@ def test_parallel_delegate_batch_preserves_action_order_and_refs() -> None:
     )
     assert sequence_result.get("delegate_parallel") is True
     assert sequence_result.get("delegate_count") == 4
+    _assert_parallel_wave_metadata(sequence_result)
     aliases = [row["alias"] for row in sequence_result["items"]]
     assert aliases == ["read_0", "read_1", "read_2", "read_3"]
     assert sequence_result["items"][2]["delegate_result_ref"] == "subtask:turn7:read_2"
@@ -594,5 +605,7 @@ def test_parallel_delegate_batch_runs_concurrently() -> None:
     )
     elapsed = time.perf_counter() - started
     assert sequence_result.get("delegate_parallel") is True
+    _assert_parallel_wave_metadata(sequence_result)
+    assert sequence_result["delegate_wave_elapsed_seconds"] <= sequence_result["delegate_sum_subtask_seconds"]
     assert state["max_active"] >= 2
     assert elapsed < 0.28

@@ -13,6 +13,7 @@ from harness.audit.artifact_ref_links import (
     resolve_artifact_image_link,
 )
 from harness.runtime.orchestration.subtasks.projection import project_subtask_output, task_excerpt
+from harness.runtime.orchestration.subtasks.trace_fields import format_delegate_trace_timing_parts
 from harness.runtime.orchestration.subtasks.delegate_integration_status import (
     compute_delegate_ref_integration_status,
 )
@@ -259,7 +260,9 @@ def _render_projected_result(
                 lines.append(f"    - {row}")
     trace = projected.get("subtask_trace")
     if isinstance(trace, Mapping) and trace:
-        lines.append(f"  - subtask_trace: {_bounded_mapping_text(trace)}")
+        timing_parts = format_delegate_trace_timing_parts(trace)
+        if timing_parts:
+            lines.append(f"  - timing: {' '.join(timing_parts)}")
     return lines
 
 

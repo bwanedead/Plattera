@@ -15,6 +15,7 @@ from harness.runtime.orchestration.subtasks.delegate_integration_status import (
     STATUS_REFERENCED_IN_STATE,
     compute_delegate_ref_integration_status,
 )
+from harness.runtime.orchestration.subtasks.trace_fields import compact_subtask_trace_for_prompt
 
 KIND = "delegate_observation_worklist"
 COMPLETED_STATUS = "completed"
@@ -23,14 +24,6 @@ MAX_ROWS = 12
 MAX_PREVIEW_CHARS = 300
 MAX_CONTEXT_REFS = 4
 MAX_TASK_PREVIEW_CHARS = 300
-
-_TRACE_WORKLIST_FIELDS: tuple[str, ...] = (
-    "total_seconds",
-    "model_call_seconds",
-    "retry_count",
-    "prompt_char_count",
-    "image_attachment_count",
-)
 
 _STRIP_KEYS = frozenset(
     {
@@ -190,8 +183,13 @@ def _preview_from_result(result: Mapping[str, Any], *, key: str) -> str:
 def _compact_trace_for_worklist(trace: object) -> dict[str, Any] | None:
     if not isinstance(trace, Mapping):
         return None
-    out = {key: trace[key] for key in _TRACE_WORKLIST_FIELDS if key in trace}
-    return out or None
+    out = compact_subtask_trace_for_prompt(trace)
+    if out is None:
+        return None
+    if trace.get("total_seconds") is not None and "total_seconds" not in out:
+        out = dict(out)
+        out["total_seconds"] = trace["total_seconds"]
+    return out
 
 
 def _bounded_str_list(raw: object, *, limit: int) -> list[str]:

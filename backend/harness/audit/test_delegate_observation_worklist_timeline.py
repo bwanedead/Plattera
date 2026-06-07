@@ -52,7 +52,7 @@ def test_timeline_renders_delegate_observation_worklist_rows_and_timing() -> Non
     assert "task_response:" in body
     assert "source_visible_text:" in body
     assert "timing:" in body
-    assert "total=132.2s" in body
+    assert "wall=132.2s" in body
     assert "model=132.0s" in body
     assert "b64" not in body.lower()
 

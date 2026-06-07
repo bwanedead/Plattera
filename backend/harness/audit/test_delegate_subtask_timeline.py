@@ -77,9 +77,9 @@ def test_timeline_renders_delegate_subtask_mechanics_without_raw_media() -> None
     assert "status: completed" in body
     assert "reading:" in body
     assert "Only supplied input was used." in body
-    assert "prompt_char_count" in body
-    assert "model_call_seconds" in body
-    assert "total_seconds" in body
+    assert "prompt_chars=" in body
+    assert "model=" in body
+    assert "wall=" in body
     assert "SHOULD_NOT_RENDER" not in body
     assert "b64" not in body.lower()
 

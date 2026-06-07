@@ -7,7 +7,7 @@ from typing import Any
 
 from .contracts import DELEGATE_SUBTASK_ACTION_TYPE
 from .result_schema import project_result_payload
-from .trace_fields import SUBTASK_TRACE_FIELDS
+from .trace_fields import compact_subtask_trace
 
 _MAX_TEXT = 240
 _MAX_LIST_ITEMS = 4
@@ -63,11 +63,9 @@ def project_subtask_output(outputs: Mapping[str, Any] | None) -> dict[str, Any] 
             for row in errors[:_MAX_LIST_ITEMS]
             if row is not None
         ]
-    trace = outputs.get("subtask_trace")
-    if isinstance(trace, Mapping):
-        out["subtask_trace"] = {
-            key: trace[key] for key in SUBTASK_TRACE_FIELDS if key in trace
-        }
+    trace = compact_subtask_trace(outputs.get("subtask_trace"))
+    if trace:
+        out["subtask_trace"] = trace
     return out
 
 
