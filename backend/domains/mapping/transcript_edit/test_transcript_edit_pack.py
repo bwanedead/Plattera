@@ -830,12 +830,20 @@ def test_tool_spec_transform_teaches_point_crops_as_default_path() -> None:
     assert "coordinate_lattice" in combined
     assert "review_rows" in combined
     assert "review_lines" in combined
-    assert "legacy/grid fallback" in combined or "legacy plain grid" in combined
-    assert "not part of the normal transcript-edit point-crop placement workflow" in combined
-    assert "does not carry point letters" in combined or "does not place point-crop target dots" in combined or "no point-crop target dots" in combined
+    assert "master overlay is the native control surface" in combined
+    assert "legacy compatibility sub_action" in combined
+    assert "not the normal point-crop placement surface" in combined
+    assert "reference_overlay" not in transform.purpose.lower()
+    assert "reference_overlay" not in transform.expected_result_shape.lower()
+    assert "legacy/grid fallback" not in combined
+    assert "legacy plain grid" not in combined
+    assert "plain grid/lattice" not in combined
+    assert "no point-crop target dots" not in combined
+    assert "does not carry point letters" not in combined
     assert "useful for general orientation" not in combined
     assert "orientation view" not in combined
     assert "coordinate-grid orientation" not in combined
+    assert "coordinate-grid image" not in combined
     assert "typical workflow" not in combined
     assert "reference_overlay ->" not in combined
     assert "overlay first" not in combined
@@ -855,7 +863,7 @@ def test_tool_spec_transform_teaches_point_crops_as_default_path() -> None:
     assert "overlay_role" in combined
     assert "point_crop_master" in combined
     assert "point_crop_view" in combined
-    assert "plain_coordinate_reference" in combined
+    assert "plain_coordinate_reference" not in combined
 
 
 # ---------------------------------------------------------------------------
