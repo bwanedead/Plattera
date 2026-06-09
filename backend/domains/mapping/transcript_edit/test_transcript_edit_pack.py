@@ -313,9 +313,15 @@ def test_domain_pack_declares_semantic_prompt_blocks() -> None:
     assert "use t0 wording as the placeholder for atom registration" in text
     assert "source proof earns or corrects it later" in text
     assert "atoms are granular exact details" in text
-    assert "a call is not an atom" in text
-    assert "a call is a chain" in text
-    assert "each exact link in that chain is an atom" in text
+    assert "a full call must not be a covered unit" in text
+    assert "no exceptions" in text
+    assert "unit-differentiated or independently checkable details" in text
+    assert "each detail is its own covered unit" in text
+    assert "one bearing/orientation detail" in text
+    assert "one distance/measurement detail" in text
+    assert "the full call can only be a group or organizer" in text
+    assert "for the love of god, do not make the full call the atom" in text
+    assert "each exact item inside the call is the atom" in text
     assert "do not break this" in text
     assert "if this is violated it corrupts the entire run" in text
     assert "closure lies" in text
