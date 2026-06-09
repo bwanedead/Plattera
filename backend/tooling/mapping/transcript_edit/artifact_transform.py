@@ -38,15 +38,18 @@ from .point_crops import (
     build_crop_set_point_record,
     build_overlay_render_metadata,
     compute_point_crops,
+    compute_point_crops_scaffold,
     compute_point_crops_view,
     draw_norm_step_coordinate_grid,
     point_crops_adjust_repair_hint_for,
     point_crops_repair_hint_for,
+    point_crops_scaffold_repair_hint_for,
     point_crops_view_repair_hint_for,
     prepare_point_crops_adjust,
     prepare_point_crops_view,
     validate_point_crops_adjust_params,
     validate_point_crops_params,
+    validate_point_crops_scaffold_params,
     validate_point_crops_view_params,
 )
 
@@ -64,6 +67,7 @@ _SUPPORTED_SUB_ACTIONS = frozenset(
         "reference_overlay",
         "render_evidence_locators",
         "point_crops",
+        "point_crops_scaffold",
         "point_crops_adjust",
         "point_crops_view",
     }
@@ -400,6 +404,97 @@ def _persist_point_crop_view(
     return result
 
 
+def _persist_point_crop_scaffold(
+    *,
+    dossier_id: str,
+    transcription_id: str,
+    workspace_key: str,
+    source_ref: str,
+    sub_action: str,
+    params: dict[str, Any],
+    transform_metadata: dict[str, Any],
+) -> dict[str, Any]:
+    """Persist a zero-point placement scaffold (single derived image only)."""
+    derived_dir = transcript_edit_derived_images_dir(dossier_id, transcription_id, workspace_key)
+    derived_dir.mkdir(parents=True, exist_ok=True)
+
+    master_pil = transform_metadata["master_pil"]
+    source_width_height = transform_metadata.get("source_width_height")
+    point_count = int(transform_metadata.get("point_count") or 0)
+
+    master_uuid = _uuid_mod.uuid4().hex
+    master_ref = f"{_IMAGE_DERIVED_PREFIX}{master_uuid}"
+    master_path = derived_dir / f"{master_uuid}.png"
+    master_pil.save(master_path)
+
+    crop_set: dict[str, Any] = {
+        "master_overlay_ref": master_ref,
+        "source_ref": source_ref,
+        "source_width_height": source_width_height,
+        "points": [],
+        "point_count": point_count,
+    }
+    crop_set.update(_overlay_metadata_fields(transform_metadata))
+
+    scaffold_crop_set_meta: dict[str, Any] = {
+        "points": [],
+        "point_count": point_count,
+    }
+    for key in ("overlay_role", "coordinate_lattice", "grid", "legend"):
+        if key in crop_set:
+            scaffold_crop_set_meta[key] = crop_set[key]
+
+    master_transform_metadata: dict[str, Any] = {
+        "source_ref": source_ref,
+        "source_width_height": source_width_height,
+        "point_count": point_count,
+        "crop_set": scaffold_crop_set_meta,
+    }
+    master_transform_metadata.update(_overlay_metadata_fields(transform_metadata))
+
+    master_desc = {
+        "ref_id": master_ref,
+        "parent_ref_id": source_ref,
+        "sub_action": sub_action,
+        "params": params,
+        "transform_metadata": master_transform_metadata,
+        "absolute_path": str(master_path.resolve()),
+        "basename": master_path.name,
+        "size_bytes": master_path.stat().st_size if master_path.exists() else None,
+        "width_height": [master_pil.width, master_pil.height],
+    }
+    (derived_dir / f"{master_uuid}.json").write_text(
+        json.dumps(master_desc, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+
+    outputs: dict[str, Any] = {
+        "derived_ref_id": master_ref,
+        "parent_ref_id": source_ref,
+        "sub_action": sub_action,
+        "basename": master_path.name,
+        "width_height": [master_pil.width, master_pil.height],
+        "point_count": point_count,
+        "crop_set": crop_set,
+        "crop_records": [],
+    }
+    overlay_role = crop_set.get("overlay_role")
+    if isinstance(overlay_role, str) and overlay_role.strip():
+        outputs["overlay_role"] = overlay_role.strip()
+    lattice = crop_set.get("coordinate_lattice")
+    if isinstance(lattice, Mapping):
+        outputs["coordinate_lattice"] = dict(lattice)
+
+    result: dict[str, Any] = {
+        "executed": True,
+        "artifact_refs": [master_ref],
+        "outputs": outputs,
+    }
+    evidence = image_evidence_from_path(master_ref, master_path)
+    if evidence:
+        result["image_evidence"] = [evidence]
+    return result
+
+
 def make_transform_artifact_handler(
     *,
     dossier_id: str,
@@ -582,6 +677,30 @@ def make_transform_artifact_handler(
             return _param_error("invalid_transform_params", str(exc), repair_hint=exc.repair_hint)
         except Exception as exc:
             return _error_result("transform_failed", f"Transform failed: {exc}")
+
+        if sub_action == "point_crops_scaffold":
+            try:
+                from PIL import Image  # type: ignore[import]
+
+                img = Image.open(source_path)
+                transform_metadata = compute_point_crops_scaffold(img, params)
+            except PointCropParamError as exc:
+                return _param_error(
+                    "invalid_transform_params",
+                    str(exc),
+                    repair_hint=exc.repair_hint,
+                )
+            except Exception as exc:
+                return _error_result("transform_failed", f"Transform failed: {exc}")
+            return _persist_point_crop_scaffold(
+                dossier_id=dossier_id,
+                transcription_id=transcription_id,
+                workspace_key=workspace_key,
+                source_ref=ref_id,
+                sub_action=sub_action,
+                params=params,
+                transform_metadata=transform_metadata,
+            )
 
         # Special multi-output handling for point_crops (Brief 1).
         # The apply step now returns PIL images + rich geometry in metadata (pure computation).
@@ -1143,6 +1262,14 @@ def _validate_params(sub_action: str, params: dict[str, Any]) -> dict[str, Any] 
                 "invalid_transform_params",
                 "render_evidence_locators requires params.locators as a non-empty list.",
                 repair_hint="Pass params.locators as the agent-authored evidence_locators list for the selected source ref.",
+            )
+    if sub_action == "point_crops_scaffold":
+        message = validate_point_crops_scaffold_params(params)
+        if message is not None:
+            return _param_error(
+                "invalid_transform_params",
+                message,
+                repair_hint=point_crops_scaffold_repair_hint_for(message),
             )
     if sub_action == "point_crops":
         message = validate_point_crops_params(params)

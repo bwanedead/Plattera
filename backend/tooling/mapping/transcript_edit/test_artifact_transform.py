@@ -261,6 +261,78 @@ def test_reference_overlay_custom_grid(tmp_path, monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# point_crops_scaffold — zero-point placement coordinate surface
+# ---------------------------------------------------------------------------
+
+def test_point_crops_scaffold_produces_one_derived_image(tmp_path, monkeypatch):
+    handler, ref_id = _make_handler(tmp_path, monkeypatch)
+    result = handler({"ref_id": ref_id, "sub_action": "point_crops_scaffold", "params": {}})
+
+    assert result["executed"] is True, f"Unexpected failure: {result}"
+    assert len(result["artifact_refs"]) == 1
+    assert result["outputs"]["derived_ref_id"].startswith("image:derived:")
+    assert result["image_evidence"][0]["ref_id"] == result["outputs"]["derived_ref_id"]
+
+
+def test_point_crops_scaffold_output_metadata_and_no_crop_sidecars(tmp_path, monkeypatch):
+    from tooling.mapping.transcript_edit.artifact_hydration import _load_derived_image_descriptor
+
+    handler, ref_id = _make_handler(tmp_path, monkeypatch, d="d1", tx="tx-1", ws="ws-1")
+    result = handler({"ref_id": ref_id, "sub_action": "point_crops_scaffold", "params": {"show": ["grid"]}})
+
+    assert result["executed"] is True
+    outputs = result["outputs"]
+    assert outputs["overlay_role"] == "point_crop_placement_scaffold"
+    assert outputs["point_count"] == 0
+    assert outputs["crop_records"] == []
+    assert outputs["crop_set"]["points"] == []
+    assert outputs["crop_set"]["point_count"] == 0
+    lattice = outputs["coordinate_lattice"]
+    assert lattice["major_step_norm"] == 0.10
+    assert lattice["minor_step_norm"] == 0.025
+    assert "delegation_lines" not in outputs
+    assert "review_lines" not in outputs.get("crop_set", {})
+
+    derived_ref = outputs["derived_ref_id"]
+    desc = _load_derived_image_descriptor("d1", "tx-1", "ws-1", derived_ref)
+    assert desc is not None
+    assert desc["sub_action"] == "point_crops_scaffold"
+    derived_dir = Path(desc["absolute_path"]).parent
+    json_sidecars = [p for p in derived_dir.glob("*.json") if p.stem != Path(desc["absolute_path"]).stem]
+    assert json_sidecars == []
+
+
+def test_point_crops_scaffold_image_has_visible_grid_pixels(tmp_path, monkeypatch):
+    from tooling.mapping.transcript_edit.artifact_hydration import _load_derived_image_descriptor
+    from tooling.mapping.transcript_edit.coordinate_lattice import _GRID_MAJOR_COLOR
+    from PIL import Image
+
+    handler, ref_id = _make_handler(tmp_path, monkeypatch, image_width=100, image_height=80)
+    result = handler({"ref_id": ref_id, "sub_action": "point_crops_scaffold", "params": {}})
+    assert result["executed"] is True
+
+    desc = _load_derived_image_descriptor("d1", "tx-1", "ws-1", result["outputs"]["derived_ref_id"])
+    img = Image.open(desc["absolute_path"]).convert("RGB")
+    major_x = int(round(0.10 * img.width))
+    major_x2 = int(round(0.20 * img.width))
+    major_y2 = int(round(0.20 * img.height))
+    assert img.getpixel((major_x, img.height // 2)) == _GRID_MAJOR_COLOR
+    assert img.getpixel((major_x2, img.height // 2)) == _GRID_MAJOR_COLOR
+    assert img.getpixel((img.width // 2, major_y2)) == _GRID_MAJOR_COLOR
+
+
+def test_point_crops_scaffold_rejects_invalid_show(tmp_path, monkeypatch):
+    handler, ref_id = _make_handler(tmp_path, monkeypatch)
+    result = handler({
+        "ref_id": ref_id,
+        "sub_action": "point_crops_scaffold",
+        "params": {"show": ["pin"]},
+    })
+    assert result["executed"] is False
+    assert result["refusal"]["reason_code"] == "invalid_transform_params"
+
+
+# ---------------------------------------------------------------------------
 # render_evidence_locators — claim-local rendered evidence
 # ---------------------------------------------------------------------------
 

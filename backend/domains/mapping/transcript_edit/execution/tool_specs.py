@@ -87,7 +87,9 @@ def build_transcript_edit_tool_specs() -> tuple[SemanticToolSpec, ...]:
             purpose=(
                 "Apply a spatial or annotation transform to a source or derived image ref. "
                 "Returns a new image:derived:* ref and model-visible image evidence for the next turn. "
-                "Normal sub-actions: crop, expand, zoom, annotate, render_evidence_locators, point_crops, point_crops_adjust, point_crops_view. "
+                "Normal sub-actions: crop, expand, zoom, annotate, render_evidence_locators, point_crops_scaffold, point_crops, point_crops_adjust, point_crops_view. "
+                "point_crops_scaffold is the first-placement coordinate/control surface when no point-crop master overlay exists yet "
+                "(zero points, shared coordinate_lattice only; not the legacy plain coordinate-reference sub_action). "
                 "point_crops is the primary template point-crop packet mechanism when localized evidence targets are known "
                 "(small|small_plus|medium|large × wide|portrait|square). "
                 "The master overlay is the richer coordinate/control artifact: shared coordinate_lattice, target dots/letters, "
@@ -113,8 +115,8 @@ def build_transcript_edit_tool_specs() -> tuple[SemanticToolSpec, ...]:
             ),
             expected_request_shape=(
                 "ref_id: source image ref (image:assoc:* or image:derived:*). "
-                "sub_action: one of crop | expand | zoom | annotate | render_evidence_locators | point_crops | point_crops_adjust | point_crops_view. "
-                "reference_overlay remains accepted only as a legacy compatibility sub_action; it is not the normal point-crop placement surface. "
+                "sub_action: one of crop | expand | zoom | annotate | render_evidence_locators | point_crops_scaffold | point_crops | point_crops_adjust | point_crops_view. "
+                "reference_overlay remains accepted only as a legacy compatibility sub_action; it is not the point-crop placement surface. "
                 "params: sub-action-specific parameters object. "
                 "GEOMETRY FORMS — two explicit forms are accepted anywhere a box is needed "
                 "(crop params, zoom params, each annotate annotation): "
@@ -138,6 +140,10 @@ def build_transcript_edit_tool_specs() -> tuple[SemanticToolSpec, ...]:
                 "and UI/audit timeline; annotate is for transient visual markup only. "
                 "Image_region locators whose ref_id matches ref_id are rendered as highlights/boxes; "
                 "text_span, log_span, code_span, table_cell, json_path, and unknown kinds are summarized explicitly. "
+                "POINT_CROPS_SCAFFOLD — params: {show?: ['grid']}. "
+                "Creates one placement scaffold overlay (outputs.derived_ref_id) with the shared point-crop coordinate_lattice "
+                "and point_count 0; no per-point crop refs, review rows, or delegation lines. "
+                "Use before the first point_crops packet when no point-crop master overlay exists yet. "
                 "POINT_CROPS — params: {scale_x?: number, scale_y?: number, zoom_factor?: number, points: [{alias, point_norm: [x,y], "
                 "size: small|small_plus|medium|large, shape: wide|portrait|square, width_norm?: number, height_norm?: number (both required), scale_x?: number, scale_y?: number, zoom_factor?: number}, ...], "
                 "show?: [pin|box|letter]}. "
@@ -195,6 +201,7 @@ def build_transcript_edit_tool_specs() -> tuple[SemanticToolSpec, ...]:
                             "annotate",
                             "reference_overlay",
                             "render_evidence_locators",
+                            "point_crops_scaffold",
                             "point_crops",
                             "point_crops_adjust",
                             "point_crops_view",

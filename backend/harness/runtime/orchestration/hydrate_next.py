@@ -360,6 +360,36 @@ def validate_stored_hydrate_next_record(row: Any) -> dict[str, Any] | None:
     }
 
 
+PLACEHOLDER_OUTPUT_KEYS: tuple[str, ...] = tuple(_SINGLE_PLACEHOLDERS.values())
+
+
+def build_tool_result_snapshot_from_batch_item(row: Mapping[str, Any]) -> dict[str, Any]:
+    """Build a placeholder-resolution snapshot from one action-sequence item row."""
+    from harness.runtime.memory.point_crop_set_projection import (
+        compact_crop_identity_from_summary,
+    )
+
+    excerpt = row.get("outputs_excerpt")
+    outputs: dict[str, Any] = {}
+    if isinstance(excerpt, Mapping):
+        for key in PLACEHOLDER_OUTPUT_KEYS:
+            value = excerpt.get(key)
+            if isinstance(value, str) and value.strip():
+                outputs[key] = value.strip()
+    crop_summary = row.get("point_crop_set_summary")
+    for key, value in compact_crop_identity_from_summary(
+        crop_summary if isinstance(crop_summary, Mapping) else None
+    ).items():
+        outputs.setdefault(key, value)
+    refs_raw = row.get("artifact_refs")
+    artifact_refs = (
+        [str(x) for x in refs_raw if isinstance(x, str) and x.strip()]
+        if isinstance(refs_raw, (list, tuple))
+        else []
+    )
+    return build_tool_result_snapshot(outputs=outputs, artifact_refs=artifact_refs)
+
+
 def build_tool_result_snapshot(
     *,
     outputs: Mapping[str, Any] | None,

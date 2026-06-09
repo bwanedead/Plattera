@@ -13,6 +13,7 @@ from .coordinate_lattice import (
     DEFAULT_MAJOR_STEP_NORM,
     DEFAULT_MINOR_STEP_NORM,
     OVERLAY_ROLE_POINT_CROP_MASTER,
+    OVERLAY_ROLE_POINT_CROP_PLACEMENT_SCAFFOLD,
     OVERLAY_ROLE_POINT_CROP_VIEW,
     build_compat_grid_metadata,
     build_coordinate_lattice_metadata,
@@ -494,6 +495,46 @@ def _compute_single_point_geometry(
     return result
 
 
+ALLOWED_SCAFFOLD_SHOW = frozenset({"grid"})
+
+
+def validate_point_crops_scaffold_params(params: dict[str, Any]) -> str | None:
+    """Return an error message when scaffold params are invalid; otherwise ``None``."""
+    show_raw = params.get("show")
+    if show_raw is None:
+        return None
+    if not isinstance(show_raw, list):
+        return "point_crops_scaffold params.show must be a JSON array when provided."
+    for index, entry in enumerate(show_raw):
+        if not isinstance(entry, str) or entry.strip().lower() not in ALLOWED_SCAFFOLD_SHOW:
+            return (
+                f"params.show[{index}] must be 'grid' when provided; "
+                "point_crops_scaffold does not render pins, letters, or crop boxes."
+            )
+    return None
+
+
+def point_crops_scaffold_repair_hint_for(message: str) -> str:
+    lowered = message.lower()
+    if "show" in lowered:
+        return "Omit params.show or pass show: ['grid'] for the coordinate lattice only."
+    return "Use ref_id of the source image and sub_action point_crops_scaffold with optional params.show."
+
+
+def build_scaffold_overlay_render_metadata() -> dict[str, Any]:
+    """Mechanical metadata for zero-point placement scaffold overlays."""
+    lattice = build_coordinate_lattice_metadata()
+    return {
+        "overlay_role": OVERLAY_ROLE_POINT_CROP_PLACEMENT_SCAFFOLD,
+        "coordinate_lattice": lattice,
+        "grid": build_compat_grid_metadata(lattice, enabled=True),
+        "legend": {
+            "kind": "placement_scaffold",
+            "point_count": 0,
+        },
+    }
+
+
 def build_overlay_render_metadata(
     *,
     overlay_role: str = OVERLAY_ROLE_POINT_CROP_MASTER,
@@ -713,6 +754,29 @@ def _draw_template_legend(draw: Any, *, img_w: int, img_h: int) -> None:
         )
         draw.text((left, top + sq + 8), _legend_size_label(size), fill=color)
         draw.text((left, top + sq + 20), "sq · wide · port", fill=(70, 70, 70))
+
+
+def _render_placement_scaffold(img: Any) -> tuple[Any, dict[str, Any]]:
+    from PIL import Image, ImageDraw  # type: ignore[import]
+
+    canvas = img.convert("RGB")
+    draw = ImageDraw.Draw(canvas)
+    _draw_coordinate_grid(draw, img.width, img.height)
+    return canvas, build_scaffold_overlay_render_metadata()
+
+
+def compute_point_crops_scaffold(img: Any, params: dict[str, Any]) -> dict[str, Any]:
+    """Render a zero-point coordinate scaffold over the source image."""
+    canvas, overlay = _render_placement_scaffold(img)
+    return {
+        "master_pil": canvas,
+        "per_point": [],
+        "show": list(params.get("show") or []),
+        "legend_height": 0,
+        "source_width_height": [img.width, img.height],
+        "point_count": 0,
+        "overlay": overlay,
+    }
 
 
 def _render_master_overlay(

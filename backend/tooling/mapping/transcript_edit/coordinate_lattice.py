@@ -10,6 +10,7 @@ DEFAULT_MINOR_STEP_NORM = 0.025
 
 OVERLAY_ROLE_POINT_CROP_MASTER = "point_crop_master"
 OVERLAY_ROLE_POINT_CROP_VIEW = "point_crop_view"
+OVERLAY_ROLE_POINT_CROP_PLACEMENT_SCAFFOLD = "point_crop_placement_scaffold"
 OVERLAY_ROLE_PLAIN_COORDINATE_REFERENCE = "plain_coordinate_reference"
 
 # Backward-compatible aliases used across transcript-edit tooling.

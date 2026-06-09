@@ -16,6 +16,7 @@ from .tool_batch_policy import (
     effective_max_resolved_actions,
     effective_tool_cap,
 )
+from .hydrate_next import PLACEHOLDER_OUTPUT_KEYS
 from .subtasks.contracts import DELEGATE_SUBTASK_ACTION_TYPE
 from .subtasks.projection import project_subtask_output
 
@@ -225,6 +226,15 @@ def project_batch_item_row(row: Mapping[str, Any]) -> dict[str, Any]:
             out["delegate_subtask"] = subtask_projection
         else:
             out["outputs_excerpt"] = _bounded_outputs_excerpt(outputs_excerpt)
+    crop_summary = row.get("point_crop_set_summary")
+    if isinstance(crop_summary, Mapping) and crop_summary:
+        out["point_crop_set_summary"] = dict(crop_summary)
+    compact_outputs = _compact_outputs_for_projection(
+        outputs_excerpt if isinstance(outputs_excerpt, Mapping) else None,
+        crop_summary if isinstance(crop_summary, Mapping) else None,
+    )
+    if compact_outputs:
+        out["outputs"] = compact_outputs
     error = row.get("error")
     if isinstance(error, Mapping) and error:
         out["error"] = dict(error)
@@ -341,7 +351,21 @@ def _bounded_outputs_excerpt(outputs: Mapping[str, Any] | None) -> dict[str, Any
     text = json.dumps(safe_outputs, separators=(",", ":"), default=str)
     if len(text) <= _MAX_OUTPUTS_EXCERPT_CHARS:
         return dict(safe_outputs)
-    return {"_truncated": True, "preview": text[:_MAX_OUTPUTS_EXCERPT_CHARS]}
+    preserved = {
+        key: safe_outputs[key]
+        for key in PLACEHOLDER_OUTPUT_KEYS
+        if key in safe_outputs
+    }
+    if str(safe_outputs.get("sub_action") or "").strip():
+        preserved["sub_action"] = str(safe_outputs.get("sub_action")).strip()
+    overlay_role = safe_outputs.get("overlay_role")
+    if isinstance(overlay_role, str) and overlay_role.strip():
+        preserved["overlay_role"] = overlay_role.strip()
+    return {
+        "_truncated": True,
+        "preview": text[:_MAX_OUTPUTS_EXCERPT_CHARS],
+        **preserved,
+    }
 
 
 def _strip_binary(value: Any) -> Any:
@@ -414,6 +438,14 @@ def build_batch_item_result_row(
         excerpt = _bounded_outputs_excerpt(outputs)
         if excerpt:
             row["outputs_excerpt"] = excerpt
+    if isinstance(outputs, Mapping):
+        from harness.runtime.memory.point_crop_set_projection import (
+            project_point_crop_set_summary,
+        )
+
+        crop_summary = project_point_crop_set_summary(outputs)
+        if crop_summary:
+            row["point_crop_set_summary"] = crop_summary
     evidence_summary = summarize_image_evidence_for_projection(image_evidence)
     if evidence_summary:
         row["image_evidence_summary"] = evidence_summary
@@ -435,10 +467,33 @@ def build_action_batch_result_record(
     }
 
 
+def _compact_outputs_for_projection(
+    outputs_excerpt: Mapping[str, Any] | None,
+    crop_summary: Mapping[str, Any] | None,
+) -> dict[str, Any] | None:
+    """Bounded transform outputs for prompt/placeholder visibility."""
+    compact: dict[str, Any] = {}
+    if isinstance(outputs_excerpt, Mapping):
+        for key in ("derived_ref_id", "overlay_role", "sub_action"):
+            value = outputs_excerpt.get(key)
+            if isinstance(value, str) and value.strip():
+                compact[key] = value.strip()
+    if isinstance(crop_summary, Mapping):
+        from harness.runtime.memory.point_crop_set_projection import (
+            compact_crop_identity_from_summary,
+        )
+
+        for key, value in compact_crop_identity_from_summary(crop_summary).items():
+            compact.setdefault(key, value)
+    return compact or None
+
+
 def build_batch_results_snapshot(
     batch_result: Mapping[str, Any] | None,
 ) -> dict[str, dict[str, Any]]:
-    """Map alias → tool-result snapshot for ``@batch.*`` hydrate_next resolution."""
+    """Map alias → tool-result snapshot for per-row ``@this.*`` hydrate_next resolution."""
+    from .hydrate_next import build_tool_result_snapshot_from_batch_item
+
     if not batch_result:
         return {}
     items = batch_result.get("items")
@@ -451,13 +506,5 @@ def build_batch_results_snapshot(
         alias = str(row.get("alias") or "").strip()
         if not alias:
             continue
-        excerpt = row.get("outputs_excerpt")
-        outputs = dict(excerpt) if isinstance(excerpt, Mapping) else {}
-        refs_raw = row.get("artifact_refs")
-        artifact_refs = (
-            [str(x) for x in refs_raw if isinstance(x, str) and x.strip()]
-            if isinstance(refs_raw, (list, tuple))
-            else []
-        )
-        out[alias] = {"outputs": outputs, "artifact_refs": artifact_refs}
+        out[alias] = build_tool_result_snapshot_from_batch_item(row)
     return out

@@ -9,7 +9,12 @@ from tooling.mapping.transcript_edit.point_crop_review_table import review_table
 
 MAX_POINT_CROP_SET_POINTS = 16
 _MAX_PROJECTION_REASON_CHARS = 120
-_POINT_CROP_SUB_ACTIONS = frozenset({"point_crops", "point_crops_adjust", "point_crops_view"})
+_POINT_CROP_SUB_ACTIONS = frozenset({
+    "point_crops",
+    "point_crops_scaffold",
+    "point_crops_adjust",
+    "point_crops_view",
+})
 _STRIP_POINT_KEYS = frozenset({
     "absolute_path",
     "b64",
@@ -172,6 +177,8 @@ def _overlay_role_for_summary(
         role = container.get("overlay_role")
         if isinstance(role, str) and role.strip():
             return role.strip()
+    if sub_action == "point_crops_scaffold":
+        return "point_crop_placement_scaffold"
     if sub_action == "point_crops_view":
         return "point_crop_view"
     return "point_crop_master"
@@ -195,7 +202,7 @@ def project_point_crop_set_summary(outputs: Mapping[str, Any] | None) -> dict[st
 
     source_ref = crop_set.get("source_ref") or outputs.get("parent_ref_id")
     raw_points = crop_set.get("points") or outputs.get("crop_records") or []
-    if not isinstance(raw_points, list) or not raw_points:
+    if not isinstance(raw_points, list):
         return None
 
     points = [
@@ -203,8 +210,20 @@ def project_point_crop_set_summary(outputs: Mapping[str, Any] | None) -> dict[st
         for pt in raw_points[:MAX_POINT_CROP_SET_POINTS]
         if isinstance(pt, Mapping)
     ]
-    if not points:
+    point_count_raw = crop_set.get("point_count", outputs.get("point_count"))
+    if sub_action == "point_crops_scaffold":
+        if points:
+            return None
+        try:
+            point_count = int(point_count_raw if point_count_raw is not None else 0)
+        except (TypeError, ValueError):
+            point_count = 0
+        if point_count != 0:
+            return None
+    elif not points:
         return None
+    else:
+        point_count = len(points)
 
     summary: dict[str, Any] = {
         "kind": "point_crop_set",
@@ -212,7 +231,7 @@ def project_point_crop_set_summary(outputs: Mapping[str, Any] | None) -> dict[st
         "overlay_role": _overlay_role_for_summary(outputs, crop_set, sub_action=sub_action),
         "master_overlay_ref": master_overlay_ref.strip(),
         "source_ref": str(source_ref).strip() if source_ref else None,
-        "point_count": len(points),
+        "point_count": point_count,
         "points": points,
     }
     previous = crop_set.get("previous_crop_set_overlay_ref") or outputs.get(
@@ -243,3 +262,19 @@ def project_point_crop_set_summary(outputs: Mapping[str, Any] | None) -> dict[st
         summary["review_lines"] = review_lines[:MAX_POINT_CROP_SET_POINTS]
 
     return {k: v for k, v in summary.items() if v not in (None, "", [], {})}
+
+
+def compact_crop_identity_from_summary(
+    crop_summary: Mapping[str, Any] | None,
+) -> dict[str, str]:
+    """Bounded identity refs from a projected point-crop summary row."""
+    compact: dict[str, str] = {}
+    if not isinstance(crop_summary, Mapping):
+        return compact
+    master = crop_summary.get("master_overlay_ref")
+    if isinstance(master, str) and master.strip():
+        compact["derived_ref_id"] = master.strip()
+    overlay_role = crop_summary.get("overlay_role")
+    if isinstance(overlay_role, str) and overlay_role.strip():
+        compact["overlay_role"] = overlay_role.strip()
+    return compact

@@ -47,6 +47,37 @@ def _outputs(*, sub_action: str = "point_crops") -> dict:
     }
 
 
+def _scaffold_outputs() -> dict:
+    return {
+        "derived_ref_id": "image:derived:scaffold-1",
+        "parent_ref_id": "image:assoc:tx-1:original",
+        "sub_action": "point_crops_scaffold",
+        "overlay_role": "point_crop_placement_scaffold",
+        "point_count": 0,
+        "crop_set": {
+            "master_overlay_ref": "image:derived:scaffold-1",
+            "source_ref": "image:assoc:tx-1:original",
+            "overlay_role": "point_crop_placement_scaffold",
+            "coordinate_lattice": {"major_step_norm": 0.10, "minor_step_norm": 0.025},
+            "grid": {"enabled": True},
+            "points": [],
+            "point_count": 0,
+        },
+        "crop_records": [],
+    }
+
+
+def test_timeline_renders_point_crop_placement_scaffold_without_review_rows() -> None:
+    lines = render_point_crop_set_tool_output(_scaffold_outputs())
+    rendered = "\n".join(lines)
+    assert "Point crop placement scaffold:" in rendered
+    assert "overlay_role: point_crop_placement_scaffold" in rendered
+    assert "placement scaffold:" in rendered
+    assert "point_count: 0" in rendered
+    assert "Review table:" not in rendered
+    assert "points:" not in rendered
+
+
 def test_timeline_renders_point_crop_view_role() -> None:
     outputs = _outputs(sub_action="point_crops_view")
     outputs["overlay_role"] = "point_crop_view"

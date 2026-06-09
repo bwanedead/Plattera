@@ -28,15 +28,31 @@ def project_hydration_record_for_audit(record: Mapping[str, Any] | None) -> dict
     reason = record.get("reason")
     if reason:
         out["reason"] = str(reason)[:400]
-    errors = record.get("hydration_errors") or record.get("errors")
-    if isinstance(errors, list) and errors:
+    resolution_errors = record.get("errors")
+    if isinstance(resolution_errors, list) and resolution_errors:
+        out["errors"] = [
+            {
+                "requested_ref": str(row.get("requested_ref") or "")[:256] or None,
+                "reason_code": str(row.get("reason_code") or row)[:128]
+                if isinstance(row, Mapping)
+                else str(row)[:128],
+                "source_action_alias": str(
+                    row.get("source_action_alias") or row.get("action_alias") or ""
+                )[:64]
+                or None,
+            }
+            for row in resolution_errors[:5]
+            if isinstance(row, Mapping)
+        ]
+    hydration_errors = record.get("hydration_errors")
+    if isinstance(hydration_errors, list) and hydration_errors:
         out["hydration_errors"] = [
             {
                 "reason_code": str(row.get("reason_code") or row)[:128]
                 if isinstance(row, Mapping)
                 else str(row)[:128]
             }
-            for row in errors[:5]
+            for row in hydration_errors[:5]
             if row is not None
         ]
     hydrated = record.get("hydrated_results")

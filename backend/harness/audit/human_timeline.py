@@ -529,6 +529,20 @@ def _render_hydration_lane(
     if reason:
         lines.append(f"{indent}  reason:")
         lines.extend(_indented_prose(str(reason), indent=f"{indent}    "))
+    resolution_errors = lane.get("errors")
+    if isinstance(resolution_errors, list) and resolution_errors:
+        lines.append(f"{indent}  errors:")
+        for row in resolution_errors[:5]:
+            if isinstance(row, Mapping):
+                parts = [
+                    str(row.get("reason_code") or "").strip(),
+                    str(row.get("requested_ref") or "").strip(),
+                    str(row.get("source_action_alias") or row.get("action_alias") or "").strip(),
+                ]
+                detail = " | ".join(part for part in parts if part)
+                lines.append(f"{indent}    - {detail or row}")
+            else:
+                lines.append(f"{indent}    - {row}")
     errors = lane.get("hydration_errors")
     if isinstance(errors, list) and errors:
         lines.append(f"{indent}  hydration_errors:")

@@ -38,16 +38,24 @@ def render_point_crop_set_tool_output(
     *,
     link_context: ArtifactLinkContext | None = None,
 ) -> list[str]:
-    """Mechanically render point_crops / point_crops_adjust / point_crops_view outputs."""
+    """Mechanically render point-crop transform outputs for audit timeline."""
     sub_action = str(outputs.get("sub_action") or "").strip()
-    if sub_action not in {"point_crops", "point_crops_adjust", "point_crops_view"}:
+    if sub_action not in {
+        "point_crops",
+        "point_crops_scaffold",
+        "point_crops_adjust",
+        "point_crops_view",
+    }:
         return []
 
     crop_set = outputs.get("crop_set")
     if not isinstance(crop_set, Mapping):
         return []
 
-    lines = ["Point crop set:"]
+    if sub_action == "point_crops_scaffold":
+        lines = ["Point crop placement scaffold:"]
+    else:
+        lines = ["Point crop set:"]
     overlay_role = str(
         crop_set.get("overlay_role") or outputs.get("overlay_role") or ""
     ).strip()
@@ -77,6 +85,22 @@ def render_point_crop_set_tool_output(
                         alt="point crop filtered view overlay",
                     )
                 )
+    elif sub_action == "point_crops_scaffold" and derived_ref:
+        lines.append(
+            f"- placement scaffold: {_render_ref_line(derived_ref, link_context, label='open scaffold')}"
+        )
+        if link_context is not None:
+            scaffold_link = resolve_artifact_image_link(
+                derived_ref, link_context, link_label="open scaffold"
+            )
+            lines.extend(
+                maybe_inline_thumbnail(
+                    derived_ref,
+                    scaffold_link,
+                    link_context,
+                    alt="point crop placement scaffold",
+                )
+            )
     elif derived_ref:
         lines.append(f"- master overlay: {_render_ref_line(derived_ref, link_context, label='open overlay')}")
         if link_context is not None:
@@ -93,6 +117,14 @@ def render_point_crop_set_tool_output(
     source_ref = str(crop_set.get("source_ref") or outputs.get("parent_ref_id") or "").strip()
     if source_ref:
         lines.append(f"- local source: {_render_ref_line(source_ref, link_context, label='open source')}")
+
+    point_count_raw = crop_set.get("point_count", outputs.get("point_count"))
+    try:
+        point_count = int(point_count_raw) if point_count_raw is not None else None
+    except (TypeError, ValueError):
+        point_count = None
+    if point_count is not None:
+        lines.append(f"- point_count: {point_count}")
 
     grid = crop_set.get("grid")
     legend = crop_set.get("legend")
@@ -131,7 +163,8 @@ def render_point_crop_set_tool_output(
                 continue
             lines.extend(_render_point_row(pt, link_context=link_context))
 
-    lines.extend(_render_review_table_section(crop_set, link_context=link_context))
+    if sub_action != "point_crops_scaffold":
+        lines.extend(_render_review_table_section(crop_set, link_context=link_context))
 
     adjustments = outputs.get("adjustments_applied") or crop_set.get("adjustments_applied")
     if isinstance(adjustments, list) and adjustments:

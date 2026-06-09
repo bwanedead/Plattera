@@ -284,3 +284,141 @@ def test_mixed_delegate_and_read_only_batch_stays_serial() -> None:
     )
     assert "delegate_parallel" not in sequence_result
     assert len(sm.requests) == 2
+
+
+def _large_point_crops_outputs(*, master_ref: str = "image:derived:master-1") -> dict:
+    points = []
+    for index in range(16):
+        points.append(
+            {
+                "letter": chr(65 + index),
+                "alias": f"crop_{index}",
+                "crop_ref": f"image:derived:crop-{index}",
+                "point_norm": [0.1 * index, 0.2 * index],
+                "size": "small_plus",
+                "shape": "wide",
+                "box_norm": [0.1, 0.2, 0.3, 0.4],
+                "review_line": "x" * 80,
+            }
+        )
+    return {
+        "derived_ref_id": master_ref,
+        "parent_ref_id": "image:assoc:draft_legal_text_image:original",
+        "sub_action": "point_crops",
+        "overlay_role": "point_crop_master",
+        "crop_set": {
+            "master_overlay_ref": master_ref,
+            "source_ref": "image:assoc:draft_legal_text_image:original",
+            "overlay_role": "point_crop_master",
+            "coordinate_lattice": {"major_step_norm": 0.1, "minor_step_norm": 0.025},
+            "points": points,
+        },
+    }
+
+
+def test_capture_hydrate_resolves_this_result_from_truncated_point_crops_row() -> None:
+    from harness.runtime.orchestration.action_batch import build_batch_item_result_row
+
+    lm = LoopMemoryState()
+    alias = "seed_packet"
+    actions = (
+        ActionPlanAction(
+            alias,
+            "transform_artifact",
+            {
+                "ref_id": "image:assoc:draft_legal_text_image:original",
+                "sub_action": "point_crops",
+                "params": {"points": [{"alias": "a", "point_norm": [0.5, 0.5], "size": "small_plus", "shape": "wide"}]},
+            },
+            hydrate_next=("@this.result.derived_ref_id",),
+            hydrate_next_reason="Inspect the master overlay next turn.",
+        ),
+    )
+    plan = action_plan_with_canonical_actions(actions=actions, rationale="seed packet")
+    item_row = build_batch_item_result_row(
+        alias=alias,
+        action_type="transform_artifact",
+        execution_state="executed",
+        outputs=_large_point_crops_outputs(),
+        artifact_refs=["image:derived:master-1"],
+    )
+    assert item_row["outputs_excerpt"].get("_truncated") is True
+    assert item_row.get("point_crop_set_summary") is not None
+    sequence_result = {
+        "batch_id": "req:iter:6:actions",
+        "source_turn_index": 6,
+        "items": [item_row],
+    }
+    capture_hydrate_after_sequence(
+        loop_memory=lm,
+        action_plan=plan,
+        sequence_result=sequence_result,
+        iteration=6,
+    )
+    pending = lm.continuity.pending_agent_hydration
+    assert pending is not None
+    assert pending["resolved_refs"] == ["image:derived:master-1"]
+    assert not any(
+        e.get("reason_code") == "placeholder_not_found"
+        for e in pending.get("errors") or []
+    )
+
+
+def test_capture_hydrate_records_source_action_alias_on_placeholder_failure() -> None:
+    lm = LoopMemoryState()
+    alias = "seed_packet"
+    actions = (
+        ActionPlanAction(
+            alias,
+            "transform_artifact",
+            {"ref_id": "image:assoc:draft_legal_text_image:original", "sub_action": "noop"},
+            hydrate_next=("@this.result.derived_ref_id",),
+        ),
+    )
+    plan = action_plan_with_canonical_actions(actions=actions, rationale="missing derived ref")
+    sequence_result = {
+        "batch_id": "req:iter:6:actions",
+        "source_turn_index": 6,
+        "items": [
+            {
+                "alias": alias,
+                "action_type": "transform_artifact",
+                "execution_state": "executed",
+                "outputs_excerpt": {"sub_action": "noop"},
+                "artifact_refs": [],
+            }
+        ],
+    }
+    capture_hydrate_after_sequence(
+        loop_memory=lm,
+        action_plan=plan,
+        sequence_result=sequence_result,
+        iteration=6,
+    )
+    pending = lm.continuity.pending_agent_hydration
+    assert pending is not None
+    assert pending["resolved_refs"] == []
+    err = pending["errors"][0]
+    assert err["reason_code"] == "placeholder_not_found"
+    assert err["requested_ref"] == "@result.derived_ref_id"
+    assert err["source_action_alias"] == alias
+
+
+def test_projected_batch_item_exposes_concrete_master_overlay_ref() -> None:
+    from harness.runtime.orchestration.action_batch import (
+        build_batch_item_result_row,
+        project_batch_item_row,
+    )
+
+    item_row = build_batch_item_result_row(
+        alias="seed_packet",
+        action_type="transform_artifact",
+        execution_state="executed",
+        outputs=_large_point_crops_outputs(master_ref="image:derived:c744"),
+    )
+    projected = project_batch_item_row(item_row)
+    assert projected["outputs"]["derived_ref_id"] == "image:derived:c744"
+    assert projected["outputs"]["overlay_role"] == "point_crop_master"
+    assert projected["point_crop_set_summary"]["master_overlay_ref"] == "image:derived:c744"
+    assert projected["point_crop_set_summary"]["overlay_role"] == "point_crop_master"
+    assert projected["point_crop_set_summary"]["coordinate_lattice"]["major_step_norm"] == 0.1

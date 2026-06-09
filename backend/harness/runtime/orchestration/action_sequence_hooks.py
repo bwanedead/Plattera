@@ -112,6 +112,7 @@ def capture_hydrate_after_sequence(
         for row in errors:
             tagged = dict(row)
             tagged["action_alias"] = item.alias
+            tagged["source_action_alias"] = item.alias
             errors_all.append(tagged)
         for ref in resolved:
             if ref not in resolved_all:

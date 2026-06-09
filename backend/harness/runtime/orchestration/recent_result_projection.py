@@ -146,6 +146,7 @@ def compact_stale_result_slice(row: dict[str, Any], *, stale: bool) -> dict[str,
         "artifact_count",
         "output_shape",
         "outputs_structural_metadata",
+        "outputs",
     ):
         if key in row and row[key] not in (None, "", [], {}):
             compact[key] = row[key]
@@ -170,6 +171,7 @@ def compact_stale_result_slice(row: dict[str, Any], *, stale: bool) -> dict[str,
             for key in (
                 "kind",
                 "sub_action",
+                "overlay_role",
                 "master_overlay_ref",
                 "source_ref",
                 "previous_crop_set_overlay_ref",
@@ -179,6 +181,7 @@ def compact_stale_result_slice(row: dict[str, Any], *, stale: bool) -> dict[str,
                 "delegation_lines",
                 "grid",
                 "legend",
+                "coordinate_lattice",
             )
             if key in crop_summary and crop_summary[key] not in (None, "", [], {})
         }

@@ -310,12 +310,25 @@ def test_domain_pack_declares_semantic_prompt_blocks() -> None:
     assert "the early job is not to investigate each atom's truth" in text
     assert "walk the t0/source shape top-to-bottom" in text
     assert "atomize actual atoms. this is a demand. do it." in text
+    assert "use t0 wording as the placeholder for atom registration" in text
+    assert "source proof earns or corrects it later" in text
+    assert "atoms are granular exact details" in text
+    assert "a call is not an atom" in text
+    assert "a call is a chain" in text
+    assert "each exact link in that chain is an atom" in text
+    assert "do not break this" in text
+    assert "if this is violated it corrupts the entire run" in text
+    assert "closure lies" in text
+    assert "downstream mapping inherits fake certainty" in text
+    assert "when t0 shows an atom, do not leave the atom blank" in text
+    assert "candidate_values" in guidance.text
+    assert "candidate values are not earned truth" in text
+    assert "point-crop targeting more intuitive" in text
+    assert "tangible atom shape for the user to inspect" in text
+    assert "future turns more context for reference and anchoring" in text
+    assert "`determined_value` replaces it" in guidance.text
     assert "broader source structures are useful as groups, but they are not atoms" in text
     assert "more than a few words" in text
-    assert "do not betray this rule" in text
-    assert "bad atomization poisons the rest of the run" in text
-    assert "packet workflow gets forced to chase spans" in text
-    assert "downstream mapping can inherit a false sense of earned truth" in text
     assert "before resolution, check the graph hard" in text
     assert "inventory is not done" in text
     assert "fast t0-shaped atomization pass" in text
@@ -785,6 +798,7 @@ def test_startup_context_advertises_point_crop_capabilities() -> None:
     assert "point_crops" in text
     assert "point_crops_adjust" in text
     assert "point_crops_view" in text
+    assert "point_crops_scaffold" in text
     assert "reference_overlay" not in text
     assert "image:derived:*" in block.text
     assert "model-visible evidence" in text
@@ -805,6 +819,7 @@ def test_tool_spec_transform_teaches_point_crops_as_default_path() -> None:
     ).lower()
 
     for sub_action in (
+        "point_crops_scaffold",
         "point_crops",
         "point_crops_adjust",
         "point_crops_view",
@@ -812,6 +827,8 @@ def test_tool_spec_transform_teaches_point_crops_as_default_path() -> None:
     ):
         assert sub_action in combined
 
+    assert "point_crops_scaffold" in combined
+    assert "first-placement" in combined or "first placement" in combined
     assert "primary" in combined or "template point-crop packet" in combined
     assert "richer coordinate" in combined or "richer coordinate/control" in combined
     assert "coordinate_lattice" in combined
@@ -819,7 +836,7 @@ def test_tool_spec_transform_teaches_point_crops_as_default_path() -> None:
     assert "review_lines" in combined
     assert "master overlay is the native control surface" in combined
     assert "legacy compatibility sub_action" in combined
-    assert "not the normal point-crop placement surface" in combined
+    assert "not the point-crop placement surface" in combined
     assert "reference_overlay" not in transform.purpose.lower()
     assert "reference_overlay" not in transform.expected_result_shape.lower()
     assert "legacy/grid fallback" not in combined

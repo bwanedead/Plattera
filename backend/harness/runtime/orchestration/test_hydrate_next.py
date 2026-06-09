@@ -12,6 +12,7 @@ from harness.runtime.orchestration.hydrate_next import (
     HydrateNextValidationError,
     build_hydrate_next_record,
     build_tool_result_snapshot,
+    build_tool_result_snapshot_from_batch_item,
     normalize_hydrate_next,
     normalize_hydrate_next_reason,
     resolve_hydrate_next_refs,
@@ -409,3 +410,17 @@ def test_resolve_batch_dedupes_with_literals() -> None:
         batch_results=batch,
     )
     assert resolved == ["x"]
+
+
+def test_build_tool_result_snapshot_from_batch_item_uses_crop_summary_fallback() -> None:
+    row = {
+        "alias": "seed_packet",
+        "outputs_excerpt": {"_truncated": True, "preview": "{" + "x" * 400},
+        "point_crop_set_summary": {
+            "master_overlay_ref": "image:derived:master-1",
+            "overlay_role": "point_crop_master",
+        },
+        "artifact_refs": ["image:derived:master-1"],
+    }
+    snap = build_tool_result_snapshot_from_batch_item(row)
+    assert snap["outputs"]["derived_ref_id"] == "image:derived:master-1"
