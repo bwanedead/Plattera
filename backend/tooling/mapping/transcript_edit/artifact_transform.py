@@ -31,16 +31,20 @@ from .root_projection import (
     enrich_point_geometry_with_projection,
     resolve_root_projection_context,
 )
-from .coordinate_lattice import OVERLAY_ROLE_PLAIN_COORDINATE_REFERENCE
+from .coordinate_lattice import (
+    DEFAULT_REFERENCE_COLS,
+    DEFAULT_REFERENCE_ROWS,
+    OVERLAY_ROLE_PLAIN_COORDINATE_REFERENCE,
+    build_reference_cell_overlay_metadata,
+    draw_reference_cell_coordinate_foundation,
+)
 from .point_crop_review_table import attach_review_table_to_crop_set
 from .point_crops import (
     PointCropParamError,
     build_crop_set_point_record,
-    build_overlay_render_metadata,
     compute_point_crops,
     compute_point_crops_scaffold,
     compute_point_crops_view,
-    draw_norm_step_coordinate_grid,
     point_crops_adjust_repair_hint_for,
     point_crops_repair_hint_for,
     point_crops_scaffold_repair_hint_for,
@@ -52,9 +56,6 @@ from .point_crops import (
     validate_point_crops_scaffold_params,
     validate_point_crops_view_params,
 )
-
-REFERENCE_OVERLAY_DEFAULT_COLS = 10
-REFERENCE_OVERLAY_DEFAULT_ROWS = 10
 
 _IMAGE_ASSOC_PREFIX = "image:assoc:"
 _IMAGE_DERIVED_PREFIX = "image:derived:"
@@ -1406,60 +1407,36 @@ def _apply_transform(
             transform_metadata["factor_applied"] = zoom_factor
 
     elif sub_action == "reference_overlay":
-        # Draw a deterministic grid with labeled coordinates so the model can select
-        # an explicit box or box_norm region for a later crop.
-        cols = max(2, int(params.get("cols", REFERENCE_OVERLAY_DEFAULT_COLS)))
-        rows = max(2, int(params.get("rows", REFERENCE_OVERLAY_DEFAULT_ROWS)))
+        # Legacy compatibility path: reuse the shared reference-cell foundation.
+        cols = max(2, int(params.get("cols", DEFAULT_REFERENCE_COLS)))
+        rows = max(2, int(params.get("rows", DEFAULT_REFERENCE_ROWS)))
         line_color_raw = params.get("line_color", [140, 140, 140])
         label_color_raw = params.get("label_color", [180, 0, 0])
         if isinstance(line_color_raw, list) and len(line_color_raw) >= 3:
-            line_color: tuple[int, ...] = tuple(int(v) for v in line_color_raw[:3])
+            line_color: tuple[int, int, int] = tuple(int(v) for v in line_color_raw[:3])  # type: ignore[assignment]
         else:
             line_color = (140, 140, 140)
         if isinstance(label_color_raw, list) and len(label_color_raw) >= 3:
-            label_color: tuple[int, ...] = tuple(int(v) for v in label_color_raw[:3])
+            label_color: tuple[int, int, int] = tuple(int(v) for v in label_color_raw[:3])  # type: ignore[assignment]
         else:
             label_color = (180, 0, 0)
 
         img = img.convert("RGB")
         draw = ImageDraw.Draw(img)
-        w, h = img.width, img.height
-        draw_norm_step_coordinate_grid(draw, w, h, edge_labels=True)
-        cell_w = w / cols
-        cell_h = h / rows
-
-        for c in range(1, cols):
-            x = int(c * cell_w)
-            draw.line([(x, 0), (x, h)], fill=line_color, width=2)
-
-        for r in range(1, rows):
-            y = int(r * cell_h)
-            draw.line([(0, y), (w, y)], fill=line_color, width=2)
-
-        for r in range(rows):
-            for c in range(cols):
-                cx = int((c + 0.5) * cell_w)
-                cy = int((r + 0.5) * cell_h)
-                x1_n = round(c / cols, 2)
-                y1_n = round(r / rows, 2)
-                x2_n = round((c + 1) / cols, 2)
-                y2_n = round((r + 1) / rows, 2)
-                label = f"({c + 1},{r + 1})\n[{x1_n},{y1_n},{x2_n},{y2_n}]"
-                parts = label.split("\n")
-                for i, part in enumerate(parts):
-                    draw.text((cx - 2, cy - 8 + i * 12), part, fill=label_color)
-
-        overlay_meta = build_overlay_render_metadata()
-        lattice = dict(overlay_meta.get("coordinate_lattice") or {})
-        lattice["reference_cells"] = {"cols": cols, "rows": rows, "cell_labels": True}
-        overlay_meta["coordinate_lattice"] = lattice
-        grid = dict(overlay_meta.get("grid") or {})
-        grid["cols"] = cols
-        grid["rows"] = rows
-        grid["cell_labels"] = True
-        overlay_meta["grid"] = grid
-        overlay_meta["overlay_role"] = OVERLAY_ROLE_PLAIN_COORDINATE_REFERENCE
-        transform_metadata["overlay"] = overlay_meta
+        draw_reference_cell_coordinate_foundation(
+            draw,
+            img.width,
+            img.height,
+            cols=cols,
+            rows=rows,
+            cell_line_color=line_color,
+            cell_label_text_color=label_color,
+        )
+        transform_metadata["overlay"] = build_reference_cell_overlay_metadata(
+            overlay_role=OVERLAY_ROLE_PLAIN_COORDINATE_REFERENCE,
+            cols=cols,
+            rows=rows,
+        )
 
     elif sub_action == "annotate":
         annotations = params.get("annotations", [])

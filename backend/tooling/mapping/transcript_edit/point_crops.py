@@ -15,10 +15,8 @@ from .coordinate_lattice import (
     OVERLAY_ROLE_POINT_CROP_MASTER,
     OVERLAY_ROLE_POINT_CROP_PLACEMENT_SCAFFOLD,
     OVERLAY_ROLE_POINT_CROP_VIEW,
-    build_compat_grid_metadata,
-    build_coordinate_lattice_metadata,
-    draw_coordinate_lattice,
-    draw_norm_step_coordinate_grid,
+    build_reference_cell_overlay_metadata,
+    draw_reference_cell_coordinate_foundation,
 )
 from .root_projection import copy_projection_fields
 
@@ -523,16 +521,15 @@ def point_crops_scaffold_repair_hint_for(message: str) -> str:
 
 def build_scaffold_overlay_render_metadata() -> dict[str, Any]:
     """Mechanical metadata for zero-point placement scaffold overlays."""
-    lattice = build_coordinate_lattice_metadata()
-    return {
-        "overlay_role": OVERLAY_ROLE_POINT_CROP_PLACEMENT_SCAFFOLD,
-        "coordinate_lattice": lattice,
-        "grid": build_compat_grid_metadata(lattice, enabled=True),
-        "legend": {
-            "kind": "placement_scaffold",
-            "point_count": 0,
+    return build_reference_cell_overlay_metadata(
+        overlay_role=OVERLAY_ROLE_POINT_CROP_PLACEMENT_SCAFFOLD,
+        extra={
+            "legend": {
+                "kind": "placement_scaffold",
+                "point_count": 0,
+            },
         },
-    }
+    )
 
 
 def build_overlay_render_metadata(
@@ -540,11 +537,8 @@ def build_overlay_render_metadata(
     overlay_role: str = OVERLAY_ROLE_POINT_CROP_MASTER,
 ) -> dict[str, Any]:
     """Mechanical metadata for point-crop master overlay grid/legend rendering."""
-    lattice = build_coordinate_lattice_metadata()
-    return {
-        "overlay_role": overlay_role,
-        "coordinate_lattice": lattice,
-        "grid": build_compat_grid_metadata(lattice, enabled=True),
+    meta = build_reference_cell_overlay_metadata(overlay_role=overlay_role)
+    meta.update({
         "box_render": {
             "fill_alpha": _BOX_FILL_ALPHA,
             "outline_width": _BOX_OUTLINE_WIDTH,
@@ -577,7 +571,8 @@ def build_overlay_render_metadata(
                 for size in _SIZE_LEGEND_ORDER
             },
         },
-    }
+    })
+    return meta
 
 
 def _draw_dashed_line(
@@ -719,8 +714,8 @@ def _saturate_outline_color(rgb: tuple[int, int, int]) -> tuple[int, int, int]:
 
 
 def _draw_coordinate_grid(draw: Any, img_w: int, img_h: int) -> None:
-    """Light normalized-coordinate grid on the source image area only."""
-    draw_coordinate_lattice(draw, img_w, img_h, edge_labels=True)
+    """Shared coordinate/reference-cell foundation for scaffold and master overlays."""
+    draw_reference_cell_coordinate_foundation(draw, img_w, img_h)
 
 
 def _draw_template_legend(draw: Any, *, img_w: int, img_h: int) -> None:

@@ -834,10 +834,11 @@ def test_tool_spec_transform_teaches_point_crops_as_default_path() -> None:
         assert sub_action in combined
 
     assert "point_crops_scaffold" in combined
-    assert "first-placement" in combined or "first placement" in combined
+    assert "blank master-overlay placement" in combined or "reference_cells" in combined
     assert "primary" in combined or "template point-crop packet" in combined
     assert "richer coordinate" in combined or "richer coordinate/control" in combined
     assert "coordinate_lattice" in combined
+    assert "reference_cells" in combined
     assert "review_rows" in combined
     assert "review_lines" in combined
     assert "master overlay is the native control surface" in combined

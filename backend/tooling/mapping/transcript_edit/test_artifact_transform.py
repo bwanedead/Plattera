@@ -290,6 +290,9 @@ def test_point_crops_scaffold_output_metadata_and_no_crop_sidecars(tmp_path, mon
     lattice = outputs["coordinate_lattice"]
     assert lattice["major_step_norm"] == 0.10
     assert lattice["minor_step_norm"] == 0.025
+    assert lattice["reference_cells"] == {"cols": 10, "rows": 10, "cell_labels": True}
+    assert outputs["crop_set"]["grid"]["cols"] == 10
+    assert outputs["crop_set"]["grid"]["cell_labels"] is True
     assert "delegation_lines" not in outputs
     assert "review_lines" not in outputs.get("crop_set", {})
 
@@ -313,12 +316,43 @@ def test_point_crops_scaffold_image_has_visible_grid_pixels(tmp_path, monkeypatc
 
     desc = _load_derived_image_descriptor("d1", "tx-1", "ws-1", result["outputs"]["derived_ref_id"])
     img = Image.open(desc["absolute_path"]).convert("RGB")
+    bg = (200, 200, 200)
     major_x = int(round(0.10 * img.width))
     major_x2 = int(round(0.20 * img.width))
     major_y2 = int(round(0.20 * img.height))
-    assert img.getpixel((major_x, img.height // 2)) == _GRID_MAJOR_COLOR
-    assert img.getpixel((major_x2, img.height // 2)) == _GRID_MAJOR_COLOR
-    assert img.getpixel((img.width // 2, major_y2)) == _GRID_MAJOR_COLOR
+    assert img.getpixel((major_x, img.height // 2)) != bg
+    assert img.getpixel((major_x2, img.height // 2)) != bg
+    assert img.getpixel((img.width // 2, major_y2)) != bg
+
+
+def test_point_crops_scaffold_has_reference_cell_label_backing(tmp_path, monkeypatch):
+    from tooling.mapping.transcript_edit.artifact_hydration import _load_derived_image_descriptor
+    from tooling.mapping.transcript_edit.coordinate_lattice import _GRID_LABEL_BG_COLOR
+    from PIL import Image
+
+    handler, ref_id = _make_handler(tmp_path, monkeypatch, image_width=100, image_height=80)
+    result = handler({"ref_id": ref_id, "sub_action": "point_crops_scaffold", "params": {}})
+    assert result["executed"] is True
+    desc = _load_derived_image_descriptor("d1", "tx-1", "ws-1", result["outputs"]["derived_ref_id"])
+    img = Image.open(desc["absolute_path"]).convert("RGB")
+    cell_cx = int(0.5 * (img.width / 10))
+    cell_cy = int(0.5 * (img.height / 10))
+    backed = any(
+        img.getpixel((x, y)) == _GRID_LABEL_BG_COLOR
+        for x in range(max(0, cell_cx - 6), min(img.width, cell_cx + 7))
+        for y in range(max(0, cell_cy - 6), min(img.height, cell_cy + 7))
+    )
+    assert backed
+
+
+def test_point_crops_master_overlay_includes_reference_cells(tmp_path, monkeypatch):
+    handler, ref_id = _make_handler(tmp_path, monkeypatch)
+    result = handler({"ref_id": ref_id, **_point_crops_request()})
+    crop_set = result["outputs"]["crop_set"]
+    lattice = crop_set["coordinate_lattice"]
+    assert lattice["reference_cells"] == {"cols": 10, "rows": 10, "cell_labels": True}
+    assert crop_set["grid"]["cols"] == 10
+    assert crop_set["grid"]["rows"] == 10
 
 
 def test_point_crops_scaffold_rejects_invalid_show(tmp_path, monkeypatch):

@@ -7,6 +7,13 @@ from typing import Any
 
 DEFAULT_MAJOR_STEP_NORM = 0.10
 DEFAULT_MINOR_STEP_NORM = 0.025
+DEFAULT_REFERENCE_COLS = 10
+DEFAULT_REFERENCE_ROWS = 10
+
+_REFERENCE_CELL_LINE_COLOR = (140, 140, 140)
+_REFERENCE_CELL_LINE_WIDTH = 2
+_REFERENCE_CELL_LABEL_LINE_HEIGHT = 12
+_REFERENCE_CELL_LABEL_FONT_SIZE = 11
 
 OVERLAY_ROLE_POINT_CROP_MASTER = "point_crop_master"
 OVERLAY_ROLE_POINT_CROP_VIEW = "point_crop_view"
@@ -82,6 +89,29 @@ def build_coordinate_lattice_metadata(
             "cell_labels": cell_labels,
         }
     return _strip_lattice_payload(lattice)
+
+
+def build_reference_cell_overlay_metadata(
+    *,
+    overlay_role: str,
+    cols: int = DEFAULT_REFERENCE_COLS,
+    rows: int = DEFAULT_REFERENCE_ROWS,
+    extra: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Overlay metadata for lattice + reference-cell foundation (10x10 by default)."""
+    lattice = build_coordinate_lattice_metadata(
+        cols=cols,
+        rows=rows,
+        cell_labels=True,
+    )
+    meta: dict[str, Any] = {
+        "overlay_role": overlay_role,
+        "coordinate_lattice": lattice,
+        "grid": build_compat_grid_metadata(lattice, enabled=True),
+    }
+    if isinstance(extra, Mapping):
+        meta.update(dict(extra))
+    return meta
 
 
 def build_compat_grid_metadata(
@@ -260,6 +290,86 @@ def draw_norm_step_coordinate_grid(
     )
 
 
+def draw_reference_cell_coordinate_foundation(
+    draw: Any,
+    img_w: int,
+    img_h: int,
+    *,
+    cols: int = DEFAULT_REFERENCE_COLS,
+    rows: int = DEFAULT_REFERENCE_ROWS,
+    edge_labels: bool = True,
+    draw_cell_labels: bool = True,
+    cell_line_color: tuple[int, int, int] = _REFERENCE_CELL_LINE_COLOR,
+    cell_line_width: int = _REFERENCE_CELL_LINE_WIDTH,
+    cell_label_text_color: tuple[int, int, int] = _GRID_LABEL_COLOR,
+) -> None:
+    """Draw lattice, reference-cell divisions, and backed interior cell labels."""
+    draw_coordinate_lattice(
+        draw,
+        img_w,
+        img_h,
+        edge_labels=edge_labels,
+        opposite_margin_labels=True,
+    )
+    safe_cols = max(2, int(cols))
+    safe_rows = max(2, int(rows))
+    cell_w = img_w / safe_cols
+    cell_h = img_h / safe_rows
+
+    for c in range(1, safe_cols):
+        x = int(c * cell_w)
+        draw.line([(x, 0), (x, img_h)], fill=cell_line_color, width=cell_line_width)
+    for r in range(1, safe_rows):
+        y = int(r * cell_h)
+        draw.line([(0, y), (img_w, y)], fill=cell_line_color, width=cell_line_width)
+
+    if not draw_cell_labels:
+        return
+
+    font = _reference_cell_label_font()
+    for r in range(safe_rows):
+        for c in range(safe_cols):
+            cx = int((c + 0.5) * cell_w)
+            cy = int((r + 0.5) * cell_h)
+            x1_n = round(c / safe_cols, 2)
+            y1_n = round(r / safe_rows, 2)
+            x2_n = round((c + 1) / safe_cols, 2)
+            y2_n = round((r + 1) / safe_rows, 2)
+            parts = [
+                f"({c + 1},{r + 1})",
+                f"[{x1_n},{y1_n},{x2_n},{y2_n}]",
+            ]
+            block_h = len(parts) * _REFERENCE_CELL_LABEL_LINE_HEIGHT
+            start_y = cy - block_h // 2
+            for index, part in enumerate(parts):
+                xy = (cx - 2, start_y + index * _REFERENCE_CELL_LABEL_LINE_HEIGHT)
+                _draw_margin_label(
+                    draw,
+                    xy,
+                    part,
+                    font=font,
+                    text_fill=cell_label_text_color,
+                )
+
+
+def reference_cell_label_for_position(
+    *,
+    cols: int,
+    rows: int,
+    col_index: int,
+    row_index: int,
+) -> tuple[str, str]:
+    """Return the coordinate/index label pair for one reference cell."""
+    x1_n = round(col_index / cols, 2)
+    y1_n = round(row_index / rows, 2)
+    x2_n = round((col_index + 1) / cols, 2)
+    y2_n = round((row_index + 1) / rows, 2)
+    return (
+        f"({col_index + 1},{row_index + 1})",
+        f"[{x1_n},{y1_n},{x2_n},{y2_n}]",
+    )
+
+
 def _draw_major_margin_labels(
     draw: Any,
     img_w: int,
@@ -299,6 +409,7 @@ def _draw_margin_label(
     text: str,
     *,
     font: Any,
+    text_fill: tuple[int, int, int] = _GRID_LABEL_COLOR,
 ) -> None:
     """Draw a lattice label with a small high-contrast background pad."""
     bbox = _text_bbox(draw, text, font=font, anchor_xy=xy)
@@ -309,7 +420,27 @@ def _draw_margin_label(
         outline=(60, 60, 60),
         width=1,
     )
-    draw.text(xy, text, fill=_GRID_LABEL_COLOR, font=font)
+    draw.text(xy, text, fill=text_fill, font=font)
+
+
+def _reference_cell_label_font() -> Any:
+    from PIL import ImageFont  # type: ignore[import]
+
+    size = _REFERENCE_CELL_LABEL_FONT_SIZE
+    candidates = (
+        "arial.ttf",
+        "Arial.ttf",
+        "DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "C:/Windows/Fonts/arial.ttf",
+        "C:/Windows/Fonts/segoeui.ttf",
+    )
+    for path in candidates:
+        try:
+            return ImageFont.truetype(path, size)
+        except OSError:
+            continue
+    return ImageFont.load_default()
 
 
 def _lattice_font() -> Any:
