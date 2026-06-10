@@ -10,7 +10,7 @@ from ..branch import TRANSCRIPT_EDIT_DOMAIN_ID
 TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_SOURCE_REF = (
     "backend/domains/mapping/transcript_edit/prompting/surfaces/procedural_guidance.py"
 )
-TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_VERSION = "v37"
+TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_VERSION = "v38"
 
 TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_TEXT = """\
 Use this guidance to shape your movement through transcript-edit work. This is **guidance**, not a hard script. The harness still owns orchestration. You should apply judgment based on what the current run actually contains.
@@ -116,12 +116,10 @@ Save a transcript-bearing working draft once verified visible progress is mature
 Near the end of the run, treat review as reconciliation rather than a fresh investigation. Check that the artifact, closure ledger, resolution items, HITL decisions, blockers, and evidence metadata tell the same story. Repair any real mismatch. If the artifact is handoffable for the available scope and only non-critical polish remains, publish/complete instead of stretching the run.
 
 ## What not to do
-- Do not crop or source-investigate during opening inventory just to prove atoms exist.
 - Do not earn mapping-critical exact values from broad page or paragraph familiarity when a point-crop packet, localized crop ref, delegated read, or fair HITL packet can make the decisive mark directly inspectable.
 - Do not hand-design one-off crop boxes as the normal path when point-crop targets and packets would express the target with less coordinate burden.
 - Do not keep re-hydrating the same broad set of refs when a packet ref or targeted read is available.
 - Do not hydrate or inspect image evidence and move on without recording what it showed about the claim under review.
-- Do not spend a separate turn re-hydrating a freshly returned master overlay when it is already attached as next-turn evidence.
 - Do not let repeated packet refinement replace an honest open/blocker/HITL posture when the source will not answer further in-run.
 - Do not turn final review into a broad second investigation once the artifact and handoff posture are already honest.
 """
