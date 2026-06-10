@@ -88,6 +88,7 @@ def _overlay_metadata_fields(transform_metadata: Mapping[str, Any]) -> dict[str,
         "box_render",
         "pin_render",
         "letter_render",
+        "render_warnings",
     ):
         if key in overlay:
             fields[key] = overlay[key]

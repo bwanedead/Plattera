@@ -92,6 +92,8 @@ _BOX_FILL_ALPHA = 48
 _BOX_OUTLINE_WIDTH = 4
 _PIN_RADIUS = 12
 _PIN_HALO_PADDING = 5
+_BULLSEYE_TICK_LEN = 10
+_BULLSEYE_TICK_WIDTH = 2
 _PIN_FILL_ALPHA = 225
 _PIN_HALO_RGBA = (255, 255, 255, 245)
 _PIN_RING_RGBA = (35, 35, 35, 255)
@@ -551,6 +553,8 @@ def build_overlay_render_metadata(
             "ring_rgba": list(_PIN_RING_RGBA),
             "fill_alpha": _PIN_FILL_ALPHA,
             "outline_width_px": 3,
+            "bullseye_tick_len_px": _BULLSEYE_TICK_LEN,
+            "bullseye_tick_width_px": _BULLSEYE_TICK_WIDTH,
             "anchor": "point_norm",
         },
         "letter_render": {
@@ -643,7 +647,7 @@ def _letter_position_near_pin(cx: int, cy: int, *, img_w: int, img_h: int) -> tu
     return lx, ly
 
 
-def _draw_point_pin(
+def _draw_point_marker(
     draw: Any,
     *,
     cx: int,
@@ -651,11 +655,35 @@ def _draw_point_pin(
     color: tuple[int, int, int],
     outline: tuple[int, int, int],
 ) -> None:
+    """Filled point dot with halo and short bullseye ticks centered on ``point_norm``."""
     r = _PIN_RADIUS
     halo = _PIN_HALO_PADDING
     draw.ellipse(
         [cx - r - halo, cy - r - halo, cx + r + halo, cy + r + halo],
         fill=_PIN_HALO_RGBA,
+    )
+    tick = _BULLSEYE_TICK_LEN
+    tick_w = _BULLSEYE_TICK_WIDTH
+    tick_rgba = (*outline, 255)
+    draw.line(
+        [(cx - r - tick, cy), (cx - r - 2, cy)],
+        fill=tick_rgba,
+        width=tick_w,
+    )
+    draw.line(
+        [(cx + r + 2, cy), (cx + r + tick, cy)],
+        fill=tick_rgba,
+        width=tick_w,
+    )
+    draw.line(
+        [(cx, cy - r - tick), (cx, cy - r - 2)],
+        fill=tick_rgba,
+        width=tick_w,
+    )
+    draw.line(
+        [(cx, cy + r + 2), (cx, cy + r + tick)],
+        fill=tick_rgba,
+        width=tick_w,
     )
     draw.ellipse(
         [cx - r - 1, cy - r - 1, cx + r + 1, cy + r + 1],
@@ -774,12 +802,19 @@ def compute_point_crops_scaffold(img: Any, params: dict[str, Any]) -> dict[str, 
     }
 
 
+def _master_overlay_render_warnings(show: list[str], *, paint_boxes: bool) -> list[str]:
+    if not paint_boxes and "box" in show:
+        return ["visual_boxes_suppressed_on_master_overlay"]
+    return []
+
+
 def _render_master_overlay(
     img: Any,
     per_point_data: list[dict[str, Any]],
     show: list[str],
     *,
     overlay_role: str = OVERLAY_ROLE_POINT_CROP_MASTER,
+    paint_boxes: bool = False,
 ) -> tuple[Any, int, dict[str, Any]]:
     from PIL import Image, ImageDraw  # type: ignore[import]
 
@@ -790,14 +825,19 @@ def _render_master_overlay(
 
     _draw_coordinate_grid(draw, img.width, img.height)
 
+    overlay = build_overlay_render_metadata(overlay_role=overlay_role)
+    render_warnings = _master_overlay_render_warnings(show, paint_boxes=paint_boxes)
+    if render_warnings:
+        overlay["render_warnings"] = render_warnings
+
     rgba_base = canvas.convert("RGBA")
     box_layer = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
     box_draw = ImageDraw.Draw(box_layer)
     for pt in per_point_data:
-        b = tuple(pt["box_px"])
         col = tuple(int(v) for v in pt["color"][:3])
         outline = _saturate_outline_color(col)
-        if "box" in show:
+        if paint_boxes and "box" in show:
+            b = tuple(pt["box_px"])
             box_draw.rectangle(
                 b,
                 fill=(*col, _BOX_FILL_ALPHA),
@@ -806,7 +846,7 @@ def _render_master_overlay(
             )
         if "pin" in show:
             cx, cy = _pin_center_px(pt)
-            _draw_point_pin(box_draw, cx=cx, cy=cy, color=col, outline=outline)
+            _draw_point_marker(box_draw, cx=cx, cy=cy, color=col, outline=outline)
 
     composed = Image.alpha_composite(rgba_base, box_layer)
 
@@ -834,7 +874,7 @@ def _render_master_overlay(
 
     draw = ImageDraw.Draw(canvas)
     _draw_template_legend(draw, img_w=img.width, img_h=img.height)
-    return canvas, legend_h, build_overlay_render_metadata(overlay_role=overlay_role)
+    return canvas, legend_h, overlay
 
 
 def compute_point_crops(img: Any, params: dict[str, Any]) -> dict[str, Any]:
@@ -985,6 +1025,7 @@ def compute_point_crops_view(img: Any, points: list[dict[str, Any]], *, show: li
         per_point_data,
         show,
         overlay_role=OVERLAY_ROLE_POINT_CROP_VIEW,
+        paint_boxes=True,
     )
     return {
         "master_pil": canvas,
