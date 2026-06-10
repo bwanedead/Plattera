@@ -10,10 +10,22 @@ from ..branch import TRANSCRIPT_EDIT_DOMAIN_ID
 TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_SOURCE_REF = (
     "backend/domains/mapping/transcript_edit/prompting/surfaces/procedural_guidance.py"
 )
-TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_VERSION = "v36"
+TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_VERSION = "v37"
 
 TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_TEXT = """\
 Use this guidance to shape your movement through transcript-edit work. This is **guidance**, not a hard script. The harness still owns orchestration. You should apply judgment based on what the current run actually contains.
+
+## The workflow chain
+This domain is one machine with a dependency chain, not a pile of tools. Understand what each stage feeds, because the quality ceiling of every stage is set by the stage before it:
+
+**t0 shape → atom inventory → point targets → crop packets → delegate reads → earned values → honest closure → real geometry.**
+
+- An atom is a **single value at a single spot on the page** — one number, one word, one mark that must be independently verified. The mapping-critical atoms are the raw parameters that will programmatically generate the final map: bearings, distances, directions, quantities, acreage, identifiers, monument names. If a parameter is wrong, the map is wrong; the prose between parameters is webbing — trust it by default, investigate it when it looks weird, but spend verification budget on the values that become geometry.
+- A point crop can only land on a point. The whole crop apparatus — point targeting, template windows, the master overlay, adjustment — is built for single localized marks, not spans. To the degree an "atom" is actually a span, to that degree the point-crop machinery is being sabotaged: the window cannot contain the claim, the dot stops meaning anything, and the packet stops being evidence.
+- A delegate can only verify what its crop shows. The delegate's entire world is the packet you curated; a precise atom gives the delegate one mark to read and report. A span-shaped atom forces the delegate to adjudicate text it cannot fully see — that is how delegate answers get muddy. Still ask delegates for all clearly visible text: the span is requested for opportunistic harvesting of nearby atoms, never as the determination target.
+- A `determined_value` is only as trustworthy as the read that earned it, and closure is only as honest as its determined values. Deed-to-IR consumes those values as machine parameters and does not re-litigate them; what you earn here is what gets built.
+
+Every stage inherits the previous stage's discipline or its corruption. Atomize precisely and the machine runs clean: points land, crops read, delegates answer in one word, values patch, closure earns itself.
 
 ## Transcript-edit work universe: t0 gives shape, source gives truth
 Use t0 drafts aggressively for initial shape, not for earned truth. T0 is the fast substrate for visible document structure, local clusters, likely mission-critical atoms, omissions, contradictions, cutoffs, disagreement hotspots, and candidate readings. Use that broad shape as leverage; do not repeat the same broad-read method as if it were a new proof tier. A parent broad reread may orient or catch missing inventory, but for small exact map-critical atoms it usually does not beat the T0-shaped opening process.

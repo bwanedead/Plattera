@@ -295,6 +295,20 @@ def test_domain_pack_declares_semantic_prompt_blocks() -> None:
     assert "peer draft" in text
     assert "t0" in text
     assert "mapping-critical" in text
+    assert "the workflow chain" in text
+    assert "one machine with a dependency chain, not a pile of tools" in text
+    assert "quality ceiling of every stage is set by the stage before it" in text
+    assert "single value at a single spot on the page" in text
+    assert "raw parameters that will programmatically generate the final map" in text
+    assert "if a parameter is wrong, the map is wrong" in text
+    assert "trust it by default, investigate it when it looks weird" in text
+    assert "a point crop can only land on a point" in text
+    assert "to the degree an \"atom\" is actually a span, to that degree the point-crop machinery is being sabotaged" in text
+    assert "a delegate can only verify what its crop shows" in text
+    assert "one mark to read and report" in text
+    assert "opportunistic harvesting of nearby atoms, never as the determination target" in text
+    assert "does not re-litigate them; what you earn here is what gets built" in text
+    assert "every stage inherits the previous stage's discipline or its corruption" in text
     assert "transcript-edit work universe: t0 gives shape, source gives truth" in text
     assert "packet ref or targeted read is available" in text
     assert "heads/finals" not in text
