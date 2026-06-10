@@ -62,11 +62,11 @@ def test_harness_surface_teaches_output_claim_coverage() -> None:
     assert "material exact claim" in text
     assert "future review ui" in text
     assert "auditable" in text
-    # evidence-local section
-    assert "evidence-local earned claims" in text
+    # evidence law (closing line preserves the evidence-local handle)
+    assert "evidence-local earned claims are the only earned claims this harness respects" in text
     assert "direct inspectability" in text
     assert "false determination" in text
-    assert "falsely earned determination is dangerous" in text
+    assert "falsely earned unit is dangerous" in text
     # terminal posture section
     assert "terminal completion posture" in text
     assert "complete_run" in text
@@ -79,7 +79,7 @@ def test_harness_surface_teaches_mission_critical_exactness() -> None:
     text = _HARNESS_TRUNK_METHOD_TEXT
     lowered = text.lower()
     assert "mission-critical exactness" in lowered
-    assert "false determination is a common agent failure mode" in lowered
+    assert "false determination — false earned certainty — is a common agent failure mode" in lowered
     assert "broad familiarity with the source" in lowered
     assert "locally and directly inspectable" in lowered
     assert "consider delegation the normal high-signal path" in lowered
@@ -89,15 +89,39 @@ def test_harness_surface_teaches_mission_critical_exactness() -> None:
     assert "falsely earned unit is dangerous" in lowered
 
 
-def test_mission_critical_exactness_section_has_no_domain_examples() -> None:
+def test_surface_teaches_the_evidence_law() -> None:
+    """The Evidence Law is the single canonical home of evidence/localization doctrine."""
     lowered = _HARNESS_TRUNK_METHOD_TEXT.lower()
-    start = lowered.find("## mission-critical exactness")
-    end = lowered.find("## defensible evidence rule")
-    assert start >= 0, "mission-critical exactness section must exist"
-    assert end > start, "defensible evidence rule section should follow mission-critical exactness"
+    assert lowered.count("## the evidence law") == 1
+    # the five old homes are gone; their handles live as beats inside the law
+    assert "## mission-critical exactness" not in lowered
+    assert "## decisive-detail localization" not in lowered
+    assert "## defensible evidence rule" not in lowered
+    assert "## orientation evidence vs claim-local evidence" not in lowered
+    assert "## evidence-local earned claims" not in lowered
+    # the law's spine
+    assert "localize first, then determine" in lowered
+    assert "evidence is the method of determination, not a decoration attached after the fact" in lowered
+    assert "evidence cannot be retroactive" in lowered
+    assert "a locator attached after closure is not proof that closure was valid" in lowered
+    assert "evidence-local earned claims are the only earned claims this harness respects" in lowered
+    # orientation vs claim-local
+    assert "orientation evidence helps you find the right area" in lowered
+    assert "do not dress a signpost up as proof" in lowered
+    # the goal line
+    assert "the goal is to make it hard for a wrong exact value to survive" in lowered
+
+
+def test_evidence_law_section_has_no_domain_examples() -> None:
+    lowered = _HARNESS_TRUNK_METHOD_TEXT.lower()
+    start = lowered.find("## the evidence law")
+    end = lowered.find("## source-observed vs downstream-usable lanes")
+    assert start >= 0, "the evidence law section must exist"
+    assert end > start, "source/downstream lanes section should follow the evidence law"
     section = lowered[start:end]
-    for banned in ("deed", "parcel", "range", "acreage", "plss", "transcript"):
-        assert banned not in section, f"Found banned term {banned!r} in generic exactness doctrine"
+    # union of the old per-section banned lists; " bearing" spaced to allow "load-bearing"
+    for banned in ("deed", "parcel", "range", " bearing", "distance", "acreage", "plss", "transcript"):
+        assert banned not in section, f"Found banned term {banned!r} in evidence law doctrine"
 
 
 def test_surface_teaches_decisive_detail_localization() -> None:
@@ -105,22 +129,10 @@ def test_surface_teaches_decisive_detail_localization() -> None:
     lowered = text.lower()
     assert "decisive-detail localization" in lowered
     assert "smallest decisive detail" in lowered
-    assert "common failure mode, not an edge case" in lowered
-    assert "broad evidence can guide investigation" in lowered
+    assert "common agent failure mode, not a theoretical edge case" in lowered
     assert "does not prove the decisive atom" in lowered
     assert "point of difference" in lowered
     assert "isolate the decisive detail" in lowered
-
-
-def test_decisive_detail_localization_section_has_no_domain_examples() -> None:
-    lowered = _HARNESS_TRUNK_METHOD_TEXT.lower()
-    start = lowered.find("## decisive-detail localization")
-    end = lowered.find("## defensible evidence rule")
-    assert start >= 0, "decisive-detail localization section must exist"
-    assert end > start, "defensible evidence rule section should follow decisive-detail localization"
-    section = lowered[start:end]
-    for banned in ("deed", "parcel", "range", "bearing", "distance", "acreage", "plss", "transcript"):
-        assert banned not in section, f"Found banned term {banned!r} in decisive-detail doctrine"
 
 
 def test_harness_surface_new_sections_contain_no_deed_examples() -> None:

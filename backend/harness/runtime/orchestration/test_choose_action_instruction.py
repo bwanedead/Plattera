@@ -209,11 +209,11 @@ def test_surface_teaches_defensible_evidence_and_read_carry_forward() -> None:
     from harness.runtime.prompting.surface import _HARNESS_TRUNK_METHOD_TEXT
     text = _HARNESS_TRUNK_METHOD_TEXT
     lowered = text.lower()
-    assert "defensible evidence rule" in lowered
+    assert "defensible evidence" in lowered
     assert "directly and undeniably auditable" in lowered
     assert "without reconstructing broad context" in lowered
-    assert "false earned certainty is a common agent failure mode" in lowered
-    assert "wrong fine-grained determination" in lowered
+    assert "false determination — false earned certainty — is a common agent failure mode" in lowered
+    assert "carries forward the wrong digit, mark, option, status, or value" in lowered
     assert "read carry-forward rule" in lowered
     assert "persist that distinction immediately" in lowered
     assert "same_item_hydrate_churn_no_gain" in text
