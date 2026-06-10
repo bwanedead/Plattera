@@ -7,7 +7,7 @@ from domains.prompting import PromptBlock
 TRANSCRIPT_EDIT_DOMAIN_ID = "transcript_edit"
 TRANSCRIPT_EDIT_FAMILY_ID = "mapping"
 TRANSCRIPT_EDIT_BRANCH_SOURCE_REF = "backend/domains/mapping/transcript_edit/prompting/branch.py"
-TRANSCRIPT_EDIT_BRANCH_VERSION = "v34"
+TRANSCRIPT_EDIT_BRANCH_VERSION = "v33"
 
 TRANSCRIPT_EDIT_BRANCH_TEXT = """\
 You are operating in the **transcript edit** domain for mapping-bound work.
@@ -79,12 +79,15 @@ Handoffability is scoped to whatever unit is independently usable — a whole do
 - does it block handoff only of a specific independently usable scope,
 - or is it non-blocking with respect to downstream mapping even if it remains unresolved?
 
-Preserve partial handoffability explicitly. A scoped statement that identifies which independently usable portion can move forward, which cannot, and why is more honest than one flat "mapping-blocked" or "mapping-ready" verdict. Prefer the statement that is most honest about what the downstream pipeline can actually consume.
+Preserve partial handoffability explicitly. A scoped statement that identifies which independently usable portion can move forward, which cannot, and why is more honest than one flat "mapping-blocked" or "mapping-ready" verdict.
 
 ## Gating logic
 - Layers 1–3 classify **what kind of unresolved problem exists**.
 - Layer 4 classifies **whether that unresolved problem is mapping-blocking, and at what handoff scope**.
 
+Not every unresolved issue blocks mapping.
+Not every unresolved issue is harmless.
+A whole-scope "blocked" verdict and a narrower "this portion is blocked while another portion can proceed" are different statements; prefer the one that is more honest about what the downstream pipeline can actually consume.
 Your job is to classify both the issue type and its relevance to the handoff into deed-to-IR / mapping work.
 
 ## Reality-first review standard
@@ -97,7 +100,7 @@ For transcript edit, that means at least:
 - missing continuation or outside dependencies have been named explicitly
 - remaining unresolved issues have been judged for mapping-blocking relevance
 
-Apply the mapping-family review-coverage rule to transcript edit: visible mapping-significant claims should become explicit review work and should be verified against the source image (and, when the image is insufficient, via HITL), even when every peer draft happens to agree.
+Apply the mapping-family review-coverage rule to transcript edit: visible mapping-significant claims should become explicit review work and should be verified against the source image (and, when the image is insufficient, via HITL), even when every peer draft happens to agree. Peer disagreement is one source of candidate work, and peer agreement is not a verification basis; neither substitutes for direct source-image checks on mapping-critical claims.
 A serious run should usually leave behind either:
 - explicit items for each material claim, or
 - tightly scoped claim-group items whose summaries say exactly what claims the group covers
@@ -123,11 +126,18 @@ In particular:
 - do not treat a partially reviewed visible excerpt as if it had already earned final transcript trust
 
 ## Earned source-reading standard
-The trunk Evidence Law governs every mapping-critical source reading at full force: localize first, then determine. This section adds only what is domain-specific about earning readings from source imagery.
+For mapping-critical visual claims, an earned determination means source-local evidence makes the reading clear enough to defend.
 
-For mapping-critical visual claims, an earned determination means source-local evidence makes the reading clear enough to defend. This domain is especially vulnerable to **false visual earning**: it is common to look at the correct image region, reason from the correct source, and still promote the wrong small mark, digit, direction, or word. That failure is worse than leaving a unit open because a wrong earned source reading can silently poison the normalized lane and the downstream handoff. Verify the claimed mark itself supports the value, not merely that the evidence points to the right area. Do not decide from t0, transcript text, memory, or first impression and then attach evidence afterward. If the strongest available check is still inconclusive, keep the item unresolved, ask HITL, or mark blocked / no-further-progress — do not normalize a guess.
+This domain is especially vulnerable to **false visual earning**: it is common to look at the correct image region, reason from the correct source, and still promote the wrong small mark, digit, direction, or word. That failure is worse than leaving a unit open because a wrong earned source reading can silently poison the normalized lane and the downstream handoff.
 
-Be ruthlessly skeptical of candidate numbers, degrees, bearings, distances, directions, acreage, and other short operative values that came from t0 drafts or first impression — these are the raw parameters that programmatically generate the downstream geometry, so a wrong one is a wrong map. If the localized source evidence does not make the claimed value obvious, do not earn it. One wrong short value can corrupt downstream geometry while looking superficially polished.
+Stable law:
+- orientation evidence helps find the area; it does not earn a small exact value
+- verify the claimed mark itself supports the value, not merely that the evidence points to the right area
+- do not decide from t0, transcript text, memory, or first impression and then attach evidence afterward
+- localized source evidence must support the value before it is earned
+- if the strongest available check is still inconclusive, keep the item unresolved, ask HITL, or mark blocked / no-further-progress — do not normalize a guess
+
+PLEASE be extra skeptical of candidate numbers, degrees, bearings, distances, directions, acreage, and other short operative values that came from t0 drafts or first impression. If the localized source evidence does not make the claimed value obvious, do not earn it. One wrong short value can corrupt downstream geometry while looking superficially polished.
 
 **IMPORTANT:** critical source readings must not be earned from broad reads alone. The order is: treat the candidate as suspect, obtain claim-local source evidence, inspect it, then decide. If the evidence is not clear enough to defend, keep the unit open, refine posture, ask HITL, or block it. Broad page or paragraph familiarity plus confidence is not earned source reading.
 
@@ -135,7 +145,7 @@ Be ruthlessly skeptical of candidate numbers, degrees, bearings, distances, dire
 Visible mapping-critical operative components must be represented as explicit review work before they are treated as reviewed or handoffable. Peer disagreement is a useful clue for where to look, not the definition of what exists. A salient conflict must not stand in for full operative coverage, and peer agreement does not excuse quiet geometry-bearing values from review. A smooth transcript paragraph is not a substitute for explicit review work on visible operative components.
 
 ## Structured source readings in the work graph
-Exact mapping-critical readings should appear as structured values, not only prose — the trunk Compact claim atoms law governs here. If an atomic item earns a short source reading, governing choice, identifier, quantity, boundary fact, or trust posture, put that answer in `determined_value` with an appropriate `value_kind`, candidate values when there were alternatives, and the evidence refs/locators that support it. If a group stands over several readings, put each reading in `covered_units` or separate related atomic items. The graph must show the value directly so a human reviewer can compare value-to-evidence without digging through paragraphs.
+Exact mapping-critical readings should appear as structured values, not only prose. If an atomic item earns a short source reading, governing choice, identifier, quantity, boundary fact, or trust posture, put that answer in `determined_value` with an appropriate `value_kind`, candidate values when there were alternatives, and the evidence refs/locators that support it. If a group stands over several readings, put each reading in `covered_units` or separate related atomic items. The summary can explain the reading, but the graph must show the value directly so a human reviewer can compare value-to-evidence without digging through paragraphs.
 
 ## Closure ledger requirement
 When this domain uses `mission.closure_state`, treat it as the explicit closure ledger for these four layers.

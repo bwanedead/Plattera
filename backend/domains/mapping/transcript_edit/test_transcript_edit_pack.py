@@ -260,7 +260,7 @@ def test_prompt_branch_block_shape_and_doctrine_markers() -> None:
     assert "a partial answer to one layer is not a closure answer to the others" in text.lower()
     assert "earned source-reading standard" in text.lower()
     assert "false visual earning" in text.lower()
-    assert "orientation evidence helps find the area" in text.lower()
+    assert "the trunk evidence law governs every mapping-critical source reading" in text.lower()
     assert "do not decide from t0, transcript text, memory, or first impression" in text.lower()
     assert "mapping-critical inventory law" in text.lower()
     assert "structured source readings in the work graph" in text.lower()
