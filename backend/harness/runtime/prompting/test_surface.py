@@ -161,15 +161,26 @@ def test_surface_teaches_source_and_downstream_lanes() -> None:
     assert "preserve the visible portion" in lowered
 
 
-def test_surface_prompt_work_graph_projection_has_no_domain_examples() -> None:
+def test_surface_compact_claim_atoms_section_has_no_domain_examples() -> None:
     lowered = _HARNESS_TRUNK_METHOD_TEXT.lower()
-    start = lowered.find("## prompt work-graph projection")
-    end = lowered.find("## evidence refs vs evidence locators")
-    assert start >= 0, "prompt work-graph projection section must exist"
-    assert end > start, "evidence locator section should follow prompt projection section"
+    start = lowered.find("## compact claim atoms")
+    end = lowered.find("## inventory gate and resolution motion")
+    assert start >= 0, "compact claim atoms section must exist"
+    assert end > start, "inventory gate section should follow compact claim atoms"
     section = lowered[start:end]
     for banned in ("deed", "parcel", "range", "bearing", "distance", "cutoff", "mapping"):
-        assert banned not in section, f"Found banned term {banned!r} in prompt projection doctrine"
+        assert banned not in section, f"Found banned term {banned!r} in compact claim atom doctrine"
+
+
+def test_surface_compact_claim_atoms_is_the_single_field_semantics_home() -> None:
+    """Field semantics are taught once, natively, in the compact-claim-atoms law."""
+    lowered = _HARNESS_TRUNK_METHOD_TEXT.lower()
+    assert lowered.count("## compact claim atoms") == 1
+    assert "## field roles" not in lowered
+    assert "## prompt work-graph projection" not in lowered
+    section = lowered[lowered.find("## compact claim atoms"):]
+    assert "compact projection of durable state" in section
+    assert "reopen or patch the row rather than silently overwriting" in section
 
 
 def test_surface_teaches_field_role_separation() -> None:
@@ -183,17 +194,6 @@ def test_surface_teaches_field_role_separation() -> None:
     assert "closure_summary` is the short memory retained after closure" in text
     assert "reopen_triggers` describe what would invalidate or reopen the row" in text
     assert "long text belongs in artifacts" in lowered
-
-
-def test_surface_field_roles_have_no_domain_examples() -> None:
-    lowered = _HARNESS_TRUNK_METHOD_TEXT.lower()
-    start = lowered.find("## field roles")
-    end = lowered.find("## prompt work-graph projection")
-    assert start >= 0, "field roles section must exist"
-    assert end > start, "prompt projection section should follow field roles"
-    section = lowered[start:end]
-    for banned in ("deed", "parcel", "range", "bearing", "distance", "cutoff", "mapping"):
-        assert banned not in section, f"Found banned term {banned!r} in field-role doctrine"
 
 
 def test_surface_teaches_locator_rendering_without_domain_examples() -> None:
@@ -215,9 +215,9 @@ def test_surface_teaches_locator_rendering_without_domain_examples() -> None:
 def test_surface_source_downstream_lane_section_has_no_current_deed_examples() -> None:
     lowered = _HARNESS_TRUNK_METHOD_TEXT.lower()
     start = lowered.find("## source-observed vs downstream-usable lanes")
-    end = lowered.find("## compact claim atoms")
+    end = lowered.find("## evidence refs vs evidence locators")
     assert start >= 0, "source/downstream lane section must exist in method text"
-    assert end > start, "compact claim atoms section must follow source/downstream lane section"
+    assert end > start, "evidence locator section must follow source/downstream lane section"
     section = lowered[start:end]
     for banned in ("range 75", "range 74", "parcel 1", "parcel 2", "nw corner", "1638"):
         assert banned not in section, f"Found banned term {banned!r} in source/downstream lane section"

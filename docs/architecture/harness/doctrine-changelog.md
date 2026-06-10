@@ -18,3 +18,4 @@ contract when its text teaches behavior.
 
 | date | section/law touched | observed behavior that motivated the edit | what changed | intended effect |
 |---|---|---|---|---|
+| 2026-06-10 | trunk `## Compact claim atoms` (v33→v34) | Field semantics (determined_value compactness, field roles, projection memory) were taught in four drifting near-copies — accreted across sharpening cycles, splitting one behavioral lever into coupled knobs and training skim-as-boilerplate | Stage 1 consolidation: Work-Proximity field bullets + `Field roles` + `Prompt work-graph projection` merged into one canonical `Compact claim atoms` law placed where atoms are taught; ledger: `doctrine-backups/trunk-v33-20260610/stage1-field-semantics-ledger.md` | One tunable articulation of atom field semantics; no nuance dropped (2 blurred duplicates removed, strongest articulations kept verbatim); zero echoes |
