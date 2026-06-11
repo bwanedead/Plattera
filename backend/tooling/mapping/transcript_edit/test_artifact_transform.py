@@ -1727,6 +1727,9 @@ def test_point_crop_templates_match_retuned_normalized_sizes() -> None:
             "square": (0.48, 0.48),
             "portrait": (0.48, 0.82),
         },
+        "span_line": {
+            "wide": (0.85, 0.14),
+        },
     }
     assert point_crops_mod._POINT_CROP_TEMPLATES == expected
 
@@ -2114,6 +2117,104 @@ def test_point_crop_small_plus_wide_is_atom_line_scoped() -> None:
     wide = point_crops_mod._POINT_CROP_TEMPLATES["small_plus"]["wide"]
     assert wide == (0.48, 0.13)
     assert wide[1] < 0.24
+
+
+def test_point_crop_span_line_template_is_wider_with_modest_height() -> None:
+    import tooling.mapping.transcript_edit.point_crops as point_crops_mod
+
+    span = point_crops_mod._POINT_CROP_TEMPLATES["span_line"]["wide"]
+    atom = point_crops_mod._POINT_CROP_TEMPLATES["small_plus"]["wide"]
+    assert span == (0.85, 0.14)
+    assert span[0] > atom[0]
+    assert 0.13 <= span[1] <= 0.16
+
+
+def test_point_crops_accepts_span_line_mode(tmp_path, monkeypatch) -> None:
+    handler, ref_id = _make_handler(tmp_path, monkeypatch)
+    result = handler({
+        "ref_id": ref_id,
+        **_point_crops_request(size="span_line", shape="wide"),
+    })
+    assert result["executed"] is True
+    point = result["outputs"]["crop_set"]["points"][0]
+    assert point["size"] == "span_line"
+    assert point["shape"] == "wide"
+    assert point["crop_intent"] == "span_line"
+    assert point["template_width_height_norm"] == [0.85, 0.14]
+    assert point["resolved_width_height_norm"] == [0.85, 0.14]
+    assert point["box_norm"][2] - point["box_norm"][0] > 0.48
+
+
+def test_point_crops_span_line_explicit_dimensions_override_template(tmp_path, monkeypatch) -> None:
+    handler, ref_id = _make_handler(tmp_path, monkeypatch)
+    result = handler({
+        "ref_id": ref_id,
+        "sub_action": "point_crops",
+        "params": {
+            "points": [{
+                "alias": "line_span",
+                "point_norm": [0.5, 0.5],
+                "size": "span_line",
+                "shape": "wide",
+                "width_norm": 0.72,
+                "height_norm": 0.15,
+            }],
+        },
+    })
+    assert result["executed"] is True
+    point = result["outputs"]["crop_set"]["points"][0]
+    assert point["crop_intent"] == "span_line"
+    assert point["explicit_width_height_norm"] == [0.72, 0.15]
+    assert point["resolved_width_height_norm"] == [0.72, 0.15]
+
+
+def test_point_crops_rejects_span_line_non_wide_shape() -> None:
+    import tooling.mapping.transcript_edit.point_crops as point_crops_mod
+
+    err = point_crops_mod.validate_point_crops_params({
+        "points": [{
+            "alias": "bad_span",
+            "point_norm": [0.5, 0.5],
+            "size": "span_line",
+            "shape": "square",
+        }],
+    })
+    assert err is not None
+    assert "span_line requires shape wide" in err
+
+
+def test_point_crops_adjust_can_convert_point_to_span_line(tmp_path, monkeypatch) -> None:
+    handler, source_ref = _make_handler(tmp_path, monkeypatch, d="d1", tx="tx-1", ws="ws-1")
+    created = handler({
+        "ref_id": source_ref,
+        **_point_crops_request(size="small_plus", shape="wide"),
+    })
+    adjusted = handler(_point_crops_adjust_request(
+        master_ref=created["outputs"]["derived_ref_id"],
+        adjust=[{"letter": "A", "size": "span_line"}],
+    ))
+    assert adjusted["executed"] is True
+    point = adjusted["outputs"]["crop_set"]["points"][0]
+    assert point["size"] == "span_line"
+    assert point["crop_intent"] == "span_line"
+    applied = adjusted["outputs"]["adjustments_applied"][0]
+    assert applied["prior_size"] == "small_plus"
+    assert applied["new_size"] == "span_line"
+    assert applied["new_crop_intent"] == "span_line"
+    assert applied["new_resolved_width_height_norm"] == [0.85, 0.14]
+
+
+def test_point_crops_span_line_review_line_includes_intent(tmp_path, monkeypatch) -> None:
+    handler, ref_id = _make_handler(tmp_path, monkeypatch)
+    result = handler({
+        "ref_id": ref_id,
+        **_point_crops_request(size="span_line", shape="wide", alias="p1_begin_canal_offset"),
+    })
+    line = result["outputs"]["crop_set"]["review_lines"][0]
+    assert "size=span_line/wide" in line
+    assert "intent=span_line" in line
+    assert "point=[" in line
+    assert "box=[" in line
 
 
 def test_point_crop_explicit_dimensions_override_template() -> None:

@@ -59,6 +59,9 @@ def _compact_point_row(point: Mapping[str, Any]) -> dict[str, Any]:
         "size": point.get("size"),
         "shape": point.get("shape"),
     }
+    crop_intent = point.get("crop_intent")
+    if isinstance(crop_intent, str) and crop_intent.strip():
+        row["crop_intent"] = crop_intent.strip()
     if point_norm is not None:
         row["point_norm"] = point_norm
     if box_norm is not None:

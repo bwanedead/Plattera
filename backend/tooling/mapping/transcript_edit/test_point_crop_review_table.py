@@ -37,6 +37,13 @@ def test_nearest_major_anchor_and_offset_example() -> None:
     assert offset_from_anchor([0.732, 0.684], anchor) == [0.032, -0.016]
 
 
+def test_rendered_line_includes_span_line_intent() -> None:
+    row = build_review_row(_sample_point(size="span_line", shape="wide", crop_intent="span_line"))
+    line = render_review_line(row)
+    assert "size=span_line/wide" in line
+    assert "intent=span_line" in line
+
+
 def test_rendered_line_includes_signed_offsets() -> None:
     row = build_review_row(_sample_point())
     line = render_review_line(row)

@@ -881,6 +881,8 @@ def test_tool_spec_transform_teaches_point_crops_as_default_path() -> None:
     assert "visual_boxes_suppressed" in combined or "metadata-only" in combined
     assert "review_rows" in combined
     assert "review_lines" in combined
+    assert "span_line" in combined
+    assert "line-span" in combined or "line span" in combined
     assert "master overlay is the native control surface" in combined
     assert "legacy compatibility sub_action" in combined
     assert "not the point-crop placement surface" in combined

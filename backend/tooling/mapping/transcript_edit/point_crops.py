@@ -42,6 +42,9 @@ _POINT_CROP_TEMPLATES: dict[str, dict[str, tuple[float, float]]] = {
         "square": (0.48, 0.48),
         "portrait": (0.48, 0.82),
     },
+    "span_line": {
+        "wide": (0.85, 0.14),
+    },
 }
 
 # Stable readable colors for A, B, C... within one overlay call.
@@ -57,8 +60,9 @@ _POINT_COLORS: list[tuple[int, int, int]] = [
 MAX_POINT_CROP_COUNT = 16
 DEFAULT_SHOW = ["pin", "letter"]
 ALLOWED_SHOW = frozenset({"pin", "box", "letter"})
-ALLOWED_SIZES = frozenset({"small", "small_plus", "medium", "large"})
-_SIZE_OPTIONS_TEXT = "small|small_plus|medium|large"
+SPAN_LINE_CROP_INTENT = "span_line"
+ALLOWED_SIZES = frozenset({"small", "small_plus", "medium", "large", "span_line"})
+_SIZE_OPTIONS_TEXT = "small|small_plus|medium|large|span_line"
 _SIZE_LEGEND_ORDER = ("small", "small_plus", "medium", "large")
 ALLOWED_SHAPES = frozenset({"wide", "portrait", "square"})
 MIN_EXPLICIT_DIM_NORM = 0.02
@@ -73,6 +77,7 @@ MAX_CROP_OUTPUT_DIMENSION = 3200
 DEFAULT_ZOOM_BY_SIZE: dict[str, float] = {
     "small": 3.0,
     "small_plus": 2.75,
+    "span_line": 2.5,
     "medium": 2.25,
     "large": 1.5,
 }
@@ -111,6 +116,37 @@ _LEGEND_SIZE_COLORS: dict[str, tuple[int, int, int]] = {
 }
 _LEGEND_SQUARE_PX = {"small": 14, "small_plus": 17, "medium": 20, "large": 28}
 _LEGEND_EXTENSION_PX = 18
+
+
+def crop_intent_for_point(point: Mapping[str, Any]) -> str | None:
+    """Mechanical crop intent derived from explicit span-line size selection."""
+    if str(point.get("size") or "").strip().lower() == SPAN_LINE_CROP_INTENT:
+        return SPAN_LINE_CROP_INTENT
+    return None
+
+
+def resolved_dims_from_template(
+    *,
+    size: str,
+    shape: str,
+    scale_x: float = 1.0,
+    scale_y: float = 1.0,
+    width_norm: float | None = None,
+    height_norm: float | None = None,
+) -> list[float]:
+    """Normalized width/height after template, explicit override, and axis scale."""
+    if width_norm is not None and height_norm is not None:
+        base_w = float(width_norm)
+        base_h = float(height_norm)
+    else:
+        template = _POINT_CROP_TEMPLATES.get(size, {}).get(shape)
+        if template is None:
+            raise PointCropParamError(f"Unknown point-crop template size/shape: {size}/{shape}.")
+        base_w, base_h = template
+    return [
+        round(base_w * _normalize_axis_scale(scale_x), 6),
+        round(base_h * _normalize_axis_scale(scale_y), 6),
+    ]
 
 
 class PointCropParamError(Exception):
@@ -153,6 +189,8 @@ def validate_point_crops_params(params: dict[str, Any]) -> str | None:
             return f"params.points[{i}].size must be {_SIZE_OPTIONS_TEXT}."
         if shape not in ALLOWED_SHAPES:
             return f"params.points[{i}].shape must be wide|portrait|square."
+        if size == SPAN_LINE_CROP_INTENT and shape != "wide":
+            return f"params.points[{i}].size span_line requires shape wide."
         p["size"] = size
         p["shape"] = shape
         if "graph_ref" in p:
@@ -951,6 +989,9 @@ def compute_point_crops(img: Any, params: dict[str, Any]) -> dict[str, Any]:
         }
         if geo.get("explicit_width_height_norm") is not None:
             row["explicit_width_height_norm"] = geo["explicit_width_height_norm"]
+        crop_intent = crop_intent_for_point(p)
+        if crop_intent:
+            row["crop_intent"] = crop_intent
         if isinstance(p.get("graph_ref"), dict):
             row["graph_ref"] = dict(p["graph_ref"])
         per_point_data.append(row)
@@ -1059,6 +1100,9 @@ def build_crop_set_point_record(point: dict[str, Any], *, crop_ref: str | None =
     row.update(_copy_zoom_metadata(point))
     row.update(_copy_scale_metadata(point))
     row.update(copy_projection_fields(point))
+    crop_intent = crop_intent_for_point(point)
+    if crop_intent:
+        row["crop_intent"] = crop_intent
     return row
 
 
@@ -1209,6 +1253,8 @@ def prepare_point_crops_adjust(
         shape = str(pt.get("shape") or "").strip().lower()
         if size not in ALLOWED_SIZES or shape not in ALLOWED_SHAPES:
             raise PointCropParamError(f"Prior crop_set point {alias!r} has invalid size/shape.")
+        if size == SPAN_LINE_CROP_INTENT and shape != "wide":
+            raise PointCropParamError(f"Prior crop_set point {alias!r} has invalid span_line shape.")
         row = {
             "alias": alias,
             "letter": letter,
@@ -1352,12 +1398,18 @@ def prepare_point_crops_adjust(
             if size not in ALLOWED_SIZES:
                 raise PointCropParamError(f"params.adjust[{i}].size must be {_SIZE_OPTIONS_TEXT}.")
             new_size = size
+            if new_size == SPAN_LINE_CROP_INTENT:
+                new_shape = "wide"
 
         if "shape" in adj:
             shape = str(adj.get("shape") or "").strip().lower()
             if shape not in ALLOWED_SHAPES:
                 raise PointCropParamError(f"params.adjust[{i}].shape must be wide|portrait|square.")
             new_shape = shape
+            if new_size == SPAN_LINE_CROP_INTENT and new_shape != "wide":
+                raise PointCropParamError(
+                    f"params.adjust[{i}].size span_line requires shape wide.",
+                )
 
         if "zoom_factor" in adj:
             zoom_err = _validate_zoom_factor_raw(
@@ -1460,6 +1512,39 @@ def prepare_point_crops_adjust(
             "prior_shape": prior_shape,
             "new_shape": new_shape,
         }
+        prior_intent = crop_intent_for_point({"size": prior_size})
+        new_intent = crop_intent_for_point({"size": new_size})
+        if prior_intent != new_intent:
+            applied["prior_crop_intent"] = prior_intent
+            applied["new_crop_intent"] = new_intent
+        if (
+            new_size != prior_size
+            or new_shape != prior_shape
+            or _normalize_axis_scale(new_scale_x) != _normalize_axis_scale(prior_scale_x)
+            or _normalize_axis_scale(new_scale_y) != _normalize_axis_scale(prior_scale_y)
+            or not _explicit_dimensions_equal(
+                prior_width_norm,
+                prior_height_norm,
+                new_width_norm,
+                new_height_norm,
+            )
+        ):
+            applied["prior_resolved_width_height_norm"] = resolved_dims_from_template(
+                size=prior_size,
+                shape=prior_shape,
+                scale_x=prior_scale_x,
+                scale_y=prior_scale_y,
+                width_norm=prior_width_norm,
+                height_norm=prior_height_norm,
+            )
+            applied["new_resolved_width_height_norm"] = resolved_dims_from_template(
+                size=new_size,
+                shape=new_shape,
+                scale_x=new_scale_x,
+                scale_y=new_scale_y,
+                width_norm=new_width_norm,
+                height_norm=new_height_norm,
+            )
         if prior_zoom_effective != new_zoom_effective:
             applied["prior_zoom_factor"] = prior_zoom_effective
             applied["new_zoom_factor"] = new_zoom_effective

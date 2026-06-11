@@ -75,6 +75,10 @@ def build_review_row(
     if shape:
         row["shape"] = shape
 
+    crop_intent = str(point.get("crop_intent") or "").strip()
+    if crop_intent:
+        row["crop_intent"] = crop_intent
+
     zoom_factor = point.get("zoom_factor")
     if zoom_factor is not None:
         try:
@@ -118,6 +122,9 @@ def render_review_line(row: Mapping[str, Any]) -> str:
     if isinstance(box_norm, (list, tuple)) and len(box_norm) == 4:
         parts.append(f"box={_fmt_box(box_norm)}")
     parts.append(f"size={size_shape}")
+    crop_intent = str(row.get("crop_intent") or "").strip()
+    if crop_intent:
+        parts.append(f"intent={crop_intent}")
     if row.get("zoom_factor") is not None:
         parts.append(f"zoom={row.get('zoom_factor')}")
     anchor = row.get("nearest_major_anchor")
