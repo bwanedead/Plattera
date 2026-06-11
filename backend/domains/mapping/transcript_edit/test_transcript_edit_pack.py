@@ -309,6 +309,18 @@ def test_domain_pack_declares_semantic_prompt_blocks() -> None:
     assert "opportunistic harvesting of nearby atoms, never as the determination target" in text
     assert "does not re-litigate them; what you earn here is what gets built" in text
     assert "every stage inherits the previous stage's discipline or its corruption" in text
+    assert "run sanity guide" in text
+    assert "early run is inventory" in text
+    assert "inventory is atom capture, not proof" in text
+    assert "do not make determinations during inventory" in text
+    assert "breach of run sanity" in text
+    assert "inventory registers the question and candidate postures; resolution earns the answer" in text
+    assert "resolution is verification" in text
+    assert "point-crop the atom" in text
+    assert "bullseye placement" in text
+    assert "hitl is last resort" in text
+    assert "closure is short and earned" in text
+    assert "user steering is highest-signal" in text
     assert "transcript-edit work universe: t0 gives shape, source gives truth" in text
     assert "packet ref or targeted read is available" in text
     assert "heads/finals" not in text
@@ -349,9 +361,17 @@ def test_domain_pack_declares_semantic_prompt_blocks() -> None:
     assert "`determined_value` replaces it" in guidance.text
     assert "broader source structures are useful as groups, but they are not atoms" in text
     assert "more than a few words" in text
+    assert "multiple separated values" in text
+    assert "carries a prose tail" in text
+    assert "drop prose tails unless they are vital" in text
+    assert "atomize the tail instead of stapling it onto the value" in text
     assert "before resolution, check the graph hard" in text
     assert "inventory is not done" in text
     assert "fast t0-shaped atomization pass" in text
+    assert "before promoting from inventory into resolution, take one inventory-review turn" in text
+    assert "this is not source proof and it is not perfectionism" in text
+    assert "span-shaped units are rare and justified" in text
+    assert "if the answer is no, finish inventory. if the answer is yes, promote and move" in text
     assert "obvious t0-visible atoms should not be deferred" in text
     assert "required persistent refs" in text
     assert "turn 1 inventory setup" in text
@@ -395,6 +415,11 @@ def test_domain_pack_declares_semantic_prompt_blocks() -> None:
     assert "agent-authored pinning preserves agency" in text
     assert "do not hydrate every individual crop ref just to inspect basic placement" in text
     assert "costly, becomes a spin vector" in text
+    assert "promotion turn into point-crop resolution" in text
+    assert "hydrate and preferably pin the scaffold/master overlay" in text
+    assert "do not point-crop blind from the raw source image" in text
+    assert "bullseye coordinates become possible" in text
+    assert "guesses create crop spin" in text
     assert "largest coherent point packet" in text
     assert "resolve by local clusters, not isolated drips" in text
     assert "one overlay review, one delegate wave, and one dense integration pass" in text

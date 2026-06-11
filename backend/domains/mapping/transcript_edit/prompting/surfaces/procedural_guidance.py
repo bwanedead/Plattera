@@ -10,7 +10,7 @@ from ..branch import TRANSCRIPT_EDIT_DOMAIN_ID
 TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_SOURCE_REF = (
     "backend/domains/mapping/transcript_edit/prompting/surfaces/procedural_guidance.py"
 )
-TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_VERSION = "v38"
+TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_VERSION = "v40"
 
 TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_TEXT = """\
 Use this guidance to shape your movement through transcript-edit work. This is **guidance**, not a hard script. The harness still owns orchestration. You should apply judgment based on what the current run actually contains.
@@ -27,6 +27,25 @@ This domain is one machine with a dependency chain, not a pile of tools. Underst
 
 Every stage inherits the previous stage's discipline or its corruption. Atomize precisely and the machine runs clean: points land, crops read, delegates answer in one word, values patch, closure earns itself.
 
+## Run sanity guide
+Early run is inventory. Orient from T0 drafts, keep one useful T0 pinned, and build the work universe fast. Inventory is atom capture, not proof. Capture the details downstream mapping will consume as parameters: numbers, directions, measurements, quantities, location facts, boundary facts, identifiers, and other operative values. If a detail is likely not a parameter or handoff-critical fact, do not let it crowd the graph.
+
+Atoms need candidate values so future turns know what exact page detail the unit refers to. A candidate is a placeholder, not earned truth. Use T0 wording as a reference handle, but do not give it truth weight.
+
+Do not bundle atoms. If something is a number or small operative value, it probably needs its own covered unit. The degree an atom becomes a span is the degree inventory failed; bad atomization poisons point crops, delegates, and closure. Drop prose tails unless the tail is genuinely mission-critical; if it is vital, make the tail its own atom or atoms when feasible so downstream cropping still has a real target. Prose webbing between values is usually trusted unless it looks weird. Capture the values, organize groups sanely, and move on.
+
+DO NOT MAKE DETERMINATIONS DURING INVENTORY. That is a breach of run sanity. If source evidence is needed to decide something, that is resolution work. Inventory registers the question and candidate postures; resolution earns the answer.
+
+Resolution is verification. Determine whether the atoms are accurate and what their earned values are. Use the economic loop: point-crop the atom, send crop refs to delegates in coherent waves, integrate clear reads, and repeat until the atom set is resolved. Point crops need bullseye placement because they capture a small window around a spot; this is why atoms must be small exact details, not spans.
+
+Use `small_plus` wide for ordinary atom reads. Use larger crops or a different method only when the real unit is not suited to the small crop/delegate loop. Do not force the default path onto edge cases, but use it when the work is ordinary atom verification.
+
+HITL is last resort. Ask the user when the source/evidence set cannot decide something after honest effort, or when external information is required.
+
+Closure is short and earned. Once the atom set is resolved as far as possible and closure layers are honestly progressed, produce the required final artifacts/output, make the handoff posture explicit, and finish.
+
+User steering is highest-signal. If the user gives direct information, treat it as first-class and do not override it with weaker source/delegate momentum. If it conflicts with evidence, surface the conflict and why, but the user's instruction controls the run.
+
 ## Transcript-edit work universe: t0 gives shape, source gives truth
 Use t0 drafts aggressively for initial shape, not for earned truth. T0 is the fast substrate for visible document structure, local clusters, likely mission-critical atoms, omissions, contradictions, cutoffs, disagreement hotspots, and candidate readings. Use that broad shape as leverage; do not repeat the same broad-read method as if it were a new proof tier. A parent broad reread may orient or catch missing inventory, but for small exact map-critical atoms it usually does not beat the T0-shaped opening process.
 
@@ -38,9 +57,9 @@ Atomize actual atoms. This is a demand. Do it. Use T0 wording as the placeholder
 
 When T0 shows an atom, do not leave the atom blank. Put the T0 representation in `candidate_values` as the placeholder for targeting and review. Candidate values are NOT earned truth; source proof later earns, corrects, or rejects them. This matters because the placeholder makes point-crop targeting more intuitive, gives the graph a tangible atom shape for the user to inspect, and gives future turns more context for reference and anchoring until an earned `determined_value` replaces it.
 
-Broader source structures are useful as groups, but they are not atoms. If a proposed covered unit is more than a few words, assume it is probably hiding multiple atoms until proven otherwise. Each granular mission-critical detail must be exposed as its own covered unit so it can be verified, delegated, blocked, reopened, or closed by itself. Before resolution, check the graph hard: if visible mission-critical atoms are missing or bundled, inventory is not done.
+Broader source structures are useful as groups, but they are not atoms. If a proposed covered unit is more than a few words, contains multiple separated values, or carries a prose tail, assume it is probably hiding multiple atoms until proven otherwise. Split it when feasible. Drop prose tails unless they are vital; if the tail matters, atomize the tail instead of stapling it onto the value. Each granular mission-critical detail must be exposed as its own covered unit so it can be verified, delegated, blocked, reopened, or closed by itself. Before resolution, check the graph hard: if visible mission-critical atoms are missing or bundled, inventory is not done.
 
-For this domain, a good opening inventory should usually be a **fast T0-shaped atomization pass**, not a long source-investigation phase. Promote to `work_universe_posture: believed_adequate` and `motion_posture: resolution` once, from the current vantage point, you cannot name another visible map-critical atom that needs representation. Later discoveries can amend the graph, but obvious T0-visible atoms should not be deferred into expensive late backtracking. Inventory does not have to be perfect forever — it has to be honest enough that resolution can proceed without obvious missing units.
+For this domain, a good opening inventory should usually be a **fast T0-shaped atomization pass**, not a long source-investigation phase. Before promoting from inventory into resolution, take one inventory-review turn. This is not source proof and it is not perfectionism; it is the sanity check that the map-critical atom universe is represented, the covered units are actual granular atoms, candidate placeholders exist where T0 shows the atom shape, and span-shaped units are rare and justified. If the answer is no, finish inventory. If the answer is yes, promote and move. Promote to `work_universe_posture: believed_adequate` and `motion_posture: resolution` once, from the current vantage point, you cannot name another visible map-critical atom that needs representation. Later discoveries can amend the graph, but obvious T0-visible atoms should not be deferred into expensive late backtracking. Inventory does not have to be perfect forever — it has to be honest enough that resolution can proceed without obvious missing units.
 
 During resolution, apply the branch earned-reading standard before closing units. Keep early layer posture provisional with statuses like `unassessed`, `in_review`, or `open` until the relevant review coverage has actually been worked, and use `determination` when you want the provisional vs earned distinction to remain explicit in persisted state.
 
@@ -84,6 +103,8 @@ For ordinary cursive atom reads, **`small_plus` / `small+` wide is the normal at
 Point-crop resolution is master-overlay-native. The master overlay is the control surface for the crop universe: coordinate lattice, target dots, letters, crop refs, and point table in one artifact. Put the master overlay ref in `pin_refs` for every-turn hydration during continued resolution pockets. This is not a nice-to-have. If the agent refuses to do it sensibly, the harness may eventually have to force-pin it mechanically; agent-authored pinning preserves agency only if the agent actually pins the high-value control artifact.
 
 Use the master overlay for placement sanity and packet wiring. Do not hydrate every individual crop ref just to inspect basic placement; that is costly, becomes a spin vector, and duplicates work the delegate is meant to do. The parent curates packets, integrates graph state, and manages motion economy. Delegates do targeted local reads. Individual per-point **crop refs** are the packets for exact reads, `hydrate_artifact_refs`, `delegate_subtask`, and HITL context. The master overlay is for packet sanity; the crop refs are for reading.
+
+On the promotion turn into point-crop resolution, hydrate and preferably pin the scaffold/master overlay so the coordinate lattice is visible before placing any point crops. Do not point-crop blind from the raw source image. The scaffold/master overlay is how bullseye coordinates become possible; point crops made before seeing the coordinate surface are guesses, and guesses create crop spin.
 
 Aim point-crop targets bullseye-close to the target atom. A vague dot near a paragraph is weak evidence, but do not spin for perfect center if the atom is already contained, readable, and anchored. If the unit is a span, the packet must fairly contain the span or the run should use a broader read and isolate any pivotal internal atoms separately. If the overlay plainly shows a miss or a packet that is too tight/loose, use **`point_crops_adjust`** by letter or alias to move, resize, reshape, set point-centered dimensions, scale an axis, or change zoom. Use the point table as the coordinate record: adjust the existing letter or alias from its recorded coordinate instead of guessing the point again from scratch. When a subset matters and the full overlay is cluttered, **`point_crops_view`** can render a filtered overlay.
 
