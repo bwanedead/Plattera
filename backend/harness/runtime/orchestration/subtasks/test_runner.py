@@ -10,6 +10,7 @@ from harness.runtime.orchestration.subtasks.contracts import (
 )
 from harness.runtime.orchestration.subtasks.registry import DEFAULT_SUBTASK_REGISTRY, SubtaskProfileRegistry
 from harness.runtime.orchestration.subtasks.prompting import build_child_prompt
+from harness.runtime.llm.llm_call_trace import build_llm_call_trace
 from harness.runtime.orchestration.subtasks.runner import (
     normalize_child_output,
     run_delegate_subtask,
@@ -107,6 +108,52 @@ def test_run_delegate_subtask_uses_stubbed_model_and_image_side_channel() -> Non
     assert isinstance(image_refs, list) and image_refs
     assert image_refs[0].get("ref_id") == "artifact:sample"
     assert "b64" not in image_refs[0]
+
+
+def test_run_delegate_subtask_persists_llm_call_trace_on_model_response() -> None:
+    profile = DEFAULT_SUBTASK_REGISTRY.require("harness.observation")
+    llm_trace = build_llm_call_trace(
+        call_role="delegate",
+        call_name="delegate_subtask",
+        model="model-a",
+        started_at_epoch_seconds=1.0,
+        finished_at_epoch_seconds=2.0,
+        prompt_char_count=50,
+        response_char_count=80,
+        input_tokens=100,
+        output_tokens=20,
+    )
+
+    def model_caller(prompt: str, model_name: str, *, call_options):
+        return {
+            "text": json.dumps(
+                {
+                    "status": "completed",
+                    "result": {
+                        "reading": "A",
+                        "ambiguity": "",
+                        "observations": [],
+                        "limits": [],
+                    },
+                }
+            ),
+            "llm_call_trace": llm_trace,
+        }
+
+    output = run_delegate_subtask(
+        subtask_id="local_subtask",
+        request=_request(),
+        profile=profile,
+        model_caller=model_caller,
+        default_model_name="model-a",
+        hydration_handler=None,
+        parent_request=_parent_request(),
+    )
+    trace = output.get("subtask_trace") or {}
+    embedded = trace.get("llm_call_trace")
+    assert isinstance(embedded, dict)
+    assert embedded.get("call_role") == "delegate"
+    assert embedded.get("input_tokens") == 100
 
 
 def test_normalize_child_output_accepts_allowed_statuses() -> None:

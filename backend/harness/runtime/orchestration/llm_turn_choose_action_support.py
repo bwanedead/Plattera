@@ -11,6 +11,8 @@ from .audit_turn_mechanics import build_host_hydration_before_turn
 from .contracts import OrchestratorContext
 from .lifecycle import lifecycle_jsonable
 from .llm_prompt_builder import jsonable
+from harness.runtime.llm.llm_call_trace import collect_llm_call_traces
+
 from .repair_lane import RepairAttempt, extract_audit_text
 from .tool_batch_policy import ToolBatchPolicy, resolve_policies_for_action_plan_parse
 
@@ -124,6 +126,7 @@ def build_llm_io_audit_record(
     resolution_state_before: Any,
     latest_refs_before: Mapping[str, Any],
     prompt_observability_summary: Mapping[str, Any] | None = None,
+    extra_llm_call_traces: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     raw_response_text = extract_audit_text(raw_response)
     provider_audit = provider_audit_fields(raw_response, raw_response_text=raw_response_text)
@@ -163,6 +166,16 @@ def build_llm_io_audit_record(
     )
     if isinstance(prompt_observability_summary, Mapping) and prompt_observability_summary:
         record["prompt_observability_summary"] = dict(prompt_observability_summary)
+    llm_traces = collect_llm_call_traces(
+        raw_response=raw_response,
+        repair_records=repair_records,
+        extra_traces=extra_llm_call_traces,
+    )
+    if llm_traces:
+        if len(llm_traces) == 1:
+            record["llm_call_trace"] = llm_traces[0]
+        else:
+            record["llm_call_traces"] = llm_traces
     return record
 
 
@@ -171,7 +184,7 @@ def build_repair_audit_record(repair_attempt: RepairAttempt) -> dict[str, Any]:
     repaired_count: int | None = None
     if repaired_plan is not None and repaired_plan.actions:
         repaired_count = len(repaired_plan.actions)
-    return {
+    record: dict[str, Any] = {
         "repair_prompt_mode": "repair",
         "repair_prompt_text": repair_attempt.repair_prompt_text,
         "repair_raw_response_text": repair_attempt.repair_raw_response_text,
@@ -182,3 +195,6 @@ def build_repair_audit_record(repair_attempt: RepairAttempt) -> dict[str, Any]:
             jsonable(repaired_plan) if repaired_plan is not None else None
         ),
     }
+    if isinstance(repair_attempt.llm_call_trace, Mapping):
+        record["llm_call_trace"] = dict(repair_attempt.llm_call_trace)
+    return record

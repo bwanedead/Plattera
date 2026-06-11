@@ -5,6 +5,8 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from harness.runtime.llm.llm_call_trace import sanitize_llm_call_trace
+
 # ``total_seconds`` and ``wall_seconds`` are the same end-to-end delegate wall clock
 # (perf_counter span). Both are kept: ``wall_seconds`` is explicit; ``total_seconds``
 # preserves backward compatibility for older readers.
@@ -70,6 +72,7 @@ def build_subtask_trace(
     finished_at_epoch_seconds: float | None = None,
     wall_seconds: float | None = None,
     retry_count: int = 0,
+    llm_call_trace: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build a bounded mechanical subtask trace dict."""
     trace: dict[str, Any] = {}
@@ -95,6 +98,10 @@ def build_subtask_trace(
     ):
         if value is not None:
             trace[key] = _round_seconds(value) if key.endswith("_seconds") else value
+    if isinstance(llm_call_trace, Mapping):
+        compact_llm = sanitize_llm_call_trace(llm_call_trace)
+        if compact_llm:
+            trace["llm_call_trace"] = compact_llm
     return trace
 
 
@@ -123,6 +130,11 @@ def compact_subtask_trace(trace: object) -> dict[str, object] | None:
     image_refs = compact_image_refs_for_trace(trace.get("image_refs"))
     if image_refs:
         out["image_refs"] = image_refs
+    llm_trace = trace.get("llm_call_trace")
+    if isinstance(llm_trace, Mapping):
+        compact_llm = sanitize_llm_call_trace(llm_trace)
+        if compact_llm:
+            out["llm_call_trace"] = compact_llm
     return out or None
 
 
@@ -151,6 +163,9 @@ def format_delegate_trace_timing_parts(trace: Mapping[str, Any]) -> list[str]:
         parts.append(f"prompt_chars={trace['prompt_char_count']}")
     if trace.get("image_attachment_count") is not None:
         parts.append(f"images={trace['image_attachment_count']}")
+    llm_trace = trace.get("llm_call_trace")
+    if isinstance(llm_trace, Mapping):
+        parts.extend(_llm_trace_timing_token_parts(llm_trace))
     image_refs = trace.get("image_refs")
     if isinstance(image_refs, list):
         for row in image_refs[:4]:
@@ -198,6 +213,26 @@ def _compact_image_ref_row(row: Mapping[str, Any]) -> dict[str, Any] | None:
     if len(out) == 1:
         return out
     return {key: out[key] for key in _IMAGE_REF_TRACE_KEYS if key in out}
+
+
+def _llm_trace_timing_token_parts(trace: Mapping[str, Any]) -> list[str]:
+    parts: list[str] = []
+    if trace.get("input_tokens") is not None:
+        parts.append(f"tokens=input={trace['input_tokens']}")
+    if trace.get("cached_input_tokens") is not None:
+        parts.append(f"cached={trace['cached_input_tokens']}")
+    if trace.get("output_tokens") is not None:
+        parts.append(f"output={trace['output_tokens']}")
+    if trace.get("reasoning_tokens") is not None:
+        parts.append(f"reasoning={trace['reasoning_tokens']}")
+    retries = trace.get("retry_count_observed")
+    if retries is not None:
+        parts.append(f"retries={retries}")
+    elif trace.get("max_retries_configured") is not None:
+        parts.append("retries=?")
+    if trace.get("streaming_requested") is not None:
+        parts.append(f"streaming={str(bool(trace['streaming_requested'])).lower()}")
+    return parts
 
 
 def _round_seconds(value: Any) -> float:

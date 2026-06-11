@@ -13,6 +13,44 @@ def _timeline_path(run_dir: Path) -> Path:
     return run_dir.joinpath(*TIMELINE_REL)
 
 
+def test_timeline_renders_parent_llm_call_trace(tmp_path: Path) -> None:
+    writer = RunAuditWriter(tmp_path / "run-llm-trace")
+    writer.observe_llm_io(
+        {
+            "turn_index": 1,
+            "parse_ok": True,
+            "llm_call_trace": {
+                "provider": "openai",
+                "call_role": "parent",
+                "call_name": "choose_action",
+                "model": "gpt-5.4",
+                "started_at_epoch_seconds": 100.0,
+                "finished_at_epoch_seconds": 157.4,
+                "wall_seconds": 57.4,
+                "prompt_char_count": 187161,
+                "response_char_count": 4200,
+                "input_tokens": 40086,
+                "cached_input_tokens": 1200,
+                "output_tokens": 900,
+                "reasoning_tokens": 300,
+                "total_tokens": 40986,
+                "service_tier_requested": None,
+                "service_tier_returned": "default",
+                "streaming_requested": False,
+                "streaming_supported": True,
+            },
+        }
+    )
+    body = _timeline_path(tmp_path / "run-llm-trace").read_text(encoding="utf-8")
+    assert "LLM call:" in body
+    assert "provider/model: openai / gpt-5.4" in body
+    assert "wall: 57.4s" in body
+    assert "prompt=187161" in body
+    assert "input=40086" in body
+    assert "cached=1200" in body
+    assert "streaming: requested=false supported=true" in body
+
+
 def test_timeline_renders_host_hydration_and_output_gate(tmp_path: Path) -> None:
     writer = RunAuditWriter(tmp_path / "run-hydration-gate")
     writer.observe_llm_io(

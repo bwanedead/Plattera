@@ -26,6 +26,7 @@ class RepairAttempt:
     repair_parse_reason_code: str | None
     repair_parsed_action_plan: ActionPlan | None
     repair_error: ModelActionParseError | None
+    llm_call_trace: Mapping[str, Any] | None = None
 
 
 def count_attempted_actions_in_object(payload: Mapping[str, Any]) -> int | None:
@@ -164,8 +165,10 @@ def attempt_repair(
         phase=repair_prompt.call_phase,
     )
     raw_repair: Any = None
+    repair_trace: Mapping[str, Any] | None = None
     try:
         raw_repair = model_caller(repair_prompt_text, model_name, call_options=repair_opts)
+        repair_trace = _trace_from_response(raw_repair)
         plan = parse_action_plan_response(
             raw_repair,
             available_tool_ids=available_tool_ids,
@@ -180,6 +183,7 @@ def attempt_repair(
             repair_parse_reason_code=None,
             repair_parsed_action_plan=plan,
             repair_error=None,
+            llm_call_trace=repair_trace,
         )
     except ModelActionParseError as exc:
         return RepairAttempt(
@@ -189,8 +193,9 @@ def attempt_repair(
             repair_parse_reason_code=exc.reason_code,
             repair_parsed_action_plan=None,
             repair_error=exc,
+            llm_call_trace=repair_trace,
         )
-    except Exception:
+    except Exception as exc:
         err = ModelActionParseError("model_caller_exception", "repair attempt raised unexpected exception")
         return RepairAttempt(
             repair_prompt_text=repair_prompt_text,
@@ -199,7 +204,23 @@ def attempt_repair(
             repair_parse_reason_code="model_caller_exception",
             repair_parsed_action_plan=None,
             repair_error=err,
+            llm_call_trace=_trace_from_exception(exc) or repair_trace,
         )
+
+
+def _trace_from_response(raw: Any) -> Mapping[str, Any] | None:
+    if isinstance(raw, Mapping):
+        trace = raw.get("llm_call_trace")
+        if isinstance(trace, Mapping):
+            return dict(trace)
+    return None
+
+
+def _trace_from_exception(exc: BaseException) -> Mapping[str, Any] | None:
+    trace = getattr(exc, "llm_call_trace", None)
+    if isinstance(trace, Mapping):
+        return dict(trace)
+    return None
 
 
 def extract_audit_text(raw: Any) -> str:

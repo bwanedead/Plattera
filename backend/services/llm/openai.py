@@ -145,6 +145,22 @@ def _get_openai_api_key():
     logger.warning("OPENAI_KEY ► not found in keyring or environment")
     return None
 
+def _requested_service_tier_from_kwargs(kwargs: Dict[str, Any], *, call_opts: Any = None) -> str | None:
+    """Read a requested service tier for telemetry without changing API defaults."""
+    try:
+        from services.llm.call_options import LlmCallOptions
+    except ImportError:
+        LlmCallOptions = None  # type: ignore[misc, assignment]
+    if LlmCallOptions is not None and isinstance(call_opts, LlmCallOptions):
+        tier = getattr(call_opts, "service_tier", None)
+        if isinstance(tier, str) and tier.strip():
+            return tier.strip()
+    raw = kwargs.get("service_tier")
+    if isinstance(raw, str) and raw.strip():
+        return raw.strip()
+    return None
+
+
 class OpenAIService(LLMService):
     """OpenAI LLM service provider"""
     
@@ -372,11 +388,22 @@ class OpenAIService(LLMService):
         usage = getattr(response, "usage", None)
         if usage is None:
             return None
+        cached_input_tokens = getattr(usage, "cached_tokens", None)
+        if cached_input_tokens is None:
+            details = getattr(usage, "prompt_tokens_details", None)
+            if details is not None:
+                cached_input_tokens = getattr(details, "cached_tokens", None)
+        reasoning_tokens = getattr(usage, "reasoning_tokens", None)
+        if reasoning_tokens is None:
+            completion_details = getattr(usage, "completion_tokens_details", None)
+            if completion_details is not None:
+                reasoning_tokens = getattr(completion_details, "reasoning_tokens", None)
         return {
             "prompt_tokens": getattr(usage, "prompt_tokens", None),
             "completion_tokens": getattr(usage, "completion_tokens", None),
-            "reasoning_tokens": getattr(usage, "reasoning_tokens", None),
+            "reasoning_tokens": reasoning_tokens,
             "total_tokens": getattr(usage, "total_tokens", None),
+            "cached_input_tokens": cached_input_tokens,
         }
 
     def _text_failure_result(
@@ -525,17 +552,21 @@ class OpenAIService(LLMService):
                     finish_reason=finish_reason,
                 )
             
+            provider_model = getattr(response, "model", None) or api_model_name
+            service_tier_requested = _requested_service_tier_from_kwargs(kwargs, call_opts=call_opts)
             return {
                 "success": True,
                 "text": response_text,
                 "tokens_used": token_usage,
                 "model": model,
-                "usage": {
-                    "prompt_tokens": prompt_tokens,
-                    "completion_tokens": completion_tokens,
-                    "reasoning_tokens": reasoning_tokens,
-                    "total_tokens": token_usage
-                }
+                "provider_model": provider_model,
+                "api_model": api_model_name,
+                "finish_reason": finish_reason,
+                "char_count": len(response_text),
+                "response_id": getattr(response, "id", None),
+                "service_tier_requested": service_tier_requested,
+                "service_tier_returned": getattr(response, "service_tier", None),
+                "usage": usage_payload,
             }
             
         except Exception as e:
@@ -543,7 +574,8 @@ class OpenAIService(LLMService):
                 "success": False,
                 "error": str(e),
                 "text": None,
-                "model": model
+                "model": model,
+                "char_count": 0,
             }
     
     def call_vision(self, prompt: str, image_data: str, model: str, **kwargs) -> Dict[str, Any]:

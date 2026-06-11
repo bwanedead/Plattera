@@ -3,7 +3,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from services.llm.call_options import LlmCallOptions
-from services.llm.openai import OpenAIService
+from services.llm.openai import OpenAIService, _requested_service_tier_from_kwargs
 
 
 class _FakeChatCompletions:
@@ -120,6 +120,7 @@ def test_call_text_truncation_preserves_provider_metadata_and_partial_text() -> 
         "completion_tokens": 20000,
         "reasoning_tokens": 7000,
         "total_tokens": 32000,
+        "cached_input_tokens": None,
     }
     assert result["char_count"] == len('{"partial": true')
     assert result["model"] == "gpt-5.4-mini"
@@ -150,6 +151,7 @@ def test_call_text_content_filter_preserves_usage_metadata() -> None:
         "completion_tokens": 55,
         "reasoning_tokens": None,
         "total_tokens": 99,
+        "cached_input_tokens": None,
     }
     assert result["text"] is None
     assert result["char_count"] == 0
@@ -179,5 +181,43 @@ def test_call_text_empty_response_preserves_provider_envelope_fields() -> None:
         "completion_tokens": 7,
         "reasoning_tokens": 1,
         "total_tokens": 17,
+        "cached_input_tokens": None,
     }
     assert result["char_count"] == 0
+
+
+def test_usage_payload_reads_nested_completion_reasoning_tokens() -> None:
+    usage = OpenAIService._usage_payload(
+        SimpleNamespace(
+            usage=SimpleNamespace(
+                prompt_tokens=50,
+                completion_tokens=20,
+                total_tokens=70,
+                reasoning_tokens=None,
+                completion_tokens_details=SimpleNamespace(reasoning_tokens=15),
+            )
+        )
+    )
+    assert usage == {
+        "prompt_tokens": 50,
+        "completion_tokens": 20,
+        "reasoning_tokens": 15,
+        "total_tokens": 70,
+        "cached_input_tokens": None,
+    }
+
+
+def test_call_text_echoes_requested_service_tier_from_call_options() -> None:
+    service, _ = _service_with_fake_client(_FakeChatCompletions())
+    result = service.call_text(
+        "prompt",
+        "gpt-5.4-mini",
+        call_options=LlmCallOptions(output_mode="json_object", service_tier="flex"),
+    )
+    assert result["success"] is True
+    assert result["service_tier_requested"] == "flex"
+
+
+def test_requested_service_tier_from_kwargs_prefers_call_options() -> None:
+    opts = LlmCallOptions(service_tier="priority")
+    assert _requested_service_tier_from_kwargs({"service_tier": "flex"}, call_opts=opts) == "priority"

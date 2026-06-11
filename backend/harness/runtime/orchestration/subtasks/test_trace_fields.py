@@ -102,6 +102,58 @@ def test_format_delegate_trace_timing_parts_has_no_semantic_labels() -> None:
         assert forbidden not in joined.lower()
 
 
+def test_format_delegate_trace_includes_llm_call_trace_tokens() -> None:
+    parts = format_delegate_trace_timing_parts(
+        {
+            "wall_seconds": 80.55,
+            "prompt_char_count": 4140,
+            "llm_call_trace": {
+                "input_tokens": 900,
+                "cached_input_tokens": 120,
+                "output_tokens": 200,
+                "reasoning_tokens": 50,
+                "retry_count_observed": None,
+                "max_retries_configured": 4,
+                "streaming_requested": False,
+            },
+        }
+    )
+    joined = " ".join(parts)
+    assert "wall=80.55s" in joined
+    assert "prompt_chars=4140" in joined
+    assert "tokens=input=900" in joined
+    assert "cached=120" in joined
+    assert "output=200" in joined
+    assert "retries=?" in joined
+    assert "streaming=false" in joined
+
+
+def test_build_subtask_trace_embeds_llm_call_trace() -> None:
+    trace = build_subtask_trace(
+        model="gpt-5.4",
+        prompt_char_count=100,
+        wall_seconds=1.2,
+        llm_call_trace={
+            "provider": "openai",
+            "call_role": "delegate",
+            "call_name": "delegate_subtask",
+            "model": "gpt-5.4",
+            "started_at_epoch_seconds": 1.0,
+            "finished_at_epoch_seconds": 2.2,
+            "wall_seconds": 1.2,
+            "prompt_char_count": 100,
+            "response_char_count": 20,
+            "input_tokens": 10,
+            "output_tokens": 5,
+            "streaming_requested": False,
+            "streaming_supported": True,
+            "b64": "SECRET",
+        },
+    )
+    assert trace["llm_call_trace"]["call_role"] == "delegate"
+    assert "b64" not in trace["llm_call_trace"]
+
+
 def test_compact_subtask_trace_preserves_existing_fields() -> None:
     trace = compact_subtask_trace(
         {

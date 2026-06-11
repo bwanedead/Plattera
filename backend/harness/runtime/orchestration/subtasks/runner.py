@@ -19,6 +19,8 @@ from .contracts import (
     SubtaskProfile,
 )
 from .prompting import build_child_prompt, prompt_ref_summary
+from harness.runtime.llm.llm_call_trace import sanitize_llm_call_trace
+
 from .trace_fields import build_subtask_trace
 from .result_schema import (
     SubtaskResultSchemaError,
@@ -89,6 +91,7 @@ def run_delegate_subtask(
                 output_normalize_seconds=0.0,
             ),
             image_attachments=context.image_attachments,
+            llm_call_trace=_llm_call_trace_from_exception(exc),
         )
 
     model_call_seconds = _elapsed(model_start)
@@ -100,6 +103,7 @@ def run_delegate_subtask(
         profile=profile,
     )
     output_normalize_seconds = _elapsed(normalize_start)
+    llm_trace = _llm_call_trace_from_response(raw)
     normalized["subtask_trace"] = build_subtask_trace(
         model=model_name,
         prompt_char_count=len(prompt),
@@ -112,7 +116,8 @@ def run_delegate_subtask(
         started_at_epoch_seconds=started_at_epoch,
         finished_at_epoch_seconds=time.time(),
         wall_seconds=_elapsed(total_start),
-        retry_count=0,
+        retry_count=_retry_count_from_trace(llm_trace),
+        llm_call_trace=llm_trace,
     )
     if context.errors:
         normalized.setdefault("errors", [])
@@ -301,6 +306,7 @@ def _failed_output(
     profile: SubtaskProfile | None = None,
     timing_trace: Mapping[str, Any] | None = None,
     image_attachments: tuple[Mapping[str, Any], ...] = (),
+    llm_call_trace: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     failed_result = (
         empty_result_for_profile(profile, message=message)
@@ -335,11 +341,40 @@ def _failed_output(
         started_at_epoch_seconds=_trace_float(timing_trace, "started_at_epoch_seconds"),
         finished_at_epoch_seconds=_trace_float(timing_trace, "finished_at_epoch_seconds"),
         wall_seconds=_trace_float(timing_trace, "wall_seconds") or _trace_float(timing_trace, "total_seconds"),
-        retry_count=int(_trace_float(timing_trace, "retry_count") or 0),
+        retry_count=_retry_count_from_trace(llm_call_trace)
+        or int(_trace_float(timing_trace, "retry_count") or 0),
+        llm_call_trace=llm_call_trace,
     )
     if trace:
         out["subtask_trace"] = trace
     return out
+
+
+def _llm_call_trace_from_response(raw: Any) -> dict[str, Any] | None:
+    if isinstance(raw, Mapping):
+        trace = raw.get("llm_call_trace")
+        if isinstance(trace, Mapping):
+            return sanitize_llm_call_trace(trace)
+    return None
+
+
+def _llm_call_trace_from_exception(exc: BaseException) -> dict[str, Any] | None:
+    trace = getattr(exc, "llm_call_trace", None)
+    if isinstance(trace, Mapping):
+        return sanitize_llm_call_trace(trace)
+    return None
+
+
+def _retry_count_from_trace(trace: Mapping[str, Any] | None) -> int:
+    if not isinstance(trace, Mapping):
+        return 0
+    observed = trace.get("retry_count_observed")
+    if observed is not None:
+        try:
+            return int(observed)
+        except (TypeError, ValueError):
+            return 0
+    return 0
 
 
 def _timing_trace_payload(

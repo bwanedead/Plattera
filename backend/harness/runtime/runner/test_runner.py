@@ -402,7 +402,14 @@ def test_default_model_caller_passes_through_call_options(monkeypatch) -> None:
 
     result = model_caller("prompt text", "", call_options=opts)
 
-    assert result == {"success": True, "text": '{"action_type": null}'}
+    assert isinstance(result, dict)
+    assert result.get("success") is True
+    assert result.get("text") == '{"action_type": null}'
+    trace = result.get("llm_call_trace")
+    assert isinstance(trace, dict)
+    assert trace.get("call_role") == "parent"
+    assert trace.get("call_name") == "choose_action"
+    assert trace.get("prompt_char_count") == len("prompt text")
     assert len(calls) == 1
     prompt_sent, model_sent, kwargs_sent = calls[0]
     assert prompt_sent == "prompt text"

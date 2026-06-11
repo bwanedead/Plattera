@@ -56,6 +56,7 @@ from harness.runtime.model_failure_classifier import (
     MODEL_RESUMABLE_REASON_CODES,
     resume_hint_for_reason_code,
 )
+from harness.runtime.llm.instrumented_caller import instrument_openai_model_caller
 from services.llm.openai import OpenAIService
 from .contracts import RuntimeAdapter, RuntimeArtifactTargets, RuntimeRunResult
 
@@ -671,7 +672,7 @@ def _build_default_model_caller(*, model_name: str) -> Callable[..., Mapping[str
     def _call(prompt: str, model: str, **kwargs: Any) -> Mapping[str, Any] | str:
         return service.call_text(prompt, model or model_name, **kwargs)
 
-    return _call
+    return instrument_openai_model_caller(_call)
 
 
 def _select_model_name(context: Mapping[str, Any]) -> str:

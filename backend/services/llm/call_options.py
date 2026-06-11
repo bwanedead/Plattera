@@ -27,3 +27,5 @@ class LlmCallOptions:
     image_attachments: tuple[dict[str, Any], ...] = field(default_factory=tuple)
     # Observability label for logging / tracing
     phase: str | None = None
+    # Optional OpenAI service tier request (telemetry only until provider wiring enables it)
+    service_tier: str | None = None

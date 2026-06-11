@@ -43,6 +43,8 @@ from .llm_turn_lifecycle import (
     resolve_choose_action_prompt_mode,
 )
 from .recoverable_turn_failure import RecoverableTurnFailure, is_recoverable_output_failure
+from harness.runtime.llm.instrumented_caller import extract_trace_from_exception
+
 from .repair_lane import TextModelCaller, attempt_repair, count_attempted_actions_in_text, extract_audit_text
 from .resumable_model_interruption import ResumableModelInterruption
 from .subtasks.registry import build_composed_subtask_registry
@@ -134,6 +136,7 @@ class LlmTurnOrchestrationAdapter(OrchestrationAdapter):
             repair_records: list[dict[str, Any]] | None = None,
             parse_error_detail: str | None = None,
             original_action_count_attempted: int | None = None,
+            extra_llm_call_traces: list[dict[str, Any]] | None = None,
         ) -> None:
             structured_state = prompt_doc.prompt_body.get("structured_state")
             prompt_observability_summary = None
@@ -166,6 +169,7 @@ class LlmTurnOrchestrationAdapter(OrchestrationAdapter):
                     if isinstance(prompt_observability_summary, dict)
                     else None
                 ),
+                extra_llm_call_traces=extra_llm_call_traces,
             )
             observer = context.raw_llm_io_observer
             if observer is None:
@@ -231,6 +235,14 @@ class LlmTurnOrchestrationAdapter(OrchestrationAdapter):
                 else "model_caller_exception"
             )
             _emit_observability(parse_ok=False, parse_reason_code=parse_rc)
+            failure_trace = extract_trace_from_exception(exc)
+            if failure_trace is not None:
+                _audit(
+                    parse_ok=False,
+                    parse_rc=parse_rc,
+                    parse_error_detail=str(exc),
+                    extra_llm_call_traces=[failure_trace],
+                )
             if classification.resumable:
                 restore_drained_image_evidence(context, image_evidence)
                 raise ResumableModelInterruption(

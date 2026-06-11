@@ -219,6 +219,7 @@ def _render_turn(
 
     out.extend(_render_operator_progress(turn))
     out.extend(_render_host_hydration_before_turn(turn))
+    out.extend(_render_llm_call_traces(turn))
     out.extend(_render_llm_authored_text(turn))
     out.extend(_render_repair(turn))
     out.extend(_render_action(turn, link_context=link_context))
@@ -247,6 +248,77 @@ def _render_turn(
 # ---------------------------------------------------------------------------
 # Section renderers
 # ---------------------------------------------------------------------------
+
+
+def _render_llm_call_traces(turn: Mapping[str, Any]) -> list[str]:
+    traces = _turn_llm_call_traces(turn)
+    if not traces:
+        return []
+    lines: list[str] = ["LLM call:"]
+    for trace in traces:
+        lines.extend(_format_llm_call_trace_lines(trace, indent="  "))
+    lines.append("")
+    return lines
+
+
+def _turn_llm_call_traces(turn: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+    plural = turn.get("llm_call_traces")
+    if isinstance(plural, list):
+        return [row for row in plural if isinstance(row, Mapping)]
+    single = turn.get("llm_call_trace")
+    if isinstance(single, Mapping):
+        return [single]
+    return []
+
+
+def _format_llm_call_trace_lines(trace: Mapping[str, Any], *, indent: str = "") -> list[str]:
+    provider = str(trace.get("provider") or "openai")
+    model = str(trace.get("model") or "unknown")
+    lines = [f"{indent}- provider/model: {provider} / {model}"]
+    wall = trace.get("wall_seconds")
+    if wall is not None:
+        lines.append(f"{indent}- wall: {wall}s")
+    prompt_chars = trace.get("prompt_char_count")
+    response_chars = trace.get("response_char_count")
+    if prompt_chars is not None or response_chars is not None:
+        lines.append(
+            f"{indent}- chars: prompt={prompt_chars if prompt_chars is not None else '?'} "
+            f"response={response_chars if response_chars is not None else '?'}"
+        )
+    token_parts: list[str] = []
+    for key, label in (
+        ("input_tokens", "input"),
+        ("cached_input_tokens", "cached"),
+        ("output_tokens", "output"),
+        ("reasoning_tokens", "reasoning"),
+    ):
+        value = trace.get(key)
+        if value is not None:
+            token_parts.append(f"{label}={value}")
+    if token_parts:
+        lines.append(f"{indent}- tokens: {' '.join(token_parts)}")
+    tier_requested = trace.get("service_tier_requested")
+    tier_returned = trace.get("service_tier_returned")
+    if tier_requested is not None or tier_returned is not None:
+        lines.append(
+            f"{indent}- service_tier: requested={tier_requested if tier_requested is not None else 'null'} "
+            f"returned={tier_returned if tier_returned is not None else 'null'}"
+        )
+    if trace.get("streaming_requested") is not None or trace.get("streaming_supported") is not None:
+        lines.append(
+            f"{indent}- streaming: requested={str(bool(trace.get('streaming_requested'))).lower()} "
+            f"supported={str(bool(trace.get('streaming_supported', True))).lower()}"
+        )
+    if trace.get("retry_count_observed") is not None:
+        lines.append(f"{indent}- retries observed: {trace['retry_count_observed']}")
+    elif trace.get("max_retries_configured") is not None:
+        lines.append(f"{indent}- retries configured: {trace['max_retries_configured']}")
+    if trace.get("error_type"):
+        lines.append(f"{indent}- error_type: {trace['error_type']}")
+    preview = trace.get("error_message_preview")
+    if isinstance(preview, str) and preview.strip():
+        lines.extend(_labeled_prose_block(f"{indent}- error:", preview))
+    return lines
 
 
 def _render_llm_authored_text(turn: Mapping[str, Any]) -> list[str]:
