@@ -62,6 +62,29 @@ def _compact_point_row(point: Mapping[str, Any]) -> dict[str, Any]:
     crop_intent = point.get("crop_intent")
     if isinstance(crop_intent, str) and crop_intent.strip():
         row["crop_intent"] = crop_intent.strip()
+    if point.get("trim_to_text_block") is True:
+        row["trim_to_text_block"] = True
+        if point.get("trim_applied") is True:
+            row["trim_applied"] = True
+        elif point.get("trim_applied") is False:
+            row["trim_applied"] = False
+        trim_warning = point.get("trim_warning")
+        if isinstance(trim_warning, str) and trim_warning.strip():
+            row["trim_warning"] = trim_warning.strip()[:120]
+        pre_trim = _norm_box(point.get("pre_trim_box_norm"))
+        if pre_trim is not None:
+            row["pre_trim_box_norm"] = pre_trim
+        text_bounds = point.get("text_block_bounds_norm")
+        if isinstance(text_bounds, (list, tuple)) and len(text_bounds) == 2:
+            try:
+                row["text_block_bounds_norm"] = [
+                    round(float(text_bounds[0]), 4),
+                    round(float(text_bounds[1]), 4),
+                ]
+            except (TypeError, ValueError):
+                pass
+    elif point.get("trim_to_text_block") is False:
+        row["trim_to_text_block"] = False
     if point_norm is not None:
         row["point_norm"] = point_norm
     if box_norm is not None:

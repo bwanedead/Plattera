@@ -44,6 +44,23 @@ def test_rendered_line_includes_span_line_intent() -> None:
     assert "intent=span_line" in line
 
 
+def test_rendered_line_includes_trim_status() -> None:
+    row = build_review_row(
+        _sample_point(
+            size="span_line",
+            shape="wide",
+            crop_intent="span_line",
+            trim_to_text_block=True,
+            trim_axis="x",
+            trim_applied=True,
+            trim_padding_norm=0.02,
+        )
+    )
+    line = render_review_line(row)
+    assert "trim=x applied" in line
+    assert "padding=0.02" in line
+
+
 def test_rendered_line_includes_signed_offsets() -> None:
     row = build_review_row(_sample_point())
     line = render_review_line(row)

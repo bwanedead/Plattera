@@ -79,6 +79,38 @@ def build_review_row(
     if crop_intent:
         row["crop_intent"] = crop_intent
 
+    if point.get("trim_to_text_block") is True:
+        row["trim_to_text_block"] = True
+        trim_axis = str(point.get("trim_axis") or "x").strip()
+        if trim_axis:
+            row["trim_axis"] = trim_axis
+        if point.get("trim_applied") is True:
+            row["trim_applied"] = True
+        elif point.get("trim_applied") is False:
+            row["trim_applied"] = False
+        trim_warning = str(point.get("trim_warning") or "").strip()
+        if trim_warning:
+            row["trim_warning"] = trim_warning
+        if point.get("trim_padding_norm") is not None:
+            try:
+                row["trim_padding_norm"] = round(float(point["trim_padding_norm"]), _DECIMALS)
+            except (TypeError, ValueError):
+                pass
+        pre_trim = _norm_box(point.get("pre_trim_box_norm"))
+        if pre_trim is not None:
+            row["pre_trim_box_norm"] = pre_trim
+        text_bounds = point.get("text_block_bounds_norm")
+        if isinstance(text_bounds, (list, tuple)) and len(text_bounds) == 2:
+            try:
+                row["text_block_bounds_norm"] = [
+                    _round_coord(text_bounds[0]),
+                    _round_coord(text_bounds[1]),
+                ]
+            except (TypeError, ValueError):
+                pass
+    elif point.get("trim_to_text_block") is False:
+        row["trim_to_text_block"] = False
+
     zoom_factor = point.get("zoom_factor")
     if zoom_factor is not None:
         try:
@@ -125,6 +157,19 @@ def render_review_line(row: Mapping[str, Any]) -> str:
     crop_intent = str(row.get("crop_intent") or "").strip()
     if crop_intent:
         parts.append(f"intent={crop_intent}")
+    if row.get("trim_to_text_block") is True:
+        trim_axis = str(row.get("trim_axis") or "x").strip()
+        trim_part = f"trim={trim_axis}"
+        if row.get("trim_applied") is True:
+            trim_part = f"{trim_part} applied"
+        elif row.get("trim_warning"):
+            trim_part = f"{trim_part} skipped"
+        if row.get("trim_padding_norm") is not None:
+            trim_part = f"{trim_part} padding={row.get('trim_padding_norm')}"
+        warning = str(row.get("trim_warning") or "").strip()
+        if warning:
+            trim_part = f"{trim_part} warning={warning}"
+        parts.append(trim_part)
     if row.get("zoom_factor") is not None:
         parts.append(f"zoom={row.get('zoom_factor')}")
     anchor = row.get("nearest_major_anchor")

@@ -19,6 +19,11 @@ from .coordinate_lattice import (
     draw_reference_cell_coordinate_foundation,
 )
 from .root_projection import copy_projection_fields
+from .text_block_trim import (
+    ALLOWED_TRIM_AXES,
+    DEFAULT_TRIM_PADDING_NORM,
+    trim_box_to_text_block,
+)
 
 # Normalized box sizes centered on ``point_norm``.
 _POINT_CROP_TEMPLATES: dict[str, dict[str, tuple[float, float]]] = {
@@ -89,6 +94,18 @@ _ZOOM_METADATA_KEYS = (
     "requested_zoom_factor",
     "max_output_dimension",
 )
+_TRIM_METADATA_KEYS = (
+    "trim_to_text_block",
+    "trim_axis",
+    "trim_applied",
+    "trim_method",
+    "trim_padding_norm",
+    "trim_warning",
+    "pre_trim_box_norm",
+    "text_block_bounds_norm",
+)
+MIN_TRIM_PADDING_NORM = 0.0
+MAX_TRIM_PADDING_NORM = 0.15
 
 OVERLAY_GRID_MAJOR_STEP_NORM = DEFAULT_MAJOR_STEP_NORM
 OVERLAY_GRID_MINOR_STEP_NORM = DEFAULT_MINOR_STEP_NORM
@@ -123,6 +140,43 @@ def crop_intent_for_point(point: Mapping[str, Any]) -> str | None:
     if str(point.get("size") or "").strip().lower() == SPAN_LINE_CROP_INTENT:
         return SPAN_LINE_CROP_INTENT
     return None
+
+
+def resolve_point_trim_settings(
+    point: Mapping[str, Any],
+    global_params: Mapping[str, Any],
+    *,
+    size: str,
+) -> dict[str, Any]:
+    """Resolve trim settings: per-point overrides global; span_line defaults trim on."""
+    point_trim = point.get("trim_to_text_block")
+    global_trim = global_params.get("trim_to_text_block")
+    if point_trim is not None:
+        trim_to_text_block = bool(point_trim)
+    elif global_trim is not None:
+        trim_to_text_block = bool(global_trim)
+    else:
+        trim_to_text_block = size == SPAN_LINE_CROP_INTENT
+
+    axis_raw = (
+        point.get("trim_axis")
+        if point.get("trim_axis") is not None
+        else global_params.get("trim_axis")
+    )
+    trim_axis = str(axis_raw or "x").strip().lower()
+
+    padding_raw = point.get("trim_padding_norm")
+    if padding_raw is None:
+        padding_raw = global_params.get("trim_padding_norm")
+    trim_padding_norm = (
+        float(padding_raw) if padding_raw is not None else DEFAULT_TRIM_PADDING_NORM
+    )
+
+    return {
+        "trim_to_text_block": trim_to_text_block,
+        "trim_axis": trim_axis,
+        "trim_padding_norm": round(trim_padding_norm, 6),
+    }
 
 
 def resolved_dims_from_template(
@@ -237,6 +291,26 @@ def validate_point_crops_params(params: dict[str, Any]) -> str | None:
         dim_err = _validate_point_explicit_dimensions(p, f"params.points[{i}]")
         if dim_err:
             return dim_err
+        trim_err = _validate_trim_fields(p, f"params.points[{i}]")
+        if trim_err:
+            return trim_err
+    for key, label in (
+        ("trim_axis", "params.trim_axis"),
+        ("trim_padding_norm", "params.trim_padding_norm"),
+    ):
+        if params.get(key) is not None:
+            if key == "trim_axis":
+                axis = str(params["trim_axis"]).strip().lower()
+                if axis not in ALLOWED_TRIM_AXES:
+                    return f"{label} must be x (only axis supported in this pass)."
+                params["trim_axis"] = axis
+            else:
+                err = _validate_trim_padding_norm_raw(params.get(key), label)
+                if err:
+                    return err
+                params[key] = round(float(params[key]), 6)
+    if params.get("trim_to_text_block") is not None:
+        params["trim_to_text_block"] = bool(params["trim_to_text_block"])
     return _validate_show_param(params) or None
 
 
@@ -314,6 +388,39 @@ def _validate_explicit_dim_raw(raw: Any, field_name: str) -> str | None:
         return (
             f"{field_name} must be between {MIN_EXPLICIT_DIM_NORM} and {MAX_EXPLICIT_DIM_NORM}."
         )
+    return None
+
+
+def _validate_trim_padding_norm_raw(raw: Any, field_name: str) -> str | None:
+    if raw is None:
+        return None
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return f"{field_name} must be a numeric normalized padding value."
+    if not (MIN_TRIM_PADDING_NORM <= value <= MAX_TRIM_PADDING_NORM):
+        return (
+            f"{field_name} must be between {MIN_TRIM_PADDING_NORM} and {MAX_TRIM_PADDING_NORM}."
+        )
+    return None
+
+
+def _validate_trim_fields(point: dict[str, Any], field_prefix: str) -> str | None:
+    if point.get("trim_axis") is not None:
+        axis = str(point["trim_axis"]).strip().lower()
+        if axis not in ALLOWED_TRIM_AXES:
+            return f"{field_prefix}.trim_axis must be x (only axis supported in this pass)."
+        point["trim_axis"] = axis
+    if point.get("trim_padding_norm") is not None:
+        err = _validate_trim_padding_norm_raw(
+            point.get("trim_padding_norm"),
+            f"{field_prefix}.trim_padding_norm",
+        )
+        if err:
+            return err
+        point["trim_padding_norm"] = round(float(point["trim_padding_norm"]), 6)
+    if point.get("trim_to_text_block") is not None:
+        point["trim_to_text_block"] = bool(point["trim_to_text_block"])
     return None
 
 
@@ -531,6 +638,55 @@ def _compute_single_point_geometry(
     if explicit_dims is not None:
         result["explicit_width_height_norm"] = explicit_dims
     return result
+
+
+def _update_geometry_box(geo: dict[str, Any], img: Any, box_norm: list[float]) -> None:
+    """Replace box_norm/box_px/box on an existing geometry dict."""
+    x1n, y1n, x2n, y2n = (float(v) for v in box_norm)
+    left = max(0, min(int(round(x1n * img.width)), img.width - 1))
+    top = max(0, min(int(round(y1n * img.height)), img.height - 1))
+    right = max(left + 1, min(int(round(x2n * img.width)), img.width))
+    bottom = max(top + 1, min(int(round(y2n * img.height)), img.height))
+    box = (left, top, right, bottom)
+    geo["box_norm"] = [
+        round(left / img.width, 6),
+        round(top / img.height, 6),
+        round(right / img.width, 6),
+        round(bottom / img.height, 6),
+    ]
+    geo["box_px"] = [box[0], box[1], box[2], box[3]]
+    geo["box"] = box
+
+
+def _apply_text_block_trim(
+    img: Any,
+    geo: dict[str, Any],
+    *,
+    point_norm: list[float],
+    trim_settings: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Apply optional x-axis text-block trim; returns trim metadata for the point row."""
+    if not trim_settings.get("trim_to_text_block"):
+        return {"trim_to_text_block": False}
+
+    trim_axis = str(trim_settings.get("trim_axis") or "x").strip().lower()
+    trim_padding = float(trim_settings.get("trim_padding_norm") or DEFAULT_TRIM_PADDING_NORM)
+    pre_trim_box_norm = list(geo["box_norm"])
+    result = trim_box_to_text_block(
+        img,
+        box_norm=pre_trim_box_norm,
+        point_norm=point_norm,
+        trim_axis=trim_axis,
+        trim_padding_norm=trim_padding,
+    )
+    meta = result.as_metadata(trim_axis=trim_axis, trim_padding_norm=trim_padding)
+    if result.trim_applied:
+        _update_geometry_box(geo, img, result.box_norm)
+    return meta
+
+
+def _copy_trim_metadata(source: Mapping[str, Any]) -> dict[str, Any]:
+    return {key: source[key] for key in _TRIM_METADATA_KEYS if key in source}
 
 
 ALLOWED_SCAFFOLD_SHOW = frozenset({"grid"})
@@ -961,6 +1117,13 @@ def compute_point_crops(img: Any, params: dict[str, Any]) -> dict[str, Any]:
             width_norm=explicit_w,
             height_norm=explicit_h,
         )
+        trim_settings = resolve_point_trim_settings(p, params, size=p["size"])
+        trim_meta = _apply_text_block_trim(
+            img,
+            geo,
+            point_norm=geo["point_norm"],
+            trim_settings=trim_settings,
+        )
         crop_img = img.crop(tuple(geo["box"]))
         point_zoom = p.get("zoom_factor")
         point_zoom = float(point_zoom) if point_zoom is not None else None
@@ -992,6 +1155,12 @@ def compute_point_crops(img: Any, params: dict[str, Any]) -> dict[str, Any]:
         crop_intent = crop_intent_for_point(p)
         if crop_intent:
             row["crop_intent"] = crop_intent
+        if trim_meta.get("trim_to_text_block"):
+            row.update(trim_meta)
+        elif trim_settings["trim_to_text_block"] is False and (
+            "trim_to_text_block" in p or "trim_to_text_block" in params
+        ):
+            row["trim_to_text_block"] = False
         if isinstance(p.get("graph_ref"), dict):
             row["graph_ref"] = dict(p["graph_ref"])
         per_point_data.append(row)
@@ -1103,6 +1272,7 @@ def build_crop_set_point_record(point: dict[str, Any], *, crop_ref: str | None =
     crop_intent = crop_intent_for_point(point)
     if crop_intent:
         row["crop_intent"] = crop_intent
+    row.update(_copy_trim_metadata(point))
     return row
 
 
@@ -1281,6 +1451,17 @@ def prepare_point_crops_adjust(
         if explicit_w is not None and explicit_h is not None:
             row["width_norm"] = explicit_w
             row["height_norm"] = explicit_h
+        if pt.get("trim_to_text_block") is not None:
+            row["trim_to_text_block"] = bool(pt["trim_to_text_block"])
+        elif size == SPAN_LINE_CROP_INTENT:
+            row["trim_to_text_block"] = True
+        if pt.get("trim_axis") is not None:
+            row["trim_axis"] = str(pt["trim_axis"]).strip().lower()
+        if pt.get("trim_padding_norm") is not None:
+            try:
+                row["trim_padding_norm"] = round(float(pt["trim_padding_norm"]), 6)
+            except (TypeError, ValueError):
+                pass
         working_points.append(row)
         by_letter[letter] = row
         by_alias[alias] = row
@@ -1337,6 +1518,14 @@ def prepare_point_crops_adjust(
         prior_scale_x = float(target_row.get("scale_x", 1.0))
         prior_scale_y = float(target_row.get("scale_y", 1.0))
         prior_width_norm, prior_height_norm = _explicit_dims_from_point(target_row)
+        prior_trim_settings = resolve_point_trim_settings(
+            target_row,
+            params,
+            size=prior_size,
+        )
+        prior_trim_to_text_block = prior_trim_settings["trim_to_text_block"]
+        prior_trim_axis = prior_trim_settings["trim_axis"]
+        prior_trim_padding_norm = prior_trim_settings["trim_padding_norm"]
         new_point_norm = list(prior_point_norm)
         new_size = prior_size
         new_shape = prior_shape
@@ -1345,6 +1534,9 @@ def prepare_point_crops_adjust(
         new_scale_y = prior_scale_y
         new_width_norm = prior_width_norm
         new_height_norm = prior_height_norm
+        new_trim_to_text_block = prior_trim_to_text_block
+        new_trim_axis = prior_trim_axis
+        new_trim_padding_norm = prior_trim_padding_norm
         shift_applied: list[float] | None = None
 
         change_fields = (
@@ -1357,6 +1549,9 @@ def prepare_point_crops_adjust(
             "scale_y",
             "width_norm",
             "height_norm",
+            "trim_to_text_block",
+            "trim_axis",
+            "trim_padding_norm",
         )
         if not any(field in adj for field in change_fields):
             raise PointCropParamError(
@@ -1453,6 +1648,26 @@ def prepare_point_crops_adjust(
             new_width_norm = _normalize_explicit_dim(adj["width_norm"])
             new_height_norm = _normalize_explicit_dim(adj["height_norm"])
 
+        if "trim_to_text_block" in adj:
+            new_trim_to_text_block = bool(adj["trim_to_text_block"])
+        elif "size" in adj and new_size == SPAN_LINE_CROP_INTENT and prior_size != SPAN_LINE_CROP_INTENT:
+            new_trim_to_text_block = True
+        if "trim_axis" in adj:
+            axis = str(adj.get("trim_axis") or "").strip().lower()
+            if axis not in ALLOWED_TRIM_AXES:
+                raise PointCropParamError(
+                    f"params.adjust[{i}].trim_axis must be x (only axis supported in this pass).",
+                )
+            new_trim_axis = axis
+        if "trim_padding_norm" in adj:
+            pad_err = _validate_trim_padding_norm_raw(
+                adj.get("trim_padding_norm"),
+                f"params.adjust[{i}].trim_padding_norm",
+            )
+            if pad_err:
+                raise PointCropParamError(pad_err)
+            new_trim_padding_norm = round(float(adj["trim_padding_norm"]), 6)
+
         prior_zoom_effective = resolve_point_zoom_factor(
             size=prior_size,
             point_zoom=float(prior_zoom_factor) if prior_zoom_factor is not None else None,
@@ -1475,6 +1690,9 @@ def prepare_point_crops_adjust(
                 new_width_norm,
                 new_height_norm,
             )
+            and new_trim_to_text_block == prior_trim_to_text_block
+            and new_trim_axis == prior_trim_axis
+            and new_trim_padding_norm == prior_trim_padding_norm
         ):
             raise PointCropParamError(
                 f"params.adjust[{i}] specifies no actual change for the selected target.",
@@ -1502,6 +1720,19 @@ def prepare_point_crops_adjust(
         else:
             target_row.pop("width_norm", None)
             target_row.pop("height_norm", None)
+
+        if new_trim_to_text_block:
+            target_row["trim_to_text_block"] = True
+        else:
+            target_row["trim_to_text_block"] = False
+        if new_trim_axis != "x":
+            target_row["trim_axis"] = new_trim_axis
+        else:
+            target_row.pop("trim_axis", None)
+        if abs(new_trim_padding_norm - DEFAULT_TRIM_PADDING_NORM) > 1e-9:
+            target_row["trim_padding_norm"] = new_trim_padding_norm
+        else:
+            target_row.pop("trim_padding_norm", None)
 
         applied: dict[str, Any] = {
             "target": target,
@@ -1567,6 +1798,15 @@ def prepare_point_crops_adjust(
             )
         if shift_applied is not None:
             applied["shift_norm"] = shift_applied
+        if prior_trim_to_text_block != new_trim_to_text_block:
+            applied["prior_trim_to_text_block"] = prior_trim_to_text_block
+            applied["new_trim_to_text_block"] = new_trim_to_text_block
+        if prior_trim_padding_norm != new_trim_padding_norm:
+            applied["prior_trim_padding_norm"] = prior_trim_padding_norm
+            applied["new_trim_padding_norm"] = new_trim_padding_norm
+        if prior_trim_axis != new_trim_axis:
+            applied["prior_trim_axis"] = prior_trim_axis
+            applied["new_trim_axis"] = new_trim_axis
         adjustments_applied.append(applied)
 
     compute_points = []
@@ -1587,6 +1827,12 @@ def prepare_point_crops_adjust(
         if pt.get("width_norm") is not None and pt.get("height_norm") is not None:
             point_row["width_norm"] = pt["width_norm"]
             point_row["height_norm"] = pt["height_norm"]
+        if pt.get("trim_to_text_block") is not None:
+            point_row["trim_to_text_block"] = bool(pt["trim_to_text_block"])
+        if pt.get("trim_axis") is not None:
+            point_row["trim_axis"] = str(pt["trim_axis"]).strip().lower()
+        if pt.get("trim_padding_norm") is not None:
+            point_row["trim_padding_norm"] = pt["trim_padding_norm"]
         compute_points.append(point_row)
 
     return {

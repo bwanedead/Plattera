@@ -68,6 +68,25 @@ def _write_association(root: Path, dossier_id: str, transcription_id: str, image
 
 
 def _make_handler(tmp_path, monkeypatch, *, d="d1", tx="tx-1", ws="ws-1", image_width=100, image_height=80):
+    return _make_handler_custom_image(
+        tmp_path,
+        monkeypatch,
+        _tiny_png_bytes(width=image_width, height=image_height),
+        d=d,
+        tx=tx,
+        ws=ws,
+    )
+
+
+def _make_handler_custom_image(
+    tmp_path,
+    monkeypatch,
+    image_bytes: bytes,
+    *,
+    d: str = "d1",
+    tx: str = "tx-1",
+    ws: str = "ws-1",
+):
     root = _dossiers_root(tmp_path)
     monkeypatch.setattr(te_paths_mod, "dossiers_root", lambda: root)
     monkeypatch.setattr(paths_mod, "dossiers_root", lambda: root)
@@ -75,11 +94,47 @@ def _make_handler(tmp_path, monkeypatch, *, d="d1", tx="tx-1", ws="ws-1", image_
     img_dir = tmp_path / "images"
     img_dir.mkdir()
     img_file = img_dir / "scan.png"
-    img_file.write_bytes(_tiny_png_bytes(width=image_width, height=image_height))
+    img_file.write_bytes(image_bytes)
     _write_association(root, d, tx, img_file)
 
     handler = make_transform_artifact_handler(dossier_id=d, transcription_id=tx, workspace_key=ws)
     return handler, f"image:assoc:{tx}:original"
+
+
+def _text_band_png_bytes(
+    *,
+    width: int = 800,
+    height: int = 400,
+    text_x0: float = 0.30,
+    text_x1: float = 0.70,
+    text_y0: float = 0.45,
+    text_y1: float = 0.55,
+    bg: tuple[int, int, int] = (245, 245, 245),
+    ink: tuple[int, int, int] = (25, 25, 25),
+    extra_bands: list[tuple[float, float, float, float]] | None = None,
+) -> bytes:
+    from PIL import Image, ImageDraw
+
+    img = Image.new("RGB", (width, height), bg)
+    draw = ImageDraw.Draw(img)
+
+    def _draw_band(x0n: float, y0n: float, x1n: float, y1n: float) -> None:
+        draw.rectangle(
+            [
+                int(x0n * width),
+                int(y0n * height),
+                int(x1n * width),
+                int(y1n * height),
+            ],
+            fill=ink,
+        )
+
+    _draw_band(text_x0, text_y0, text_x1, text_y1)
+    for band in extra_bands or []:
+        _draw_band(*band)
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return buf.getvalue()
 
 
 # ---------------------------------------------------------------------------
@@ -2215,6 +2270,240 @@ def test_point_crops_span_line_review_line_includes_intent(tmp_path, monkeypatch
     assert "intent=span_line" in line
     assert "point=[" in line
     assert "box=[" in line
+
+
+def test_span_line_defaults_trim_to_text_block_true(tmp_path, monkeypatch) -> None:
+    handler, ref_id = _make_handler(tmp_path, monkeypatch)
+    result = handler({
+        "ref_id": ref_id,
+        **_point_crops_request(size="span_line", shape="wide"),
+    })
+    point = result["outputs"]["crop_set"]["points"][0]
+    assert point["trim_to_text_block"] is True
+    assert point.get("trim_axis", "x") == "x"
+
+
+def test_span_line_trim_disabled_preserves_raw_box(tmp_path, monkeypatch) -> None:
+    handler, ref_id = _make_handler_custom_image(
+        tmp_path,
+        monkeypatch,
+        _text_band_png_bytes(),
+    )
+    trimmed = handler({
+        "ref_id": ref_id,
+        "sub_action": "point_crops",
+        "params": {
+            "points": [{
+                "alias": "line_span",
+                "point_norm": [0.5, 0.5],
+                "size": "span_line",
+                "shape": "wide",
+            }],
+        },
+    })
+    raw = handler({
+        "ref_id": ref_id,
+        "sub_action": "point_crops",
+        "params": {
+            "points": [{
+                "alias": "line_span",
+                "point_norm": [0.5, 0.5],
+                "size": "span_line",
+                "shape": "wide",
+                "trim_to_text_block": False,
+            }],
+        },
+    })
+    trimmed_point = trimmed["outputs"]["crop_set"]["points"][0]
+    raw_point = raw["outputs"]["crop_set"]["points"][0]
+    assert raw_point["trim_to_text_block"] is False
+    assert raw_point["box_norm"][2] - raw_point["box_norm"][0] > (
+        trimmed_point["box_norm"][2] - trimmed_point["box_norm"][0]
+    )
+
+
+def test_span_line_trims_margins_on_synthetic_text_band(tmp_path, monkeypatch) -> None:
+    handler, ref_id = _make_handler_custom_image(
+        tmp_path,
+        monkeypatch,
+        _text_band_png_bytes(text_x0=0.32, text_x1=0.68),
+    )
+    result = handler({
+        "ref_id": ref_id,
+        "sub_action": "point_crops",
+        "params": {
+            "points": [{
+                "alias": "line_span",
+                "point_norm": [0.5, 0.5],
+                "size": "span_line",
+                "shape": "wide",
+            }],
+        },
+    })
+    point = result["outputs"]["crop_set"]["points"][0]
+    assert point["trim_applied"] is True
+    assert point.get("pre_trim_box_norm") is not None
+    pre_w = point["pre_trim_box_norm"][2] - point["pre_trim_box_norm"][0]
+    out_w = point["box_norm"][2] - point["box_norm"][0]
+    assert out_w < pre_w
+    assert point["box_norm"][0] > 0.20
+    assert point["box_norm"][2] < 0.80
+
+
+def test_text_block_trim_prefers_run_containing_point() -> None:
+    from tooling.mapping.transcript_edit.text_block_trim import trim_box_to_text_block
+
+    image_bytes = _text_band_png_bytes(
+        width=1000,
+        height=200,
+        text_x0=0.10,
+        text_x1=0.25,
+        text_y0=0.40,
+        text_y1=0.60,
+        extra_bands=[(0.70, 0.40, 0.90, 0.60)],
+    )
+    from PIL import Image
+
+    img = Image.open(io.BytesIO(image_bytes))
+    result = trim_box_to_text_block(
+        img,
+        box_norm=[0.0, 0.35, 1.0, 0.65],
+        point_norm=[0.18, 0.5],
+        trim_axis="x",
+        trim_padding_norm=0.01,
+    )
+    assert result.trim_applied is True
+    assert result.text_block_bounds_norm is not None
+    assert result.text_block_bounds_norm[1] < 0.35
+    assert result.text_block_bounds_norm[0] < 0.35
+
+
+def test_span_line_trim_fails_soft_on_blank_band(tmp_path, monkeypatch) -> None:
+    handler, ref_id = _make_handler(tmp_path, monkeypatch, image_width=400, image_height=200)
+    result = handler({
+        "ref_id": ref_id,
+        **_point_crops_request(size="span_line", shape="wide", point_norm=[0.5, 0.5]),
+    })
+    point = result["outputs"]["crop_set"]["points"][0]
+    assert point["trim_to_text_block"] is True
+    assert point["trim_applied"] is False
+    assert point["trim_warning"] == "text_block_not_detected"
+    assert point["pre_trim_box_norm"] == point["box_norm"]
+
+
+def test_trim_padding_expands_detected_bounds() -> None:
+    from tooling.mapping.transcript_edit.text_block_trim import trim_box_to_text_block
+
+    image_bytes = _text_band_png_bytes(
+        width=1000,
+        height=200,
+        text_x0=0.40,
+        text_x1=0.60,
+        text_y0=0.40,
+        text_y1=0.60,
+    )
+    from PIL import Image
+
+    img = Image.open(io.BytesIO(image_bytes))
+    tight = trim_box_to_text_block(
+        img,
+        box_norm=[0.0, 0.30, 1.0, 0.70],
+        point_norm=[0.5, 0.5],
+        trim_padding_norm=0.005,
+    )
+    padded = trim_box_to_text_block(
+        img,
+        box_norm=[0.0, 0.30, 1.0, 0.70],
+        point_norm=[0.5, 0.5],
+        trim_padding_norm=0.04,
+    )
+    assert tight.trim_applied and padded.trim_applied
+    tight_w = tight.box_norm[2] - tight.box_norm[0]
+    padded_w = padded.box_norm[2] - padded.box_norm[0]
+    assert padded_w > tight_w
+    assert padded.box_norm[0] >= 0.0
+    assert padded.box_norm[2] <= 1.0
+
+
+def test_point_crops_adjust_carries_trim_settings_forward(tmp_path, monkeypatch) -> None:
+    handler, source_ref = _make_handler_custom_image(
+        tmp_path,
+        monkeypatch,
+        _text_band_png_bytes(),
+    )
+    created = handler({
+        "ref_id": source_ref,
+        "sub_action": "point_crops",
+        "params": {
+            "points": [{
+                "alias": "line_span",
+                "point_norm": [0.5, 0.5],
+                "size": "span_line",
+                "shape": "wide",
+                "trim_padding_norm": 0.03,
+            }],
+        },
+    })
+    adjusted = handler(_point_crops_adjust_request(
+        master_ref=created["outputs"]["derived_ref_id"],
+        adjust=[{"letter": "A", "shift_norm": [0.01, 0.0]}],
+    ))
+    point = adjusted["outputs"]["crop_set"]["points"][0]
+    assert point["trim_to_text_block"] is True
+    assert point["trim_padding_norm"] == 0.03
+
+
+def test_point_crops_adjust_can_disable_trim(tmp_path, monkeypatch) -> None:
+    handler, source_ref = _make_handler_custom_image(
+        tmp_path,
+        monkeypatch,
+        _text_band_png_bytes(),
+    )
+    created = handler({
+        "ref_id": source_ref,
+        **_point_crops_request(size="span_line", shape="wide"),
+    })
+    adjusted = handler(_point_crops_adjust_request(
+        master_ref=created["outputs"]["derived_ref_id"],
+        adjust=[{"letter": "A", "trim_to_text_block": False}],
+    ))
+    point = adjusted["outputs"]["crop_set"]["points"][0]
+    assert point["trim_to_text_block"] is False
+    applied = adjusted["outputs"]["adjustments_applied"][0]
+    assert applied["prior_trim_to_text_block"] is True
+    assert applied["new_trim_to_text_block"] is False
+
+
+def test_span_line_review_line_includes_trim_status(tmp_path, monkeypatch) -> None:
+    handler, ref_id = _make_handler_custom_image(
+        tmp_path,
+        monkeypatch,
+        _text_band_png_bytes(),
+    )
+    result = handler({
+        "ref_id": ref_id,
+        **_point_crops_request(size="span_line", shape="wide", alias="p1_begin_canal_offset"),
+    })
+    line = result["outputs"]["crop_set"]["review_lines"][0]
+    assert "trim=x" in line
+    assert "applied" in line
+    assert "padding=" in line
+
+
+def test_small_plus_geometry_unchanged_without_trim(tmp_path, monkeypatch) -> None:
+    handler, ref_id = _make_handler_custom_image(
+        tmp_path,
+        monkeypatch,
+        _text_band_png_bytes(),
+    )
+    result = handler({
+        "ref_id": ref_id,
+        **_point_crops_request(size="small_plus", shape="wide"),
+    })
+    point = result["outputs"]["crop_set"]["points"][0]
+    assert "trim_to_text_block" not in point
+    assert point["resolved_width_height_norm"] == [0.48, 0.13]
+    assert abs((point["box_norm"][2] - point["box_norm"][0]) - 0.48) < 0.02
 
 
 def test_point_crop_explicit_dimensions_override_template() -> None:
