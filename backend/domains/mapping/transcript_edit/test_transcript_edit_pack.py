@@ -198,7 +198,10 @@ def test_procedural_guidance_teaches_delegate_subtask_lightly() -> None:
     assert "peripheral net for opportunistic harvesting" in text
     assert "integrate it even if a larger phrase is clipped" in text
     assert "span-containment anxiety" in text
+    assert "opportunistic harvesting means earn what the evidence actually gives you" in text
+    assert "one read can close multiple details" in text
     assert "cleanly visible, anchored" in text
+    assert "tile the earned surface across multiple crop/delegate refs" in text
     assert "insufficiently anchored" in text
     assert "send what you can in a coherent delegate wave" in text
     assert "send them in the next wave" in text
@@ -360,16 +363,24 @@ def test_domain_pack_declares_semantic_prompt_blocks() -> None:
     assert "future turns more context for reference and anchoring" in text
     assert "`determined_value` replaces it" in guidance.text
     assert "broader source structures are useful as groups, but they are not atoms" in text
-    assert "more than a few words" in text
-    assert "multiple separated values" in text
-    assert "carries a prose tail" in text
+    assert "a span is not an atom" in text
+    assert "longer than about three words" in text
+    assert "span-shaped" in text
+    assert "genuinely allowed to remain a span unit" in text
+    assert "critical mapping parameters and exact values need independent attention" in text
+    assert "do not bury them inside a long phrase" in text
     assert "drop prose tails unless they are vital" in text
     assert "atomize the tail instead of stapling it onto the value" in text
     assert "before resolution, check the graph hard" in text
+    assert "span-shaped without a real reason" in text
     assert "inventory is not done" in text
     assert "fast t0-shaped atomization pass" in text
     assert "before promoting from inventory into resolution, take one inventory-review turn" in text
     assert "this is not source proof and it is not perfectionism" in text
+    assert "strict sanity check" in text
+    assert "be extremely strict here" in text
+    assert "passing into resolution with bad atomization is expensive as hell" in text
+    assert "crop spin, delegate mud, patch churn, and wasted motion" in text
     assert "span-shaped units are rare and justified" in text
     assert "if the answer is no, finish inventory. if the answer is yes, promote and move" in text
     assert "obvious t0-visible atoms should not be deferred" in text
@@ -402,8 +413,13 @@ def test_domain_pack_declares_semantic_prompt_blocks() -> None:
     assert "small_plus" in guidance.text
     assert "small+" in guidance.text
     assert "bullseye-close" in text
-    assert "vague dot near a paragraph is weak evidence" in text
+    assert "master-overlay coordinate lattice" in text
+    assert "do not place points from t0 sequence order" in text
+    assert "hit the atom itself" in text
     assert "small_plus` / `small+` wide is the normal atom/line starting shape" in text
+    assert "span_line" in guidance.text
+    assert "width-heavy, line-height escape hatch" in text
+    assert "does not excuse lazy atomization" in text
     assert "width_norm" in guidance.text
     assert "height_norm" in guidance.text
     assert "scale_x" in guidance.text
@@ -423,12 +439,16 @@ def test_domain_pack_declares_semantic_prompt_blocks() -> None:
     assert "largest coherent point packet" in text
     assert "resolve by local clusters, not isolated drips" in text
     assert "one overlay review, one delegate wave, and one dense integration pass" in text
+    assert "stay in dense motion after the first wave" in text
+    assert "one-at-a-time tunnel vision" in text
+    assert "sustained useful motion across the run" in text
     assert "master overlay is for packet sanity" in text
     assert "atom evidence worklist" in text
     assert "packet-ready-unused crop ref" in text
     assert "a point packet is not done when created" in text
     assert "reraking the same source patch while old packet refs sit unused is waste" in text
-    assert "a vague dot near a paragraph is weak evidence" in text
+    assert "paragraph guesswork" in text
+    assert "close enough to contain it" in text
     assert "do not spin for perfect center" in text
     assert "contained, readable, and anchored" in text
     assert "use the point table as the coordinate record" in text
