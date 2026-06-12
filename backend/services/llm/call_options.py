@@ -29,3 +29,5 @@ class LlmCallOptions:
     phase: str | None = None
     # Optional OpenAI service tier request (telemetry only until provider wiring enables it)
     service_tier: str | None = None
+    # Disabled-by-default streaming transport; provider aggregates to the same final text shape.
+    streaming: bool = False

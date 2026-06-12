@@ -16,6 +16,10 @@ LLM_CALL_TRACE_FIELDS: tuple[str, ...] = (
     "started_at_epoch_seconds",
     "finished_at_epoch_seconds",
     "wall_seconds",
+    "first_response_event_at_epoch_seconds",
+    "time_to_first_response_event_seconds",
+    "response_stream_seconds",
+    "provider_wait_seconds",
     "prompt_char_count",
     "response_char_count",
     "input_tokens",
@@ -29,6 +33,7 @@ LLM_CALL_TRACE_FIELDS: tuple[str, ...] = (
     "request_id",
     "streaming_requested",
     "streaming_supported",
+    "usage_unavailable_reason",
     "max_retries_configured",
     "retry_count_observed",
     "timeout_configured_seconds",
@@ -131,6 +136,30 @@ def extract_usage_fields(raw: Mapping[str, Any] | None) -> dict[str, int | None]
     }
 
 
+def extract_streaming_requested(
+    *,
+    kwargs: Mapping[str, Any] | None = None,
+    call_options: object | None = None,
+    raw_response: Mapping[str, Any] | None = None,
+) -> bool:
+    """Best-effort streaming flag from call options, kwargs, or provider echo."""
+    try:
+        from services.llm.call_options import LlmCallOptions
+    except ImportError:
+        LlmCallOptions = None  # type: ignore[misc, assignment]
+    if LlmCallOptions is not None and isinstance(call_options, LlmCallOptions):
+        if bool(getattr(call_options, "streaming", False)):
+            return True
+    if isinstance(kwargs, Mapping):
+        for key in ("streaming", "stream"):
+            if bool(kwargs.get(key)):
+                return True
+    if isinstance(raw_response, Mapping):
+        if bool(raw_response.get("streaming_requested")):
+            return True
+    return False
+
+
 def extract_service_tier_requested(
     *,
     kwargs: Mapping[str, Any] | None = None,
@@ -183,6 +212,8 @@ def build_llm_call_trace(
     timeout_configured_seconds: float | None = None,
     error_type: str | None = None,
     error_message_preview: str | None = None,
+    first_response_event_at_epoch_seconds: float | None = None,
+    usage_unavailable_reason: str | None = None,
 ) -> dict[str, Any]:
     """Build a compact serializable LLM call trace record."""
     role = str(call_role or "unknown").strip().lower()
@@ -215,7 +246,15 @@ def build_llm_call_trace(
         "timeout_configured_seconds": timeout_configured_seconds,
         "error_type": _bound_text(error_type, 80) or None,
         "error_message_preview": _bound_text(error_message_preview, _MAX_ERROR_PREVIEW_CHARS) or None,
+        "usage_unavailable_reason": _bound_text(usage_unavailable_reason, 120) or None,
     }
+    _apply_phase_timing_fields(
+        trace,
+        started_at_epoch_seconds=started_at_epoch_seconds,
+        finished_at_epoch_seconds=finished_at_epoch_seconds,
+        streaming_requested=bool(streaming_requested),
+        first_response_event_at_epoch_seconds=first_response_event_at_epoch_seconds,
+    )
     return sanitize_llm_call_trace(trace)
 
 
@@ -260,6 +299,9 @@ def build_llm_call_trace_from_response(
     if error_type is None and not bool(response_map.get("success", True)):
         error_type = "provider_failure"
 
+    resolved_streaming = streaming_requested or extract_streaming_requested(raw_response=response_map)
+    first_event = _coerce_float(response_map.get("first_response_event_at_epoch_seconds"))
+
     return build_llm_call_trace(
         call_role=call_role,
         call_name=call_name,
@@ -278,8 +320,10 @@ def build_llm_call_trace_from_response(
         service_tier_returned=_optional_str(response_map.get("service_tier_returned")),
         response_id=_optional_str(response_map.get("response_id")),
         request_id=_optional_str(response_map.get("request_id")),
-        streaming_requested=streaming_requested,
+        streaming_requested=resolved_streaming,
         streaming_supported=streaming_supported,
+        first_response_event_at_epoch_seconds=first_event,
+        usage_unavailable_reason=_optional_str(response_map.get("usage_unavailable_reason")),
         max_retries_configured=(
             _coerce_int(response_map.get("max_retries_configured"))
             if response_map.get("max_retries_configured") is not None
@@ -388,6 +432,28 @@ def _coerce_int(value: Any) -> int | None:
         return int(value)
     except (TypeError, ValueError):
         return None
+
+
+def _apply_phase_timing_fields(
+    trace: dict[str, Any],
+    *,
+    started_at_epoch_seconds: float,
+    finished_at_epoch_seconds: float,
+    streaming_requested: bool,
+    first_response_event_at_epoch_seconds: float | None = None,
+) -> None:
+    """Add first-event timing only for streaming calls with a measured first event."""
+    if not streaming_requested or first_response_event_at_epoch_seconds is None:
+        return
+    first = float(first_response_event_at_epoch_seconds)
+    started = float(started_at_epoch_seconds)
+    finished = float(finished_at_epoch_seconds)
+    wait = max(0.0, first - started)
+    stream = max(0.0, finished - first)
+    trace["first_response_event_at_epoch_seconds"] = round(first, 3)
+    trace["time_to_first_response_event_seconds"] = round(wait, 3)
+    trace["provider_wait_seconds"] = round(wait, 3)
+    trace["response_stream_seconds"] = round(stream, 3)
 
 
 def _coerce_float(value: Any) -> float | None:

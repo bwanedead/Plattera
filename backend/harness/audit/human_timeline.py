@@ -278,6 +278,14 @@ def _format_llm_call_trace_lines(trace: Mapping[str, Any], *, indent: str = "") 
     wall = trace.get("wall_seconds")
     if wall is not None:
         lines.append(f"{indent}- wall: {wall}s")
+    if trace.get("provider_wait_seconds") is not None:
+        lines.append(f"{indent}- provider_wait: {trace['provider_wait_seconds']}s")
+    if trace.get("response_stream_seconds") is not None:
+        lines.append(f"{indent}- response_stream: {trace['response_stream_seconds']}s")
+    if trace.get("time_to_first_response_event_seconds") is not None:
+        lines.append(
+            f"{indent}- first_event: {trace['time_to_first_response_event_seconds']}s"
+        )
     prompt_chars = trace.get("prompt_char_count")
     response_chars = trace.get("response_char_count")
     if prompt_chars is not None or response_chars is not None:

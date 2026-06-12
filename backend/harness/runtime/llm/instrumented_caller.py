@@ -12,6 +12,7 @@ from .llm_call_trace import (
     build_llm_call_trace,
     build_llm_call_trace_from_response,
     extract_service_tier_requested,
+    extract_streaming_requested,
     resolve_call_role,
 )
 
@@ -39,6 +40,10 @@ def instrument_openai_model_caller(
         call_role = resolve_call_role(phase=phase)
         call_name = str(phase or "unknown")
         prompt_chars = len(prompt or "")
+        streaming_requested = extract_streaming_requested(
+            kwargs=kwargs,
+            call_options=call_opts,
+        )
         try:
             result = caller(prompt, model, **kwargs)
             finished = time.time()
@@ -50,7 +55,7 @@ def instrument_openai_model_caller(
                 prompt_char_count=prompt_chars,
                 started_at_epoch_seconds=started,
                 finished_at_epoch_seconds=finished,
-                streaming_requested=False,
+                streaming_requested=streaming_requested,
                 streaming_supported=streaming_supported,
                 service_tier_requested=extract_service_tier_requested(
                     kwargs=kwargs,
@@ -74,7 +79,7 @@ def instrument_openai_model_caller(
                 started_at_epoch_seconds=started,
                 finished_at_epoch_seconds=finished,
                 prompt_char_count=prompt_chars,
-                streaming_requested=False,
+                streaming_requested=streaming_requested,
                 streaming_supported=streaming_supported,
                 service_tier_requested=extract_service_tier_requested(
                     kwargs=kwargs,

@@ -16,6 +16,7 @@ from harness.runtime.llm.llm_call_trace import (
     build_llm_call_trace_from_response,
     collect_llm_call_traces,
     extract_service_tier_requested,
+    extract_streaming_requested,
     extract_usage_fields,
     resolve_call_role,
     sanitize_llm_call_trace,
@@ -315,3 +316,74 @@ def test_resolve_call_role_maps_phases() -> None:
     assert resolve_call_role(phase="choose_action_repair") == "repair"
     assert resolve_call_role(phase="delegate_subtask") == "delegate"
     assert resolve_call_role(phase="continuity_compaction") == "subagent"
+
+
+def test_non_streaming_trace_does_not_fake_first_event_timing() -> None:
+    trace = build_llm_call_trace(
+        call_role="parent",
+        call_name="choose_action",
+        model="gpt-5.4",
+        started_at_epoch_seconds=100.0,
+        finished_at_epoch_seconds=157.4,
+        prompt_char_count=100,
+        streaming_requested=False,
+    )
+    assert "first_response_event_at_epoch_seconds" not in trace
+    assert "provider_wait_seconds" not in trace
+    assert "response_stream_seconds" not in trace
+
+
+def test_streaming_trace_includes_first_event_timing() -> None:
+    trace = build_llm_call_trace_from_response(
+        raw_response={
+            "success": True,
+            "text": "{}",
+            "streaming_requested": True,
+            "first_response_event_at_epoch_seconds": 105.0,
+            "usage": {"prompt_tokens": 10, "completion_tokens": 2, "total_tokens": 12},
+        },
+        call_role="parent",
+        call_name="choose_action",
+        model="gpt-5.4",
+        prompt_char_count=100,
+        started_at_epoch_seconds=100.0,
+        finished_at_epoch_seconds=110.0,
+        streaming_requested=True,
+    )
+    assert trace["streaming_requested"] is True
+    assert trace["first_response_event_at_epoch_seconds"] == 105.0
+    assert trace["provider_wait_seconds"] == 5.0
+    assert trace["response_stream_seconds"] == 5.0
+    assert trace["time_to_first_response_event_seconds"] == 5.0
+
+
+def test_extract_streaming_requested_reads_call_options() -> None:
+    assert extract_streaming_requested(
+        call_options=LlmCallOptions(streaming=True),
+    ) is True
+    assert extract_streaming_requested(
+        kwargs={"stream": True},
+    ) is True
+    assert extract_streaming_requested() is False
+
+
+def test_instrumented_caller_streaming_trace_has_phase_timing() -> None:
+    def _fake_caller(prompt: str, model: str, **kwargs):
+        return {
+            "success": True,
+            "text": "{}",
+            "streaming_requested": True,
+            "first_response_event_at_epoch_seconds": 12.5,
+            "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+        }
+
+    wrapped = instrument_openai_model_caller(_fake_caller)
+    result = wrapped(
+        "hello",
+        "gpt-5.4",
+        call_options=LlmCallOptions(streaming=True, phase="choose_action"),
+    )
+    trace = result["llm_call_trace"]
+    assert trace["streaming_requested"] is True
+    assert trace["provider_wait_seconds"] is not None
+    assert trace["response_stream_seconds"] is not None

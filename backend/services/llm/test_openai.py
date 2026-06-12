@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from types import SimpleNamespace
 
 from services.llm.call_options import LlmCallOptions
@@ -40,8 +41,47 @@ class _FakeChatCompletions:
         )
 
 
+class _FakeStreamChunk:
+    def __init__(
+        self,
+        *,
+        content: str | None = None,
+        finish_reason: str | None = None,
+        usage: SimpleNamespace | None = None,
+        chunk_id: str = "resp_stream_1",
+        model_name: str = "gpt-5.4-mini",
+    ) -> None:
+        delta = SimpleNamespace(content=content)
+        self.choices = [SimpleNamespace(delta=delta, finish_reason=finish_reason)]
+        self.usage = usage
+        self.id = chunk_id
+        self.model = model_name
+
+
+class _FakeStreamingChatCompletions:
+    def __init__(self, chunks: list[_FakeStreamChunk] | None = None) -> None:
+        self.last_kwargs = None
+        self._chunks = chunks or [
+            _FakeStreamChunk(content='{"ok":'),
+            _FakeStreamChunk(content="true}"),
+            _FakeStreamChunk(
+                finish_reason="stop",
+                usage=SimpleNamespace(
+                    total_tokens=42,
+                    prompt_tokens=21,
+                    completion_tokens=21,
+                    reasoning_tokens=5,
+                ),
+            ),
+        ]
+
+    def create(self, **kwargs):
+        self.last_kwargs = kwargs
+        return iter(self._chunks)
+
+
 class _FakeClient:
-    def __init__(self, completions: _FakeChatCompletions | None = None) -> None:
+    def __init__(self, completions: _FakeChatCompletions | _FakeStreamingChatCompletions | None = None) -> None:
         self.chat = SimpleNamespace(completions=completions or _FakeChatCompletions())
 
 
@@ -221,3 +261,83 @@ def test_call_text_echoes_requested_service_tier_from_call_options() -> None:
 def test_requested_service_tier_from_kwargs_prefers_call_options() -> None:
     opts = LlmCallOptions(service_tier="priority")
     assert _requested_service_tier_from_kwargs({"service_tier": "flex"}, call_opts=opts) == "priority"
+
+
+def test_call_text_non_streaming_default_unchanged() -> None:
+    service, completions = _service_with_fake_client()
+    result = service.call_text("prompt", "gpt-5.4-mini")
+    assert result["success"] is True
+    assert completions.last_kwargs is not None
+    assert "stream" not in completions.last_kwargs
+    assert result.get("streaming_requested") is not True
+
+
+def test_call_text_streaming_opt_in_aggregates_text() -> None:
+    service, completions = _service_with_fake_client(_FakeStreamingChatCompletions())
+    result = service.call_text(
+        "prompt",
+        "gpt-5.4-mini",
+        call_options=LlmCallOptions(output_mode="json_object", phase="choose_action", streaming=True),
+    )
+    assert result["success"] is True
+    assert result["text"] == '{"ok":true}'
+    assert result["streaming_requested"] is True
+    assert completions.last_kwargs is not None
+    assert completions.last_kwargs["stream"] is True
+    assert completions.last_kwargs["stream_options"] == {"include_usage": True}
+    assert result["usage"]["prompt_tokens"] == 21
+    assert result["first_response_event_at_epoch_seconds"] is not None
+
+
+def test_call_text_streaming_records_first_event_timing() -> None:
+    class _DelayedStreamingCompletions(_FakeStreamingChatCompletions):
+        def create(self, **kwargs):
+            self.last_kwargs = kwargs
+
+            def _iter():
+                time.sleep(0.02)
+                yield _FakeStreamChunk(content="hi")
+                time.sleep(0.03)
+                yield _FakeStreamChunk(
+                    finish_reason="stop",
+                    usage=SimpleNamespace(
+                        total_tokens=10,
+                        prompt_tokens=4,
+                        completion_tokens=6,
+                        reasoning_tokens=None,
+                    ),
+                )
+
+            return _iter()
+
+    service, _ = _service_with_fake_client(_DelayedStreamingCompletions())
+    started = time.time()
+    result = service.call_text(
+        "prompt",
+        "gpt-5.4-mini",
+        call_options=LlmCallOptions(streaming=True),
+    )
+    assert result["success"] is True
+    assert result["text"] == "hi"
+    first = float(result["first_response_event_at_epoch_seconds"])
+    finished = float(result["response_finished_at_epoch_seconds"])
+    assert first >= started
+    assert finished - first >= 0.02
+
+
+def test_call_text_streaming_without_usage_records_reason() -> None:
+    service, _ = _service_with_fake_client(
+        _FakeStreamingChatCompletions(
+            chunks=[
+                _FakeStreamChunk(content="partial"),
+                _FakeStreamChunk(finish_reason="stop"),
+            ]
+        )
+    )
+    result = service.call_text(
+        "prompt",
+        "gpt-5.4-mini",
+        call_options=LlmCallOptions(streaming=True),
+    )
+    assert result["success"] is True
+    assert result["usage_unavailable_reason"] == "streaming_usage_not_returned"

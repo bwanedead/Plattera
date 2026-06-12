@@ -128,6 +128,23 @@ def test_format_delegate_trace_includes_llm_call_trace_tokens() -> None:
     assert "streaming=false" in joined
 
 
+def test_format_delegate_trace_includes_streaming_phase_timing() -> None:
+    parts = format_delegate_trace_timing_parts(
+        {
+            "wall_seconds": 10.0,
+            "llm_call_trace": {
+                "streaming_requested": True,
+                "provider_wait_seconds": 4.0,
+                "response_stream_seconds": 6.0,
+            },
+        }
+    )
+    joined = " ".join(parts)
+    assert "streaming=true" in joined
+    assert "provider_wait=4.0s" in joined
+    assert "response_stream=6.0s" in joined
+
+
 def test_build_subtask_trace_embeds_llm_call_trace() -> None:
     trace = build_subtask_trace(
         model="gpt-5.4",

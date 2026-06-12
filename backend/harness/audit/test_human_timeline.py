@@ -49,6 +49,39 @@ def test_timeline_renders_parent_llm_call_trace(tmp_path: Path) -> None:
     assert "input=40086" in body
     assert "cached=1200" in body
     assert "streaming: requested=false supported=true" in body
+    assert "first_event:" not in body
+    assert "provider_wait:" not in body
+
+
+def test_timeline_renders_streaming_first_event_timing(tmp_path: Path) -> None:
+    writer = RunAuditWriter(tmp_path / "run-llm-stream")
+    writer.observe_llm_io(
+        {
+            "turn_index": 1,
+            "parse_ok": True,
+            "llm_call_trace": {
+                "provider": "openai",
+                "call_role": "parent",
+                "call_name": "choose_action",
+                "model": "gpt-5.4",
+                "started_at_epoch_seconds": 100.0,
+                "finished_at_epoch_seconds": 110.0,
+                "wall_seconds": 10.0,
+                "prompt_char_count": 1000,
+                "response_char_count": 200,
+                "streaming_requested": True,
+                "streaming_supported": True,
+                "first_response_event_at_epoch_seconds": 104.0,
+                "time_to_first_response_event_seconds": 4.0,
+                "provider_wait_seconds": 4.0,
+                "response_stream_seconds": 6.0,
+            },
+        }
+    )
+    body = _timeline_path(tmp_path / "run-llm-stream").read_text(encoding="utf-8")
+    assert "first_event: 4.0s" in body
+    assert "provider_wait: 4.0s" in body
+    assert "response_stream: 6.0s" in body
 
 
 def test_timeline_renders_host_hydration_and_output_gate(tmp_path: Path) -> None:

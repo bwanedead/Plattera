@@ -82,6 +82,7 @@ After redundancy implementation, verify:
 import os
 import base64
 import json
+from types import SimpleNamespace
 from typing import Dict, Any, List, Optional, Union
 from services.llm.base import LLMService
 from pydantic import BaseModel
@@ -144,6 +145,20 @@ def _get_openai_api_key():
 
     logger.warning("OPENAI_KEY ► not found in keyring or environment")
     return None
+
+def _streaming_requested_from_kwargs(kwargs: Dict[str, Any], *, call_opts: Any = None) -> bool:
+    """Read disabled-by-default streaming flag from call options or kwargs."""
+    try:
+        from services.llm.call_options import LlmCallOptions
+    except ImportError:
+        LlmCallOptions = None  # type: ignore[misc, assignment]
+    if LlmCallOptions is not None and isinstance(call_opts, LlmCallOptions):
+        if bool(getattr(call_opts, "streaming", False)):
+            return True
+    if bool(kwargs.get("streaming")) or bool(kwargs.get("stream")):
+        return True
+    return False
+
 
 def _requested_service_tier_from_kwargs(kwargs: Dict[str, Any], *, call_opts: Any = None) -> str | None:
     """Read a requested service tier for telemetry without changing API defaults."""
@@ -429,6 +444,120 @@ class OpenAIService(LLMService):
             "provider_model": provider_model,
             "api_model": api_model_name,
         }
+
+    def _call_text_streaming(
+        self,
+        *,
+        completion_params: Dict[str, Any],
+        model: str,
+        api_model_name: str,
+        call_opts: Any,
+        kwargs: Dict[str, Any],
+        ctx: str,
+    ) -> Dict[str, Any]:
+        """Aggregate streamed chat completion chunks into the standard text envelope."""
+        stream_params = dict(completion_params)
+        stream_params["stream"] = True
+        stream_params["stream_options"] = {"include_usage": True}
+        request_started = time.time()
+        first_event_at: float | None = None
+        text_parts: list[str] = []
+        finish_reason: str | None = None
+        response_id: str | None = None
+        provider_model: str | None = None
+        usage_payload: dict[str, int | None] | None = None
+
+        stream = self.client.chat.completions.create(**stream_params)
+        for chunk in stream:
+            if first_event_at is None:
+                first_event_at = time.time()
+            response_id = getattr(chunk, "id", None) or response_id
+            provider_model = getattr(chunk, "model", None) or provider_model
+            choices = getattr(chunk, "choices", None) or []
+            if choices:
+                choice = choices[0]
+                finish_reason = getattr(choice, "finish_reason", None) or finish_reason
+                delta = getattr(choice, "delta", None)
+                if delta is not None:
+                    content = getattr(delta, "content", None)
+                    if isinstance(content, str) and content:
+                        text_parts.append(content)
+            chunk_usage = getattr(chunk, "usage", None)
+            if chunk_usage is not None:
+                usage_payload = self._usage_payload(SimpleNamespace(usage=chunk_usage))
+
+        finished_at = time.time()
+        response_text = "".join(text_parts)
+        token_usage = usage_payload["total_tokens"] if usage_payload else 0
+        service_tier_requested = _requested_service_tier_from_kwargs(kwargs, call_opts=call_opts)
+        timing_meta = {
+            "streaming_requested": True,
+            "request_started_at_epoch_seconds": round(request_started, 3),
+            "response_finished_at_epoch_seconds": round(finished_at, 3),
+        }
+        if first_event_at is not None:
+            timing_meta["first_response_event_at_epoch_seconds"] = round(first_event_at, 3)
+        if usage_payload is None:
+            timing_meta["usage_unavailable_reason"] = "streaming_usage_not_returned"
+
+        logger.info(
+            f"📨 TEXT stream response received: finish_reason='{finish_reason}', "
+            f"tokens={token_usage}{ctx}"
+        )
+
+        pseudo_response = SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content=response_text), finish_reason=finish_reason)],
+            usage=SimpleNamespace(**usage_payload) if usage_payload else None,
+            model=provider_model or api_model_name,
+            id=response_id,
+        )
+
+        if finish_reason == "length":
+            result = self._text_failure_result(
+                model=model,
+                api_model_name=api_model_name,
+                response=pseudo_response,
+                error=f"OpenAI returned truncated response (finish_reason: {finish_reason})",
+                finish_reason=finish_reason,
+            )
+            result.update(timing_meta)
+            return result
+        if finish_reason == "content_filter":
+            result = self._text_failure_result(
+                model=model,
+                api_model_name=api_model_name,
+                response=pseudo_response,
+                error=f"OpenAI blocked response (finish_reason: {finish_reason})",
+                finish_reason=finish_reason,
+            )
+            result.update(timing_meta)
+            return result
+        if not response_text:
+            result = self._text_failure_result(
+                model=model,
+                api_model_name=api_model_name,
+                response=pseudo_response,
+                error="OpenAI returned empty text response",
+                finish_reason=finish_reason,
+            )
+            result.update(timing_meta)
+            return result
+
+        return {
+            "success": True,
+            "text": response_text,
+            "tokens_used": token_usage,
+            "model": model,
+            "provider_model": provider_model or api_model_name,
+            "api_model": api_model_name,
+            "finish_reason": finish_reason,
+            "char_count": len(response_text),
+            "response_id": response_id,
+            "service_tier_requested": service_tier_requested,
+            "service_tier_returned": None,
+            "usage": usage_payload,
+            **timing_meta,
+        }
     
     def call_text(self, prompt: str, model: str, **kwargs) -> Dict[str, Any]:
         """Make text-only API call to OpenAI"""
@@ -508,6 +637,18 @@ class OpenAIService(LLMService):
                 completion_params["temperature"] = kwargs.get("temperature", 0.1)
                 completion_params["max_tokens"] = budget_max_tokens
             max_tokens = completion_params.get("max_completion_tokens") or completion_params.get("max_tokens")
+            streaming_requested = _streaming_requested_from_kwargs(kwargs, call_opts=call_opts)
+            if streaming_requested:
+                logger.info(f"🧠 TEXT CALL (stream) ► model={model} max_tokens={max_tokens}{ctx}")
+                return self._call_text_streaming(
+                    completion_params=completion_params,
+                    model=model,
+                    api_model_name=api_model_name,
+                    call_opts=call_opts,
+                    kwargs=kwargs,
+                    ctx=ctx,
+                )
+
             logger.info(f"🧠 TEXT CALL ► model={model} max_tokens={max_tokens}{ctx}")
             
             response = self.client.chat.completions.create(**completion_params)
