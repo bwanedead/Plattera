@@ -434,8 +434,9 @@ def test_domain_pack_declares_semantic_prompt_blocks() -> None:
     assert "put the master overlay ref in `pin_refs`" in text
     assert "force-pin it mechanically" in text
     assert "agent-authored pinning preserves agency" in text
-    assert "do not hydrate every individual crop ref just to inspect basic placement" in text
-    assert "costly, becomes a spin vector" in text
+    assert "do not hydrate `artifact_refs[]`" in guidance.text.lower()
+    assert "floods parent context" in text
+    assert "cost/spin vector" in text
     assert "promotion turn into point-crop resolution" in text
     assert "hydrate and preferably pin the scaffold/master overlay" in text
     assert "do not point-crop blind from the raw source image" in text
@@ -448,6 +449,11 @@ def test_domain_pack_declares_semantic_prompt_blocks() -> None:
     assert "one-at-a-time tunnel vision" in text
     assert "sustained useful motion across the run" in text
     assert "master overlay is for packet sanity" in text
+    assert "do not hydrate `artifact_refs[]`" in guidance.text.lower()
+    assert "every per-point crop image, not the master overlay" in text
+    assert "floods parent context" in text
+    assert "pinned master overlay plus point key/review metadata" in text
+    assert "hydrate that one specific crop ref by name" in text
     assert "atom evidence worklist" in text
     assert "packet-ready-unused crop ref" in text
     assert "a point packet is not done when created" in text
@@ -912,6 +918,11 @@ def test_tool_spec_transform_teaches_point_crops_as_default_path() -> None:
     assert "line-span" in combined or "line span" in combined
     assert "trim_to_text_block" in combined
     assert "master overlay is the native control surface" in combined
+    assert "outputs.derived_ref_id / crop_set.master_overlay_ref is the control artifact" in combined
+    assert "hydrating artifact_refs[] hydrates every individual crop image" in combined
+    assert "bulk crop hydration is a deliberate high-cost" in combined
+    assert "do not use artifact_refs[] as the normal hydrate target" in combined
+    assert "point_crop_set_summary.master_overlay_ref" in combined
     assert "legacy compatibility sub_action" in combined
     assert "not the point-crop placement surface" in combined
     assert "reference_overlay" not in transform.purpose.lower()
