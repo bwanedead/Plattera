@@ -9,6 +9,7 @@ from tooling.mapping.transcript_edit.point_crop_review_table import (
     render_review_line,
     review_table_from_crop_set,
 )
+from tooling.mapping.transcript_edit.point_crop_key_band import build_point_key_lines
 
 from harness.audit.artifact_ref_links import (
     ArtifactLinkContext,
@@ -113,6 +114,7 @@ def render_point_crop_set_tool_output(
                     alt="point crop master overlay",
                 )
             )
+        lines.extend(_render_point_key_section(crop_set, outputs))
 
     source_ref = str(crop_set.get("source_ref") or outputs.get("parent_ref_id") or "").strip()
     if source_ref:
@@ -205,6 +207,25 @@ def render_point_crop_set_tool_output(
             lines.append(notice)
 
     lines.append("")
+    return lines
+
+
+def _render_point_key_section(
+    crop_set: Mapping[str, Any],
+    outputs: Mapping[str, Any],
+) -> list[str]:
+    points = crop_set.get("points") or outputs.get("crop_records") or []
+    point_key_lines = crop_set.get("point_key_lines")
+    if not isinstance(point_key_lines, list) or not point_key_lines:
+        if isinstance(points, list) and points:
+            table = build_point_key_lines(points)
+            point_key_lines = table.get("point_key_lines")
+    if not isinstance(point_key_lines, list) or not point_key_lines:
+        return []
+
+    lines = ["Point key:"]
+    for line in point_key_lines[:MAX_POINT_CROP_TIMELINE_POINTS]:
+        lines.append(f"- {line}")
     return lines
 
 

@@ -76,6 +76,9 @@ def test_project_point_crops_result_as_compact_summary() -> None:
     assert summary["review_lines"]
     assert "offset=[" in summary["review_lines"][0]
     assert "anchor=[" in summary["review_lines"][0]
+    assert summary["point_key_lines"]
+    assert summary["point_key_lines"][0].startswith("A ")
+    assert "point=[" in summary["point_key_lines"][0]
 
 
 def test_projection_includes_overlay_role_for_view() -> None:

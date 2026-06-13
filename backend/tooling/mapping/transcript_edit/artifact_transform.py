@@ -39,6 +39,7 @@ from .coordinate_lattice import (
     draw_reference_cell_coordinate_foundation,
 )
 from .point_crop_review_table import attach_review_table_to_crop_set
+from .point_crop_key_band import attach_point_key_lines_to_crop_set
 from .point_crops import (
     PointCropParamError,
     build_crop_set_point_record,
@@ -89,6 +90,7 @@ def _overlay_metadata_fields(transform_metadata: Mapping[str, Any]) -> dict[str,
         "pin_render",
         "letter_render",
         "render_warnings",
+        "point_key_band",
     ):
         if key in overlay:
             fields[key] = overlay[key]
@@ -126,6 +128,7 @@ def _persist_point_crop_set(
     per_point = transform_metadata["per_point"]
     show = transform_metadata.get("show")
     legend_height = transform_metadata.get("legend_height")
+    key_band_height = transform_metadata.get("key_band_height")
     source_width_height = transform_metadata.get("source_width_height")
     point_count = transform_metadata.get("point_count")
     lineage = lineage or {}
@@ -220,6 +223,7 @@ def _persist_point_crop_set(
         "source_ref": source_ref,
         "show": show,
         "legend_height": legend_height,
+        "key_band_height": key_band_height,
         "source_width_height": source_width_height,
         "points": list(crop_refs),
     }
@@ -229,13 +233,14 @@ def _persist_point_crop_set(
         crop_set["adjustments_applied"] = list(adjustments_applied)
     crop_set.update(_overlay_metadata_fields(transform_metadata))
     attach_review_table_to_crop_set(crop_set)
+    attach_point_key_lines_to_crop_set(crop_set)
 
     (derived_dir / f"{master_uuid}_crop_set.json").write_text(
         json.dumps(crop_set, ensure_ascii=False, indent=2), encoding="utf-8"
     )
 
     master_crop_set_meta: dict[str, Any] = {"points": list(crop_refs)}
-    for key in ("review_rows", "review_lines", "overlay_role"):
+    for key in ("review_rows", "review_lines", "point_key_lines", "overlay_role"):
         if key in crop_set:
             master_crop_set_meta[key] = crop_set[key]
 
@@ -243,6 +248,7 @@ def _persist_point_crop_set(
         "source_ref": source_ref,
         "show": show,
         "legend_height": legend_height,
+        "key_band_height": key_band_height,
         "source_width_height": source_width_height,
         "point_count": point_count,
         "crop_set": master_crop_set_meta,
@@ -346,7 +352,7 @@ def _persist_point_crop_view(
     attach_review_table_to_crop_set(crop_set)
 
     view_crop_set_meta: dict[str, Any] = {"points": view_points}
-    for key in ("review_rows", "review_lines", "overlay_role"):
+    for key in ("review_rows", "review_lines", "point_key_lines", "overlay_role"):
         if key in crop_set:
             view_crop_set_meta[key] = crop_set[key]
 

@@ -906,6 +906,8 @@ def test_tool_spec_transform_teaches_point_crops_as_default_path() -> None:
     assert "visual_boxes_suppressed" in combined or "metadata-only" in combined
     assert "review_rows" in combined
     assert "review_lines" in combined
+    assert "point_key_lines" in combined
+    assert "point-key band" in combined or "point key band" in combined
     assert "span_line" in combined
     assert "line-span" in combined or "line span" in combined
     assert "trim_to_text_block" in combined

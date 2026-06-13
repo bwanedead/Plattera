@@ -8,10 +8,13 @@ from tooling.mapping.transcript_edit.coordinate_lattice import (
     DEFAULT_REFERENCE_COLS,
     DEFAULT_REFERENCE_ROWS,
     _GRID_LABEL_BG_COLOR,
+    _GRID_MAJOR_COLOR,
+    _GRID_MINOR_COLOR,
     _REFERENCE_CELL_LINE_COLOR,
     build_coordinate_lattice_metadata,
     build_compat_grid_metadata,
     build_reference_cell_overlay_metadata,
+    draw_coordinate_lattice,
     draw_reference_cell_coordinate_foundation,
     major_step_from_metadata,
     nearest_lattice_anchor,
@@ -42,6 +45,39 @@ def test_build_coordinate_lattice_metadata_shape() -> None:
     assert lattice["y_increases"] == "down"
     assert lattice["label_style"]["background"] is True
     assert lattice["label_style"]["opposite_margins"] is True
+    assert lattice["label_style"]["font_size_px"] == 15
+    assert lattice["line_style"]["major_width_px"] == 3
+    assert lattice["line_style"]["minor_width_px"] == 1
+    assert lattice["line_style"]["major_color"] == list(_GRID_MAJOR_COLOR)
+    assert lattice["line_style"]["minor_color"] == list(_GRID_MINOR_COLOR)
+
+
+def test_compat_grid_metadata_records_stronger_major_line_width() -> None:
+    lattice = build_coordinate_lattice_metadata()
+    grid = build_compat_grid_metadata(lattice, enabled=True)
+    assert grid["major_line"]["width"] == 3
+    assert grid["minor_line"]["width"] == 1
+
+
+def test_draw_coordinate_lattice_major_lines_are_wider_and_darker_than_minor() -> None:
+    try:
+        from PIL import Image, ImageDraw
+    except ImportError:
+        return
+
+    bg = (255, 255, 255)
+    img = Image.new("RGB", (100, 80), color=bg)
+    draw = ImageDraw.Draw(img)
+    draw_coordinate_lattice(draw, img.width, img.height, edge_labels=False)
+
+    major_center = 50  # 0.50 major vertical line
+    minor_center = 45  # 0.45 minor vertical line
+    sample_y = 26  # between major horizontal bands (0.30 at y=24, 0.40 at y=32)
+    assert img.getpixel((major_center, sample_y)) == _GRID_MAJOR_COLOR
+    assert img.getpixel((major_center - 1, sample_y)) == _GRID_MAJOR_COLOR
+    assert img.getpixel((major_center + 1, sample_y)) == _GRID_MAJOR_COLOR
+    assert img.getpixel((minor_center, sample_y)) == _GRID_MINOR_COLOR
+    assert sum(img.getpixel((major_center, sample_y))) < sum(img.getpixel((minor_center, sample_y)))
 
 
 def test_compat_grid_metadata_mirrors_lattice_steps() -> None:
@@ -83,6 +119,7 @@ def test_build_reference_cell_overlay_metadata_defaults_to_10x10() -> None:
         "cols": DEFAULT_REFERENCE_COLS,
         "rows": DEFAULT_REFERENCE_ROWS,
         "cell_labels": True,
+        "cell_label_stride": 2,
     }
     assert meta["grid"]["cols"] == 10
     assert meta["grid"]["rows"] == 10
@@ -123,3 +160,28 @@ def test_draw_reference_cell_coordinate_foundation_renders_cell_lines_and_backed
         if backed:
             break
     assert backed
+
+
+def test_reference_cell_foundation_preserves_major_line_and_reduces_label_density() -> None:
+    try:
+        from PIL import Image, ImageDraw
+    except ImportError:
+        return
+
+    bg = (200, 200, 200)
+    img = Image.new("RGB", (100, 80), color=bg)
+    draw = ImageDraw.Draw(img)
+    draw_reference_cell_coordinate_foundation(
+        draw,
+        img.width,
+        img.height,
+        edge_labels=False,
+        draw_cell_labels=False,
+    )
+
+    # Default 10x10 reference-cell divisions coincide with major lattice lines;
+    # the cell pass must not repaint those darker coordinate lines.
+    assert img.getpixel((50, 26)) == _GRID_MAJOR_COLOR
+
+    meta = build_reference_cell_overlay_metadata(overlay_role="point_crop_placement_scaffold")
+    assert meta["coordinate_lattice"]["reference_cells"]["cell_label_stride"] == 2

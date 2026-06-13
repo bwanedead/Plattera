@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from tooling.mapping.transcript_edit.point_crop_review_table import review_table_from_crop_set
+from tooling.mapping.transcript_edit.point_crop_key_band import build_point_key_lines
 
 MAX_POINT_CROP_SET_POINTS = 16
 _MAX_PROJECTION_REASON_CHARS = 120
@@ -286,6 +287,13 @@ def project_point_crop_set_summary(outputs: Mapping[str, Any] | None) -> dict[st
     review_lines = review_table.get("review_lines")
     if isinstance(review_lines, list) and review_lines:
         summary["review_lines"] = review_lines[:MAX_POINT_CROP_SET_POINTS]
+
+    point_key_lines = crop_set.get("point_key_lines")
+    if not isinstance(point_key_lines, list) or not point_key_lines:
+        key_table = build_point_key_lines(raw_points)
+        point_key_lines = key_table.get("point_key_lines")
+    if isinstance(point_key_lines, list) and point_key_lines:
+        summary["point_key_lines"] = point_key_lines[:MAX_POINT_CROP_SET_POINTS]
 
     return {k: v for k, v in summary.items() if v not in (None, "", [], {})}
 

@@ -22,6 +22,7 @@ import tooling.mapping.transcript_edit.paths as te_paths_mod
 import config.paths as paths_mod
 
 from harness.mission_state import EvidenceLocator
+from tooling.mapping.transcript_edit.point_crop_key_band import compute_point_key_band_height
 from tooling.mapping.transcript_edit.artifact_transform import make_transform_artifact_handler
 
 
@@ -345,11 +346,18 @@ def test_point_crops_scaffold_output_metadata_and_no_crop_sidecars(tmp_path, mon
     lattice = outputs["coordinate_lattice"]
     assert lattice["major_step_norm"] == 0.10
     assert lattice["minor_step_norm"] == 0.025
-    assert lattice["reference_cells"] == {"cols": 10, "rows": 10, "cell_labels": True}
+    assert lattice["reference_cells"] == {
+        "cols": 10,
+        "rows": 10,
+        "cell_labels": True,
+        "cell_label_stride": 2,
+    }
     assert outputs["crop_set"]["grid"]["cols"] == 10
     assert outputs["crop_set"]["grid"]["cell_labels"] is True
     assert "delegation_lines" not in outputs
     assert "review_lines" not in outputs.get("crop_set", {})
+    assert "point_key_lines" not in outputs.get("crop_set", {})
+    assert outputs["crop_set"].get("key_band_height") in (None, 0)
 
     derived_ref = outputs["derived_ref_id"]
     desc = _load_derived_image_descriptor("d1", "tx-1", "ws-1", derived_ref)
@@ -405,7 +413,12 @@ def test_point_crops_master_overlay_includes_reference_cells(tmp_path, monkeypat
     result = handler({"ref_id": ref_id, **_point_crops_request()})
     crop_set = result["outputs"]["crop_set"]
     lattice = crop_set["coordinate_lattice"]
-    assert lattice["reference_cells"] == {"cols": 10, "rows": 10, "cell_labels": True}
+    assert lattice["reference_cells"] == {
+        "cols": 10,
+        "rows": 10,
+        "cell_labels": True,
+        "cell_label_stride": 2,
+    }
     assert crop_set["grid"]["cols"] == 10
     assert crop_set["grid"]["rows"] == 10
 
@@ -1669,7 +1682,7 @@ def test_point_crops_master_overlay_remains_unzoomed(tmp_path, monkeypatch):
     handler, ref_id = _make_handler(tmp_path, monkeypatch)
     result = handler({"ref_id": ref_id, **_point_crops_request()})
     assert result["executed"] is True
-    assert result["outputs"]["width_height"] == [100, 200]
+    assert result["outputs"]["width_height"] == [100, _expected_master_overlay_height()]
     point = result["outputs"]["crop_set"]["points"][0]
     assert point["output_width_height"][0] > point["unzoomed_width_height"][0]
 
@@ -2680,11 +2693,19 @@ def test_point_crops_master_overlay_pin_renders_at_point_norm(tmp_path, monkeypa
 # point_crops — master overlay grid + legend (M2)
 # ---------------------------------------------------------------------------
 
+
+def _expected_master_overlay_height(*, source_h: int = 80, point_count: int = 1) -> int:
+    from tooling.mapping.transcript_edit.point_crops import OVERLAY_LEGEND_HEIGHT
+
+    key_band_h = compute_point_key_band_height(point_count) if point_count > 0 else 0
+    return source_h + OVERLAY_LEGEND_HEIGHT + key_band_h
+
+
 def test_point_crops_master_overlay_includes_grid_metadata(tmp_path, monkeypatch):
     handler, ref_id = _make_handler(tmp_path, monkeypatch)
     result = handler({"ref_id": ref_id, **_point_crops_request()})
     assert result["executed"] is True
-    assert result["outputs"]["width_height"] == [100, 200]
+    assert result["outputs"]["width_height"] == [100, _expected_master_overlay_height()]
     crop_set = result["outputs"]["crop_set"]
     lattice = crop_set["coordinate_lattice"]
     assert lattice["major_step_norm"] == 0.10
@@ -2698,13 +2719,18 @@ def test_point_crops_master_overlay_includes_grid_metadata(tmp_path, monkeypatch
     assert grid["major_step_norm"] == 0.10
     assert grid["minor_step_norm"] == 0.025
     assert grid["coordinate_space"] == "source_image_norm"
-    assert grid["major_line"]["width"] == 2
+    assert grid["major_line"]["width"] == 3
     assert result["outputs"]["crop_set"]["box_render"]["fill_alpha"] == 48
     assert result["outputs"]["crop_set"]["pin_render"]["radius_px"] == 12
     assert result["outputs"]["crop_set"]["pin_render"]["halo_padding_px"] == 5
     assert result["outputs"]["crop_set"]["letter_render"]["font_size_px"] == 14
     assert lattice["label_style"]["background"] is True
+    assert lattice["label_style"]["font_size_px"] == 15
     assert result["outputs"]["crop_set"]["show"] == ["pin", "letter"]
+    assert crop_set["key_band_height"] == compute_point_key_band_height(1)
+    assert crop_set["point_key_lines"][0].startswith("A ")
+    assert "point=[" in crop_set["point_key_lines"][0]
+    assert crop_set["point_key_band"]["enabled"] is True
     legend = result["outputs"]["crop_set"]["legend"]
     assert legend["size_colors"]["small"] == [220, 70, 70]
     assert legend["size_colors"]["small_plus"] == [245, 166, 35]
@@ -2733,7 +2759,9 @@ def test_point_crops_master_overlay_renders_dense_grid_on_image_area(tmp_path, m
     assert img.getpixel((12, 78)) != bg
     assert img.getpixel((2, 22)) != bg
     assert img.getpixel((88, 22)) != bg
-    assert img.height == 200
+    assert img.height == _expected_master_overlay_height()
+    # Source-image overlay area remains 80px tall above legend/key band.
+    assert sum(img.getpixel((50, 79))) != sum(bg)
 
 
 def test_point_crops_master_overlay_renders_marker_and_letter_without_box_fill(tmp_path, monkeypatch):
@@ -2798,14 +2826,23 @@ def test_point_crops_adjust_master_overlay_suppresses_visual_boxes(tmp_path, mon
 
 
 def test_point_crops_overlay_render_metadata_has_no_paths_or_b64(tmp_path, monkeypatch) -> None:
-    import json
-
     handler, ref_id = _make_handler(tmp_path, monkeypatch)
     result = handler({"ref_id": ref_id, **_point_crops_request()})
-    dumped = json.dumps(result["outputs"]["crop_set"]).lower()
-    assert "b64" not in dumped
-    assert "absolute_path" not in dumped
-    assert "c:\\" not in dumped
+    forbidden_keys = {"b64", "base64", "absolute_path"}
+
+    def walk(value):
+        if isinstance(value, dict):
+            for key, nested in value.items():
+                assert str(key).lower() not in forbidden_keys
+                yield from walk(nested)
+        elif isinstance(value, list):
+            for nested in value:
+                yield from walk(nested)
+        elif isinstance(value, str):
+            yield value
+
+    string_values = list(walk(result["outputs"]["crop_set"]))
+    assert not any("c:\\" in value.lower() for value in string_values)
 
 
 def test_reference_overlay_preserves_lattice_label_style(tmp_path, monkeypatch) -> None:
@@ -2841,7 +2878,7 @@ def test_point_crops_view_includes_grid_and_legend(tmp_path, monkeypatch):
         "params": {"filter": {"letters": ["A"]}},
     })
     assert viewed["executed"] is True
-    assert viewed["outputs"]["width_height"][1] == 200
+    assert viewed["outputs"]["width_height"][1] == 80 + 120
     crop_set = viewed["outputs"]["crop_set"]
     assert crop_set["grid"]["enabled"] is True
     assert crop_set["coordinate_lattice"]["major_step_norm"] == 0.10

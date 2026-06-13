@@ -19,6 +19,11 @@ from .coordinate_lattice import (
     draw_reference_cell_coordinate_foundation,
 )
 from .root_projection import copy_projection_fields
+from .point_crop_key_band import (
+    MAX_POINT_KEY_ROWS,
+    compute_point_key_band_height,
+    draw_point_key_band,
+)
 from .text_block_trim import (
     ALLOWED_TRIM_AXES,
     DEFAULT_TRIM_PADDING_NORM,
@@ -1009,11 +1014,20 @@ def _render_master_overlay(
     *,
     overlay_role: str = OVERLAY_ROLE_POINT_CROP_MASTER,
     paint_boxes: bool = False,
-) -> tuple[Any, int, dict[str, Any]]:
+) -> tuple[Any, int, int, dict[str, Any]]:
     from PIL import Image, ImageDraw  # type: ignore[import]
 
     legend_h = OVERLAY_LEGEND_HEIGHT
-    canvas = Image.new("RGB", (img.width, img.height + legend_h), (255, 255, 255))
+    key_band_h = (
+        compute_point_key_band_height(len(per_point_data))
+        if overlay_role == OVERLAY_ROLE_POINT_CROP_MASTER and per_point_data
+        else 0
+    )
+    canvas = Image.new(
+        "RGB",
+        (img.width, img.height + legend_h + key_band_h),
+        (255, 255, 255),
+    )
     canvas.paste(img, (0, 0))
     draw = ImageDraw.Draw(canvas)
 
@@ -1068,7 +1082,21 @@ def _render_master_overlay(
 
     draw = ImageDraw.Draw(canvas)
     _draw_template_legend(draw, img_w=img.width, img_h=img.height)
-    return canvas, legend_h, overlay
+    if key_band_h > 0:
+        draw_point_key_band(
+            draw,
+            img_w=img.width,
+            y_start=img.height + legend_h,
+            points=per_point_data,
+        )
+        overlay["point_key_band"] = {
+            "enabled": True,
+            "height_px": key_band_h,
+            "max_rows": MAX_POINT_KEY_ROWS,
+            "row_count": min(len(per_point_data), MAX_POINT_KEY_ROWS),
+            "overflow_count": max(0, len(per_point_data) - MAX_POINT_KEY_ROWS),
+        }
+    return canvas, legend_h, key_band_h, overlay
 
 
 def compute_point_crops(img: Any, params: dict[str, Any]) -> dict[str, Any]:
@@ -1165,12 +1193,13 @@ def compute_point_crops(img: Any, params: dict[str, Any]) -> dict[str, Any]:
             row["graph_ref"] = dict(p["graph_ref"])
         per_point_data.append(row)
 
-    canvas, legend_h, overlay = _render_master_overlay(img, per_point_data, show)
+    canvas, legend_h, key_band_h, overlay = _render_master_overlay(img, per_point_data, show)
     return {
         "master_pil": canvas,
         "per_point": per_point_data,
         "show": show,
         "legend_height": legend_h,
+        "key_band_height": key_band_h,
         "source_width_height": [img.width, img.height],
         "point_count": len(points),
         "overlay": overlay,
@@ -1230,7 +1259,7 @@ def compute_point_crops_view(img: Any, points: list[dict[str, Any]], *, show: li
             row["graph_ref"] = dict(p["graph_ref"])
         per_point_data.append(row)
 
-    canvas, legend_h, overlay = _render_master_overlay(
+    canvas, legend_h, key_band_h, overlay = _render_master_overlay(
         img,
         per_point_data,
         show,
@@ -1242,6 +1271,7 @@ def compute_point_crops_view(img: Any, points: list[dict[str, Any]], *, show: li
         "per_point": per_point_data,
         "show": show,
         "legend_height": legend_h,
+        "key_band_height": key_band_h,
         "source_width_height": [img.width, img.height],
         "point_count": len(points),
         "overlay": overlay,

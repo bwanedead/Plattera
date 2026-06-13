@@ -75,6 +75,7 @@ def test_timeline_renders_point_crop_placement_scaffold_without_review_rows() ->
     assert "placement scaffold:" in rendered
     assert "point_count: 0" in rendered
     assert "Review table:" not in rendered
+    assert "Point key:" not in rendered
     assert "points:" not in rendered
 
 
@@ -107,6 +108,8 @@ def test_timeline_renders_point_crop_set_creation() -> None:
     assert "coordinate_lattice: major=" in body
     assert "minor=0.025" in body
     assert "master overlay: `image:derived:master-1`" in body
+    assert "Point key:" in body
+    assert "point=[" in body
     assert "A `parcel_1_tie_bearing`" in body
     assert "zoom=2.25" in body
     assert "root=[" in body

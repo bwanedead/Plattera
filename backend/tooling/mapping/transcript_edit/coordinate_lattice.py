@@ -12,8 +12,9 @@ DEFAULT_REFERENCE_ROWS = 10
 
 _REFERENCE_CELL_LINE_COLOR = (140, 140, 140)
 _REFERENCE_CELL_LINE_WIDTH = 2
-_REFERENCE_CELL_LABEL_LINE_HEIGHT = 12
-_REFERENCE_CELL_LABEL_FONT_SIZE = 11
+_REFERENCE_CELL_LABEL_LINE_HEIGHT = 10
+_REFERENCE_CELL_LABEL_FONT_SIZE = 9
+_REFERENCE_CELL_LABEL_STRIDE = 2
 
 OVERLAY_ROLE_POINT_CROP_MASTER = "point_crop_master"
 OVERLAY_ROLE_POINT_CROP_VIEW = "point_crop_view"
@@ -25,14 +26,14 @@ OVERLAY_GRID_MAJOR_STEP_NORM = DEFAULT_MAJOR_STEP_NORM
 OVERLAY_GRID_MINOR_STEP_NORM = DEFAULT_MINOR_STEP_NORM
 
 _GRID_MINOR_COLOR = (235, 235, 235)
-_GRID_MAJOR_COLOR = (115, 115, 115)
+_GRID_MAJOR_COLOR = (58, 58, 58)
 _GRID_MINOR_WIDTH = 1
-_GRID_MAJOR_WIDTH = 2
-_GRID_LABEL_COLOR = (25, 25, 25)
+_GRID_MAJOR_WIDTH = 3
+_GRID_LABEL_COLOR = (20, 20, 20)
 _GRID_LABEL_BG_COLOR = (255, 255, 255)
 _GRID_LABEL_BG_ALPHA = 215
-_GRID_LABEL_FONT_SIZE = 11
-_GRID_LABEL_PAD_PX = 2
+_GRID_LABEL_FONT_SIZE = 15
+_GRID_LABEL_PAD_PX = 3
 
 _DECIMALS = 3
 _STRIP_LATTICE_KEYS = frozenset(
@@ -83,11 +84,14 @@ def build_coordinate_lattice_metadata(
         },
     }
     if cols is not None and rows is not None:
-        lattice["reference_cells"] = {
+        reference_cells: dict[str, Any] = {
             "cols": cols,
             "rows": rows,
             "cell_labels": cell_labels,
         }
+        if cell_labels:
+            reference_cells["cell_label_stride"] = _REFERENCE_CELL_LABEL_STRIDE
+        lattice["reference_cells"] = reference_cells
     return _strip_lattice_payload(lattice)
 
 
@@ -318,10 +322,12 @@ def draw_reference_cell_coordinate_foundation(
 
     for c in range(1, safe_cols):
         x = int(c * cell_w)
-        draw.line([(x, 0), (x, img_h)], fill=cell_line_color, width=cell_line_width)
+        if not _is_major_fraction(c / safe_cols, DEFAULT_MAJOR_STEP_NORM):
+            draw.line([(x, 0), (x, img_h)], fill=cell_line_color, width=cell_line_width)
     for r in range(1, safe_rows):
         y = int(r * cell_h)
-        draw.line([(0, y), (img_w, y)], fill=cell_line_color, width=cell_line_width)
+        if not _is_major_fraction(r / safe_rows, DEFAULT_MAJOR_STEP_NORM):
+            draw.line([(0, y), (img_w, y)], fill=cell_line_color, width=cell_line_width)
 
     if not draw_cell_labels:
         return
@@ -329,6 +335,8 @@ def draw_reference_cell_coordinate_foundation(
     font = _reference_cell_label_font()
     for r in range(safe_rows):
         for c in range(safe_cols):
+            if c % _REFERENCE_CELL_LABEL_STRIDE != 0 or r % _REFERENCE_CELL_LABEL_STRIDE != 0:
+                continue
             cx = int((c + 0.5) * cell_w)
             cy = int((r + 0.5) * cell_h)
             x1_n = round(c / safe_cols, 2)
