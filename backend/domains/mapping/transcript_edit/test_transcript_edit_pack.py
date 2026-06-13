@@ -418,9 +418,13 @@ def test_domain_pack_declares_semantic_prompt_blocks() -> None:
     assert "small_plus" in guidance.text
     assert "small+" in guidance.text
     assert "bullseye-close" in text
-    assert "master-overlay coordinate lattice" in text
+    assert "master-overlay/scaffold coordinate lattice" in text
+    assert "the point is the evidence anchor; the letter is only its handle" in text
+    assert "not near the phrase" in text
+    assert "not on the line generally" in text
+    assert "memory of the raw source image" in text
     assert "do not place points from t0 sequence order" in text
-    assert "hit the atom itself" in text
+    assert "hit the visible mark" in text
     assert "small_plus` / `small+` wide is the normal atom/line starting shape" in text
     assert "span_line" in guidance.text
     assert "width-heavy, line-height escape hatch" in text
@@ -445,6 +449,11 @@ def test_domain_pack_declares_semantic_prompt_blocks() -> None:
     assert "largest coherent point packet" in text
     assert "resolve by local clusters, not isolated drips" in text
     assert "one overlay review, one delegate wave, and one dense integration pass" in text
+    assert "sanity-check the master overlay and point key as the control surface" in text
+    assert "each point, labeled by its assigned letter" in text
+    assert "not somewhere obviously distant from it" in text
+    assert "close is fine and not worth spin" in text
+    assert "do not hydrate every crop to do this check" in text
     assert "stay in dense motion after the first wave" in text
     assert "one-at-a-time tunnel vision" in text
     assert "sustained useful motion across the run" in text
@@ -459,7 +468,7 @@ def test_domain_pack_declares_semantic_prompt_blocks() -> None:
     assert "a point packet is not done when created" in text
     assert "reraking the same source patch while old packet refs sit unused is waste" in text
     assert "paragraph guesswork" in text
-    assert "close enough to contain it" in text
+    assert "where the crop might merely contain the atom" in text
     assert "do not spin for perfect center" in text
     assert "contained, readable, and anchored" in text
     assert "use the point table as the coordinate record" in text
