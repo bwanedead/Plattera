@@ -193,9 +193,14 @@ def test_procedural_guidance_teaches_delegate_subtask_lightly() -> None:
     assert "delegation_lines" in text
     assert "atom-oriented" in text
     assert "not blind to what the isolated crop can actually provide" in text
-    assert "do not ask the delegate to reason about broader document order" in text
-    assert "all clearly visible text" in text
-    assert "peripheral net for opportunistic harvesting" in text
+    assert "ask for two outputs" in text
+    assert "target atom" in text
+    assert "all clearly visible non-partial text" in text
+    assert "line-separated" in text
+    assert "net for opportunistic harvesting" in text
+    assert "mark clipped edge text as partial/cut" in text
+    assert "crop-local terms" in text
+    assert "avoid parent-only labels" in text
     assert "integrate it even if a larger phrase is clipped" in text
     assert "span-containment anxiety" in text
     assert "opportunistic harvesting means earn what the evidence actually gives you" in text

@@ -9,10 +9,12 @@ from harness.audit.delegate_subtask_timeline import (
 from harness.audit.human_timeline import render_timeline
 from harness.runtime.orchestration.subtasks.contracts import DELEGATE_SUBTASK_ACTION_TYPE
 from harness.runtime.orchestration.subtasks.delegate_integration_status import (
+    STATUS_INTEGRATED_VIA_CONTEXT_REF,
     STATUS_REFERENCED_IN_REPAIR_BUNDLE,
     STATUS_REFERENCED_IN_STATE,
     STATUS_UNREFERENCED_RECENT,
     STATUS_UNREFERENCED_STALE,
+    compute_delegate_observation_integration_status,
     compute_delegate_ref_integration_status,
     should_show_delegate_integration_repair_note,
 )
@@ -113,6 +115,30 @@ def test_exact_string_scan_does_not_match_similar_text() -> None:
         },
     )
     assert status == STATUS_UNREFERENCED_STALE
+
+
+def test_context_crop_ref_in_state_is_integrated_via_context_ref() -> None:
+    crop_ref = "image:derived:crop-p1"
+    status = compute_delegate_observation_integration_status(
+        ref_id="subtask:turn14:read_p1",
+        context_refs=[crop_ref],
+        record_turn_index=14,
+        current_turn=15,
+        resolution_state={"items": [{"evidence_refs": [crop_ref]}]},
+    )
+    assert status == STATUS_INTEGRATED_VIA_CONTEXT_REF
+
+
+def test_context_crop_ref_in_repair_bundle_matches_repair_status() -> None:
+    crop_ref = "image:derived:crop-p1"
+    status = compute_delegate_observation_integration_status(
+        ref_id="subtask:turn14:read_p1",
+        context_refs=[crop_ref],
+        record_turn_index=14,
+        current_turn=15,
+        repair_bundle={"fragments": [{"evidence_refs": [crop_ref]}]},
+    )
+    assert status == STATUS_REFERENCED_IN_REPAIR_BUNDLE
 
 
 def test_prompt_projection_includes_integration_status() -> None:

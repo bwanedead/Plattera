@@ -206,3 +206,38 @@ def test_transform_binding_present_with_callable_handler() -> None:
     result = transform_binding.handler({"ref_id": "image:assoc:tx-1:original", "sub_action": "crop", "params": {}})
     assert result["executed"] is False
     assert result["refusal"]["reason_code"] == "workspace_required"
+
+
+def test_enrich_launch_context_enables_llm_streaming_by_default() -> None:
+    adapter = build_transcript_edit_runtime_adapter()
+    enriched = adapter.enrich_launch_context(
+        {
+            "dossier_id": "dossier-1",
+            "transcription_id": "tx-1",
+        }
+    )
+    assert enriched.get("llm_streaming") is True
+
+
+def test_enrich_launch_context_respects_explicit_llm_streaming_false() -> None:
+    adapter = build_transcript_edit_runtime_adapter()
+    enriched = adapter.enrich_launch_context(
+        {
+            "dossier_id": "dossier-1",
+            "transcription_id": "tx-1",
+            "llm_streaming": False,
+        }
+    )
+    assert "llm_streaming" not in enriched
+
+
+def test_enrich_launch_context_respects_streaming_false_key() -> None:
+    adapter = build_transcript_edit_runtime_adapter()
+    enriched = adapter.enrich_launch_context(
+        {
+            "dossier_id": "dossier-1",
+            "transcription_id": "tx-1",
+            "streaming": False,
+        }
+    )
+    assert "llm_streaming" not in enriched

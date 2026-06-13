@@ -8,6 +8,7 @@ from collections.abc import Callable, Mapping
 from time import perf_counter
 from typing import Any
 
+from harness.runtime.llm.streaming_config import apply_streaming_to_call_options
 from services.llm.call_options import LlmCallOptions
 
 from ....execution.contracts import ExecutionStepRequest
@@ -43,6 +44,7 @@ def run_delegate_subtask(
     default_model_name: str,
     hydration_handler: HydrationHandler | None,
     parent_request: ExecutionStepRequest,
+    llm_streaming: bool | None = None,
 ) -> dict[str, Any]:
     """Execute one isolated child model call and return a bounded tool result."""
 
@@ -65,10 +67,13 @@ def run_delegate_subtask(
         raw = model_caller(
             prompt,
             model_name,
-            call_options=LlmCallOptions(
-                output_mode="json_object",
-                image_attachments=context.image_attachments,
-                phase=profile.model_policy.phase or DELEGATE_SUBTASK_ACTION_TYPE,
+            call_options=apply_streaming_to_call_options(
+                LlmCallOptions(
+                    output_mode="json_object",
+                    image_attachments=context.image_attachments,
+                    phase=profile.model_policy.phase or DELEGATE_SUBTASK_ACTION_TYPE,
+                ),
+                streaming=llm_streaming,
             ),
         )
     except Exception as exc:  # noqa: BLE001 - model failures become bounded subtask failures

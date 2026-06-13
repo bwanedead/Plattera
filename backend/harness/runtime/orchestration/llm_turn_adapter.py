@@ -16,6 +16,7 @@ from typing import Any
 
 _LOG = logging.getLogger(__name__)
 
+from harness.runtime.llm.streaming_config import apply_streaming_to_call_options
 from services.llm.call_options import LlmCallOptions
 
 from ..composition import ComposedTurnInput
@@ -199,10 +200,13 @@ class LlmTurnOrchestrationAdapter(OrchestrationAdapter):
         prompt_budget_holder = prompt_doc.prompt_budget
         image_evidence = list(context.loop_memory.pending_image_evidence)
         context.loop_memory.pending_image_evidence.clear()
-        call_opts = LlmCallOptions(
-            output_mode="json_object",
-            image_attachments=tuple(image_evidence),
-            phase=prompt_doc.call_phase,
+        call_opts = apply_streaming_to_call_options(
+            LlmCallOptions(
+                output_mode="json_object",
+                image_attachments=tuple(image_evidence),
+                phase=prompt_doc.call_phase,
+            ),
+            run_context=context.opaque_run_context,
         )
         available_tool_ids = tuple(self.composed_input.tool_handlers.keys())
         tool_batch_policies = tool_batch_policies_for_turn(
@@ -314,6 +318,7 @@ class LlmTurnOrchestrationAdapter(OrchestrationAdapter):
                 tool_batch_policies=tool_batch_policies,
                 domain_batch_policy=domain_batch_policy,
                 subtask_profile_registry=subtask_registry,
+                run_context=context.opaque_run_context,
             )
             repair_rec = build_repair_audit_record(repair_attempt)
             repaired_plan = repair_attempt.repair_parsed_action_plan

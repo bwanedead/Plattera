@@ -11,9 +11,10 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 from harness.runtime.orchestration.subtasks.delegate_integration_status import (
+    STATUS_INTEGRATED_VIA_CONTEXT_REF,
     STATUS_REFERENCED_IN_REPAIR_BUNDLE,
     STATUS_REFERENCED_IN_STATE,
-    compute_delegate_ref_integration_status,
+    compute_delegate_observation_integration_status,
 )
 from harness.runtime.orchestration.subtasks.trace_fields import compact_subtask_trace_for_prompt
 
@@ -120,15 +121,20 @@ def _worklist_row_from_record(
     except (TypeError, ValueError):
         turn_index = 0
 
-    integration = compute_delegate_ref_integration_status(
+    integration = compute_delegate_observation_integration_status(
         ref_id=ref_id,
+        context_refs=record.get("context_refs"),
         record_turn_index=turn_index,
         current_turn=current_turn,
         mission_state=mission_state,
         resolution_state=resolution_state,
         repair_bundle=repair_bundle,
     )
-    if integration in (STATUS_REFERENCED_IN_STATE, STATUS_REFERENCED_IN_REPAIR_BUNDLE):
+    if integration in (
+        STATUS_REFERENCED_IN_STATE,
+        STATUS_REFERENCED_IN_REPAIR_BUNDLE,
+        STATUS_INTEGRATED_VIA_CONTEXT_REF,
+    ):
         return None
 
     result = record.get("result")

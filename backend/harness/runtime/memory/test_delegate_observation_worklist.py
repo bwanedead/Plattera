@@ -125,6 +125,57 @@ def test_repair_bundle_reference_excludes_from_worklist() -> None:
     assert worklist["rows"] == []
 
 
+def test_context_crop_ref_in_state_excludes_from_worklist() -> None:
+    crop_ref = "image:derived:crop-p1_call3"
+    record = _completed_record(
+        ref_id="subtask:turn14:read_p1_call3",
+        context_refs=[crop_ref],
+    )
+    worklist = build_delegate_observation_worklist(
+        delegate_result_records=[record],
+        resolution_state={
+            "items": [
+                {
+                    "item_id": "bearing-1",
+                    "evidence_refs": [crop_ref],
+                }
+            ]
+        },
+    )
+    assert worklist["counts"]["unintegrated_completed"] == 0
+    assert worklist["rows"] == []
+
+
+def test_context_crop_ref_in_repair_bundle_excludes_from_worklist() -> None:
+    crop_ref = "image:derived:crop-p1_call3"
+    record = _completed_record(
+        ref_id="subtask:turn14:read_p1_call3",
+        context_refs=[crop_ref],
+    )
+    worklist = build_delegate_observation_worklist(
+        delegate_result_records=[record],
+        repair_bundle={
+            "fragments": [
+                {"evidence_refs": [crop_ref]},
+            ]
+        },
+    )
+    assert worklist["rows"] == []
+
+
+def test_similar_crop_ref_does_not_integrate() -> None:
+    record = _completed_record(
+        context_refs=["image:derived:crop-p1_call3"],
+    )
+    worklist = build_delegate_observation_worklist(
+        delegate_result_records=[record],
+        resolution_state={
+            "items": [{"evidence_refs": ["image:derived:crop-p1_call3_extra"]}],
+        },
+    )
+    assert worklist["counts"]["unintegrated_completed"] == 1
+
+
 def test_non_completed_delegate_status_ignored() -> None:
     record = _completed_record()
     record["status"] = "failed"

@@ -9,6 +9,8 @@ from typing import Any, Callable
 
 from services.llm.call_options import LlmCallOptions
 
+from harness.runtime.llm.streaming_config import apply_streaming_to_call_options
+
 from .action_plan_parser import ModelActionParseError, parse_action_plan_response
 from .contracts import ActionPlan
 from .subtasks.registry import DEFAULT_SUBTASK_REGISTRY, SubtaskProfileRegistry
@@ -145,6 +147,7 @@ def attempt_repair(
     tool_batch_policies: Mapping[str, ToolBatchPolicy] | None = None,
     domain_batch_policy: DomainActionBatchPolicy | None = None,
     subtask_profile_registry: SubtaskProfileRegistry = DEFAULT_SUBTASK_REGISTRY,
+    run_context: Mapping[str, Any] | None = None,
 ) -> RepairAttempt:
     previous_response_object, repair_targets = _derive_repair_context(
         previous_response_text, str(original_exc)
@@ -159,10 +162,13 @@ def attempt_repair(
         repair_targets=repair_targets if repair_targets else None,
     )
     repair_prompt_text = repair_prompt.prompt_text
-    repair_opts = LlmCallOptions(
-        output_mode="json_object",
-        image_attachments=original_image_attachments,
-        phase=repair_prompt.call_phase,
+    repair_opts = apply_streaming_to_call_options(
+        LlmCallOptions(
+            output_mode="json_object",
+            image_attachments=original_image_attachments,
+            phase=repair_prompt.call_phase,
+        ),
+        run_context=run_context,
     )
     raw_repair: Any = None
     repair_trace: Mapping[str, Any] | None = None

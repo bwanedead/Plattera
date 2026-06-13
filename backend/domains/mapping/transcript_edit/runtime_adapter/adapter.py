@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from harness.runtime.composition import TurnSurface
+from harness.runtime.llm.streaming_config import STREAMING_RUN_CONTEXT_KEYS
 
 from ..domain_pack import TranscriptEditDomainPack, build_transcript_edit_domain_pack
 from ..manifest import TranscriptEditManifest
@@ -53,6 +53,8 @@ class TranscriptEditRuntimeAdapter:
             out["delegate_observation_worklist_reminder"] = (
                 TRANSCRIPT_EDIT_DELEGATE_OBSERVATION_REMINDER
             )
+        if not any(key in context for key in STREAMING_RUN_CONTEXT_KEYS):
+            out["llm_streaming"] = True
         return out
 
 

@@ -19,6 +19,7 @@ def make_delegate_subtask_handler(
     model_name: str,
     hydration_handler: HydrationHandler | None,
     registry: SubtaskProfileRegistry = DEFAULT_SUBTASK_REGISTRY,
+    llm_streaming: bool | None = None,
 ) -> Any:
     """Return an execution handler closed over model and hydration seams."""
 
@@ -48,6 +49,7 @@ def make_delegate_subtask_handler(
             default_model_name=model_name,
             hydration_handler=hydration_handler,
             parent_request=request,
+            llm_streaming=llm_streaming,
         )
         return ActionDispatchResult(
             action_id=DELEGATE_SUBTASK_ACTION_TYPE,
