@@ -41,7 +41,7 @@ def _outputs(*, sub_action: str = "point_crops") -> dict:
             "legend": {"size_colors": {"small": [1, 2, 3]}},
             "review_lines": [
                 "A parcel_1_tie_bearing -> crop=image:derived:crop-a point=[0.420,0.580] "
-                "anchor=[0.40,0.60] offset=[+0.020,-0.020]"
+                "box=[0.100,0.250,0.400,0.500] edge=y+ room=[x-0.1 x+0.6 y-0.25 y+0.5] anchor=[0.40,0.60] offset=[+0.020,-0.020]"
             ],
         },
     }
@@ -117,6 +117,7 @@ def test_timeline_renders_point_crop_set_creation() -> None:
     assert "Review table:" in body
     assert "anchor=[" in body
     assert "offset=[" in body
+    assert "room=[" in body
     assert "b64" not in body.lower()
     assert "C:\\" not in body
 

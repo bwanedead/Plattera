@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from tooling.mapping.transcript_edit.root_projection import ProjectionContext
 from tooling.mapping.transcript_edit.source_window import (
+    build_crop_frame_edge_room,
     build_source_window,
     compact_source_window_for_projection,
+    format_crop_frame_edge_room_compact,
     render_source_window_timeline_line,
 )
 
@@ -116,3 +118,49 @@ def test_timeline_line_for_bottom_edge_crop() -> None:
     assert "source_window:" in line
     assert "bottom" in line
     assert "can_expand_down=false" in line
+
+
+def test_build_crop_frame_edge_room_interior_has_room_all_directions() -> None:
+    frame = build_crop_frame_edge_room(box_norm=[0.2, 0.3, 0.6, 0.7])
+    assert frame["crop_frame_touches_edge"] == {
+        "x_minus": False,
+        "x_plus": False,
+        "y_minus": False,
+        "y_plus": False,
+    }
+    assert frame["crop_frame_can_expand"] == {
+        "x_minus": True,
+        "x_plus": True,
+        "y_minus": True,
+        "y_plus": True,
+    }
+    assert frame["crop_frame_room_norm"]["y_plus"] == 0.3
+
+
+def test_build_crop_frame_edge_room_bottom_right_edge() -> None:
+    frame = build_crop_frame_edge_room(box_norm=[0.28, 0.875, 1.0, 1.0])
+    assert frame["crop_frame_room_norm"]["y_plus"] == 0.0
+    assert frame["crop_frame_touches_edge"]["y_plus"] is True
+    assert frame["crop_frame_can_expand"]["y_plus"] is False
+    assert frame["crop_frame_touches_edge"]["x_plus"] is True
+
+
+def test_build_crop_frame_edge_room_root_equivalents() -> None:
+    frame = build_crop_frame_edge_room(
+        box_norm=[0.0, 0.5, 1.0, 1.0],
+        root_box_norm=[0.0, 0.625, 1.0, 0.75],
+    )
+    assert frame["crop_frame_touches_edge"]["y_plus"] is True
+    assert frame["root_crop_frame_touches_edge"]["y_plus"] is False
+    assert frame["root_crop_frame_room_norm"]["y_plus"] == 0.25
+
+
+def test_format_crop_frame_edge_room_compact() -> None:
+    frame = build_crop_frame_edge_room(box_norm=[0.28, 0.875, 1.0, 1.0])
+    text = format_crop_frame_edge_room_compact(
+        room=frame["crop_frame_room_norm"],
+        touches=frame["crop_frame_touches_edge"],
+    )
+    assert text is not None
+    assert "edge=x+,y+" in text
+    assert "y+0.0" in text

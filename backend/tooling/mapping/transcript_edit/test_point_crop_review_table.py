@@ -61,6 +61,42 @@ def test_rendered_line_includes_trim_status() -> None:
     assert "padding=0.02" in line
 
 
+def test_rendered_line_includes_crop_frame_room_and_edge() -> None:
+    row = build_review_row(
+        _sample_point(
+            box_norm=[0.28, 0.875, 1.0, 1.0],
+            crop_frame_room_norm={
+                "x_minus": 0.28,
+                "x_plus": 0.0,
+                "y_minus": 0.875,
+                "y_plus": 0.0,
+            },
+            crop_frame_touches_edge={
+                "x_minus": False,
+                "x_plus": True,
+                "y_minus": False,
+                "y_plus": True,
+            },
+            crop_frame_can_expand={
+                "x_minus": True,
+                "x_plus": False,
+                "y_minus": True,
+                "y_plus": False,
+            },
+        )
+    )
+    line = render_review_line(row)
+    assert "edge=x+,y+" in line
+    assert "room=[x-0.28 x+0.0 y-0.875 y+0.0]" in line
+
+
+def test_review_row_includes_crop_frame_fields() -> None:
+    row = build_review_row(_sample_point(box_norm=[0.2, 0.3, 0.6, 0.7]))
+    assert "crop_frame_room_norm" in row
+    assert row["crop_frame_touches_edge"]["y_plus"] is False
+    assert row["crop_frame_can_expand"]["y_plus"] is True
+
+
 def test_rendered_line_includes_signed_offsets() -> None:
     row = build_review_row(_sample_point())
     line = render_review_line(row)

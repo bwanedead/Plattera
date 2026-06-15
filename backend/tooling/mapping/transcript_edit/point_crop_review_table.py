@@ -12,6 +12,11 @@ from .coordinate_lattice import (
     offset_from_anchor,
 )
 from .point_crops import MAX_POINT_CROP_COUNT
+from .source_window import (
+    attach_crop_frame_edge_room_to_point,
+    build_crop_frame_edge_room,
+    format_crop_frame_edge_room_compact,
+)
 
 MAX_REVIEW_ROWS = MAX_POINT_CROP_COUNT
 _DECIMALS = 3
@@ -132,7 +137,47 @@ def build_review_row(
         if reason:
             row["projection_unavailable_reason"] = reason[:120]
 
+    _attach_crop_frame_fields_to_review_row(row, point=point, box_norm=box_norm)
     return _strip_review_row(row)
+
+
+def _attach_crop_frame_fields_to_review_row(
+    row: dict[str, Any],
+    *,
+    point: Mapping[str, Any],
+    box_norm: list[float] | None,
+) -> None:
+    frame = _crop_frame_fields_from_point(point, box_norm=box_norm)
+    if frame:
+        row.update(frame)
+
+
+def _crop_frame_fields_from_point(
+    point: Mapping[str, Any],
+    *,
+    box_norm: list[float] | None,
+) -> dict[str, Any]:
+    if point.get("crop_frame_room_norm"):
+        out: dict[str, Any] = {}
+        for key in (
+            "crop_frame_room_norm",
+            "crop_frame_touches_edge",
+            "crop_frame_can_expand",
+            "root_crop_frame_room_norm",
+            "root_crop_frame_touches_edge",
+            "root_crop_frame_can_expand",
+        ):
+            value = point.get(key)
+            if value not in (None, "", [], {}):
+                out[key] = value
+        return out
+    if box_norm is None:
+        return {}
+    root_box_norm = _norm_box(point.get("root_box_norm"))
+    return build_crop_frame_edge_room(
+        box_norm=box_norm,
+        root_box_norm=root_box_norm,
+    )
 
 
 def render_review_line(row: Mapping[str, Any]) -> str:
@@ -153,6 +198,12 @@ def render_review_line(row: Mapping[str, Any]) -> str:
     ]
     if isinstance(box_norm, (list, tuple)) and len(box_norm) == 4:
         parts.append(f"box={_fmt_box(box_norm)}")
+    edge_room = format_crop_frame_edge_room_compact(
+        room=row.get("crop_frame_room_norm"),
+        touches=row.get("crop_frame_touches_edge"),
+    )
+    if edge_room:
+        parts.append(edge_room)
     parts.append(f"size={size_shape}")
     crop_intent = str(row.get("crop_intent") or "").strip()
     if crop_intent:

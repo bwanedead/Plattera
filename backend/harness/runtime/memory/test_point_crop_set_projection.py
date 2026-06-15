@@ -34,6 +34,24 @@ def _crop_set_outputs(*, sub_action: str = "point_crops", previous: str | None =
                     "root_source_ref": "image:assoc:tx-1:original",
                     "root_point_norm": [0.51, 0.63],
                     "root_box_norm": [0.47, 0.6, 0.56, 0.66],
+                    "crop_frame_room_norm": {
+                        "x_minus": 0.1,
+                        "x_plus": 0.6,
+                        "y_minus": 0.25,
+                        "y_plus": 0.5,
+                    },
+                    "crop_frame_touches_edge": {
+                        "x_minus": False,
+                        "x_plus": False,
+                        "y_minus": False,
+                        "y_plus": False,
+                    },
+                    "crop_frame_can_expand": {
+                        "x_minus": True,
+                        "x_plus": True,
+                        "y_minus": True,
+                        "y_plus": True,
+                    },
                     "absolute_path": "C:\\secret\\crop-a.png",
                 }
             ],
@@ -41,9 +59,6 @@ def _crop_set_outputs(*, sub_action: str = "point_crops", previous: str | None =
             "coordinate_lattice": {"major_step_norm": 0.10, "minor_step_norm": 0.025},
             "grid": {"enabled": True, "divisions": 4, "coordinate_space": "source_image_norm"},
             "legend": {"size_colors": {"small": [1, 2, 3], "medium": [4, 5, 6], "large": [7, 8, 9]}},
-            "review_lines": [
-                "A parcel_1_tie_bearing -> crop=image:derived:crop-a point=[0.420,0.580] anchor=[0.4,0.6] offset=[+0.020,-0.020]"
-            ],
         },
     }
     if previous:
@@ -79,6 +94,10 @@ def test_project_point_crops_result_as_compact_summary() -> None:
     assert summary["point_key_lines"]
     assert summary["point_key_lines"][0].startswith("A ")
     assert "point=[" in summary["point_key_lines"][0]
+    point = summary["points"][0]
+    assert point.get("crop_frame_room_norm")
+    assert point.get("crop_frame_touches_edge")
+    assert "room=[" in summary["review_lines"][0]
 
 
 def test_projection_includes_overlay_role_for_view() -> None:

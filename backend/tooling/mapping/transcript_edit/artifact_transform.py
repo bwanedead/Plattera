@@ -40,7 +40,7 @@ from .coordinate_lattice import (
 )
 from .point_crop_review_table import attach_review_table_to_crop_set
 from .point_crop_key_band import attach_point_key_lines_to_crop_set
-from .source_window import build_source_window
+from .source_window import attach_crop_frame_edge_room_to_point, build_source_window
 from .point_crops import (
     PointCropParamError,
     build_crop_set_point_record,
@@ -155,6 +155,7 @@ def _persist_point_crop_set(
     artifact_refs = [master_ref]
     for pt in per_point:
         enrich_point_geometry_with_projection(pt, projection_ctx=projection_ctx)
+        attach_crop_frame_edge_room_to_point(pt)
         c_uuid = _uuid_mod.uuid4().hex
         c_ref = f"{_IMAGE_DERIVED_PREFIX}{c_uuid}"
         c_path = derived_dir / f"{c_uuid}.png"
@@ -195,6 +196,16 @@ def _persist_point_crop_set(
             }
         )
         crop_transform_metadata.update(copy_projection_fields(pt))
+        for key in (
+            "crop_frame_room_norm",
+            "crop_frame_touches_edge",
+            "crop_frame_can_expand",
+            "root_crop_frame_room_norm",
+            "root_crop_frame_touches_edge",
+            "root_crop_frame_can_expand",
+        ):
+            if key in pt:
+                crop_transform_metadata[key] = pt[key]
         if previous_crop_set_overlay_ref:
             crop_transform_metadata["previous_crop_set_overlay_ref"] = previous_crop_set_overlay_ref
 

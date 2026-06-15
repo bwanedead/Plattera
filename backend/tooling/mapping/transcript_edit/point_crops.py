@@ -19,6 +19,7 @@ from .coordinate_lattice import (
     draw_reference_cell_coordinate_foundation,
 )
 from .root_projection import copy_projection_fields
+from .source_window import attach_crop_frame_edge_room_to_point
 from .point_crop_key_band import (
     MAX_POINT_KEY_ROWS,
     compute_point_key_band_height,
@@ -1303,6 +1304,7 @@ def build_crop_set_point_record(point: dict[str, Any], *, crop_ref: str | None =
     if crop_intent:
         row["crop_intent"] = crop_intent
     row.update(_copy_trim_metadata(point))
+    attach_crop_frame_edge_room_to_point(row)
     return row
 
 

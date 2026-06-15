@@ -128,6 +128,18 @@ def _compact_point_row(point: Mapping[str, Any]) -> dict[str, Any]:
         if reason:
             row["projection_unavailable_reason"] = reason[:_MAX_PROJECTION_REASON_CHARS]
 
+    for key in (
+        "crop_frame_room_norm",
+        "crop_frame_touches_edge",
+        "crop_frame_can_expand",
+        "root_crop_frame_room_norm",
+        "root_crop_frame_touches_edge",
+        "root_crop_frame_can_expand",
+    ):
+        value = point.get(key)
+        if value not in (None, "", [], {}):
+            row[key] = value
+
     return {
         k: v
         for k, v in row.items()

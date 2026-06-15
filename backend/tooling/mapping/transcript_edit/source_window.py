@@ -72,6 +72,79 @@ def build_source_window(
     return _strip_source_window(window)
 
 
+def build_crop_frame_edge_room(
+    *,
+    box_norm: list[float],
+    root_box_norm: list[float] | None = None,
+) -> dict[str, Any]:
+    """Crop-frame edge room/touch/expand facts from ``box_norm`` (not point location)."""
+    local_box = _round_box(box_norm)
+    local_touches, local_room, local_expand = _crop_frame_edge_facts(local_box)
+    out: dict[str, Any] = {
+        "crop_frame_room_norm": local_room,
+        "crop_frame_touches_edge": local_touches,
+        "crop_frame_can_expand": local_expand,
+    }
+    if isinstance(root_box_norm, (list, tuple)) and len(root_box_norm) == 4:
+        root_box = _round_box([float(v) for v in root_box_norm])
+        root_touches, root_room, root_expand = _crop_frame_edge_facts(root_box)
+        out["root_crop_frame_room_norm"] = root_room
+        out["root_crop_frame_touches_edge"] = root_touches
+        out["root_crop_frame_can_expand"] = root_expand
+    return out
+
+
+def attach_crop_frame_edge_room_to_point(point: dict[str, Any]) -> None:
+    """Attach crop-frame edge metadata to an in-memory point record."""
+    box_norm = point.get("box_norm") or point.get("local_box_norm")
+    if not isinstance(box_norm, (list, tuple)) or len(box_norm) != 4:
+        return
+    root_box_norm = point.get("root_box_norm")
+    root = (
+        [float(v) for v in root_box_norm]
+        if isinstance(root_box_norm, (list, tuple)) and len(root_box_norm) == 4
+        else None
+    )
+    point.update(
+        build_crop_frame_edge_room(
+            box_norm=[float(v) for v in box_norm],
+            root_box_norm=root,
+        )
+    )
+
+
+def format_crop_frame_edge_room_compact(
+    *,
+    room: Mapping[str, Any] | None,
+    touches: Mapping[str, Any] | None,
+) -> str | None:
+    """Compact ``edge=... room=[...]`` fragment for review lines."""
+    if not isinstance(room, Mapping):
+        return None
+    parts: list[str] = []
+    if isinstance(touches, Mapping):
+        edge_tags: list[str] = []
+        if touches.get("x_minus") is True:
+            edge_tags.append("x-")
+        if touches.get("x_plus") is True:
+            edge_tags.append("x+")
+        if touches.get("y_minus") is True:
+            edge_tags.append("y-")
+        if touches.get("y_plus") is True:
+            edge_tags.append("y+")
+        if edge_tags:
+            parts.append(f"edge={','.join(edge_tags)}")
+    parts.append(
+        "room=["
+        f"x-{room.get('x_minus')} "
+        f"x+{room.get('x_plus')} "
+        f"y-{room.get('y_minus')} "
+        f"y+{room.get('y_plus')}"
+        "]"
+    )
+    return " ".join(parts)
+
+
 def compact_source_window_for_projection(source_window: Mapping[str, Any] | None) -> dict[str, Any] | None:
     """Bounded source-window fields for prompt/audit projection."""
     if not isinstance(source_window, Mapping):
@@ -155,6 +228,31 @@ def _edge_facts(box_norm: list[float]) -> tuple[dict[str, bool], dict[str, float
         "up": room["top"] > _EDGE_EPSILON,
         "right": room["right"] > _EDGE_EPSILON,
         "down": room["bottom"] > _EDGE_EPSILON,
+    }
+    return touches, room, can_expand
+
+
+def _crop_frame_edge_facts(
+    box_norm: list[float],
+) -> tuple[dict[str, bool], dict[str, float], dict[str, bool]]:
+    x1, y1, x2, y2 = (float(v) for v in box_norm)
+    touches = {
+        "x_minus": x1 <= _EDGE_EPSILON,
+        "x_plus": x2 >= 1.0 - _EDGE_EPSILON,
+        "y_minus": y1 <= _EDGE_EPSILON,
+        "y_plus": y2 >= 1.0 - _EDGE_EPSILON,
+    }
+    room = {
+        "x_minus": _round_coord(x1),
+        "x_plus": _round_coord(1.0 - x2),
+        "y_minus": _round_coord(y1),
+        "y_plus": _round_coord(1.0 - y2),
+    }
+    can_expand = {
+        "x_minus": room["x_minus"] > _EDGE_EPSILON,
+        "x_plus": room["x_plus"] > _EDGE_EPSILON,
+        "y_minus": room["y_minus"] > _EDGE_EPSILON,
+        "y_plus": room["y_plus"] > _EDGE_EPSILON,
     }
     return touches, room, can_expand
 

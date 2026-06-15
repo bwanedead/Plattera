@@ -1497,6 +1497,29 @@ def test_point_crops_outputs_crop_set_geometry_and_alias_map(tmp_path, monkeypat
     assert len(point["box_norm"]) == 4
     assert point["box_px"][2] > point["box_px"][0]
     assert point["box_px"][3] > point["box_px"][1]
+    assert "crop_frame_room_norm" in point
+    assert "crop_frame_touches_edge" in point
+    assert "crop_frame_can_expand" in point
+    assert "room=[" in crop_set["review_lines"][0]
+
+
+def test_point_crop_bottom_crop_frame_touches_y_plus(tmp_path, monkeypatch):
+    handler, ref_id = _make_handler(tmp_path, monkeypatch)
+    result = handler({
+        "ref_id": ref_id,
+        **_point_crops_request(
+            point_norm=[0.5, 0.94],
+            size="small_plus",
+            shape="wide",
+        ),
+    })
+    assert result["executed"] is True
+    point = result["outputs"]["crop_set"]["points"][0]
+    assert point["crop_frame_room_norm"]["y_plus"] == 0.0
+    assert point["crop_frame_touches_edge"]["y_plus"] is True
+    assert point["crop_frame_can_expand"]["y_plus"] is False
+    assert "edge=" in result["outputs"]["crop_set"]["review_lines"][0]
+    assert "y+0.0" in result["outputs"]["crop_set"]["review_lines"][0]
 
 
 def test_point_crops_labels_and_colors_are_deterministic(tmp_path, monkeypatch):
@@ -3434,6 +3457,62 @@ def test_point_crops_inside_crop_projects_to_root_source(tmp_path, monkeypatch):
     _approx_norm(point["root_point_norm"], [0.5, 0.5])
     assert point["root_box_norm"][0] >= 0.24
     assert point["root_box_norm"][2] <= 0.76
+
+
+def test_point_crops_on_derived_crop_persists_root_crop_frame_edge_room(tmp_path, monkeypatch):
+    from tooling.mapping.transcript_edit.artifact_hydration import _load_derived_image_descriptor
+    from tooling.mapping.transcript_edit.paths import transcript_edit_derived_images_dir
+
+    handler, source_ref = _make_handler(tmp_path, monkeypatch, d="d1", tx="tx-1", ws="ws-1")
+    cropped = handler({
+        "ref_id": source_ref,
+        "sub_action": "crop",
+        "params": {"box_norm": [0.0, 0.25, 1.0, 0.75]},
+    })
+    assert cropped["executed"] is True
+    crop_ref = cropped["outputs"]["derived_ref_id"]
+
+    nested = handler({
+        "ref_id": crop_ref,
+        **_point_crops_request(
+            point_norm=[0.5, 0.94],
+            size="small_plus",
+            shape="wide",
+            alias="bottom_on_derived",
+        ),
+    })
+    assert nested["executed"] is True
+    point = nested["outputs"]["crop_set"]["points"][0]
+    assert point["projection_available"] is True
+    assert point["root_source_ref"] == source_ref
+    assert point["local_source_ref"] == crop_ref
+
+    assert point["crop_frame_room_norm"]["y_plus"] == 0.0
+    assert point["crop_frame_touches_edge"]["y_plus"] is True
+    assert point["crop_frame_can_expand"]["y_plus"] is False
+    assert point["root_crop_frame_touches_edge"]["y_plus"] is False
+    assert point["root_crop_frame_room_norm"]["y_plus"] == 0.25
+
+    master_ref = nested["outputs"]["derived_ref_id"]
+    per_crop_ref = point["crop_ref"]
+    master_desc = _load_derived_image_descriptor("d1", "tx-1", "ws-1", master_ref)
+    crop_desc = _load_derived_image_descriptor("d1", "tx-1", "ws-1", per_crop_ref)
+    master_point = master_desc["transform_metadata"]["crop_set"]["points"][0]
+    assert master_point["root_crop_frame_touches_edge"]["y_plus"] is False
+    assert master_point["root_crop_frame_room_norm"]["y_plus"] == 0.25
+    crop_meta = crop_desc["transform_metadata"]
+    assert crop_meta["root_crop_frame_touches_edge"]["y_plus"] is False
+    assert crop_meta["root_crop_frame_room_norm"]["y_plus"] == 0.25
+
+    derived_dir = transcript_edit_derived_images_dir("d1", "tx-1", "ws-1")
+    sidecar = derived_dir / f"{master_ref.split(':')[-1]}_crop_set.json"
+    sidecar_point = json.loads(sidecar.read_text(encoding="utf-8"))["points"][0]
+    assert sidecar_point["crop_frame_touches_edge"]["y_plus"] is True
+    assert sidecar_point["root_crop_frame_room_norm"]["y_plus"] == 0.25
+
+    review_line = nested["outputs"]["crop_set"]["review_lines"][0]
+    assert "edge=" in review_line
+    assert "room=[" in review_line
 
 
 def test_point_crops_inside_per_point_crop_composes_projection_chain(tmp_path, monkeypatch):
