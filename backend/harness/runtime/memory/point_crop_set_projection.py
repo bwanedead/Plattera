@@ -223,6 +223,51 @@ def _overlay_role_for_summary(
     return "point_crop_master"
 
 
+def _ref_field(container: Mapping[str, Any], key: str) -> str | None:
+    raw = container.get(key)
+    if isinstance(raw, str) and raw.strip():
+        return raw.strip()
+    return None
+
+
+def _compact_source_lineage_fields(
+    outputs: Mapping[str, Any],
+    crop_set: Mapping[str, Any],
+) -> dict[str, Any]:
+    placement_surface_ref = _ref_field(crop_set, "placement_surface_ref") or _ref_field(
+        outputs, "placement_surface_ref"
+    )
+    source_unwrapped_from_ref = _ref_field(crop_set, "source_unwrapped_from_ref") or _ref_field(
+        outputs, "source_unwrapped_from_ref"
+    )
+    legacy_source_repaired = crop_set.get("legacy_source_repaired")
+    if legacy_source_repaired is None:
+        legacy_source_repaired = outputs.get("legacy_source_repaired")
+    legacy_source_repair_warning = _ref_field(crop_set, "legacy_source_repair_warning") or _ref_field(
+        outputs, "legacy_source_repair_warning"
+    )
+
+    fields: dict[str, Any] = {}
+    if placement_surface_ref:
+        fields["placement_surface_ref"] = placement_surface_ref
+    if source_unwrapped_from_ref:
+        fields["source_unwrapped_from_ref"] = source_unwrapped_from_ref
+    if legacy_source_repaired is True:
+        fields["legacy_source_repaired"] = True
+    if legacy_source_repair_warning:
+        fields["legacy_source_repair_warning"] = legacy_source_repair_warning[:_MAX_PROJECTION_REASON_CHARS]
+
+    source_ref = _ref_field(crop_set, "source_ref") or _ref_field(outputs, "parent_ref_id")
+    lineage_parts: list[str] = []
+    if placement_surface_ref:
+        lineage_parts.append(f"placed_from={placement_surface_ref}")
+    if source_ref:
+        lineage_parts.append(f"cropped_from={source_ref}")
+    if lineage_parts and placement_surface_ref and source_ref and placement_surface_ref != source_ref:
+        fields["source_lineage_line"] = " · ".join(lineage_parts)
+    return fields
+
+
 def project_point_crop_set_summary(outputs: Mapping[str, Any] | None) -> dict[str, Any] | None:
     """Extract a bounded crop-set summary from transform_artifact outputs."""
     if not isinstance(outputs, Mapping):
@@ -283,6 +328,8 @@ def project_point_crop_set_summary(outputs: Mapping[str, Any] | None) -> dict[st
     )
     if isinstance(view_of, str) and view_of.strip():
         summary["view_of_crop_set_overlay_ref"] = view_of.strip()
+
+    summary.update(_compact_source_lineage_fields(outputs, crop_set))
 
     overlay_markers = _compact_overlay_markers(crop_set)
     summary.update(overlay_markers)

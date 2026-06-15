@@ -100,6 +100,46 @@ def test_project_point_crops_result_as_compact_summary() -> None:
     assert "room=[" in summary["review_lines"][0]
 
 
+def test_projection_includes_source_lineage_when_unwrapped_from_scaffold() -> None:
+    outputs = _crop_set_outputs()
+    outputs["placement_surface_ref"] = "image:derived:scaffold-1"
+    outputs["source_unwrapped_from_ref"] = "image:derived:scaffold-1"
+    outputs["crop_set"]["placement_surface_ref"] = "image:derived:scaffold-1"
+    outputs["crop_set"]["source_unwrapped_from_ref"] = "image:derived:scaffold-1"
+    summary = project_point_crop_set_summary(outputs)
+    assert summary is not None
+    assert summary["placement_surface_ref"] == "image:derived:scaffold-1"
+    assert summary["source_unwrapped_from_ref"] == "image:derived:scaffold-1"
+    assert summary["source_lineage_line"] == (
+        "placed_from=image:derived:scaffold-1 · cropped_from=image:assoc:tx-1:original"
+    )
+
+
+def test_stale_projection_keeps_source_lineage_fields() -> None:
+    outputs = _crop_set_outputs()
+    outputs["placement_surface_ref"] = "image:derived:scaffold-1"
+    outputs["source_unwrapped_from_ref"] = "image:derived:scaffold-1"
+    outputs["crop_set"]["placement_surface_ref"] = "image:derived:scaffold-1"
+    outputs["crop_set"]["source_unwrapped_from_ref"] = "image:derived:scaffold-1"
+    row = {
+        "kernel_turn_index": 1,
+        "action_type": "transform_artifact",
+        "outputs_excerpt": {"crop_set": "verbose"},
+        "point_crop_set_summary": project_point_crop_set_summary(outputs),
+        "artifact_refs": ["image:derived:master-1"],
+    }
+    projected = project_recent_tool_result_slices_for_prompt(
+        [row],
+        current_turn=5,
+        hot_refs=frozenset(),
+    )
+    crop_summary = projected[0]["point_crop_set_summary"]
+    assert crop_summary["placement_surface_ref"] == "image:derived:scaffold-1"
+    assert crop_summary["source_lineage_line"] == (
+        "placed_from=image:derived:scaffold-1 · cropped_from=image:assoc:tx-1:original"
+    )
+
+
 def test_projection_includes_overlay_role_for_view() -> None:
     outputs = _crop_set_outputs(sub_action="point_crops_view")
     outputs["overlay_role"] = "point_crop_view"

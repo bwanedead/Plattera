@@ -120,6 +120,34 @@ def render_point_crop_set_tool_output(
     if source_ref:
         lines.append(f"- local source: {_render_ref_line(source_ref, link_context, label='open source')}")
 
+    placement_surface_ref = str(
+        crop_set.get("placement_surface_ref") or outputs.get("placement_surface_ref") or ""
+    ).strip()
+    if placement_surface_ref:
+        lines.append(
+            f"- placement_surface_ref: {_render_ref_line(placement_surface_ref, link_context, label='open placement surface')}"
+        )
+
+    source_unwrapped_from_ref = str(
+        crop_set.get("source_unwrapped_from_ref") or outputs.get("source_unwrapped_from_ref") or ""
+    ).strip()
+    if source_unwrapped_from_ref and source_unwrapped_from_ref != placement_surface_ref:
+        lines.append(
+            f"- source_unwrapped_from_ref: {_render_ref_line(source_unwrapped_from_ref, link_context, label='open prior ref')}"
+        )
+
+    if placement_surface_ref and source_ref and placement_surface_ref != source_ref:
+        lines.append(f"- source_lineage: placed_from={placement_surface_ref} · cropped_from={source_ref}")
+
+    legacy_source_repaired = crop_set.get("legacy_source_repaired", outputs.get("legacy_source_repaired"))
+    if legacy_source_repaired is True:
+        warning = str(
+            crop_set.get("legacy_source_repair_warning")
+            or outputs.get("legacy_source_repair_warning")
+            or ""
+        ).strip()
+        lines.append(f"- legacy_source_repaired: yes{f' · {warning[:120]}' if warning else ''}")
+
     point_count_raw = crop_set.get("point_count", outputs.get("point_count"))
     try:
         point_count = int(point_count_raw) if point_count_raw is not None else None

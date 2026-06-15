@@ -1365,12 +1365,18 @@ def extract_crop_set_from_master_descriptor(desc: dict[str, Any]) -> dict[str, A
         )
     show_raw = meta.get("show")
     show = list(show_raw) if isinstance(show_raw, list) and show_raw else list(DEFAULT_SHOW)
+    placement_surface_ref = meta.get("placement_surface_ref")
+    if isinstance(placement_surface_ref, str) and placement_surface_ref.strip():
+        placement_surface_ref = placement_surface_ref.strip()
+    else:
+        placement_surface_ref = None
     return {
         "source_ref": source_ref,
         "show": show,
         "legend_height": meta.get("legend_height"),
         "source_width_height": meta.get("source_width_height"),
         "points": list(points),
+        "placement_surface_ref": placement_surface_ref,
     }
 
 
@@ -1874,6 +1880,7 @@ def prepare_point_crops_adjust(
         "previous_crop_set_overlay_ref": adjustment_source_ref,
         "adjustment_source_ref": adjustment_source_ref,
         "adjustments_applied": adjustments_applied,
+        "placement_surface_ref": prior.get("placement_surface_ref") or adjustment_source_ref,
     }
 
 

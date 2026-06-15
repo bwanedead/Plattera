@@ -40,6 +40,11 @@ from .coordinate_lattice import (
 )
 from .point_crop_review_table import attach_review_table_to_crop_set
 from .point_crop_key_band import attach_point_key_lines_to_crop_set
+from .point_crop_source_lineage import (
+    PointCropSourceLineage,
+    repair_stored_point_crop_source_ref,
+    resolve_point_crop_source_lineage,
+)
 from .source_window import attach_crop_frame_edge_room_to_point, build_source_window
 from .point_crops import (
     PointCropParamError,
@@ -110,6 +115,19 @@ def _overlay_role_from_metadata(transform_metadata: Mapping[str, Any]) -> str | 
     return None
 
 
+def _point_crop_lineage_dict(lineage: PointCropSourceLineage) -> dict[str, Any]:
+    payload: dict[str, Any] = {}
+    if lineage.placement_surface_ref:
+        payload["placement_surface_ref"] = lineage.placement_surface_ref
+    if lineage.source_unwrapped_from_ref:
+        payload["source_unwrapped_from_ref"] = lineage.source_unwrapped_from_ref
+    if lineage.legacy_source_repaired:
+        payload["legacy_source_repaired"] = True
+    if lineage.legacy_source_repair_warning:
+        payload["legacy_source_repair_warning"] = lineage.legacy_source_repair_warning
+    return payload
+
+
 def _persist_point_crop_set(
     *,
     dossier_id: str,
@@ -142,6 +160,10 @@ def _persist_point_crop_set(
     previous_crop_set_overlay_ref = lineage.get("previous_crop_set_overlay_ref")
     adjustment_source_ref = lineage.get("adjustment_source_ref")
     adjustments_applied = lineage.get("adjustments_applied")
+    placement_surface_ref = lineage.get("placement_surface_ref")
+    source_unwrapped_from_ref = lineage.get("source_unwrapped_from_ref")
+    legacy_source_repaired = lineage.get("legacy_source_repaired")
+    legacy_source_repair_warning = lineage.get("legacy_source_repair_warning")
 
     projection_ctx = resolve_root_projection_context(
         dossier_id=dossier_id,
@@ -239,6 +261,14 @@ def _persist_point_crop_set(
         "source_width_height": source_width_height,
         "points": list(crop_refs),
     }
+    if placement_surface_ref:
+        crop_set["placement_surface_ref"] = placement_surface_ref
+    if source_unwrapped_from_ref:
+        crop_set["source_unwrapped_from_ref"] = source_unwrapped_from_ref
+    if legacy_source_repaired:
+        crop_set["legacy_source_repaired"] = True
+    if legacy_source_repair_warning:
+        crop_set["legacy_source_repair_warning"] = legacy_source_repair_warning
     if previous_crop_set_overlay_ref:
         crop_set["previous_crop_set_overlay_ref"] = previous_crop_set_overlay_ref
     if adjustments_applied:
@@ -265,6 +295,14 @@ def _persist_point_crop_set(
         "point_count": point_count,
         "crop_set": master_crop_set_meta,
     }
+    if placement_surface_ref:
+        master_transform_metadata["placement_surface_ref"] = placement_surface_ref
+    if source_unwrapped_from_ref:
+        master_transform_metadata["source_unwrapped_from_ref"] = source_unwrapped_from_ref
+    if legacy_source_repaired:
+        master_transform_metadata["legacy_source_repaired"] = True
+    if legacy_source_repair_warning:
+        master_transform_metadata["legacy_source_repair_warning"] = legacy_source_repair_warning
     if previous_crop_set_overlay_ref:
         master_transform_metadata["previous_crop_set_overlay_ref"] = previous_crop_set_overlay_ref
     if adjustment_source_ref:
@@ -305,6 +343,14 @@ def _persist_point_crop_set(
         outputs["adjustment_source_ref"] = adjustment_source_ref
     if adjustments_applied:
         outputs["adjustments_applied"] = list(adjustments_applied)
+    if placement_surface_ref:
+        outputs["placement_surface_ref"] = placement_surface_ref
+    if source_unwrapped_from_ref:
+        outputs["source_unwrapped_from_ref"] = source_unwrapped_from_ref
+    if legacy_source_repaired:
+        outputs["legacy_source_repaired"] = True
+    if legacy_source_repair_warning:
+        outputs["legacy_source_repair_warning"] = legacy_source_repair_warning
     overlay_role = crop_set.get("overlay_role")
     if isinstance(overlay_role, str) and overlay_role.strip():
         outputs["overlay_role"] = overlay_role.strip()
@@ -548,6 +594,49 @@ def make_transform_artifact_handler(
         if param_error is not None:
             return param_error
 
+        if sub_action == "point_crops":
+            lineage_res, lineage_err = resolve_point_crop_source_lineage(
+                ref_id=ref_id,
+                dossier_id=dossier_id,
+                transcription_id=transcription_id,
+                workspace_key=workspace_key,
+            )
+            if lineage_err:
+                return _error_result(lineage_err["code"], lineage_err["message"])
+            assert lineage_res is not None
+            source_path, resolve_error = _resolve_source_path(
+                ref_id=lineage_res.clean_source_ref,
+                dossier_id=dossier_id,
+                transcription_id=transcription_id,
+                workspace_key=workspace_key,
+            )
+            if resolve_error:
+                return _error_result(resolve_error["code"], resolve_error["message"])
+            assert source_path is not None
+            try:
+                from PIL import Image  # type: ignore[import]
+
+                img = Image.open(source_path)
+                transform_metadata = compute_point_crops(img, params)
+            except PointCropParamError as exc:
+                return _param_error(
+                    "invalid_transform_params",
+                    str(exc),
+                    repair_hint=exc.repair_hint or point_crops_repair_hint_for(str(exc)),
+                )
+            except Exception as exc:
+                return _error_result("transform_failed", f"Transform failed: {exc}")
+            return _persist_point_crop_set(
+                dossier_id=dossier_id,
+                transcription_id=transcription_id,
+                workspace_key=workspace_key,
+                source_ref=lineage_res.clean_source_ref,
+                sub_action=sub_action,
+                params=params,
+                transform_metadata=transform_metadata,
+                lineage=_point_crop_lineage_dict(lineage_res),
+            )
+
         if sub_action == "point_crops_adjust":
             if not ref_id.startswith(_IMAGE_DERIVED_PREFIX):
                 return _param_error(
@@ -572,8 +661,18 @@ def make_transform_artifact_handler(
                     str(exc),
                     repair_hint=exc.repair_hint or point_crops_adjust_repair_hint_for(str(exc)),
                 )
+            lineage_res, lineage_err = repair_stored_point_crop_source_ref(
+                adjust_bundle["source_ref"],
+                dossier_id=dossier_id,
+                transcription_id=transcription_id,
+                workspace_key=workspace_key,
+                placement_surface_ref=adjust_bundle.get("placement_surface_ref"),
+            )
+            if lineage_err:
+                return _error_result(lineage_err["code"], lineage_err["message"])
+            assert lineage_res is not None
             source_path, resolve_error = _resolve_source_path(
-                ref_id=adjust_bundle["source_ref"],
+                ref_id=lineage_res.clean_source_ref,
                 dossier_id=dossier_id,
                 transcription_id=transcription_id,
                 workspace_key=workspace_key,
@@ -601,7 +700,7 @@ def make_transform_artifact_handler(
                 dossier_id=dossier_id,
                 transcription_id=transcription_id,
                 workspace_key=workspace_key,
-                source_ref=adjust_bundle["source_ref"],
+                source_ref=lineage_res.clean_source_ref,
                 sub_action=sub_action,
                 params=params,
                 transform_metadata=transform_metadata,
@@ -609,6 +708,7 @@ def make_transform_artifact_handler(
                     "previous_crop_set_overlay_ref": adjust_bundle["previous_crop_set_overlay_ref"],
                     "adjustment_source_ref": adjust_bundle["adjustment_source_ref"],
                     "adjustments_applied": adjust_bundle["adjustments_applied"],
+                    **_point_crop_lineage_dict(lineage_res),
                 },
             )
 
@@ -731,19 +831,7 @@ def make_transform_artifact_handler(
                 transform_metadata=transform_metadata,
             )
 
-        # Special multi-output handling for point_crops (Brief 1).
-        # The apply step now returns PIL images + rich geometry in metadata (pure computation).
-        # Handler is the single owner of all ref minting, file I/O, and descriptors.
-        if sub_action == "point_crops":
-            return _persist_point_crop_set(
-                dossier_id=dossier_id,
-                transcription_id=transcription_id,
-                workspace_key=workspace_key,
-                source_ref=ref_id,
-                sub_action=sub_action,
-                params=params,
-                transform_metadata=transform_metadata,
-            )
+        # Special multi-output handling for point_crops is handled earlier (clean-source unwrap).
 
         # Normal single-output path for all other sub-actions
         derived_uuid = _uuid_mod.uuid4().hex

@@ -80,7 +80,11 @@ def test_surface_payload_includes_visual_source_observation_subtask_profile() ->
         "limits",
     }
     preamble = profile["prompt_preamble"].lower()
-    assert "source-visible" in preamble or "source visible" in preamble
+    assert "task_response" in preamble
+    assert "source_visible_text" in preamble
+    assert "line per visible text line" in preamble or "one line per" in preamble
+    assert "partial/cut" in preamble or "partial" in preamble and "cut" in preamble
+    assert "target atom is not visible" in preamble
     assert "peer draft" in preamble or "broader mission context" in preamble
     assert "larger transcript-edit run" in preamble
     assert "mission-critical source atom" in preamble

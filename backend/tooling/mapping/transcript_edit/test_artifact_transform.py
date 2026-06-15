@@ -467,6 +467,78 @@ def test_point_crops_scaffold_has_reference_cell_label_backing(tmp_path, monkeyp
     assert backed
 
 
+def test_point_crops_from_scaffold_ref_crops_clean_source_pixels(tmp_path, monkeypatch):
+    from tooling.mapping.transcript_edit.artifact_hydration import _load_derived_image_descriptor
+    from PIL import Image
+
+    handler, source_ref = _make_handler(tmp_path, monkeypatch, d="d1", tx="tx-1", ws="ws-1")
+    scaffold = handler({"ref_id": source_ref, "sub_action": "point_crops_scaffold", "params": {}})
+    assert scaffold["executed"] is True
+    scaffold_ref = scaffold["outputs"]["derived_ref_id"]
+
+    scaffold_desc = _load_derived_image_descriptor("d1", "tx-1", "ws-1", scaffold_ref)
+    scaffold_img = Image.open(scaffold_desc["absolute_path"]).convert("RGB")
+    sample = (scaffold_img.width // 2, scaffold_img.height // 2)
+    assert scaffold_img.getpixel(sample) != (200, 200, 200)
+
+    result = handler({
+        "ref_id": scaffold_ref,
+        **_point_crops_request(point_norm=[0.5, 0.5], alias="scaffold_placed"),
+    })
+    assert result["executed"] is True
+    outputs = result["outputs"]
+    assert outputs["parent_ref_id"] == source_ref
+    assert outputs["crop_set"]["source_ref"] == source_ref
+    assert outputs["placement_surface_ref"] == scaffold_ref
+    assert outputs["source_unwrapped_from_ref"] == scaffold_ref
+
+    crop_ref = outputs["crop_set"]["points"][0]["crop_ref"]
+    crop_desc = _load_derived_image_descriptor("d1", "tx-1", "ws-1", crop_ref)
+    assert crop_desc["parent_ref_id"] == source_ref
+
+    crop_img = Image.open(crop_desc["absolute_path"]).convert("RGB")
+    center = (crop_img.width // 2, crop_img.height // 2)
+    assert crop_img.getpixel(center) == (200, 200, 200)
+    assert crop_img.getpixel(center) != scaffold_img.getpixel(sample)
+
+
+def test_point_crops_adjust_repairs_legacy_polluted_source_ref(tmp_path, monkeypatch):
+    from tooling.mapping.transcript_edit.artifact_hydration import _load_derived_image_descriptor
+    from tooling.mapping.transcript_edit.paths import transcript_edit_derived_images_dir
+    from PIL import Image
+
+    handler, source_ref = _make_handler(tmp_path, monkeypatch, d="d1", tx="tx-1", ws="ws-1")
+    scaffold = handler({"ref_id": source_ref, "sub_action": "point_crops_scaffold", "params": {}})
+    scaffold_ref = scaffold["outputs"]["derived_ref_id"]
+
+    created = handler({"ref_id": source_ref, **_point_crops_request(alias="legacy_probe")})
+    assert created["executed"] is True
+    master_ref = created["outputs"]["derived_ref_id"]
+
+    derived_dir = transcript_edit_derived_images_dir("d1", "tx-1", "ws-1")
+    master_uuid = master_ref.split(":")[-1]
+    master_json = derived_dir / f"{master_uuid}.json"
+    polluted = json.loads(master_json.read_text(encoding="utf-8"))
+    polluted["transform_metadata"]["source_ref"] = scaffold_ref
+    polluted["parent_ref_id"] = scaffold_ref
+    master_json.write_text(json.dumps(polluted, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    adjusted = handler(_point_crops_adjust_request(
+        master_ref=master_ref,
+        adjust=[{"letter": "A", "shift_norm": [0.01, 0.0]}],
+    ))
+    assert adjusted["executed"] is True
+    assert adjusted["outputs"]["crop_set"]["source_ref"] == source_ref
+    assert adjusted["outputs"]["legacy_source_repaired"] is True
+    assert adjusted["outputs"]["legacy_source_repair_warning"]
+
+    crop_ref = adjusted["outputs"]["crop_set"]["points"][0]["crop_ref"]
+    crop_desc = _load_derived_image_descriptor("d1", "tx-1", "ws-1", crop_ref)
+    crop_img = Image.open(crop_desc["absolute_path"]).convert("RGB")
+    center = (crop_img.width // 2, crop_img.height // 2)
+    assert crop_img.getpixel(center) == (200, 200, 200)
+
+
 def test_point_crops_master_overlay_includes_reference_cells(tmp_path, monkeypatch):
     handler, ref_id = _make_handler(tmp_path, monkeypatch)
     result = handler({"ref_id": ref_id, **_point_crops_request()})

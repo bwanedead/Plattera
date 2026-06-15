@@ -162,6 +162,20 @@ def test_point_crop_renders_clickable_links_when_paths_resolvable(tmp_path: Path
     assert "b64" not in rendered.lower()
 
 
+def test_point_crop_timeline_renders_source_lineage_when_unwrapped() -> None:
+    outputs = _outputs()
+    outputs["placement_surface_ref"] = "image:derived:scaffold-1"
+    outputs["source_unwrapped_from_ref"] = "image:derived:scaffold-1"
+    outputs["crop_set"]["placement_surface_ref"] = "image:derived:scaffold-1"
+    outputs["crop_set"]["source_unwrapped_from_ref"] = "image:derived:scaffold-1"
+    lines = render_point_crop_set_tool_output(outputs)
+    rendered = "\n".join(lines)
+    assert "placement_surface_ref:" in rendered
+    assert "image:derived:scaffold-1" in rendered
+    assert "source_lineage: placed_from=image:derived:scaffold-1" in rendered
+    assert "cropped_from=image:assoc:tx-1:original" in rendered
+
+
 def test_point_crop_falls_back_to_ref_only_when_paths_missing() -> None:
     lines = render_point_crop_set_tool_output(_outputs())
     rendered = "\n".join(lines)
