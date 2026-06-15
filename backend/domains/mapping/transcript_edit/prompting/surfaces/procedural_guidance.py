@@ -34,7 +34,7 @@ Atoms need candidate values so future turns know what exact page detail the unit
 
 Do not bundle atoms. If something is a number or small operative value, it probably needs its own covered unit. The degree an atom becomes a span is the degree inventory failed; bad atomization poisons point crops, delegates, and closure. Drop prose tails unless the tail is genuinely mission-critical; if it is vital, make the tail its own atom or atoms when feasible so downstream cropping still has a real target. Prose webbing between values is usually trusted unless it looks weird. Capture the values, organize groups sanely, and move on.
 
-DO NOT MAKE DETERMINATIONS DURING INVENTORY. That is a breach of run sanity. If source evidence is needed to decide something, that is resolution work. Inventory registers the question and candidate postures; resolution earns the answer.
+PLEASE do not chase determinations during inventory. That is a breach of run sanity. Uncertainty is fine at inventory stage: capture the work item, candidate shape, and unresolved question, then let resolution earn it later. Inventory is for listing the work universe, not spending turns proving it; violating this creates spin, wasted motion, and bad economics.
 
 Resolution is verification. Determine whether the atoms are accurate and what their earned values are. Use the economic loop: point-crop the atom, send crop refs to delegates in coherent waves, integrate clear reads, and repeat until the atom set is resolved. Point crops need bullseye placement because they capture a small window around a spot; this is why atoms must be small exact details, not spans.
 

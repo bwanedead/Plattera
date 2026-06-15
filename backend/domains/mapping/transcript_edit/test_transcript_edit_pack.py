@@ -320,9 +320,11 @@ def test_domain_pack_declares_semantic_prompt_blocks() -> None:
     assert "run sanity guide" in text
     assert "early run is inventory" in text
     assert "inventory is atom capture, not proof" in text
-    assert "do not make determinations during inventory" in text
+    assert "please do not chase determinations during inventory" in text
     assert "breach of run sanity" in text
-    assert "inventory registers the question and candidate postures; resolution earns the answer" in text
+    assert "uncertainty is fine at inventory stage" in text
+    assert "capture the work item, candidate shape, and unresolved question" in text
+    assert "violating this creates spin, wasted motion, and bad economics" in text
     assert "resolution is verification" in text
     assert "point-crop the atom" in text
     assert "bullseye placement" in text
@@ -923,6 +925,11 @@ def test_tool_spec_transform_teaches_point_crops_as_default_path() -> None:
     assert "review_lines" in combined
     assert "point_key_lines" in combined
     assert "point-key band" in combined or "point key band" in combined
+    assert "edge=" in combined
+    assert "room=[x-" in combined
+    assert "crop-frame facts from the selected" in combined
+    assert "not from point_norm" in combined
+    assert "0.0 means the crop frame reached that available source edge" in combined
     assert "span_line" in combined
     assert "line-span" in combined or "line span" in combined
     assert "trim_to_text_block" in combined
