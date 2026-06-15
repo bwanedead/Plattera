@@ -182,8 +182,31 @@ def compact_stale_result_slice(row: dict[str, Any], *, stale: bool) -> dict[str,
                 "grid",
                 "legend",
                 "coordinate_lattice",
+                "point_key_lines",
+                "review_lines",
             )
             if key in crop_summary and crop_summary[key] not in (None, "", [], {})
+        }
+
+    source_window = row.get("source_window")
+    if isinstance(source_window, Mapping):
+        compact["source_window"] = {
+            key: source_window[key]
+            for key in (
+                "root_box_norm",
+                "local_box_norm",
+                "touches_source_edge",
+                "touches_root_source_edge",
+                "room_to_source_edge_norm",
+                "room_to_root_source_edge_norm",
+                "can_expand",
+                "can_expand_root",
+                "position_label",
+                "root_position_label",
+                "edge_summary",
+                "projection_available",
+            )
+            if key in source_window and source_window[key] not in (None, "", [], {})
         }
 
     excerpt = row.get("outputs_excerpt")

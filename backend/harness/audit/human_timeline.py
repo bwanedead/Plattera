@@ -32,6 +32,7 @@ from harness.audit.delegate_subtask_timeline import (
     render_delegate_turn_integration_summary,
 )
 from harness.audit.point_crop_set_timeline import render_point_crop_set_tool_output
+from tooling.mapping.transcript_edit.source_window import render_source_window_timeline_line
 from harness.audit.turn_action_flags import render_turn_action_flags
 from harness.audit.atom_evidence_worklist_timeline import render_atom_evidence_worklist_timeline
 from harness.audit.delegate_observation_worklist_timeline import (
@@ -874,6 +875,11 @@ def _render_tool_result(
                 link_context=link_context,
             )
         )
+        source_window_line = render_source_window_timeline_line(
+            _coerce_mapping(outputs).get("source_window")
+        )
+        if source_window_line:
+            lines.append(f"  {source_window_line}")
     else:
         lines.append("  outputs_excerpt: none")
 

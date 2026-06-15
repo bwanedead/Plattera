@@ -229,6 +229,9 @@ def project_batch_item_row(row: Mapping[str, Any]) -> dict[str, Any]:
     crop_summary = row.get("point_crop_set_summary")
     if isinstance(crop_summary, Mapping) and crop_summary:
         out["point_crop_set_summary"] = dict(crop_summary)
+    source_window = row.get("source_window")
+    if isinstance(source_window, Mapping) and source_window:
+        out["source_window"] = dict(source_window)
     compact_outputs = _compact_outputs_for_projection(
         outputs_excerpt if isinstance(outputs_excerpt, Mapping) else None,
         crop_summary if isinstance(crop_summary, Mapping) else None,
@@ -446,6 +449,11 @@ def build_batch_item_result_row(
         crop_summary = project_point_crop_set_summary(outputs)
         if crop_summary:
             row["point_crop_set_summary"] = crop_summary
+        from tooling.mapping.transcript_edit.source_window import compact_source_window_for_projection
+
+        source_window = compact_source_window_for_projection(outputs.get("source_window"))
+        if source_window:
+            row["source_window"] = source_window
     evidence_summary = summarize_image_evidence_for_projection(image_evidence)
     if evidence_summary:
         row["image_evidence_summary"] = evidence_summary
@@ -474,10 +482,12 @@ def _compact_outputs_for_projection(
     """Bounded transform outputs for prompt/placeholder visibility."""
     compact: dict[str, Any] = {}
     if isinstance(outputs_excerpt, Mapping):
-        for key in ("derived_ref_id", "overlay_role", "sub_action"):
+        for key in ("derived_ref_id", "overlay_role", "sub_action", "source_window"):
             value = outputs_excerpt.get(key)
             if isinstance(value, str) and value.strip():
                 compact[key] = value.strip()
+            elif isinstance(value, Mapping) and value:
+                compact[key] = dict(value)
     if isinstance(crop_summary, Mapping):
         from harness.runtime.memory.point_crop_set_projection import (
             compact_crop_identity_from_summary,

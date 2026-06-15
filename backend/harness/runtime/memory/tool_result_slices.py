@@ -457,6 +457,19 @@ def _extract_point_crop_set_summary(outputs: Any) -> dict[str, Any] | None:
     return project_point_crop_set_summary(outputs if isinstance(outputs, Mapping) else None)
 
 
+def _extract_source_window_summary(outputs: Any) -> dict[str, Any] | None:
+    from tooling.mapping.transcript_edit.source_window import compact_source_window_for_projection
+
+    if not isinstance(outputs, Mapping):
+        return None
+    source_window = outputs.get("source_window")
+    if not isinstance(source_window, Mapping):
+        resolved = outputs.get("resolved_geometry")
+        if isinstance(resolved, Mapping):
+            source_window = resolved.get("source_window")
+    return compact_source_window_for_projection(source_window if isinstance(source_window, Mapping) else None)
+
+
 def build_recent_tool_result_slices(
     step_result_records: list[dict[str, Any]],
     *,
@@ -507,6 +520,7 @@ def build_recent_tool_result_slices(
             artifact_refs = []
         evidence_artifact_summary = _extract_evidence_artifact_summary(outputs)
         point_crop_set_summary = _extract_point_crop_set_summary(outputs)
+        source_window_summary = _extract_source_window_summary(outputs)
         text_field_summaries = _extract_text_field_summaries(outputs)
         slice_row: dict[str, Any] = {
             "kernel_turn_index": turn,
@@ -528,6 +542,8 @@ def build_recent_tool_result_slices(
             slice_row["evidence_artifact_summary"] = evidence_artifact_summary
         if point_crop_set_summary is not None:
             slice_row["point_crop_set_summary"] = point_crop_set_summary
+        if source_window_summary is not None:
+            slice_row["source_window"] = source_window_summary
         if text_field_summaries is not None:
             slice_row["text_field_summaries"] = text_field_summaries
         try:

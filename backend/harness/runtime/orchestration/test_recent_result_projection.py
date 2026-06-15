@@ -143,6 +143,81 @@ def test_recent_action_sequence_projection_keeps_point_crop_scaffold_ref() -> No
     assert item["point_crop_set_summary"]["coordinate_lattice"]["major_step_norm"] == 0.10
 
 
+def test_tool_result_slices_preserve_source_window_summary() -> None:
+    from harness.runtime.memory.tool_result_slices import build_recent_tool_result_slices
+
+    records = [
+        {
+            "kernel_turn_index": 2,
+            "action_type": "transform_artifact",
+            "execution_state": "executed",
+            "artifact_refs": ["image:derived:crop-1"],
+            "outputs_for_continuity": {
+                "derived_ref_id": "image:derived:crop-1",
+                "parent_ref_id": "image:assoc:tx-1:original",
+                "sub_action": "crop",
+                "source_window": {
+                    "position_label": "bottom_full_width",
+                    "touches_source_edge": {"bottom": True},
+                    "can_expand": {"down": False},
+                    "room_to_source_edge_norm": {"bottom": 0.0},
+                },
+            },
+        }
+    ]
+    slices = build_recent_tool_result_slices(records)
+    assert slices[0]["source_window"]["touches_source_edge"]["bottom"] is True
+    assert slices[0]["source_window"]["can_expand"]["down"] is False
+
+
+def test_stale_projection_keeps_source_window_summary() -> None:
+    from harness.runtime.memory.tool_result_slices import build_recent_tool_result_slices
+
+    outputs = {
+        "derived_ref_id": "image:derived:crop-1",
+        "parent_ref_id": "image:assoc:tx-1:original",
+        "sub_action": "crop",
+        "source_window": {
+            "local_box_norm": [0.0, 0.8, 1.0, 1.0],
+            "touches_source_edge": {
+                "left": True,
+                "top": False,
+                "right": True,
+                "bottom": True,
+            },
+            "room_to_source_edge_norm": {
+                "left": 0.0,
+                "top": 0.8,
+                "right": 0.0,
+                "bottom": 0.0,
+            },
+            "can_expand": {
+                "left": False,
+                "up": True,
+                "right": False,
+                "down": False,
+            },
+            "position_label": "bottom_full_width",
+            "edge_summary": "Touches bottom edge of available source image; cannot expand farther down from this source artifact.",
+        },
+    }
+    row = {
+        "kernel_turn_index": 1,
+        "action_type": "transform_artifact",
+        "outputs_excerpt": {"crop": "verbose"},
+        "source_window": outputs["source_window"],
+        "artifact_refs": ["image:derived:crop-1"],
+    }
+    projected = project_recent_tool_result_slices_for_prompt(
+        [row],
+        current_turn=5,
+        hot_refs=frozenset(),
+    )
+    assert "outputs_excerpt" not in projected[0]
+    assert projected[0]["source_window"]["touches_source_edge"]["bottom"] is True
+    assert projected[0]["source_window"]["can_expand"]["down"] is False
+
+
 def test_no_b64_in_projected_results() -> None:
     row = {
         "kernel_turn_index": 3,

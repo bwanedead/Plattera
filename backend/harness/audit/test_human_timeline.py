@@ -1388,3 +1388,47 @@ def test_timeline_renders_performance_evaluation_section(tmp_path: Path) -> None
     assert "Performance evaluation:" in body
     assert "accuracy: not live scored" in body
     assert "work graph: 5 total / 2 closed / 3 open / 1 blocked" in body
+
+
+def test_timeline_renders_source_window_line_for_crop(tmp_path: Path) -> None:
+    body = render_timeline(
+        [
+            {
+                "turn_index": 2,
+                "parse_ok": True,
+                "tool_result_raw": {
+                    "execution_state": "executed",
+                    "artifact_refs": ["image:derived:crop-1"],
+                    "outputs": {
+                        "derived_ref_id": "image:derived:crop-1",
+                        "parent_ref_id": "image:assoc:tx-1:original",
+                        "sub_action": "crop",
+                        "source_window": {
+                            "position_label": "bottom_full_width",
+                            "touches_source_edge": {
+                                "left": True,
+                                "top": False,
+                                "right": True,
+                                "bottom": True,
+                            },
+                            "room_to_source_edge_norm": {
+                                "left": 0.0,
+                                "top": 0.8,
+                                "right": 0.0,
+                                "bottom": 0.0,
+                            },
+                            "can_expand": {
+                                "left": False,
+                                "up": True,
+                                "right": False,
+                                "down": False,
+                            },
+                        },
+                    },
+                },
+            }
+        ]
+    )
+    assert "source_window:" in body
+    assert "bottom_full_width" in body
+    assert "can_expand_down=false" in body

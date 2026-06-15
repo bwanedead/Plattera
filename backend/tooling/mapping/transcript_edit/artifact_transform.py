@@ -40,6 +40,7 @@ from .coordinate_lattice import (
 )
 from .point_crop_review_table import attach_review_table_to_crop_set
 from .point_crop_key_band import attach_point_key_lines_to_crop_set
+from .source_window import build_source_window
 from .point_crops import (
     PointCropParamError,
     build_crop_set_point_record,
@@ -685,6 +686,15 @@ def make_transform_artifact_handler(
             return _param_error("invalid_transform_params", str(exc), repair_hint=exc.repair_hint)
         except Exception as exc:
             return _error_result("transform_failed", f"Transform failed: {exc}")
+
+        _attach_source_window_metadata(
+            transform_metadata,
+            dossier_id=dossier_id,
+            transcription_id=transcription_id,
+            workspace_key=workspace_key,
+            source_ref=ref_id,
+            sub_action=sub_action,
+        )
 
         if sub_action == "point_crops_scaffold":
             try:
@@ -1335,6 +1345,47 @@ def _resolve_source_path(
         return p, None
 
     return None, {"code": "unsupported_ref_kind", "message": "transform_artifact only supports image:assoc:* and image:derived:* refs."}
+
+
+def _attach_source_window_metadata(
+    transform_metadata: dict[str, Any],
+    *,
+    dossier_id: str,
+    transcription_id: str,
+    workspace_key: str,
+    source_ref: str,
+    sub_action: str,
+) -> None:
+    """Attach mechanical source-window edge metadata for crop and boxed zoom."""
+    if sub_action not in {"crop", "zoom"}:
+        return
+    geo = transform_metadata.get("resolved_geometry")
+    if not isinstance(geo, dict):
+        return
+    box_norm = geo.get("box_norm")
+    if not isinstance(box_norm, (list, tuple)) or len(box_norm) != 4:
+        return
+
+    local_wh = geo.get("source_width_height")
+    local_width_height = None
+    if isinstance(local_wh, (list, tuple)) and len(local_wh) == 2:
+        try:
+            local_width_height = [int(local_wh[0]), int(local_wh[1])]
+        except (TypeError, ValueError):
+            local_width_height = None
+
+    projection_ctx = resolve_root_projection_context(
+        dossier_id=dossier_id,
+        transcription_id=transcription_id,
+        workspace_key=workspace_key,
+        source_ref=source_ref,
+        local_width_height=local_width_height,
+    )
+    transform_metadata["source_window"] = build_source_window(
+        local_source_ref=source_ref,
+        local_box_norm=[float(v) for v in box_norm],
+        projection_ctx=projection_ctx,
+    )
 
 
 def _apply_transform(

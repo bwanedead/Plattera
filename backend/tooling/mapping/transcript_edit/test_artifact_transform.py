@@ -241,6 +241,65 @@ def test_crop_with_box_norm_succeeds(tmp_path, monkeypatch):
     w, h = result["outputs"]["width_height"]
     # Bottom half of 100x80: width=100, height=40
     assert w == 100 and h == 40
+    source_window = result["outputs"]["source_window"]
+    assert source_window["touches_source_edge"]["bottom"] is True
+    assert source_window["can_expand"]["down"] is False
+    assert source_window["room_to_source_edge_norm"]["bottom"] == 0.0
+
+
+def test_crop_bottom_band_source_window_metadata(tmp_path, monkeypatch):
+    handler, ref_id = _make_handler(tmp_path, monkeypatch)
+    result = handler({
+        "ref_id": ref_id,
+        "sub_action": "crop",
+        "params": {"box_norm": [0.0, 0.8, 1.0, 1.0]},
+    })
+    assert result["executed"] is True
+    source_window = result["outputs"]["source_window"]
+    assert source_window["touches_source_edge"]["bottom"] is True
+    assert source_window["can_expand"]["down"] is False
+    assert source_window["position_label"] == "bottom_full_width"
+
+
+def test_crop_middle_source_window_has_room_all_sides(tmp_path, monkeypatch):
+    handler, ref_id = _make_handler(tmp_path, monkeypatch)
+    result = handler({
+        "ref_id": ref_id,
+        "sub_action": "crop",
+        "params": {"box_norm": [0.2, 0.3, 0.6, 0.7]},
+    })
+    assert result["executed"] is True
+    source_window = result["outputs"]["source_window"]
+    assert source_window["position_label"] == "middle"
+    assert source_window["can_expand"]["down"] is True
+    assert source_window["room_to_source_edge_norm"]["bottom"] > 0.0
+
+
+def test_derived_crop_source_window_uses_root_edge_facts(tmp_path, monkeypatch):
+    from tooling.mapping.transcript_edit.artifact_hydration import _load_derived_image_descriptor
+
+    handler, ref_id = _make_handler(tmp_path, monkeypatch, d="d1", tx="tx-1", ws="ws-1")
+    parent = handler({
+        "ref_id": ref_id,
+        "sub_action": "crop",
+        "params": {"box_norm": [0.0, 0.25, 1.0, 0.75]},
+    })
+    assert parent["executed"] is True
+    child = handler({
+        "ref_id": parent["outputs"]["derived_ref_id"],
+        "sub_action": "crop",
+        "params": {"box_norm": [0.0, 0.5, 1.0, 1.0]},
+    })
+    assert child["executed"] is True
+    source_window = child["outputs"]["source_window"]
+    assert source_window["local_box_norm"] == [0.0, 0.5, 1.0, 1.0]
+    assert source_window["touches_source_edge"]["bottom"] is True
+    assert source_window["touches_root_source_edge"]["bottom"] is False
+    assert source_window["root_box_norm"][3] == 0.75
+    child_desc = _load_derived_image_descriptor(
+        "d1", "tx-1", "ws-1", child["outputs"]["derived_ref_id"]
+    )
+    assert child_desc["transform_metadata"]["source_window"]["root_box_norm"][3] == 0.75
 
 
 def test_crop_box_norm_top_right_quadrant(tmp_path, monkeypatch):
@@ -704,6 +763,7 @@ def test_zoom_with_box_norm_crops_region(tmp_path, monkeypatch):
     geo = result["outputs"]["resolved_geometry"]
     assert geo["input"] == {"box_norm": [0.0, 0.0, 0.5, 0.5]}
     assert geo["box"] == [0, 0, 50, 40]
+    assert result["outputs"]["source_window"]["position_label"] == "top_left"
 
 
 def test_zoom_box_norm_with_factor_crops_then_scales(tmp_path, monkeypatch):
@@ -719,6 +779,14 @@ def test_zoom_box_norm_with_factor_crops_then_scales(tmp_path, monkeypatch):
     assert w == 100 and h == 80
     geo = result["outputs"]["resolved_geometry"]
     assert geo.get("factor_applied") == 2.0
+    assert result["outputs"]["source_window"]["position_label"] == "top_left"
+
+
+def test_zoom_factor_only_omits_source_window(tmp_path, monkeypatch):
+    handler, ref_id = _make_handler(tmp_path, monkeypatch)
+    result = handler({"ref_id": ref_id, "sub_action": "zoom", "params": {"factor": 2.0}})
+    assert result["executed"] is True
+    assert "source_window" not in result["outputs"]
 
 
 def test_zoom_factor_only_preserves_existing_behavior(tmp_path, monkeypatch):
