@@ -2289,3 +2289,111 @@ def test_stale_next_needed_step_advisory_does_not_reject_patch() -> None:
     repairs = fb.get("shape_repairs") or []
     assert any(row.get("repair") == "stale_live_field_advisory" for row in repairs)
     assert fb.get("outcome") == "applied"
+
+
+def test_state_patch_applies_stable_context_upsert() -> None:
+    mem, fb = _apply_with_feedback(
+        {
+            "stable_context": {
+                "upsert": [
+                    {
+                        "context_id": "parcel_1_t0_shape",
+                        "role": "orientation_memory",
+                        "body": "Agent-authored note.",
+                        "basis_refs": ["t0:raw:draft_1"],
+                        "attached_entity_ids": ["p1_call1_distance"],
+                        "expires_after_turns": 12,
+                    }
+                ]
+            }
+        },
+        iteration=2,
+    )
+    assert fb.get("outcome") == "applied"
+    assert len(mem.continuity.stable_context) == 1
+    row = mem.continuity.stable_context[0]
+    assert row["context_id"] == "parcel_1_t0_shape"
+    assert row["status"] == "active"
+    detail = fb.get("detail") or {}
+    stable = fb.get("stable_context") or detail.get("stable_context") or {}
+    assert stable.get("upserted") == ["parcel_1_t0_shape"]
+
+
+def test_state_patch_stable_context_only_does_not_reject_unknown_keys() -> None:
+    ms, rs = _base_states()
+    ms2, rs2, skips = apply_state_patch(
+        mission_state=ms,
+        resolution_state=rs,
+        state_patch={
+            "stable_context": {
+                "upsert": [{"context_id": "ctx_a", "body": "note"}],
+            }
+        },
+    )
+    assert ms2.mission_id == ms.mission_id
+    assert rs2.active_item_id == rs.active_item_id
+    assert skips == {"resolution": {"items": {}, "relations": {}}}
+
+
+def test_state_patch_retires_stable_context() -> None:
+    from harness.runtime.memory.stable_context import build_stable_context_projection
+
+    mem, _ = _apply_with_feedback(
+        {
+            "stable_context": {
+                "upsert": [{"context_id": "old_context_id", "body": "note"}],
+            }
+        },
+        iteration=1,
+    )
+    mem, fb = _apply_with_feedback(
+        {"stable_context": {"retire": ["old_context_id"]}},
+        mem=mem,
+        iteration=3,
+    )
+    assert fb.get("outcome") == "applied"
+    row = mem.continuity.stable_context[0]
+    assert row["status"] == "retired"
+    projection = build_stable_context_projection(mem.continuity.stable_context, current_turn=3)
+    assert projection is None
+
+
+def test_state_patch_invalid_stable_context_row_skipped_with_feedback() -> None:
+    mem, fb = _apply_with_feedback(
+        {
+            "stable_context": {
+                "upsert": [
+                    {"context_id": "", "body": "bad"},
+                    {"context_id": "good_ctx", "body": "ok"},
+                ]
+            }
+        },
+        iteration=1,
+    )
+    assert len(mem.continuity.stable_context) == 1
+    assert mem.continuity.stable_context[0]["context_id"] == "good_ctx"
+    stable = fb.get("stable_context") or (fb.get("detail") or {}).get("stable_context") or {}
+    assert stable.get("skipped_rows")
+    row_skips = fb.get("row_skips") or (fb.get("detail") or {}).get("row_skips") or {}
+    assert row_skips.get("stable_context", {}).get("validation_failed") == 1
+
+
+def test_invalid_stable_context_does_not_mutate_mission_or_resolution() -> None:
+    from harness.runtime.memory import LoopMemoryState
+
+    mem = LoopMemoryState()
+    prior_objective = mem.continuity.mission_state.objective
+    prior_item_count = len(mem.continuity.resolution_state.items)
+    mem, fb = _apply_with_feedback(
+        {
+            "mission": {"objective": "changed objective"},
+            "stable_context": {"bad": []},
+        },
+        mem=mem,
+        iteration=2,
+    )
+    assert fb.get("outcome") == "rejected"
+    assert fb.get("reason_code") == "stable_context_invalid"
+    assert mem.continuity.mission_state.objective == prior_objective
+    assert len(mem.continuity.resolution_state.items) == prior_item_count
+    assert mem.continuity.stable_context == []

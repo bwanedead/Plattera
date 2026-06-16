@@ -85,6 +85,8 @@ class OrchestrationContinuity:
     recent_action_sequence_result: dict[str, Any] | None = None
     # Bounded delegate subtask observation records addressable via ``subtask:turnN:alias`` refs.
     delegate_subtask_results: list[dict[str, Any]] = field(default_factory=list)
+    # Agent-authored stable context rows (orientation memory only; not evidence/truth).
+    stable_context: list[dict[str, Any]] = field(default_factory=list)
     # Agent-authored pinned artifact refs (mechanical attention only).
     pinned_refs: list[dict[str, Any]] = field(default_factory=list)
     # Last turn's auto-hydration payload for active pins (surfaced once in prompts).

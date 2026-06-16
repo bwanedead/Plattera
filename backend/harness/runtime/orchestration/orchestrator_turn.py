@@ -14,6 +14,7 @@ from ..memory import LoopMemoryState
 from ..memory.continuity_journal import apply_kernel_turn_continuity_carriage, build_kernel_step_result_record
 from .action_sequence import build_sequence_tool_request_summary, build_sequence_tool_result_summary, effective_actions
 from .audit_turn_mechanics import project_action_sequence_for_audit
+from ..memory.stable_context import build_stable_context_audit_projection
 from .pinned_refs import build_pinned_refs_projection
 from .action_batch import summarize_image_evidence_for_projection
 from .contracts import ActionPlan
@@ -168,6 +169,10 @@ def observe_turn_completed(
         loop_memory.continuity.pinned_refs,
         current_turn=iteration,
     )
+    stable_context_snapshot = build_stable_context_audit_projection(
+        loop_memory.continuity.stable_context,
+        current_turn=iteration,
+    )
     record = lifecycle_jsonable(
         {
             "turn_index": iteration,
@@ -175,6 +180,7 @@ def observe_turn_completed(
             "pin_refs_this_turn": list(action_plan.pin_refs),
             "unpin_refs_this_turn": list(action_plan.unpin_refs),
             "pinned_refs": pinned_refs_snapshot,
+            "stable_context": stable_context_snapshot,
             "tool_result_raw": tool_result_raw,
             "mission_state_after": loop_memory.continuity.mission_state,
             "resolution_state_after": loop_memory.continuity.resolution_state,

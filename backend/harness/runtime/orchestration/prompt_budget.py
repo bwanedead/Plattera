@@ -30,6 +30,7 @@ BUDGET_BUCKET_KEYS: tuple[str, ...] = (
     "recent_action_sequence_result",
     "hydrate_next",
     "pinned_refs",
+    "stable_context",
     "hitl_and_user_messages",
     "prompt_observability_summary",
     "other_structured_state",
@@ -177,6 +178,8 @@ def _accumulate_structured_state_buckets(buckets: dict[str, int], structured_sta
 
     if "pinned_refs" in structured_state:
         buckets["pinned_refs"] += measure_json_chars(structured_state["pinned_refs"])
+    if "stable_context" in structured_state:
+        buckets["stable_context"] += measure_json_chars(structured_state["stable_context"])
 
     if "prompt_observability_summary" in structured_state:
         obs = structured_state["prompt_observability_summary"]
@@ -190,6 +193,7 @@ def _accumulate_structured_state_buckets(buckets: dict[str, int], structured_sta
         "agent_requested_hydration",
         "pinned_refs_hydration",
         "pinned_refs",
+        "stable_context",
         "prompt_observability_summary",
     }
     for key, value in structured_state.items():

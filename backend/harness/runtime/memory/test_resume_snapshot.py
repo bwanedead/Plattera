@@ -970,6 +970,56 @@ def test_resume_round_trips_pinned_refs() -> None:
     assert restored.continuity.multi_action_turn_count == 3
 
 
+def test_resume_round_trips_stable_context() -> None:
+    mem = LoopMemoryState()
+    mem.continuity.stable_context = [
+        {
+            "context_id": "parcel_1_t0_shape",
+            "title": "Parcel 1 T0 shape",
+            "role": "orientation_memory",
+            "body": "Agent-authored bounded context note.",
+            "basis_refs": ["t0:raw:draft_1"],
+            "attached_entity_ids": ["p1_call1_distance"],
+            "status": "active",
+            "created_turn": 2,
+            "updated_turn": 5,
+            "expires_after_turns": 12,
+        }
+    ]
+    snap = build_kernel_resume_snapshot(
+        loop_memory=mem,
+        session_manager=ExecutionSessionManager(),
+        session_id="s1",
+        next_iteration=6,
+    )
+    restored, next_it, err = parse_kernel_resume_snapshot(snap)
+    assert err is None
+    assert next_it == 6
+    assert len(restored.continuity.stable_context) == 1
+    assert restored.continuity.stable_context[0]["context_id"] == "parcel_1_t0_shape"
+
+
+def test_parse_rejects_malformed_stable_context() -> None:
+    rs = new_resolution_state()
+    ms = new_mission_state(mission_id="m1", loop_family="orchestration_kernel", resolution_state=rs)
+    base = {
+        "schema_version": "kernel_resume.v1",
+        "next_iteration": 1,
+        "continuity": {
+            "latest_refs": {},
+            "mission_state": ms.model_dump(mode="json"),
+            "resolution_state": rs.model_dump(mode="json"),
+            "active_item_id": None,
+            "stable_context": [{"context_id": ""}],
+        },
+        "hitl": {"hitl_state": "no_prompt"},
+        "telemetry": {"llm_contact_count": 0, "prompt_event_count": 0},
+        "execution_session": None,
+    }
+    _, _, err = parse_kernel_resume_snapshot(base)
+    assert err == "resume_snapshot_stable_context_invalid"
+
+
 def test_parse_rejects_malformed_pinned_refs() -> None:
     rs = new_resolution_state()
     ms = new_mission_state(mission_id="m1", loop_family="orchestration_kernel", resolution_state=rs)

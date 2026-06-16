@@ -71,6 +71,7 @@ _FULL_STRUCTURED_STATE_FIELDS = (
     "agent_requested_hydration",
     "pinned_refs",
     "pinned_refs_hydration",
+    "stable_context",
     "recent_action_sequence_result",
     "prompt_observability_summary",
 )
@@ -82,6 +83,7 @@ _STATE_REPAIR_STRUCTURED_STATE_FIELDS = (
     "agent_requested_hydration",
     "pinned_refs",
     "pinned_refs_hydration",
+    "stable_context",
     "recent_action_sequence_result",
     "prompt_observability_summary",
 )
@@ -102,6 +104,7 @@ _RESUME_STRUCTURED_STATE_FIELDS = (
     "agent_requested_hydration",
     "pinned_refs",
     "pinned_refs_hydration",
+    "stable_context",
     "recent_action_sequence_result",
     "prompt_observability_summary",
 )
@@ -121,6 +124,7 @@ _TURN_RECOVERY_STRUCTURED_STATE_FIELDS = (
     "agent_requested_hydration",
     "pinned_refs",
     "pinned_refs_hydration",
+    "stable_context",
     "recent_action_sequence_result",
     "prompt_observability_summary",
 )

@@ -55,6 +55,7 @@ _STATE_PATCH_MECHANICS_TEXT = """\
 Optional `state_patch` shape:
 - `resolution?`: `{active_item_id, items, relations, opaque_payload}`
 - `mission?`: `{objective, active_mode, work_universe_posture, motion_posture, motion_posture_basis, blocker_summary, verification_summary, waiting_summary, continuity_summary, mission_mode_summary, high_signal_artifact_refs, success_conditions, closure_state, opaque_payload}`
+- `stable_context?`: `{upsert: [...], retire: [...]}` — agent-authored orientation memory only (not evidence, truth, closure, or work inventory). Upsert by exact `context_id`; retire sets `status: retired` without deleting history. Row shape: `{context_id, title?, role?, body?, basis_refs?, attached_entity_ids?, expires_after_turns?}`. Use `attached_entity_ids` for exact string links to arbitrary entities; do not expect the host to validate entity existence or infer meaning.
 
 The runtime merges mechanically:
 - resolution items merge by `item_id`
@@ -73,7 +74,7 @@ New rows:
 - for `resolution.items` that usually means `item_id`, `title`, `kind`, `status`
 - for `mission.success_conditions` that usually means `condition_id`, `title`, `status`
 
-Use only canonical `state_patch.mission` and `state_patch.resolution`. Do not author alias top-level keys such as `mission_state` or `resolution_state`; those are repair-only backstops, not the contract.
+Use only canonical `state_patch.mission`, `state_patch.resolution`, and `state_patch.stable_context`. Do not author alias top-level keys such as `mission_state` or `resolution_state`; those are repair-only backstops, not the contract.
 Do not put latest_refs_summary, terminal_summary, or prompt_observability_summary in mission; those are host-owned.
 `hitl_consumed_prompt_ids` is a top-level action plan field, not a `state_patch` or `state_patch.mission` field; place it at the root of the action plan object when used.
 Do not copy host-maintained fields such as schema_version or updated_at_epoch_seconds into state_patch.

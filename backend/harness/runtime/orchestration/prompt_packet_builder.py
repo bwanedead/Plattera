@@ -354,6 +354,14 @@ def _build_structured_state(
     pinned_hydration = _build_pinned_refs_hydration(cont.pinned_refs_hydration)
     if pinned_hydration is not None:
         structured["pinned_refs_hydration"] = pinned_hydration
+    from ..memory.stable_context import build_stable_context_projection
+
+    stable_projection = build_stable_context_projection(
+        cont.stable_context,
+        current_turn=int(context.loop_memory.iterations),
+    )
+    if stable_projection is not None:
+        structured["stable_context"] = stable_projection
     return structured
 
 

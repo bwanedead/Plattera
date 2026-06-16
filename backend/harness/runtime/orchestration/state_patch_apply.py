@@ -26,6 +26,10 @@ from ...mission_state import (
     ResolutionState,
 )
 from ..memory import LoopMemoryState
+from ..memory.stable_context import (
+    StableContextValidationError,
+    apply_stable_context_patch,
+)
 from .contracts import ActionPlan
 from .evidence_sequencing import apply_sequencing_debt_from_patch
 from .state_patch_repair_bundle import build_state_patch_repair_bundle
@@ -56,7 +60,7 @@ _SALVAGE_OMIT_NOTE: str = (
     "Re-author shorter text if this field matters."
 )
 
-ALLOWED_PATCH_TOP_LEVEL = frozenset({"resolution", "mission"})
+ALLOWED_PATCH_TOP_LEVEL = frozenset({"resolution", "mission", "stable_context"})
 _STATE_PATCH_ALIAS_KEYS = {"mission_state": "mission", "resolution_state": "resolution"}
 ALLOWED_RESOLUTION_KEYS = frozenset({"active_item_id", "items", "relations", "opaque_payload"})
 # Mission patch: model-authored fields only. Host/observability code owns latest_refs_summary,
@@ -95,13 +99,15 @@ def _nonzero_counts(raw: dict[str, int]) -> dict[str, int]:
 
 def row_skip_report_has_skips(report: Mapping[str, Any]) -> bool:
     res = report.get("resolution")
-    if not isinstance(res, dict):
-        return False
-    for branch in ("items", "relations"):
-        b = res.get(branch)
-        if not isinstance(b, dict):
-            continue
-        if any(isinstance(v, int) and v > 0 for v in b.values()):
+    if isinstance(res, dict):
+        for branch in ("items", "relations"):
+            b = res.get(branch)
+            if isinstance(b, dict):
+                if any(isinstance(v, int) and v > 0 for v in b.values()):
+                    return True
+    stable = report.get("stable_context")
+    if isinstance(stable, dict):
+        if any(isinstance(v, int) and v > 0 for v in stable.values()):
             return True
     return False
 
@@ -435,6 +441,7 @@ def _build_state_patch_feedback(
             "salvaged_rows",
             "shape_repairs",
             "state_patch_repair_bundle",
+            "stable_context",
             "failing_path",
             "validation_errors",
             "repair_hint",
@@ -605,9 +612,29 @@ def apply_action_plan_state_patch_to_loop_memory(
             resolution_state=before_rs,
             state_patch=action_plan.state_patch,
         )
+        stable_context_detail: dict[str, Any] | None = None
+        stable_context_applied: list[dict[str, Any]] | None = None
+        if isinstance(action_plan.state_patch, Mapping) and "stable_context" in action_plan.state_patch:
+            try:
+                stable_context_applied, stable_context_detail = apply_stable_context_patch(
+                    loop_memory.continuity.stable_context,
+                    action_plan.state_patch.get("stable_context"),
+                    current_turn=int(iteration),
+                )
+            except StableContextValidationError as exc:
+                raise StatePatchError(
+                    "stable_context_invalid",
+                    str(exc),
+                    detail={
+                        "failing_path": "state_patch.stable_context",
+                        "repair_hint": "Use stable_context.upsert[] and stable_context.retire[] only.",
+                    },
+                ) from exc
         loop_memory.continuity.mission_state = ms_applied
         loop_memory.continuity.resolution_state = rs_applied
         loop_memory.continuity.active_item_id = rs_applied.active_item_id
+        if stable_context_applied is not None:
+            loop_memory.continuity.stable_context = stable_context_applied
         # Advisory sequencing-debt detection: compare before/after resolution state.
         # Must run after the state is committed so the continuity debt dicts are
         # updated atomically with the rest of the patch outcome.
@@ -619,11 +646,24 @@ def apply_action_plan_state_patch_to_loop_memory(
             detail["shape_repairs"] = shape_repairs
         if salvage_events:
             detail["salvaged_rows"] = salvage_events
+        if stable_context_detail is not None:
+            detail["stable_context"] = stable_context_detail
+            if stable_context_detail.get("skipped_rows"):
+                row_skips.setdefault("stable_context", {})["validation_failed"] = len(
+                    stable_context_detail.get("skipped_rows") or []
+                )
         if row_skip_report_has_skips(row_skips):
             detail["row_skips"] = row_skips
-            detail["skipped_resolution_rows"] = True
             if row_skip_details:
                 detail["row_skip_details"] = row_skip_details
+        resolution_skips = row_skips.get("resolution")
+        if isinstance(resolution_skips, Mapping) and any(
+            isinstance(v, int) and v > 0
+            for branch in (resolution_skips.get("items"), resolution_skips.get("relations"))
+            if isinstance(branch, Mapping)
+            for v in branch.values()
+        ):
+            detail["skipped_resolution_rows"] = True
             repair_bundle = build_state_patch_repair_bundle(
                 state_patch=action_plan.state_patch,
                 row_skip_details=row_skip_details,
@@ -858,7 +898,7 @@ def _apply_state_patch_detailed(
             f"unknown top-level keys: {sorted(unknown_top)}",
             detail={
                 "failing_path": "state_patch",
-                "repair_hint": "Use only state_patch.mission and state_patch.resolution at the top level.",
+                "repair_hint": "Use only state_patch.mission, state_patch.resolution, and state_patch.stable_context at the top level.",
             },
         )
 

@@ -219,6 +219,69 @@ def test_timeline_renders_pinned_refs_section(tmp_path: Path) -> None:
     assert "active:" in body
 
 
+def test_timeline_renders_stable_context_section(tmp_path: Path) -> None:
+    writer = RunAuditWriter(tmp_path / "run-stable-context")
+    writer.observe_llm_io(
+        {
+            "turn_index": 4,
+            "parse_ok": True,
+            "tool_request": {
+                "actions": [{"alias": "a", "action_type": "noop", "action_inputs": {}}],
+                "state_patch": {
+                    "stable_context": {
+                        "upsert": [
+                            {
+                                "context_id": "parcel_1_t0_shape",
+                                "body": "Compact agent-authored context note.",
+                                "basis_refs": ["t0:raw:draft_1"],
+                                "attached_entity_ids": ["p1_call1_distance"],
+                            }
+                        ]
+                    }
+                },
+                "rationale": "persist orientation memory",
+            },
+        }
+    )
+    writer.observe_turn_completed(
+        {
+            "turn_index": 4,
+            "state_patch_feedback": {
+                "outcome": "applied",
+                "detail": {
+                    "stable_context": {
+                        "upserted": ["parcel_1_t0_shape"],
+                        "retired": [],
+                        "skipped_rows": [],
+                    }
+                },
+            },
+            "stable_context": {
+                "active": [
+                    {
+                        "context_id": "parcel_1_t0_shape",
+                        "title": "Parcel 1 T0 shape",
+                        "role": "orientation_memory",
+                        "basis_refs": ["t0:raw:draft_1"],
+                        "attached_entity_ids": ["p1_call1_distance"],
+                        "body_excerpt": "Compact agent-authored context note.",
+                        "expires_in_turns": 12,
+                    }
+                ]
+            },
+        }
+    )
+    body = _timeline_path(tmp_path / "run-stable-context").read_text(encoding="utf-8")
+    assert "Stable Context" in body
+    assert "upserted_this_turn:" in body
+    assert "parcel_1_t0_shape" in body
+    assert "active_index:" in body
+    assert "basis_refs:" in body
+    assert "attached_entity_ids:" in body
+    assert "p1_call1_distance" in body
+    assert "body_excerpt:" in body
+
+
 def test_timeline_created_under_audit_human_after_llm_io(tmp_path: Path) -> None:
     writer = RunAuditWriter(tmp_path / "run1")
     writer.observe_llm_io(

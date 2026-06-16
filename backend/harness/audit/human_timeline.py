@@ -39,6 +39,7 @@ from harness.audit.delegate_observation_worklist_timeline import (
     render_delegate_observation_worklist_timeline,
 )
 from harness.audit.performance_evaluation_timeline import render_performance_evaluation_timeline
+from harness.audit.stable_context_timeline import render_stable_context_timeline
 from harness.audit.state_patch_repair_bundle_timeline import render_state_patch_repair_bundle_timeline
 from harness.runtime.orchestration.subtasks.contracts import DELEGATE_SUBTASK_ACTION_TYPE
 from harness.runtime.orchestration.subtasks.delegate_integration_status import (
@@ -230,6 +231,7 @@ def _render_turn(
     out.extend(render_delegate_observation_worklist_timeline(turn, link_context=link_context))
     out.extend(_render_action_sequence_lane(turn))
     out.extend(_render_pinned_refs(turn))
+    out.extend(render_stable_context_timeline(turn, link_context=link_context))
     out.extend(_render_required_output_gate(turn))
     out.extend(_render_tool_result(turn, link_context=link_context))
     out.extend(_render_saved_artifact(turn))
