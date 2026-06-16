@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
+from tooling.mapping.transcript_edit.point_crop_target_mapping import copy_target_mapping_fields
 from tooling.mapping.transcript_edit.point_crop_review_table import review_table_from_crop_set
 from tooling.mapping.transcript_edit.point_crop_key_band import build_point_key_lines
 
@@ -139,6 +140,8 @@ def _compact_point_row(point: Mapping[str, Any]) -> dict[str, Any]:
         value = point.get(key)
         if value not in (None, "", [], {}):
             row[key] = value
+
+    row.update(copy_target_mapping_fields(point))
 
     return {
         k: v

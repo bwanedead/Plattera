@@ -97,6 +97,21 @@ def test_review_row_includes_crop_frame_fields() -> None:
     assert row["crop_frame_can_expand"]["y_plus"] is True
 
 
+def test_rendered_line_includes_target_mapping() -> None:
+    row = build_review_row(
+        _sample_point(
+            alias="p1_call1_distance",
+            target_atom_id="p1_call1_distance",
+            target_hint="542 feet",
+            target_hint_role="candidate_only_not_earned",
+        )
+    )
+    assert row["target_atom_id"] == "p1_call1_distance"
+    line = render_review_line(row)
+    assert "target=p1_call1_distance" in line
+    assert 'hint="542 feet"' in line
+
+
 def test_rendered_line_includes_signed_offsets() -> None:
     row = build_review_row(_sample_point())
     line = render_review_line(row)

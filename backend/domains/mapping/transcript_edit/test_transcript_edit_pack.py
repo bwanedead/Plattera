@@ -348,7 +348,12 @@ def test_domain_pack_declares_semantic_prompt_blocks() -> None:
     assert "every t0 reading remains candidate/open" in text
     assert "missed, merged, split, or misread a unit" in text
     assert "the early job is not to investigate each atom's truth" in text
-    assert "walk the t0/source shape top-to-bottom" in text
+    assert "walk the t0 shape top-to-bottom" in text
+    assert "walk the t0/source shape top-to-bottom" not in text
+    assert "if t0 suggests a cutoff, continuation, contradiction, or missing source extent" in text
+    assert "inventory may name uncertainty; it must not chase it" in text
+    assert "inventory `next_needed_step` should point to finishing inventory" in text
+    assert "if the next step requires source-local evidence, that is resolution debt" in text
     assert "atomize actual atoms. this is a demand. do it." in text
     assert "use t0 wording as the placeholder for atom registration" in text
     assert "source proof earns or corrects it later" in text
@@ -932,6 +937,9 @@ def test_tool_spec_transform_teaches_point_crops_as_default_path() -> None:
     assert "edge=" in combined
     assert "room=[x-" in combined
     assert "crop-frame facts from the selected" in combined
+    assert "target_atom_id" in combined
+    assert "target_hint" in combined
+    assert "candidate context, not earned truth" in combined or "not earned truth" in combined
     assert "not from point_norm" in combined
     assert "0.0 means the crop frame reached that available source edge" in combined
     assert "span_line" in combined

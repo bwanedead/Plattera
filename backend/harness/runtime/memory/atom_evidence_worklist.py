@@ -48,6 +48,7 @@ _BINARY_KEY_PARTS = ("b64", "base64", "bytes", "binary")
 _ABSOLUTE_PATH_RE = re.compile(r"^[A-Za-z]:[\\/]|^/")
 
 _MATCH_DIRECT_ALIAS = "direct_alias_match"
+_MATCH_TARGET_ATOM_ID = "target_atom_id_match"
 _MATCH_EVIDENCE_REF = "evidence_ref_match"
 _MATCH_SHARED_EVIDENCE = "shared_evidence_ref"
 
@@ -243,6 +244,7 @@ def _append_crops_from_summary(
             continue
         seen_refs.add(crop_ref)
         alias = _norm_id(point.get("alias"))
+        target_atom_id = _norm_id(point.get("target_atom_id"))
         row: dict[str, Any] = {
             "crop_ref": crop_ref,
             "overlay_ref": overlay_ref,
@@ -250,6 +252,14 @@ def _append_crops_from_summary(
             "letter": _bound_text(point.get("letter"), max_chars=8),
             "created_turn": created_turn,
         }
+        if target_atom_id:
+            row["target_atom_id"] = target_atom_id
+        target_hint = _bound_text(point.get("target_hint"), max_chars=120)
+        if target_hint:
+            row["target_hint"] = target_hint
+        target_hint_role = _bound_text(point.get("target_hint_role"), max_chars=64)
+        if target_hint_role:
+            row["target_hint_role"] = target_hint_role
         point_norm = point.get("point_norm") or point.get("local_point_norm")
         if isinstance(point_norm, list) and len(point_norm) == 2:
             row["point_norm"] = point_norm
@@ -344,8 +354,20 @@ def _join_atoms(
         )
 
     unmatched: list[dict[str, Any]] = []
+    unmatched_seen: set[str] = set()
     for crop in packet_crops:
         crop_ref = crop.get("crop_ref")
+        target_atom_id = crop.get("target_atom_id")
+        if target_atom_id and target_atom_id not in atom_ids:
+            if crop_ref and crop_ref not in unmatched_seen:
+                unmatched_seen.add(crop_ref)
+                unmatched.append(
+                    _unmatched_packet_row(
+                        crop,
+                        delegates=_delegates_for_crop_ref(crop_ref, delegates),
+                    )
+                )
+            continue
         if not crop_ref or crop_ref in matched_crop_refs:
             continue
         alias = crop.get("source_alias")
@@ -384,6 +406,11 @@ def _packet_and_delegate_refs_for_atom(
                 existing["referenced_in_state"] = True
             if match_kind == _MATCH_DIRECT_ALIAS and existing["match_kind"] != _MATCH_DIRECT_ALIAS:
                 existing["match_kind"] = _MATCH_DIRECT_ALIAS
+            elif (
+                match_kind == _MATCH_TARGET_ATOM_ID
+                and existing["match_kind"] not in (_MATCH_DIRECT_ALIAS, _MATCH_TARGET_ATOM_ID)
+            ):
+                existing["match_kind"] = _MATCH_TARGET_ATOM_ID
             return existing
         row = {
             "crop_ref": crop_ref,
@@ -395,14 +422,27 @@ def _packet_and_delegate_refs_for_atom(
             "referenced_in_state": referenced,
             "delegate_refs": [],
         }
+        target_atom_id = crop.get("target_atom_id")
+        if target_atom_id:
+            row["target_atom_id"] = target_atom_id
+        target_hint = crop.get("target_hint")
+        if target_hint:
+            row["target_hint"] = target_hint
         packet_by_ref[crop_ref] = row
         return row
 
     for crop in packet_crops:
         alias = crop.get("source_alias")
+        target_atom_id = crop.get("target_atom_id")
         crop_ref = str(crop.get("crop_ref") or "").strip()
         if alias == atom_id:
             ensure_packet(crop, match_kind=_MATCH_DIRECT_ALIAS, referenced=crop_ref in evidence_refs)
+        elif target_atom_id == atom_id:
+            ensure_packet(
+                crop,
+                match_kind=_MATCH_TARGET_ATOM_ID,
+                referenced=crop_ref in evidence_refs,
+            )
         elif crop_ref and crop_ref in evidence_refs:
             kind = _MATCH_SHARED_EVIDENCE if alias and alias != atom_id else _MATCH_EVIDENCE_REF
             ensure_packet(crop, match_kind=kind, referenced=True)
@@ -422,11 +462,17 @@ def _packet_and_delegate_refs_for_atom(
             if crop is None:
                 continue
             alias = crop.get("source_alias")
-            if alias == atom_id or str(context_ref).strip() in evidence_refs:
+            if alias == atom_id or crop.get("target_atom_id") == atom_id or str(context_ref).strip() in evidence_refs:
                 linked = True
                 packet_row = ensure_packet(
                     crop,
-                    match_kind=_MATCH_DIRECT_ALIAS if alias == atom_id else _MATCH_EVIDENCE_REF,
+                    match_kind=(
+                        _MATCH_DIRECT_ALIAS
+                        if alias == atom_id
+                        else _MATCH_TARGET_ATOM_ID
+                        if crop.get("target_atom_id") == atom_id
+                        else _MATCH_EVIDENCE_REF
+                    ),
                     referenced=str(context_ref).strip() in evidence_refs
                     or str(crop.get("crop_ref") or "") in evidence_refs,
                 )
@@ -487,6 +533,7 @@ def _utilization_status(
 
     has_packet = bool(packet_refs)
     has_direct_alias = any(p.get("match_kind") == _MATCH_DIRECT_ALIAS for p in packet_refs)
+    has_target_atom = any(p.get("match_kind") == _MATCH_TARGET_ATOM_ID for p in packet_refs)
     has_evidence_packet = any(p.get("referenced_in_state") for p in packet_refs)
     has_delegate = bool(atom_delegate_refs) or any(p.get("delegate_refs") for p in packet_refs)
     cites_crop_or_delegate = any(
@@ -501,7 +548,7 @@ def _utilization_status(
 
     if has_delegate:
         return _UTIL_OPEN_PACKET_USED
-    if has_direct_alias and not has_evidence_packet and not cites_crop_or_delegate:
+    if (has_direct_alias or has_target_atom) and not has_evidence_packet and not cites_crop_or_delegate:
         return _UTIL_OPEN_PACKET_READY
     if has_packet or cites_crop_or_delegate or has_evidence_packet:
         return _UTIL_OPEN_EVIDENCE_REF
@@ -544,6 +591,10 @@ def _unmatched_packet_row(
         "letter": crop.get("letter"),
         "created_turn": crop.get("created_turn"),
     }
+    if crop.get("target_atom_id"):
+        row["target_atom_id"] = crop.get("target_atom_id")
+    if crop.get("target_hint"):
+        row["target_hint"] = crop.get("target_hint")
     if delegates:
         row["delegate_refs"] = delegates[:MAX_DELEGATE_REFS_PER_ATOM]
     return row

@@ -100,6 +100,23 @@ def test_project_point_crops_result_as_compact_summary() -> None:
     assert "room=[" in summary["review_lines"][0]
 
 
+def test_projection_includes_target_mapping_fields() -> None:
+    outputs = _crop_set_outputs()
+    outputs["crop_set"]["points"][0].update(
+        {
+            "target_atom_id": "p1_call1_distance",
+            "target_hint": "542 feet",
+            "target_hint_role": "candidate_only_not_earned",
+        }
+    )
+    summary = project_point_crop_set_summary(outputs)
+    assert summary is not None
+    point = summary["points"][0]
+    assert point["target_atom_id"] == "p1_call1_distance"
+    assert point["target_hint"] == "542 feet"
+    assert 'hint="542 feet"' in summary["review_lines"][0]
+
+
 def test_projection_includes_source_lineage_when_unwrapped_from_scaffold() -> None:
     outputs = _crop_set_outputs()
     outputs["placement_surface_ref"] = "image:derived:scaffold-1"

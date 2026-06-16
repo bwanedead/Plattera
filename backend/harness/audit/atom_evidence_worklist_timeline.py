@@ -135,6 +135,12 @@ def _format_unmatched_row(
     crop_ref = str(row.get("crop_ref") or "")
     crop = _render_ref(crop_ref, link_context, label="crop")
     line = f"{indent}- {alias} -> crop {crop}"
+    target_atom_id = str(row.get("target_atom_id") or "").strip()
+    if target_atom_id:
+        line += f" target_atom_id {target_atom_id}"
+    target_hint = str(row.get("target_hint") or "").strip()
+    if target_hint:
+        line += f' hint="{target_hint}"'
     overlay_ref = str(row.get("overlay_ref") or "")
     if overlay_ref:
         line += f" overlay {_render_ref(overlay_ref, link_context, label='overlay')}"
@@ -167,6 +173,13 @@ def _format_atom_packet_line(
         detail = f"shared/cited crop {_render_ref(crop_ref, link_context, label='crop')}"
         if source_alias and source_alias != atom_id:
             detail += f" alias {source_alias}"
+    elif match_kind == _MATCH_TARGET_ATOM_ID:
+        label = atom_id
+        detail = (
+            f"target_atom_id crop {_render_ref(crop_ref, link_context, label='crop')}"
+        )
+        if source_alias and source_alias != atom_id:
+            detail += f" alias {source_alias}"
     elif match_kind and match_kind != "direct_alias_match":
         label = atom_id
         detail = (
@@ -180,6 +193,12 @@ def _format_atom_packet_line(
         detail += f" overlay {_render_ref(overlay_ref, link_context, label='overlay')}"
     if source_alias and match_kind != "shared_evidence_ref":
         detail += f" alias {source_alias}"
+    target_atom_id = str(pref.get("target_atom_id") or "").strip()
+    if target_atom_id and target_atom_id != atom_id:
+        detail += f" target_atom_id {target_atom_id}"
+    target_hint = str(pref.get("target_hint") or "").strip()
+    if target_hint:
+        detail += f' hint="{target_hint}"'
     if turn is not None:
         detail += f" created T{turn}"
 

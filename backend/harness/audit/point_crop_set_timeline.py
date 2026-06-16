@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
+from tooling.mapping.transcript_edit.point_crop_target_mapping import format_target_mapping_parts
 from tooling.mapping.transcript_edit.point_crop_review_table import (
     render_review_line,
     review_table_from_crop_set,
@@ -305,6 +306,9 @@ def _render_point_row(
     suffix = f" {' '.join(suffix_parts)}" if suffix_parts else ""
     crop_text = _render_ref_line(crop_ref, link_context, label="open crop") if crop_ref else "none"
     lines = [f"  - {letter} `{alias}` -> {crop_text}{suffix}"]
+    target_parts = format_target_mapping_parts(pt)
+    if target_parts:
+        lines.append(f"    target_mapping: {' '.join(target_parts)}")
 
     point_norm = _fmt_pair(pt.get("point_norm")) or _fmt_pair(pt.get("local_point_norm"))
     if point_norm:

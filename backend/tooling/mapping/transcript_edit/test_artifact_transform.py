@@ -3402,6 +3402,91 @@ def test_point_crops_accepts_bounded_graph_ref(tmp_path, monkeypatch):
     assert result["outputs"]["crop_set"]["points"][0]["graph_ref"]["item_id"] == "parcel_1_description"
 
 
+def test_point_crops_persists_target_mapping_on_points_sidecar_and_descriptors(tmp_path, monkeypatch):
+    from tooling.mapping.transcript_edit.artifact_hydration import _load_derived_image_descriptor
+    from tooling.mapping.transcript_edit.paths import transcript_edit_derived_images_dir
+
+    handler, ref_id = _make_handler(tmp_path, monkeypatch, d="d1", tx="tx-1", ws="ws-1")
+    result = handler({
+        "ref_id": ref_id,
+        "sub_action": "point_crops",
+        "params": {
+            "points": [
+                {
+                    "alias": "distance_probe_alias",
+                    "point_norm": [0.82, 0.668],
+                    "size": "small_plus",
+                    "shape": "wide",
+                    "target_atom_id": "p1_call1_distance",
+                    "target_context_id": "parcel_1_t0_shape",
+                    "target_hint": "542 feet",
+                }
+            ]
+        },
+    })
+    assert result["executed"] is True
+    point = result["outputs"]["crop_set"]["points"][0]
+    assert point["target_atom_id"] == "p1_call1_distance"
+    assert point["target_hint"] == "542 feet"
+    assert point["target_hint_role"] == "candidate_only_not_earned"
+    assert "target=" in result["outputs"]["crop_set"]["review_lines"][0]
+    assert 'hint="542 feet"' in result["outputs"]["crop_set"]["review_lines"][0]
+
+    master_ref = result["outputs"]["derived_ref_id"]
+    crop_ref = point["crop_ref"]
+    master_desc = _load_derived_image_descriptor("d1", "tx-1", "ws-1", master_ref)
+    crop_desc = _load_derived_image_descriptor("d1", "tx-1", "ws-1", crop_ref)
+    master_point = master_desc["transform_metadata"]["crop_set"]["points"][0]
+    assert master_point["target_atom_id"] == "p1_call1_distance"
+    assert crop_desc["transform_metadata"]["target_atom_id"] == "p1_call1_distance"
+
+    derived_dir = transcript_edit_derived_images_dir("d1", "tx-1", "ws-1")
+    sidecar = derived_dir / f"{master_ref.split(':')[-1]}_crop_set.json"
+    sidecar_point = json.loads(sidecar.read_text(encoding="utf-8"))["points"][0]
+    assert sidecar_point["target_atom_id"] == "p1_call1_distance"
+    assert sidecar_point["target_hint"] == "542 feet"
+
+
+def test_point_crops_adjust_carries_and_replaces_target_mapping(tmp_path, monkeypatch):
+    handler, ref_id = _make_handler(tmp_path, monkeypatch, d="d1", tx="tx-1", ws="ws-1")
+    created = handler({
+        "ref_id": ref_id,
+        "sub_action": "point_crops",
+        "params": {
+            "points": [
+                {
+                    "alias": "distance_probe_alias",
+                    "point_norm": [0.5, 0.5],
+                    "size": "medium",
+                    "shape": "wide",
+                    "target_atom_id": "p1_call1_distance",
+                    "target_hint": "542 feet",
+                }
+            ]
+        },
+    })
+    master_ref = created["outputs"]["derived_ref_id"]
+    adjusted = handler(_point_crops_adjust_request(
+        master_ref=master_ref,
+        adjust=[{"letter": "A", "shift_norm": [0.01, 0.0]}],
+    ))
+    point = adjusted["outputs"]["crop_set"]["points"][0]
+    assert point["target_atom_id"] == "p1_call1_distance"
+    assert point["target_hint"] == "542 feet"
+
+    replaced = handler(_point_crops_adjust_request(
+        master_ref=adjusted["outputs"]["derived_ref_id"],
+        adjust=[{
+            "letter": "A",
+            "target_atom_id": "p1_call1_bearing",
+            "target_hint": "N 4 00 W",
+        }],
+    ))
+    replaced_point = replaced["outputs"]["crop_set"]["points"][0]
+    assert replaced_point["target_atom_id"] == "p1_call1_bearing"
+    assert replaced_point["target_hint"] == "N 4 00 W"
+
+
 def test_point_crops_rejects_nested_graph_ref(tmp_path, monkeypatch):
     handler, ref_id = _make_handler(tmp_path, monkeypatch)
     result = handler({

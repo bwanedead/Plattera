@@ -12,6 +12,7 @@ from .coordinate_lattice import (
     offset_from_anchor,
 )
 from .point_crops import MAX_POINT_CROP_COUNT
+from .point_crop_target_mapping import copy_target_mapping_fields, format_target_mapping_parts
 from .source_window import (
     attach_crop_frame_edge_room_to_point,
     build_crop_frame_edge_room,
@@ -138,6 +139,7 @@ def build_review_row(
             row["projection_unavailable_reason"] = reason[:120]
 
     _attach_crop_frame_fields_to_review_row(row, point=point, box_norm=box_norm)
+    row.update(copy_target_mapping_fields(point))
     return _strip_review_row(row)
 
 
@@ -194,8 +196,11 @@ def render_review_line(row: Mapping[str, Any]) -> str:
     parts = [
         f"{letter} {alias} ->",
         f"crop={crop_ref or '?'}",
-        f"point={_fmt_pair(point_norm)}",
     ]
+    parts.extend(format_target_mapping_parts(row))
+    parts.extend([
+        f"point={_fmt_pair(point_norm)}",
+    ])
     if isinstance(box_norm, (list, tuple)) and len(box_norm) == 4:
         parts.append(f"box={_fmt_box(box_norm)}")
     edge_room = format_crop_frame_edge_room_compact(

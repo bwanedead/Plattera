@@ -240,11 +240,13 @@ def build_transcript_edit_tool_specs() -> tuple[SemanticToolSpec, ...]:
                             "adjust_px?: {...}, adjust_norm?: {...}}]}. "
                             "render_evidence_locators: {locators: evidence_locators[]} — the durable evidence path. "
                             "point_crops: {scale_x?: number, scale_y?: number, zoom_factor?: number, points: [{alias: str, point_norm: [x,y], "
-                            "size: small|small_plus|medium|large, shape: wide|portrait|square, width_norm?: number, height_norm?: number, scale_x?: number, scale_y?: number, zoom_factor?: number}], "
+                            "size: small|small_plus|medium|large, shape: wide|portrait|square, width_norm?: number, height_norm?: number, scale_x?: number, scale_y?: number, zoom_factor?: number, "
+                            "target_atom_id?: str, target_context_id?: str, target_hint?: str, target_hint_role?: candidate_only_not_earned}], "
                             "show?: [pin|box|letter]} — primary template crop packets; master overlay + review_rows/lines. "
+                            "Optional target_* fields are deterministic crop-to-resolution tracking only; target_hint is candidate context, not earned truth. "
                             "master overlay only in image_evidence; per-point crops are zoomed for legibility. "
                             "point_crops_adjust: {adjust: [{letter|alias, point_norm?, shift_norm?, size?, shape?, width_norm?, height_norm?, scale_x?, scale_y?, "
-                            "zoom_factor?}], show?: [pin|box|letter]} — adjust an existing crop set via prior master overlay ref_id. "
+                            "zoom_factor?, target_atom_id?, target_context_id?, target_hint?, target_hint_role?}], show?: [pin|box|letter]} — adjust an existing crop set via prior master overlay ref_id. "
                             "point_crops_view: {filter?: {letters?, aliases?}, show?: [pin|box|letter]} — filtered overlay view."
                         ),
                     },

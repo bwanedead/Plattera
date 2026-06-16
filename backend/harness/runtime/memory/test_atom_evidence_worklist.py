@@ -47,9 +47,16 @@ def _unit(
     return row
 
 
-def _crop_outputs(*, aliases: list[str], turn: int = 6) -> dict:
-    points = [
-        {
+def _crop_outputs(
+    *,
+    aliases: list[str],
+    turn: int = 6,
+    target_atom_ids: list[str] | None = None,
+    target_hints: list[str] | None = None,
+) -> dict:
+    points = []
+    for i, alias in enumerate(aliases):
+        point = {
             "letter": chr(ord("A") + i),
             "alias": alias,
             "crop_ref": f"image:derived:crop-{alias}",
@@ -58,8 +65,11 @@ def _crop_outputs(*, aliases: list[str], turn: int = 6) -> dict:
             "absolute_path": f"C:\\secret\\{alias}.png",
             "b64": "strip-me",
         }
-        for i, alias in enumerate(aliases)
-    ]
+        if target_atom_ids and i < len(target_atom_ids) and target_atom_ids[i]:
+            point["target_atom_id"] = target_atom_ids[i]
+        if target_hints and i < len(target_hints) and target_hints[i]:
+            point["target_hint"] = target_hints[i]
+        points.append(point)
     return {
         "derived_ref_id": "image:derived:master-parcel1",
         "sub_action": "point_crops",
@@ -140,6 +150,65 @@ def test_direct_alias_crop_maps_to_covered_unit_atom() -> None:
     assert atom["packet_refs"][0]["match_kind"] == "direct_alias_match"
     assert atom["packet_refs"][0]["source_alias"] == "p1_acreage"
     assert atom["packet_refs"][0]["crop_ref"] == "image:derived:crop-p1_acreage"
+
+
+def test_target_atom_id_joins_even_when_alias_differs() -> None:
+    state = _resolution_state(
+        items=[
+            _group_item(
+                item_id="parcel_1_visible_calls",
+                units=[_unit(unit_id="p1_call1_distance", candidate_values=["542 feet"])],
+            )
+        ]
+    )
+    records = [
+        _result_record(
+            turn=6,
+            outputs=_crop_outputs(
+                aliases=["different_alias"],
+                target_atom_ids=["p1_call1_distance"],
+                target_hints=["542 feet"],
+            ),
+        )
+    ]
+    worklist = build_atom_evidence_worklist(
+        resolution_state=state,
+        recent_result_records=records,
+    )
+    atom = _atom(worklist, "p1_call1_distance")
+    assert atom["packet_refs"][0]["match_kind"] == "target_atom_id_match"
+    assert atom["packet_refs"][0]["source_alias"] == "different_alias"
+    assert atom["packet_refs"][0]["target_atom_id"] == "p1_call1_distance"
+    assert atom["packet_refs"][0]["target_hint"] == "542 feet"
+
+
+def test_unknown_target_atom_id_surfaces_in_unmatched_packet_refs() -> None:
+    state = _resolution_state(
+        items=[
+            _group_item(
+                item_id="parcel_1_visible_calls",
+                units=[_unit(unit_id="p1_acreage")],
+            )
+        ]
+    )
+    records = [
+        _result_record(
+            turn=6,
+            outputs=_crop_outputs(
+                aliases=["distance_probe_alias"],
+                target_atom_ids=["missing_atom"],
+                target_hints=["542 feet"],
+            ),
+        )
+    ]
+    worklist = build_atom_evidence_worklist(
+        resolution_state=state,
+        recent_result_records=records,
+    )
+    assert worklist["unmatched_packet_refs"]
+    unmatched = worklist["unmatched_packet_refs"][0]
+    assert unmatched["target_atom_id"] == "missing_atom"
+    assert unmatched["target_hint"] == "542 feet"
 
 
 def test_ten_crops_four_delegates_six_packet_ready_unused() -> None:

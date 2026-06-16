@@ -162,6 +162,21 @@ def test_point_crop_renders_clickable_links_when_paths_resolvable(tmp_path: Path
     assert "b64" not in rendered.lower()
 
 
+def test_point_crop_timeline_renders_target_mapping() -> None:
+    outputs = _outputs()
+    outputs["crop_set"]["points"][0].update(
+        {
+            "target_atom_id": "p1_call1_distance",
+            "target_hint": "542 feet",
+        }
+    )
+    lines = render_point_crop_set_tool_output(outputs)
+    rendered = "\n".join(lines)
+    assert "target_mapping:" in rendered
+    assert "target=p1_call1_distance" in rendered
+    assert 'hint="542 feet"' in rendered
+
+
 def test_point_crop_timeline_renders_source_lineage_when_unwrapped() -> None:
     outputs = _outputs()
     outputs["placement_surface_ref"] = "image:derived:scaffold-1"

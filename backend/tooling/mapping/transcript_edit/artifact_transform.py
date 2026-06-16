@@ -39,6 +39,7 @@ from .coordinate_lattice import (
     draw_reference_cell_coordinate_foundation,
 )
 from .point_crop_review_table import attach_review_table_to_crop_set
+from .point_crop_target_mapping import copy_target_mapping_fields
 from .point_crop_key_band import attach_point_key_lines_to_crop_set
 from .point_crop_source_lineage import (
     PointCropSourceLineage,
@@ -228,6 +229,7 @@ def _persist_point_crop_set(
         ):
             if key in pt:
                 crop_transform_metadata[key] = pt[key]
+        crop_transform_metadata.update(copy_target_mapping_fields(pt))
         if previous_crop_set_overlay_ref:
             crop_transform_metadata["previous_crop_set_overlay_ref"] = previous_crop_set_overlay_ref
 

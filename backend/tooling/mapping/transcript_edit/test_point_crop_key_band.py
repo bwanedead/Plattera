@@ -11,6 +11,23 @@ from tooling.mapping.transcript_edit.point_crop_key_band import (
 )
 
 
+def test_render_point_key_line_includes_target_mapping() -> None:
+    line = render_point_key_line(
+        {
+            "letter": "B",
+            "alias": "p1_call1_distance",
+            "point_norm": [0.82, 0.668],
+            "size": "small_plus",
+            "shape": "wide",
+            "target_atom_id": "p1_call1_distance",
+            "target_hint": "542 feet",
+        }
+    )
+    assert line.startswith("B p1_call1_distance")
+    assert "target=p1_call1_distance" in line
+    assert 'hint="542 feet"' in line
+
+
 def test_render_point_key_line_includes_letter_alias_and_point() -> None:
     line = render_point_key_line(
         {

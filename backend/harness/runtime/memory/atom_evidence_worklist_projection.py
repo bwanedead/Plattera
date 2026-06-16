@@ -209,6 +209,12 @@ def _compact_packet_ref(
         "letter": pref.get("letter"),
         "created_turn": pref.get("created_turn"),
     }
+    target_atom_id = pref.get("target_atom_id")
+    if target_atom_id:
+        row["target_atom_id"] = target_atom_id
+    target_hint = pref.get("target_hint")
+    if target_hint:
+        row["target_hint"] = target_hint
     if include_match_kind:
         match_kind = pref.get("match_kind")
         if match_kind:

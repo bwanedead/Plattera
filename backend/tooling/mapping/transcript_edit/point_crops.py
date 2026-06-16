@@ -25,6 +25,12 @@ from .point_crop_key_band import (
     compute_point_key_band_height,
     draw_point_key_band,
 )
+from .point_crop_target_mapping import (
+    TARGET_MAPPING_KEYS,
+    apply_target_mapping_to_point,
+    copy_target_mapping_fields,
+    normalize_target_mapping_fields,
+)
 from .text_block_trim import (
     ALLOWED_TRIM_AXES,
     DEFAULT_TRIM_PADDING_NORM,
@@ -265,6 +271,17 @@ def validate_point_crops_params(params: dict[str, Any]) -> str | None:
                 p.pop("graph_ref", None)
             else:
                 p["graph_ref"] = normalized_graph_ref
+        if any(key in p for key in TARGET_MAPPING_KEYS):
+            try:
+                normalized_target = normalize_target_mapping_fields(
+                    p,
+                    field_prefix=f"params.points[{i}]",
+                )
+            except PointCropParamError as exc:
+                return str(exc)
+            for key in TARGET_MAPPING_KEYS:
+                p.pop(key, None)
+            p.update(normalized_target)
     if len(points) > MAX_POINT_CROP_COUNT:
         return "point_crops point count exceeds safety cap (16)."
     global_zoom_err = _validate_zoom_factor_raw(params.get("zoom_factor"), "params.zoom_factor")
@@ -1192,6 +1209,7 @@ def compute_point_crops(img: Any, params: dict[str, Any]) -> dict[str, Any]:
             row["trim_to_text_block"] = False
         if isinstance(p.get("graph_ref"), dict):
             row["graph_ref"] = dict(p["graph_ref"])
+        row.update(copy_target_mapping_fields(p))
         per_point_data.append(row)
 
     canvas, legend_h, key_band_h, overlay = _render_master_overlay(img, per_point_data, show)
@@ -1258,6 +1276,7 @@ def compute_point_crops_view(img: Any, points: list[dict[str, Any]], *, show: li
             row["crop_ref"] = crop_ref.strip()
         if isinstance(p.get("graph_ref"), dict):
             row["graph_ref"] = dict(p["graph_ref"])
+        row.update(copy_target_mapping_fields(p))
         per_point_data.append(row)
 
     canvas, legend_h, key_band_h, overlay = _render_master_overlay(
@@ -1304,6 +1323,7 @@ def build_crop_set_point_record(point: dict[str, Any], *, crop_ref: str | None =
     if crop_intent:
         row["crop_intent"] = crop_intent
     row.update(_copy_trim_metadata(point))
+    row.update(copy_target_mapping_fields(point))
     attach_crop_frame_edge_room_to_point(row)
     return row
 
@@ -1472,6 +1492,7 @@ def prepare_point_crops_adjust(
         }
         if isinstance(pt.get("graph_ref"), dict):
             row["graph_ref"] = dict(pt["graph_ref"])
+        row.update(copy_target_mapping_fields(pt))
         prior_zoom = pt.get("zoom_factor")
         if prior_zoom is not None:
             try:
@@ -1590,6 +1611,7 @@ def prepare_point_crops_adjust(
             "trim_to_text_block",
             "trim_axis",
             "trim_padding_norm",
+            *TARGET_MAPPING_KEYS,
         )
         if not any(field in adj for field in change_fields):
             raise PointCropParamError(
@@ -1715,6 +1737,8 @@ def prepare_point_crops_adjust(
             point_zoom=float(new_zoom_factor) if new_zoom_factor is not None else None,
         )
 
+        target_fields_in_adj = any(field in adj for field in TARGET_MAPPING_KEYS)
+
         if (
             new_point_norm == [round(prior_point_norm[0], 6), round(prior_point_norm[1], 6)]
             and new_size == prior_size
@@ -1731,6 +1755,7 @@ def prepare_point_crops_adjust(
             and new_trim_to_text_block == prior_trim_to_text_block
             and new_trim_axis == prior_trim_axis
             and new_trim_padding_norm == prior_trim_padding_norm
+            and not target_fields_in_adj
         ):
             raise PointCropParamError(
                 f"params.adjust[{i}] specifies no actual change for the selected target.",
@@ -1845,6 +1870,15 @@ def prepare_point_crops_adjust(
         if prior_trim_axis != new_trim_axis:
             applied["prior_trim_axis"] = prior_trim_axis
             applied["new_trim_axis"] = new_trim_axis
+        try:
+            apply_target_mapping_to_point(
+                target_row,
+                adj,
+                field_prefix=f"params.adjust[{i}]",
+                allow_clear=True,
+            )
+        except PointCropParamError as exc:
+            raise PointCropParamError(str(exc), repair_hint=exc.repair_hint) from exc
         adjustments_applied.append(applied)
 
     compute_points = []
@@ -1857,6 +1891,7 @@ def prepare_point_crops_adjust(
         }
         if isinstance(pt.get("graph_ref"), dict):
             point_row["graph_ref"] = dict(pt["graph_ref"])
+        point_row.update(copy_target_mapping_fields(pt))
         if pt.get("zoom_factor") is not None:
             point_row["zoom_factor"] = pt["zoom_factor"]
         for axis in ("scale_x", "scale_y"):

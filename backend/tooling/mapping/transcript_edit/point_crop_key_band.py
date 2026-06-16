@@ -14,6 +14,9 @@ _KEY_BAND_SEPARATOR_COLOR = (190, 190, 190)
 _DECIMALS = 3
 
 
+from .point_crop_target_mapping import format_target_mapping_parts
+
+
 def compact_size_shape_label(
     size: str | None,
     shape: str | None,
@@ -42,7 +45,9 @@ def render_point_key_line(point: Mapping[str, Any]) -> str:
     except (TypeError, ValueError, IndexError):
         x, y = 0.0, 0.0
 
-    parts = [letter, alias, f"point=[{x:.{_DECIMALS}f},{y:.{_DECIMALS}f}]"]
+    parts = [letter, alias]
+    parts.extend(format_target_mapping_parts(point))
+    parts.append(f"point=[{x:.{_DECIMALS}f},{y:.{_DECIMALS}f}]")
     extra = compact_size_shape_label(
         str(point.get("size") or "").strip() or None,
         str(point.get("shape") or "").strip() or None,
