@@ -1,0 +1,52 @@
+{
+  "published_at": "2026-06-18T19:57:40Z",
+  "source_revision_ref": "transcript_edit:working:rev:0001",
+  "revision_snapshot": {
+    "ref_id": "transcript_edit:working:rev:0001",
+    "evidence_refs": [
+      "image:assoc:draft_legal_text_image:original",
+      "t0:raw:draft_1"
+    ],
+    "payload": {
+      "evidence_refs": [
+        "image:assoc:draft_legal_text_image:original",
+        "t0:raw:draft_1"
+      ],
+      "hitl_decisions": [
+        {
+          "choice": "Use Range 75 West from the introductory situs",
+          "note": "Prefatory situs governs.",
+          "prompt_id": "hitl-33c567d9a2f84db7b6b9bacaaef73067"
+        }
+      ],
+      "issues": [
+        {
+          "downstream_disposition": "Parcel 2 cannot be fully handed forward.",
+          "issue_id": "parcel_2_continuation_scope",
+          "layer": "layer_3_external_dependency_completeness",
+          "mapping_blocking": true,
+          "scope": "Parcel 2 after visible first call",
+          "summary": "Visible source ends mid-sentence; no continuation page."
+        }
+      ],
+      "normalized_or_mapping_transcript": "Right of Way Deed.\nParcel 1 normalized excerpt...\nParcel 2 [SOURCE CUTS OFF HERE]",
+      "parcel_metadata": {
+        "parcels": [
+          {
+            "forwardable": true,
+            "forwardable_scope": "full visible parcel",
+            "governing_range": "Range Seventy-five (75) West",
+            "parcel_id": "parcel_1"
+          },
+          {
+            "forwardable": false,
+            "forwardable_scope": "verified visible opening only",
+            "governing_range": "Range Seventy-five (75) West for normalized visible scope",
+            "parcel_id": "parcel_2"
+          }
+        ]
+      },
+      "source_transcript_verbatim": "Right of Way Deed.\nParcel 1 verbatim excerpt...\nParcel 2 [SOURCE CUTS OFF HERE]"
+    }
+  }
+}
