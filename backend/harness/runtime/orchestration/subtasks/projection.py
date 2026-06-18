@@ -40,6 +40,9 @@ def project_subtask_output(outputs: Mapping[str, Any] | None) -> dict[str, Any] 
         "input_refs": _bounded_list(outputs.get("input_refs"), limit=8),
         "result": projected_result,
     }
+    target_entity_id = _short(outputs.get("target_entity_id"))
+    if target_entity_id:
+        out["target_entity_id"] = target_entity_id
     if outputs.get("result_truncated") is True:
         out["result_truncated"] = True
         truncated_fields = outputs.get("truncated_fields")

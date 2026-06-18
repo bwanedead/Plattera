@@ -275,3 +275,27 @@ def test_verbose_visual_observation_returns_truncated_usable_result() -> None:
     assert projected is not None
     assert projected["result_truncated"] is True
     assert "source_visible_text" in projected["result"]
+
+
+def test_visual_source_visible_text_preserves_audit_transcript_beyond_old_preview_cap() -> None:
+    from domains.mapping.transcript_edit.execution.subtask_profiles import (
+        build_transcript_edit_subtask_profiles,
+    )
+    from harness.runtime.orchestration.subtasks.registry import profile_from_mapping
+
+    profile = profile_from_mapping({**build_transcript_edit_subtask_profiles()[0], "max_result_chars": 2_000})
+    visible_text = "visible line one\n" + ("visible source words " * 25)
+    result, truncation = normalize_result_payload(
+        {
+            "task_response": "target reads as visible line one",
+            "source_visible_text": visible_text,
+            "visual_basis": ["target text is centered"],
+            "ambiguity": "",
+            "limits": [],
+        },
+        profile=profile,
+    )
+
+    assert truncation is None
+    assert result["source_visible_text"] == visible_text.strip()
+    assert len(result["source_visible_text"]) > 240

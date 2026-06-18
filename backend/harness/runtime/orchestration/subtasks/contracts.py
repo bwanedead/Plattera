@@ -25,6 +25,7 @@ DEFAULT_MAX_RESULT_CHARS = 700
 DEFAULT_MAX_OUTPUT_CONTRACT_JSON_CHARS = 1_500
 MAX_PROFILE_ID_CHARS = 96
 MAX_CONTEXT_REF_CHARS = 256
+MAX_TARGET_ENTITY_ID_CHARS = 160
 
 ResultValidator = Callable[[Mapping[str, Any], "SubtaskProfile"], None]
 
@@ -71,6 +72,7 @@ class DelegateSubtaskRequest:
     profile: str
     task: str
     context_refs: tuple[str, ...]
+    target_entity_id: str | None = None
     isolation: Mapping[str, bool] = field(default_factory=dict)
     output_contract: Mapping[str, Any] = field(default_factory=dict)
 

@@ -195,6 +195,9 @@ def test_procedural_guidance_teaches_delegate_subtask_lightly() -> None:
     assert "run in parallel" in text
     assert "context_refs" in text
     assert "delegation_lines" in text
+    assert "target_entity_id" in text
+    assert "prefer the action alias to match it when clean" in text
+    assert "audit/ui wiring, not proof" in text
     assert "atom-oriented" in text
     assert "not blind to what the isolated crop can actually provide" in text
     assert "ask for two outputs" in text
@@ -347,6 +350,14 @@ def test_domain_pack_declares_semantic_prompt_blocks() -> None:
     assert "visible document structure" in text
     assert "every t0 reading remains candidate/open" in text
     assert "missed, merged, split, or misread a unit" in text
+    assert "preserve useful t0/source-shape scaffold in `stable_context`" in text
+    assert "explicit t0 memory, not earned document truth" in text
+    assert "full useful t0 shape or bounded local structure notes" in text
+    assert "durable shape memory" in text
+    assert "atom rows do not become isolated labels" in text
+    assert "do not turn it into a junk drawer or second uncontrolled transcript" in text
+    assert "attached_entity_ids" in guidance.text
+    assert "do not spend turns grooming links" in text
     assert "the early job is not to investigate each atom's truth" in text
     assert "walk the t0 shape top-to-bottom" in text
     assert "walk the t0/source shape top-to-bottom" not in text
@@ -425,6 +436,10 @@ def test_domain_pack_declares_semantic_prompt_blocks() -> None:
     assert "point_crops" in guidance.text
     assert "point_crops_adjust" in guidance.text
     assert "point_crops_view" in guidance.text
+    assert "fill `target_atom_id` with the exact atom id" in text
+    assert "use `target_hint` for the candidate value" in text
+    assert "these fields are not proof" in text
+    assert "deterministic wiring so the point key, worklist, timeline, and ui" in text
     assert "master overlay" in text
     assert "small_plus" in guidance.text
     assert "small+" in guidance.text

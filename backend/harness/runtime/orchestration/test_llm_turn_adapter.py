@@ -1041,7 +1041,9 @@ def test_choose_action_prompt_explicitly_allows_state_authoring_skip_turns() -> 
     prompt = captured[0]
     assert "No-dispatch state-authoring turns are valid" in prompt
     assert "`actions` is absent or empty" in prompt
-    assert "Use only canonical `state_patch.mission` and `state_patch.resolution`" in prompt
+    assert "Optional `state_patch` shape:" in prompt
+    assert "`stable_context?`" in prompt
+    assert "not evidence, truth, closure, work inventory, or instruction" in prompt
     assert "record closure posture before dispatching another tool" not in prompt
 
 

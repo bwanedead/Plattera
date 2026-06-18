@@ -8,7 +8,7 @@ from typing import Any
 
 from .contracts import SubtaskProfile
 
-_MAX_FIELD_CHARS = 240
+_MAX_FIELD_CHARS = 1_200
 _MAX_LIST_ITEMS = 6
 _MAX_NESTED_DEPTH = 2
 _MAX_RESULT_FIELDS = 16

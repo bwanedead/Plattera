@@ -148,6 +148,9 @@ def _worklist_row_from_record(
         "status": COMPLETED_STATUS,
         "context_refs": _bounded_str_list(record.get("context_refs"), limit=MAX_CONTEXT_REFS),
     }
+    target_entity_id = _bound_text(str(record.get("target_entity_id") or ""))
+    if target_entity_id:
+        row["target_entity_id"] = target_entity_id
 
     task_preview = _bound_text(str(record.get("task") or ""), max_chars=MAX_TASK_PREVIEW_CHARS)
     if task_preview:

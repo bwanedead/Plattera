@@ -397,6 +397,7 @@ def _delegate_outputs_excerpt(
         "subtask_id": projected.get("subtask_id"),
         "profile": projected.get("profile"),
         "status": projected.get("status"),
+        "target_entity_id": projected.get("target_entity_id"),
         "input_refs": projected.get("input_refs"),
         "result": projected.get("result"),
     }
@@ -406,6 +407,33 @@ def _delegate_outputs_excerpt(
         elif key in outputs:
             excerpt[key] = outputs[key]
     return {key: value for key, value in excerpt.items() if value is not None}
+
+
+def _delegate_result_audit(outputs: Mapping[str, Any]) -> dict[str, Any]:
+    result = outputs.get("result")
+    if not isinstance(result, Mapping):
+        return {}
+    audit: dict[str, Any] = {}
+    for key, value in result.items():
+        if value is None:
+            continue
+        if isinstance(value, str):
+            text = value.strip()
+            if text:
+                audit[str(key)] = text[:4_000]
+            continue
+        if isinstance(value, list):
+            rows = [str(item)[:1_000] for item in value[:8] if item is not None]
+            if rows:
+                audit[str(key)] = rows
+            continue
+        if isinstance(value, (int, float, bool)):
+            audit[str(key)] = value
+            continue
+        text = str(value).strip()
+        if text:
+            audit[str(key)] = text[:1_000]
+    return audit
 
 
 def build_batch_item_result_row(
@@ -432,6 +460,9 @@ def build_batch_item_result_row(
         subtask_projection = project_subtask_output(outputs)
         if subtask_projection:
             row["delegate_subtask"] = subtask_projection
+            audit_result = _delegate_result_audit(outputs)
+            if audit_result:
+                row["delegate_result_audit"] = audit_result
             row["outputs_excerpt"] = _delegate_outputs_excerpt(outputs, projected=subtask_projection)
         else:
             excerpt = _bounded_outputs_excerpt(outputs)

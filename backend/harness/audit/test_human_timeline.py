@@ -1214,6 +1214,108 @@ def test_timeline_final_projection_uses_source_revision_payload_after_publish(
     assert "Published downstream lane text." in bottom
 
 
+def test_timeline_final_projection_reads_payload_from_single_action_batch(
+    tmp_path: Path,
+) -> None:
+    writer = RunAuditWriter(tmp_path / "run1")
+    draft_payload = {
+        "source_transcript_verbatim": "Verbatim source lane with Range Seventy-four.",
+        "normalized_or_mapping_transcript": "Normalized mapping lane with Range Seventy-five.",
+        "issues": [
+            {
+                "issue_id": "range_reference_conflict",
+                "layer": "layer_2_intrinsic_source_integrity",
+                "mapping_blocking": False,
+                "scope": "document",
+                "summary": "Source ranges disagree.",
+                "downstream_disposition": "Normalize only the mapping lane.",
+            }
+        ],
+        "hitl_decisions": [
+            {
+                "prompt_id": "hitl-range",
+                "choice": "Use Range 75",
+                "note": "Human adjudication for mapping lane.",
+            }
+        ],
+        "parcel_metadata": {
+            "parcels": [
+                {
+                    "parcel_id": "parcel_1",
+                    "forwardable": True,
+                    "forwardable_scope": "full visible parcel",
+                    "governing_range": "Range Seventy-five (75) West",
+                    "notes": ["Verbatim lane preserves source wording."],
+                }
+            ]
+        },
+        "evidence_refs": ["image:assoc:source"],
+    }
+    writer.observe_turn_completed(
+        {
+            "turn_index": 4,
+            "parsed_action_plan": {
+                "actions": [
+                    {
+                        "alias": "save_working",
+                        "action_type": "save_workspace_artifact",
+                        "action_inputs": {"draft_payload": draft_payload},
+                    }
+                ]
+            },
+            "tool_result_raw": {
+                "execution_state": "executed",
+                "outputs": {"artifact_kind": "transcript_edit_working"},
+                "artifact_refs": ["transcript_edit:working:rev:0001", "transcript_edit:working"],
+                "refusal": None,
+            },
+            "latest_refs_after": {"transcript_edit:working": "transcript_edit:working:rev:0001"},
+            "state_patch_feedback": {"outcome": "applied"},
+        }
+    )
+    writer.observe_turn_completed(
+        {
+            "turn_index": 5,
+            "parsed_action_plan": {
+                "actions": [
+                    {
+                        "alias": "publish_output",
+                        "action_type": "publish_workspace_artifact",
+                        "action_inputs": {"source_revision_ref": "transcript_edit:working:rev:0001"},
+                    }
+                ]
+            },
+            "tool_result_raw": {
+                "execution_state": "executed",
+                "outputs": {
+                    "output_ref": "transcript_edit:output",
+                    "source_revision_ref": "transcript_edit:working:rev:0001",
+                },
+                "artifact_refs": ["transcript_edit:output", "transcript_edit:working:rev:0001"],
+                "refusal": None,
+            },
+            "latest_refs_after": {"transcript_edit:output": "transcript_edit:output"},
+            "state_patch_feedback": {"outcome": "no_patch"},
+        }
+    )
+    body = _timeline_path(tmp_path / "run1").read_text(encoding="utf-8")
+    bottom = body[body.rindex("## Final Run Summary") :]
+    assert "- posture: published" in bottom
+    assert "- source_transcript_verbatim:" in bottom
+    assert "Verbatim source lane with Range Seventy-four." in bottom
+    assert "- normalized_or_mapping_transcript:" in bottom
+    assert "Normalized mapping lane with Range Seventy-five." in bottom
+    assert "- issues:" in bottom
+    assert "range_reference_conflict | layer:layer_2_intrinsic_source_integrity" in bottom
+    assert "downstream_disposition:" in bottom
+    assert "- hitl_decisions:" in bottom
+    assert "hitl-range: Use Range 75" in bottom
+    assert "- parcel_metadata:" in bottom
+    assert "parcel_1 | forwardable:true | scope:full visible parcel" in bottom
+    assert "- evidence_refs:" in bottom
+    assert "image:assoc:source" in bottom
+
+
 def test_timeline_does_not_project_final_artifact_from_failed_save_attempt(tmp_path: Path) -> None:
     writer = RunAuditWriter(tmp_path / "run1")
     writer.observe_llm_io(

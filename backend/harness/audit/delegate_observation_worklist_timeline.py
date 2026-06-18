@@ -58,6 +58,10 @@ def _format_row(
     rendered_ref = _render_ref(ref_id, link_context, label="subtask")
     lines = [f"- {rendered_ref} ({status})"]
 
+    target_entity_id = str(row.get("target_entity_id") or "").strip()
+    if target_entity_id:
+        lines.append(f"  - target_entity_id: `{target_entity_id}`")
+
     context_refs = row.get("context_refs")
     if isinstance(context_refs, list) and context_refs:
         rendered_refs = ", ".join(
@@ -67,7 +71,7 @@ def _format_row(
 
     for label, key in (
         ("task_response", "task_response_preview"),
-        ("source_visible_text", "source_visible_text_preview"),
+        ("visible_text_preview", "source_visible_text_preview"),
         ("ambiguity", "ambiguity_preview"),
         ("limits", "limits_preview"),
         ("task", "task_preview"),

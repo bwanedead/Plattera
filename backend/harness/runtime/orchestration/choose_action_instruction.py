@@ -55,7 +55,7 @@ _STATE_PATCH_MECHANICS_TEXT = """\
 Optional `state_patch` shape:
 - `resolution?`: `{active_item_id, items, relations, opaque_payload}`
 - `mission?`: `{objective, active_mode, work_universe_posture, motion_posture, motion_posture_basis, blocker_summary, verification_summary, waiting_summary, continuity_summary, mission_mode_summary, high_signal_artifact_refs, success_conditions, closure_state, opaque_payload}`
-- `stable_context?`: `{upsert: [...], retire: [...]}` — agent-authored orientation memory only (not evidence, truth, closure, or work inventory). Upsert by exact `context_id`; retire sets `status: retired` without deleting history. Row shape: `{context_id, title?, role?, body?, basis_refs?, attached_entity_ids?, expires_after_turns?}`. Use `attached_entity_ids` for exact string links to arbitrary entities; do not expect the host to validate entity existence or infer meaning.
+- `stable_context?`: `{upsert: [...], retire: [...]}` — optional agent-authored durable orientation memory for compact context the future run should remember. It is not evidence, truth, closure, work inventory, or instruction. Upsert by exact `context_id`; retire sets `status: retired` without deleting history. Row shape: `{context_id, title?, role?, body?, basis_refs?, attached_entity_ids?, expires_after_turns?}`. Use `attached_entity_ids` for exact string links to arbitrary entities; do not expect the host to validate entity existence or infer meaning. Keep bodies bounded and high-signal.
 
 The runtime merges mechanically:
 - resolution items merge by `item_id`
@@ -255,7 +255,7 @@ Use `pin_refs` for a small number of refs that should stay hot across turns beca
 
 Use `state_patch` for durable semantic progress: opened rows, changed statuses, determined values, evidence bindings, blockers, HITL integration, or closure posture. A tool result is not progress until its useful distinction is carried into durable state, an artifact, HITL, or a deliberate no-further-progress posture.
 
-`delegate_subtask` is an observation tool when available in `tool_ids`. Parent supplies bounded task framing and context refs; child returns observation only. Use it only after the parent has enough bounded refs/framing for the local question — delegation does not replace parent inventory. Parent integrates useful distinctions through normal `state_patch`, artifact, HITL, blocker, or complete-run actions — delegation does not update durable state or decide closure. Batch multiple independent `delegate_subtask` rows in one `actions` list when policy allows.
+`delegate_subtask` is an observation tool when available in `tool_ids`. Parent supplies bounded task framing and context refs; child returns observation only. Use it only after the parent has enough bounded refs/framing for the local question — delegation does not replace parent inventory. Parent integrates useful distinctions through normal `state_patch`, artifact, HITL, blocker, or complete-run actions — delegation does not update durable state or decide closure. Batch multiple independent `delegate_subtask` rows in one `actions` list when policy allows. If the delegate is meant to observe a known work item, include optional `target_entity_id` as an opaque id so audit/UI can show what the delegate was for; this is linkage metadata, not truth.
 
 Use `hitl_request` when the next needed distinction requires a human answer. Use `complete_run` only when the mission deliverable and closure contract are satisfied; if the domain requires an output-tier artifact, a working checkpoint alone is not complete.
 

@@ -245,6 +245,8 @@ def normalize_child_output(
         "result": result,
         "result_schema": dict(profile.result_schema),
     }
+    if request.target_entity_id:
+        normalized["target_entity_id"] = request.target_entity_id
     if truncation:
         normalized.update(truncation)
     if profile.result_validator is not None:
@@ -332,6 +334,8 @@ def _failed_output(
         "result": failed_result,
         "errors": [{"reason_code": reason_code, "message": _bound_text(message, _MAX_FIELD_CHARS)}],
     }
+    if request.target_entity_id:
+        out["target_entity_id"] = request.target_entity_id
     if hydration_errors:
         out["errors"] = list(out["errors"]) + [dict(row) for row in hydration_errors]
     trace = build_subtask_trace(

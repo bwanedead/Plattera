@@ -29,6 +29,14 @@ def _delegate_batching(composed: ComposedTurnInput) -> dict:
     return batching
 
 
+def _delegate_input_shape(composed: ComposedTurnInput) -> dict:
+    payload = composed.surface_payloads["harness_delegate_subtask"]
+    spec = payload["tool_specs"][0]
+    input_shape = spec.get("input_shape")
+    assert isinstance(input_shape, dict)
+    return input_shape
+
+
 def test_default_visible_delegate_spec_cap_is_four() -> None:
     composed = _with_delegate_subtask_tool(
         _composed_with_handlers(),
@@ -39,6 +47,9 @@ def test_default_visible_delegate_spec_cap_is_four() -> None:
     batching = _delegate_batching(composed)
     assert batching["max_calls_per_batch"] == DELEGATE_SUBTASK_MAX_CALLS_PER_BATCH
     assert batching["can_run_parallel"] is True
+    input_shape = _delegate_input_shape(composed)
+    assert "target_entity_id" in input_shape
+    assert "audit/UI linkage" in input_shape["target_entity_id"]
 
 
 def test_transcript_edit_visible_delegate_spec_cap_is_fifteen() -> None:

@@ -166,7 +166,7 @@ def test_timeline_renders_two_delegate_rows_with_custom_fields_and_no_b64() -> N
     assert body.count("Delegate subtask `read_a`") == 1
     assert body.count("Delegate subtask `read_b`") == 1
     assert body.count("profile: `transcript_edit.visual_source_observation`") == 2
-    assert "source_visible_text:" in body
+    assert "visible_text_transcript:" in body
     assert "N. 4° 00' W." in body
     assert "subtask_output_malformed" in body
     assert "SHOULD_NOT_RENDER" not in body
@@ -230,6 +230,63 @@ def test_timeline_renders_delegate_truncation_metadata() -> None:
     assert "task_response" in body
     assert "original_result_chars: 1800" in body
     assert "image:derived:crop_a" in body
+
+
+def test_timeline_renders_audit_visible_text_transcript_beyond_projection_cap() -> None:
+    long_visible_text = "line one visible text\n" + ("line two has surrounding source text " * 30)
+    body = render_timeline(
+        [
+            {
+                "turn_index": 5,
+                "parse_ok": True,
+                "tool_request": {
+                    "actions": [
+                        {
+                            "alias": "p1_acreage",
+                            "action_type": DELEGATE_SUBTASK_ACTION_TYPE,
+                            "action_inputs": {
+                                "profile": "transcript_edit.visual_source_observation",
+                                "task": "Read acreage.",
+                                "target_entity_id": "p1_acreage",
+                                "context_refs": ["image:derived:crop_a"],
+                            },
+                        }
+                    ],
+                    "rationale": "delegate localized read",
+                },
+                "recent_action_sequence_result": {
+                    "sequence_id": "seq-5",
+                    "source_turn_index": 5,
+                    "items": [
+                        {
+                            "alias": "p1_acreage",
+                            "action_type": DELEGATE_SUBTASK_ACTION_TYPE,
+                            "execution_state": "executed",
+                            "delegate_result_audit": {
+                                "source_visible_text": long_visible_text,
+                            },
+                            "delegate_subtask": {
+                                "subtask_id": "p1_acreage",
+                                "profile": "transcript_edit.visual_source_observation",
+                                "status": "completed",
+                                "target_entity_id": "p1_acreage",
+                                "input_refs": ["image:derived:crop_a"],
+                                "result": {
+                                    "task_response": "1.9 acres",
+                                    "source_visible_text": "short preview",
+                                },
+                            },
+                        }
+                    ],
+                },
+            }
+        ]
+    )
+
+    assert "target_entity_id: `p1_acreage`" in body
+    assert "visible_text_transcript:" in body
+    assert "line one visible text" in body
+    assert "line two has surrounding source text" in body
 
 
 def test_delegate_context_ref_renders_image_link_when_resolvable(tmp_path: Path) -> None:

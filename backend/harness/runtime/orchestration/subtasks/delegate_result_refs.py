@@ -98,6 +98,9 @@ def build_delegate_result_record(
         "result": _sanitize_value(result_payload),
         "created_at_turn": int(turn_index),
     }
+    target_entity_id = _target_entity_id(action_inputs, projected)
+    if target_entity_id:
+        record["target_entity_id"] = target_entity_id
     trace = compact_subtask_trace(projected.get("subtask_trace"))
     if trace:
         record["subtask_trace"] = trace
@@ -176,6 +179,7 @@ def build_hydrated_delegate_payload(record: Mapping[str, Any]) -> dict[str, Any]
         "summary": build_delegate_result_summary(record),
         "profile": record.get("profile"),
         "task": record.get("task"),
+        "target_entity_id": record.get("target_entity_id"),
         "context_refs": list(record.get("context_refs") or []),
         "status": record.get("status"),
         "result": dict(record.get("result") or {}),
@@ -232,6 +236,7 @@ def project_recent_delegate_results_for_prompt(
             "ref_id": ref_id,
             "alias": record.get("alias"),
             "status": record.get("status"),
+            "target_entity_id": record.get("target_entity_id"),
             "context_refs": list(record.get("context_refs") or [])[:4],
             "summary": build_delegate_result_summary(record),
             "integration_status": integration_by_ref.get(ref_id, STATUS_UNREFERENCED_STALE),
@@ -277,21 +282,23 @@ def validate_stored_delegate_result_record(row: Any) -> dict[str, Any] | None:
     if action_index < 1:
         return None
     alias = _stored_alias(str(row.get("alias") or ""), action_index=action_index)
-    bounded = _bound_record(
-        {
-            "ref_id": ref_id,
-            "kind": DELEGATE_RESULT_KIND,
-            "turn_index": turn_index,
-            "alias": alias,
-            "action_index": action_index,
-            "profile": _bound_text(str(row.get("profile") or "")),
-            "task": _bound_text(str(row.get("task") or ""), max_chars=MAX_TASK_CHARS),
-            "context_refs": _bounded_str_list(row.get("context_refs"), limit=8),
-            "status": _bound_text(str(row.get("status") or "unknown")),
-            "result": _sanitize_value(row.get("result") if isinstance(row.get("result"), Mapping) else {}),
-            "created_at_turn": turn_index,
-        }
-    )
+    record_payload = {
+        "ref_id": ref_id,
+        "kind": DELEGATE_RESULT_KIND,
+        "turn_index": turn_index,
+        "alias": alias,
+        "action_index": action_index,
+        "profile": _bound_text(str(row.get("profile") or "")),
+        "task": _bound_text(str(row.get("task") or ""), max_chars=MAX_TASK_CHARS),
+        "context_refs": _bounded_str_list(row.get("context_refs"), limit=8),
+        "status": _bound_text(str(row.get("status") or "unknown")),
+        "result": _sanitize_value(row.get("result") if isinstance(row.get("result"), Mapping) else {}),
+        "created_at_turn": turn_index,
+    }
+    target_entity_id = _bound_text(str(row.get("target_entity_id") or ""))
+    if target_entity_id:
+        record_payload["target_entity_id"] = target_entity_id
+    bounded = _bound_record(record_payload)
     trace = compact_subtask_trace(row.get("subtask_trace"))
     if trace:
         bounded["subtask_trace"] = trace
@@ -312,6 +319,17 @@ def _stored_alias(alias: str | None, *, action_index: int) -> str:
     if text and _REF_SEGMENT_RE.match(text):
         return text
     return f"action{max(1, int(action_index))}"
+
+
+def _target_entity_id(
+    action_inputs: Mapping[str, Any],
+    projected: Mapping[str, Any],
+) -> str:
+    for source in (action_inputs, projected):
+        value = source.get("target_entity_id")
+        if isinstance(value, str) and value.strip():
+            return _bound_text(value)
+    return ""
 
 
 def _first_result_preview(result: Any) -> str:

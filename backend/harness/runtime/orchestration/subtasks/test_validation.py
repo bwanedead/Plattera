@@ -35,6 +35,15 @@ def test_validate_delegate_subtask_accepts_valid_inputs() -> None:
     assert request.isolation == {"omit_parent_graph": True, "omit_peer_candidates": False}
 
 
+def test_validate_delegate_subtask_accepts_optional_target_entity_id() -> None:
+    payload = _valid_inputs()
+    payload["target_entity_id"] = "p1_acreage"
+
+    request = validate_delegate_subtask_inputs(payload)
+
+    assert request.target_entity_id == "p1_acreage"
+
+
 def test_validate_delegate_subtask_rejects_unknown_profile_repairably() -> None:
     payload = _valid_inputs()
     payload["profile"] = "harness.missing"

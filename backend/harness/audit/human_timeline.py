@@ -432,6 +432,7 @@ def _final_artifact_projection(
         lines.append("- payload_summary:")
         lines.extend(f"  - {line}" for line in payload_summary)
     lines.extend(_render_final_text_lanes(draft_payload, transcript_text))
+    lines.extend(_render_final_payload_metadata(draft_payload))
     return lines
 
 
@@ -1471,6 +1472,11 @@ def _pick_action_type(turn: Mapping[str, Any]) -> str:
 def _artifact_action_inputs(turn: Mapping[str, Any]) -> dict[str, Any]:
     tool_request = _coerce_mapping(turn.get("tool_request"))
     parsed = _coerce_mapping(turn.get("parsed_action_plan"))
+    actions = _extract_actions(tool_request, parsed)
+    if len(actions) == 1:
+        inputs = _coerce_mapping(actions[0].get("action_inputs"))
+        if inputs:
+            return inputs
     return _coerce_mapping(tool_request.get("action_inputs")) or _coerce_mapping(
         parsed.get("action_inputs")
     )
@@ -1488,6 +1494,8 @@ def _summarize_lane(label: str, value: Any) -> str:
     text = _extract_text_lane_text(value)
     if text is not None:
         return f"{label}: present ({len(text)} chars)"
+    if isinstance(value, list):
+        return f"{label}: list ({len(value)} items)"
     mapping = _coerce_mapping(value)
     if mapping:
         return f"{label}: object ({len(mapping)} keys)"
@@ -1529,6 +1537,78 @@ def _render_final_text_lanes(draft_payload: Any, transcript_text: Any) -> list[s
         lines.extend(_indented_prose(_bound_text(transcript_text, PROSE_MAX_CHARS), indent="    "))
         if len(transcript_text) > PROSE_MAX_CHARS:
             lines.append(f"    [truncated to {PROSE_MAX_CHARS} chars]")
+    return lines
+
+
+def _render_final_payload_metadata(draft_payload: Any) -> list[str]:
+    if not isinstance(draft_payload, Mapping):
+        return []
+    payload = _coerce_mapping(draft_payload)
+    lines: list[str] = []
+
+    issues = payload.get("issues")
+    if isinstance(issues, list) and issues:
+        lines.append("- issues:")
+        for issue in issues[:12]:
+            row = _coerce_mapping(issue)
+            issue_id = row.get("issue_id") or "unknown"
+            layer = row.get("layer") or "unknown"
+            blocking = row.get("mapping_blocking")
+            scope = row.get("scope")
+            parts = [str(issue_id), f"layer:{layer}"]
+            if blocking is not None:
+                parts.append(f"mapping_blocking:{str(bool(blocking)).lower()}")
+            if scope:
+                parts.append(f"scope:{scope}")
+            lines.append("  - " + " | ".join(parts))
+            summary = row.get("summary")
+            if isinstance(summary, str) and summary.strip():
+                lines.extend(_labeled_prose_block("    summary:", summary))
+            disposition = row.get("downstream_disposition")
+            if isinstance(disposition, str) and disposition.strip():
+                lines.extend(_labeled_prose_block("    downstream_disposition:", disposition))
+
+    hitl_decisions = payload.get("hitl_decisions")
+    if isinstance(hitl_decisions, list) and hitl_decisions:
+        lines.append("- hitl_decisions:")
+        for decision in hitl_decisions[:12]:
+            row = _coerce_mapping(decision)
+            prompt_id = row.get("prompt_id") or "unknown"
+            choice = row.get("choice") or "unknown"
+            lines.append(f"  - {prompt_id}: {choice}")
+            note = row.get("note")
+            if isinstance(note, str) and note.strip():
+                lines.extend(_labeled_prose_block("    note:", note))
+
+    parcel_metadata = _coerce_mapping(payload.get("parcel_metadata"))
+    parcels = parcel_metadata.get("parcels")
+    if isinstance(parcels, list) and parcels:
+        lines.append("- parcel_metadata:")
+        for parcel in parcels[:12]:
+            row = _coerce_mapping(parcel)
+            parcel_id = row.get("parcel_id") or "unknown"
+            forwardable = row.get("forwardable")
+            scope = row.get("forwardable_scope")
+            governing = row.get("governing_range")
+            parts = [str(parcel_id)]
+            if forwardable is not None:
+                parts.append(f"forwardable:{str(bool(forwardable)).lower()}")
+            if scope:
+                parts.append(f"scope:{scope}")
+            if governing:
+                parts.append(f"governing_range:{governing}")
+            lines.append("  - " + " | ".join(parts))
+            notes = row.get("notes")
+            if isinstance(notes, list) and notes:
+                for note in notes[:4]:
+                    if isinstance(note, str) and note.strip():
+                        lines.append(f"    note: {_bound_text(note, 500)}")
+
+    evidence_refs = payload.get("evidence_refs")
+    if isinstance(evidence_refs, list) and evidence_refs:
+        lines.append("- evidence_refs:")
+        for ref in evidence_refs[:16]:
+            lines.append(f"  - {ref}")
     return lines
 
 

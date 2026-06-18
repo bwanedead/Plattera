@@ -141,6 +141,35 @@ def test_timeline_renders_shared_evidence_without_alias_match_claim() -> None:
     assert "direct alias" not in body.lower()
 
 
+def test_timeline_renders_target_atom_id_match() -> None:
+    lines = render_atom_evidence_worklist_timeline(
+        _worklist_turn(
+            priority_rows=[
+                {
+                    "atom_id": "p1_call1_distance",
+                    "status": "open",
+                    "utilization_status": "open_packet_ready_unused",
+                    "packet_refs": [
+                        {
+                            "crop_ref": "image:derived:crop-distance",
+                            "overlay_ref": "image:derived:master-1",
+                            "source_alias": "crop_b",
+                            "match_kind": "target_atom_id_match",
+                            "target_atom_id": "p1_call1_distance",
+                            "target_hint": "542 feet",
+                            "created_turn": 6,
+                        }
+                    ],
+                }
+            ],
+        )
+    )
+    body = "\n".join(lines)
+    assert "target_atom_id crop" in body
+    assert "alias crop_b" in body
+    assert 'hint="542 feet"' in body
+
+
 def test_timeline_integrates_with_human_timeline_and_links(tmp_path: Path) -> None:
     writer = RunAuditWriter(tmp_path / "run-worklist")
     writer.observe_llm_io(

@@ -57,3 +57,36 @@ def test_project_action_sequence_for_audit_omits_delegate_metadata_when_absent()
     assert "delegate_parallel" not in projected
     assert "delegate_count" not in projected
     assert "delegate_wall_seconds_total" not in projected
+
+
+def test_project_action_sequence_for_audit_preserves_delegate_target_and_audit_result() -> None:
+    projected = project_action_sequence_for_audit(
+        {
+            "batch_id": "req:iter:3:batch",
+            "source_turn_index": 3,
+            "items": [
+                {
+                    "alias": "p1_acreage",
+                    "action_type": DELEGATE_SUBTASK_ACTION_TYPE,
+                    "execution_state": "executed",
+                    "outputs_excerpt": {
+                        "action_type": DELEGATE_SUBTASK_ACTION_TYPE,
+                        "subtask_id": "p1_acreage",
+                        "profile": "transcript_edit.visual_source_observation",
+                        "status": "completed",
+                        "target_entity_id": "p1_acreage",
+                        "input_refs": ["image:derived:crop_a"],
+                        "result": {"source_visible_text": "short preview"},
+                    },
+                    "delegate_result_audit": {
+                        "source_visible_text": "fuller audit transcript line",
+                    },
+                }
+            ],
+        }
+    )
+
+    assert projected is not None
+    row = projected["items"][0]
+    assert row["delegate_subtask"]["target_entity_id"] == "p1_acreage"
+    assert row["delegate_result_audit"]["source_visible_text"] == "fuller audit transcript line"

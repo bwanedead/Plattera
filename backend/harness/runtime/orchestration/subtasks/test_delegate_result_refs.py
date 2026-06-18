@@ -226,12 +226,14 @@ def test_record_stores_bounded_fields_and_strips_binary() -> None:
         action_inputs={
             "profile": "transcript_edit.visual_source_observation",
             "task": "Read the exact visible bearing",
+            "target_entity_id": "p1_bearing",
             "context_refs": ["image:derived:abc123"],
         },
         outputs=_sample_outputs(),
     )
     assert record["ref_id"] == "subtask:turn8:read_parcel1_bearing"
     assert record["profile"] == "transcript_edit.visual_source_observation"
+    assert record["target_entity_id"] == "p1_bearing"
     assert record["context_refs"] == ["image:derived:abc123"]
     assert record["status"] == "completed"
     assert "source_visible_text" in record["result"]
@@ -322,7 +324,12 @@ def test_recent_prompt_projection_includes_delegate_refs() -> None:
         turn_index=8,
         alias="read_parcel1_bearing",
         action_index=1,
-        action_inputs={"profile": "p", "task": "t", "context_refs": ["image:derived:a"]},
+        action_inputs={
+            "profile": "p",
+            "task": "t",
+            "target_entity_id": "p1_bearing",
+            "context_refs": ["image:derived:a"],
+        },
         outputs=_sample_outputs(),
     )
     projected = project_recent_delegate_results_for_prompt(
@@ -331,6 +338,7 @@ def test_recent_prompt_projection_includes_delegate_refs() -> None:
     )
     assert projected is not None
     assert projected["items"][0]["ref_id"] == "subtask:turn8:read_parcel1_bearing"
+    assert projected["items"][0]["target_entity_id"] == "p1_bearing"
     prompt_trace = projected["items"][0].get("subtask_trace") or {}
     assert prompt_trace.get("wall_seconds") == 18.56
     assert prompt_trace.get("model_call_seconds") == 18.42
@@ -348,6 +356,7 @@ def test_timeline_renders_delegate_ref() -> None:
         inputs={
             "profile": "transcript_edit.visual_source_observation",
             "task": "Read bearing",
+            "target_entity_id": "p1_bearing",
             "context_refs": ["image:derived:abc123"],
         },
         item={
@@ -359,12 +368,14 @@ def test_timeline_renders_delegate_ref() -> None:
                 "subtask_id": "read_parcel1_bearing",
                 "profile": "transcript_edit.visual_source_observation",
                 "status": "completed",
+                "target_entity_id": "p1_bearing",
                 "input_refs": ["image:derived:abc123"],
                 "result": {"source_visible_text": "N. 4° 00' W."},
             },
         },
     )
     assert any("subtask:turn8:read_parcel1_bearing" in line for line in lines)
+    assert any("target_entity_id: `p1_bearing`" in line for line in lines)
 
 
 def test_resume_snapshot_preserves_delegate_results() -> None:

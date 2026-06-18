@@ -484,6 +484,7 @@ def _with_delegate_subtask_tool(
                         "profile": "required registered profile id",
                         "task": "required bounded parent-authored task",
                         "context_refs": "required non-empty bounded ref list",
+                        "target_entity_id": "optional opaque target/work-item id for audit/UI linkage",
                         "isolation": "optional known boolean flags",
                         "output_contract": "optional bounded object",
                     },

@@ -113,6 +113,13 @@ def project_action_sequence_for_audit(record: Mapping[str, Any] | None) -> dict[
         subtask = project_subtask_row(raw)
         if subtask:
             row["delegate_subtask"] = subtask
+        audit_result = raw.get("delegate_result_audit")
+        if isinstance(audit_result, Mapping):
+            row["delegate_result_audit"] = {
+                str(key): value
+                for key, value in audit_result.items()
+                if value not in (None, "", [], {})
+            }
         rows.append(row)
     if not rows:
         return None

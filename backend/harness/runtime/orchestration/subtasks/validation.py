@@ -10,6 +10,7 @@ from .contracts import (
     DEFAULT_MAX_OUTPUT_CONTRACT_JSON_CHARS,
     MAX_CONTEXT_REF_CHARS,
     MAX_PROFILE_ID_CHARS,
+    MAX_TARGET_ENTITY_ID_CHARS,
     DelegateSubtaskRequest,
     SubtaskProfile,
 )
@@ -20,6 +21,7 @@ _ALLOWED_KEYS = frozenset({
     "profile",
     "task",
     "context_refs",
+    "target_entity_id",
     "isolation",
     "output_contract",
 })
@@ -62,6 +64,11 @@ def validate_delegate_subtask_inputs(
 
     task = _required_text(raw.get("task"), "task", max_chars=profile.max_task_chars)
     refs = _context_refs(raw.get("context_refs"), profile=profile)
+    target_entity_id = _optional_text(
+        raw.get("target_entity_id"),
+        "target_entity_id",
+        max_chars=MAX_TARGET_ENTITY_ID_CHARS,
+    )
     isolation = _isolation(raw.get("isolation"))
     output_contract = _output_contract(raw.get("output_contract"))
 
@@ -69,6 +76,7 @@ def validate_delegate_subtask_inputs(
         profile=profile.profile_id,
         task=task,
         context_refs=tuple(refs),
+        target_entity_id=target_entity_id,
         isolation=isolation,
         output_contract=output_contract,
     )
@@ -101,6 +109,25 @@ def _required_text(value: Any, field_name: str, *, max_chars: int) -> str:
             f"{field_name}_required",
             f"delegate_subtask.{field_name} is required and must be non-empty",
         )
+    if len(text) > int(max_chars):
+        raise SubtaskValidationError(
+            f"{field_name}_too_long",
+            f"delegate_subtask.{field_name} exceeds max length {int(max_chars)}",
+        )
+    return text
+
+
+def _optional_text(value: Any, field_name: str, *, max_chars: int) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise SubtaskValidationError(
+            f"{field_name}_invalid",
+            f"delegate_subtask.{field_name} must be a string when present",
+        )
+    text = value.strip()
+    if not text:
+        return None
     if len(text) > int(max_chars):
         raise SubtaskValidationError(
             f"{field_name}_too_long",

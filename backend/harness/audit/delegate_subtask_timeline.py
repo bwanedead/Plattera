@@ -21,6 +21,7 @@ from harness.runtime.orchestration.subtasks.delegate_integration_status import (
 _MAX_JSON_TEXT = 1_200
 _DELEGATE_PROMPT_MAX_CHARS = 400
 _DELEGATE_RESULT_FIELD_MAX_CHARS = 320
+_VISIBLE_TEXT_TRANSCRIPT_MAX_CHARS = 4_000
 
 
 def render_delegate_subtask_request(
@@ -85,6 +86,12 @@ def render_delegate_subtask_section(
         if exec_state:
             lines.append(f"- status: {exec_state}")
 
+    target_entity_id = str(
+        (projected or {}).get("target_entity_id") or inputs.get("target_entity_id") or ""
+    ).strip()
+    if target_entity_id:
+        lines.append(f"- target_entity_id: `{target_entity_id}`")
+
     if include_request:
         refs = inputs.get("context_refs")
         if isinstance(refs, list) and refs:
@@ -119,7 +126,14 @@ def render_delegate_subtask_section(
             lines.append(f"- ref: `{delegate_ref}`")
         if integration_status:
             lines.append(f"- integration: {integration_status}")
-        lines.extend(_render_projected_result(projected, link_context=link_context))
+        audit_result = _coerce_mapping(item.get("delegate_result_audit")) if item is not None else {}
+        lines.extend(
+            _render_projected_result(
+                projected,
+                audit_result=audit_result,
+                link_context=link_context,
+            )
+        )
 
     if item is not None and include_result and not projected:
         reason = item.get("reason_code")
@@ -221,6 +235,7 @@ def _render_context_ref(ref_id: str, link_context: ArtifactLinkContext | None) -
 def _render_projected_result(
     projected: Mapping[str, Any],
     *,
+    audit_result: Mapping[str, Any] | None = None,
     link_context: ArtifactLinkContext | None,
 ) -> list[str]:
     lines: list[str] = ["- result:"]
@@ -244,6 +259,8 @@ def _render_projected_result(
                 lines.append(f"    - {_render_context_ref(ref_text, link_context)}")
 
     result = projected.get("result") if isinstance(projected.get("result"), Mapping) else {}
+    if isinstance(audit_result, Mapping) and audit_result:
+        result = {**result, **audit_result}
     lines.extend(_render_result_fields(result, indent="  "))
     errors = projected.get("errors")
     if isinstance(errors, list) and errors:
@@ -281,6 +298,18 @@ def _render_result_fields(result: Mapping[str, Any], *, indent: str) -> list[str
     for key, value in result.items():
         if value is None:
             continue
+        if str(key) == "source_visible_text":
+            text = str(value or "").strip()
+            if text:
+                lines.append(f"{indent}- visible_text_transcript:")
+                lines.extend(
+                    _indented_text_block(
+                        text,
+                        max_chars=_VISIBLE_TEXT_TRANSCRIPT_MAX_CHARS,
+                        indent=f"{indent}  ",
+                    )
+                )
+            continue
         if isinstance(value, list):
             if not value:
                 continue
@@ -313,6 +342,17 @@ def _bound_scalar(value: Any, *, max_chars: int = _DELEGATE_RESULT_FIELD_MAX_CHA
     if len(text) <= max_chars:
         return text
     return text[:max_chars]
+
+
+def _indented_text_block(text: str, *, max_chars: int, indent: str) -> list[str]:
+    bounded = str(text or "").strip()
+    truncated = len(bounded) > int(max_chars)
+    if truncated:
+        bounded = bounded[: int(max_chars)]
+    lines = [f"{indent}{line}" if line else indent.rstrip() for line in bounded.splitlines()]
+    if truncated:
+        lines.append(f"{indent}[truncated to {int(max_chars)} chars]")
+    return lines
 
 
 def _bounded_mapping_text(value: Mapping[str, Any]) -> str:

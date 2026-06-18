@@ -43,12 +43,15 @@ from harness.runtime.orchestration.tool_batch_policy import (
 )
 
 
-def _delegate_inputs(*, alias: str = "local_subtask") -> dict:
-    return {
+def _delegate_inputs(*, alias: str = "local_subtask", target_entity_id: str | None = None) -> dict:
+    inputs = {
         "profile": "harness.observation",
         "task": f"Inspect supplied input for {alias}.",
         "context_refs": [f"artifact:{alias}"],
     }
+    if target_entity_id:
+        inputs["target_entity_id"] = target_entity_id
+    return inputs
 
 
 def _batch_payload(*, actions: list[dict]) -> str:
@@ -205,7 +208,11 @@ def test_two_delegate_subtask_actions_both_succeed() -> None:
 
     sm = _DelegateHandlerSessionManager(model_caller=model_caller)
     actions = (
-        ActionPlanAction("read_a", DELEGATE_SUBTASK_ACTION_TYPE, _delegate_inputs(alias="read_a")),
+        ActionPlanAction(
+            "read_a",
+            DELEGATE_SUBTASK_ACTION_TYPE,
+            _delegate_inputs(alias="read_a", target_entity_id="atom_a"),
+        ),
         ActionPlanAction("read_b", DELEGATE_SUBTASK_ACTION_TYPE, _delegate_inputs(alias="read_b")),
     )
     sequence_result, _ = _execute_sequence_items(
@@ -227,6 +234,8 @@ def test_two_delegate_subtask_actions_both_succeed() -> None:
     assert by_alias["read_a"]["execution_state"] == "executed"
     assert by_alias["read_b"]["execution_state"] == "executed"
     assert by_alias["read_a"]["outputs_excerpt"]["status"] == "completed"
+    assert by_alias["read_a"]["outputs_excerpt"]["target_entity_id"] == "atom_a"
+    assert by_alias["read_a"]["delegate_subtask"]["target_entity_id"] == "atom_a"
     assert by_alias["read_b"]["outputs_excerpt"]["status"] == "completed"
     assert by_alias["read_a"]["delegate_result_ref"] == "subtask:turn2:read_a"
     assert by_alias["read_b"]["delegate_result_ref"] == "subtask:turn2:read_b"
@@ -311,9 +320,13 @@ def test_batch_projection_contains_both_rows_without_raw_b64() -> None:
             "subtask_id": "read_a",
             "profile": "harness.observation",
             "status": "completed",
+            "target_entity_id": "atom_a",
             "input_refs": ["artifact:read_a"],
             "result": {"reading": "A", "ambiguity": "", "observations": [], "limits": []},
             "image_b64": "SHOULD_NOT_RENDER",
+        },
+        "delegate_result_audit": {
+            "source_visible_text": "audit-only visible text should stay out of prompt projection"
         },
     }
     row_failed = {
@@ -332,6 +345,9 @@ def test_batch_projection_contains_both_rows_without_raw_b64() -> None:
     }
     projected = [project_batch_item_row(row) for row in (row_ok, row_failed)]
     assert projected[0]["delegate_subtask"]["status"] == "completed"
+    assert projected[0]["delegate_subtask"]["target_entity_id"] == "atom_a"
+    assert "delegate_result_audit" not in projected[0]
+    assert "audit-only visible text" not in json.dumps(projected[0]).lower()
     assert projected[1]["delegate_subtask"]["status"] == "failed"
     assert projected[1]["delegate_subtask"]["errors"][0]["reason_code"] == "subtask_output_malformed"
     joined = json.dumps(projected).lower()

@@ -30,17 +30,21 @@ def _completed_record(
     context_refs: list[str] | None = None,
     result: dict | None = None,
     trace: dict | None = None,
+    target_entity_id: str | None = None,
 ) -> dict:
+    action_inputs = {
+        "profile": profile,
+        "task": "Read bearing text from crop.",
+        "context_refs": context_refs or ["image:derived:crop-p1"],
+    }
+    if target_entity_id:
+        action_inputs["target_entity_id"] = target_entity_id
     record = build_delegate_result_record(
         ref_id=ref_id or f"subtask:turn{turn}:{alias}",
         turn_index=turn,
         alias=alias,
         action_index=1,
-        action_inputs={
-            "profile": profile,
-            "task": "Read bearing text from crop.",
-            "context_refs": context_refs or ["image:derived:crop-p1"],
-        },
+        action_inputs=action_inputs,
         outputs={
             "action_type": DELEGATE_SUBTASK_ACTION_TYPE,
             "subtask_id": alias,
@@ -70,7 +74,7 @@ def _completed_record(
 
 
 def test_unintegrated_completed_delegate_appears_in_worklist() -> None:
-    record = _completed_record()
+    record = _completed_record(target_entity_id="p1_call3_bearing")
     worklist = build_delegate_observation_worklist(
         delegate_result_records=[record],
         resolution_state={"items": []},
@@ -78,6 +82,7 @@ def test_unintegrated_completed_delegate_appears_in_worklist() -> None:
     assert worklist["counts"]["unintegrated_completed"] == 1
     row = worklist["rows"][0]
     assert row["ref_id"] == "subtask:turn14:read_p1_call3"
+    assert row["target_entity_id"] == "p1_call3_bearing"
     assert row["source_visible_text_preview"] == "said parcel of land"
     assert row["subtask_trace"]["total_seconds"] == 132.2
 

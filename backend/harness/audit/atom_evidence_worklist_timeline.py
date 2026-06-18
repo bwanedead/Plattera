@@ -14,6 +14,7 @@ from harness.audit.artifact_ref_links import (
 _UTIL_OPEN_PACKET_READY = "open_packet_ready_unused"
 _UTIL_OPEN_PACKET_USED = "open_packet_used_not_determined"
 _UTIL_OPEN_EVIDENCE_REF = "open_evidence_referenced_not_determined"
+_MATCH_TARGET_ATOM_ID = "target_atom_id_match"
 
 
 def render_atom_evidence_worklist_timeline(

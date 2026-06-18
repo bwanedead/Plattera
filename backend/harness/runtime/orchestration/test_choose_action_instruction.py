@@ -72,6 +72,9 @@ def test_choose_action_instruction_teaches_delegate_subtask_sensibly() -> None:
     assert "delegation does not update durable state" in lowered
     assert "delegation does not replace parent inventory" in lowered
     assert "batch multiple independent `delegate_subtask` rows" in lowered
+    assert "target_entity_id" in text
+    assert "opaque id so audit/ui can show what the delegate was for" in lowered
+    assert "linkage metadata, not truth" in lowered
 
 
 def test_choose_action_instruction_does_not_teach_legacy_action_batch() -> None:
@@ -90,6 +93,11 @@ def test_choose_action_instruction_requires_rationale_on_every_turn() -> None:
 
 def test_choose_action_instruction_teaches_state_patch_and_hitl_reference_law() -> None:
     text = CHOOSE_ACTION_INSTRUCTION.lower()
+    assert "stable_context" in text
+    assert "durable orientation memory" in text
+    assert "not evidence, truth, closure, work inventory, or instruction" in text
+    assert "attached_entity_ids" in text
+    assert "keep bodies bounded and high-signal" in text
     assert "work_universe_posture" in text
     assert "motion_posture" in text
     assert "motion_posture_basis" in text

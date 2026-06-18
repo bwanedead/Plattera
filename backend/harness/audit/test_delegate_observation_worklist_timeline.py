@@ -21,6 +21,7 @@ def _worklist_block() -> dict:
                 "alias": "read_p1_call3",
                 "turn_index": 14,
                 "status": "completed",
+                "target_entity_id": "p1_call3_bearing",
                 "context_refs": ["image:derived:crop-p1"],
                 "task_response_preview": "thence S. 4° 00' E.",
                 "source_visible_text_preview": "said parcel of land",
@@ -48,9 +49,10 @@ def test_timeline_renders_delegate_observation_worklist_rows_and_timing() -> Non
     assert "Delegate observation worklist:" in body
     assert "unintegrated_completed: 1" in body
     assert "subtask:turn14:read_p1_call3" in body
+    assert "target_entity_id: `p1_call3_bearing`" in body
     assert "context_refs:" in body
     assert "task_response:" in body
-    assert "source_visible_text:" in body
+    assert "visible_text_preview:" in body
     assert "timing:" in body
     assert "wall=132.2s" in body
     assert "model=132.0s" in body
