@@ -35,6 +35,12 @@ def test_domain_pack_builds() -> None:
     assert payload["tool_ids"] == []
     assert payload["tool_specs"] == []
     assert payload["closure_policy"]["hard_enforced"] is False
+    assert payload["closure_policy"]["required_dimension_ids"] == [
+        "layer_1_deed_meaning_to_ir_fidelity",
+        "layer_2_ir_geometry_integrity",
+        "layer_3_external_dependency_representability_completeness",
+        "layer_4_map_handoffability_scoped_completion",
+    ]
     assert len(pack.build_semantic_prompt_blocks()) == 3
 
 
@@ -46,6 +52,14 @@ def test_branch_and_guidance_skeleton_markers() -> None:
     assert "source_transcript_verbatim" in branch
     assert "parcel_metadata" in branch
     assert "feature-graph ir" in branch
+    assert "working substrate, not a prison" in branch
+    assert "upstream process context" in branch
+    assert "four layers of deed-to-ir closure" in branch
+    assert "deed meaning to ir fidelity" in branch
+    assert "ir and geometry integrity" in branch
+    assert "external dependency and representability completeness" in branch
+    assert "map handoffability and scoped completion" in branch
+    assert "compile, judge, and render are feedback tools" in branch
     assert "agent_kernel" not in branch
     assert "draft_ir" not in branch
     assert "hydrate_deed" not in branch
@@ -85,6 +99,8 @@ def test_closure_and_handoff_semantics_stable() -> None:
     h = deed_to_ir_handoff_semantics()
     assert c.summary.strip()
     assert h.summary.strip()
+    assert "mapped, which are incomplete or dependency-pending" in " ".join(c.sufficient_when)
+    assert "compile, judge, or render as closure by itself" in " ".join(c.anti_patterns)
     assert "agent_kernel" not in (c.summary + h.summary).lower()
 
 
