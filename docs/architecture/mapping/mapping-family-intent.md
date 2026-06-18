@@ -45,9 +45,9 @@ and produce:
 - a model-authored persistent work state describing what is open, blocked,
   verified, or ready for handoff
 
-`mapping / deed_to_ir` is a later domain family member. It should consume a
-mapping-ready transcript + source-grounded notes and produce deed-geometry IR
-artifacts. It is intentionally not the first live-testing target.
+`mapping / deed_to_ir` consumes transcript-edit output and produces feature-graph
+IR artifacts that can be compiled, judged, rendered, repaired, and handed
+downstream as the programmatic mapping representation of the deed.
 
 ---
 
@@ -100,6 +100,10 @@ artifacts mechanically.
   [`docs/architecture/harness/harness-constitution.md`](../harness/harness-constitution.md)
 - Domain pack constitution:
   [`docs/architecture/harness/domain-pack-constitution.md`](../harness/domain-pack-constitution.md)
+- Deed-to-IR agent purpose:
+  [`docs/architecture/mapping/deed-to-ir-agent-purpose.md`](deed-to-ir-agent-purpose.md)
+- Mapping family pipeline vision:
+  [`docs/architecture/mapping/mapping-family-pipeline-vision.md`](mapping-family-pipeline-vision.md)
 - Agent ergonomics ethos:
   [`docs/ethos/agent-engine-ergonomics-theory.md`](../../ethos/agent-engine-ergonomics-theory.md)
 - Transcript-edit domain doc:
