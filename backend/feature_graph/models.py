@@ -16,11 +16,10 @@ Design principles:
 from __future__ import annotations
 
 from pydantic import BaseModel, Field, model_validator
-from typing import Optional, List, Dict, Any, Union, TYPE_CHECKING
+from typing import Optional, List, Dict, Any, Union
 from enum import Enum
 
-if TYPE_CHECKING:
-    from .provenance import ProvenanceAttachment
+from .provenance import ProvenanceAttachment
 
 
 class FeatureKind(str, Enum):
@@ -122,7 +121,10 @@ class FeatureNode(BaseModel):
     metadata: Dict[str, Any] = Field(default_factory=dict, description="Additional metadata, params, or annotations")
 
     # Provenance (optional, added via provenance module)
-    provenance: Optional[Any] = Field(None, description="ProvenanceAttachment with citations and evidence links")
+    provenance: Optional[ProvenanceAttachment] = Field(
+        None,
+        description="ProvenanceAttachment with citations, source entity links, and evidence",
+    )
 
     class Config:
         frozen = False
@@ -159,7 +161,10 @@ class FeatureEdge(BaseModel):
     metadata: Dict[str, Any] = Field(default_factory=dict, description="Edge-specific metadata or parameters")
 
     # Provenance (optional, added via provenance module)
-    provenance: Optional[Any] = Field(None, description="ProvenanceAttachment with citations and evidence links")
+    provenance: Optional[ProvenanceAttachment] = Field(
+        None,
+        description="ProvenanceAttachment with citations, source entity links, and evidence",
+    )
 
     class Config:
         frozen = False

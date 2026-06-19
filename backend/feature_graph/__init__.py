@@ -21,6 +21,7 @@ from .provenance import (
     TextSpan,
     EvidenceRef,
     Citation,
+    SourceEntityLink,
     ProvenanceAttachment,
 )
 
@@ -67,6 +68,7 @@ __all__ = [
     "TextSpan",
     "EvidenceRef",
     "Citation",
+    "SourceEntityLink",
     "ProvenanceAttachment",
     "ArtifactMetadata",
     "IRArtifact",

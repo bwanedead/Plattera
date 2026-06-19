@@ -14,7 +14,7 @@ Design principles:
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from typing import Optional, List
 
 
@@ -71,6 +71,36 @@ class Citation(BaseModel):
         frozen = False
 
 
+class SourceEntityLink(BaseModel):
+    """
+    Exact provenance link from an IR node or edge to an upstream resolution unit.
+
+    Agent-authored only — deterministic code must not infer these associations.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=False)
+
+    entity_id: str = Field(..., min_length=1, max_length=128, description="Exact upstream entity ID")
+    entity_type: str = Field(..., min_length=1, max_length=64, description="Upstream entity type")
+    source_ref: str = Field(..., min_length=1, max_length=256, description="Stable upstream ref")
+    relation: str = Field(
+        default="derived_from",
+        min_length=1,
+        max_length=64,
+        description="Relationship label (e.g. derived_from)",
+    )
+
+    @field_validator("entity_id", "entity_type", "source_ref", "relation", mode="before")
+    @classmethod
+    def strip_and_require_non_empty(cls, value: object) -> str:
+        if not isinstance(value, str):
+            raise ValueError("source_entity_link_field_must_be_non_empty_string")
+        text = value.strip()
+        if not text:
+            raise ValueError("source_entity_link_field_must_be_non_empty_string")
+        return text
+
+
 class ProvenanceAttachment(BaseModel):
     """
     Provenance attachment for FeatureNode or FeatureEdge.
@@ -78,10 +108,13 @@ class ProvenanceAttachment(BaseModel):
     This model is meant to be embedded in nodes/edges via a 'provenance' field.
     It groups all citation and evidence information for a single graph element.
     """
+    model_config = ConfigDict(extra="forbid", frozen=False)
+
     citations: List[Citation] = Field(default_factory=list, description="All citations for this element")
+    source_entity_links: List[SourceEntityLink] = Field(
+        default_factory=list,
+        description="Exact upstream resolution-unit links authored by the agent",
+    )
     created_by: Optional[str] = Field(None, description="Agent/tool that created this element (LLM, parser, etc)")
     created_at: Optional[str] = Field(None, description="ISO timestamp of creation")
     lineage: List[str] = Field(default_factory=list, description="Parent artifact IDs (for derived features)")
-
-    class Config:
-        frozen = False

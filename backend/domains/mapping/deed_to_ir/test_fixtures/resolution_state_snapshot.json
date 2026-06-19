@@ -1,0 +1,53 @@
+{
+  "schema_version": "resolution_state.v1",
+  "updated_at_epoch_seconds": 1718844000.0,
+  "active_item_id": "p1_call1_distance",
+  "items": [
+    {
+      "item_id": "p1_call1_distance",
+      "title": "Parcel 1 call 1 distance",
+      "kind": "measurement",
+      "status": "determined",
+      "determination": "verified",
+      "determined_value": "100 feet",
+      "verification_basis": "image:derived:tx:crop_a",
+      "evidence_refs": ["image:derived:tx:crop_a"],
+      "evidence_locators": [
+        {
+          "locator_kind": "text_span",
+          "ref_id": "image:assoc:draft_legal_text_image:original",
+          "char_start": 120,
+          "char_end": 128
+        }
+      ],
+      "covered_units": []
+    },
+    {
+      "item_id": "p1_calls_group",
+      "title": "Parcel 1 traverse calls",
+      "kind": "group",
+      "status": "partial",
+      "covered_units": [
+        {
+          "unit_id": "p1_call1_bearing",
+          "title": "Call 1 bearing",
+          "kind": "bearing",
+          "status": "determined",
+          "determined_value": "N 45° 00' E",
+          "verification_basis": "verified against crop_a",
+          "evidence_locators": [],
+          "opaque_payload": {"alias": "call_1_bearing"}
+        }
+      ]
+    }
+  ],
+  "relations": [
+    {
+      "relation_id": "rel_p1_seq",
+      "from_item_id": "p1_call1_distance",
+      "to_item_id": "p1_calls_group",
+      "relation_type": "part_of"
+    }
+  ],
+  "opaque_payload": {}
+}

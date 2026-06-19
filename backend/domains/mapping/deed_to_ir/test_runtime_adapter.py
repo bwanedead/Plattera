@@ -1,8 +1,10 @@
-"""Runtime adapter tests for deed_to_ir domain skeleton."""
+"""Runtime adapter tests for deed_to_ir foundation tools."""
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -10,48 +12,48 @@ from domains.mapping.deed_to_ir.runtime_adapter import build_deed_to_ir_runtime_
 from harness.runtime.composition import TurnSurface
 
 _FIXTURE = Path(__file__).resolve().parent / "test_fixtures" / "transcript_edit_output_handoff.json"
+_RESOLUTION = Path(__file__).resolve().parent / "test_fixtures" / "resolution_state_snapshot.json"
+
+_EXPECTED_TOOL_IDS = (
+    "hydrate_deed_to_ir_input",
+    "describe_feature_graph_capabilities",
+    "save_ir_artifact",
+    "hydrate_feature_graph_artifact_refs",
+    "list_feature_graph_artifacts",
+)
 
 
-def test_runtime_adapter_builds_turn_surface_from_handoff() -> None:
+def _launch_context(**overrides: object) -> dict:
+    base = {
+        "dossier_id": "dossier-fixture",
+        "transcript_edit_output_path": str(_FIXTURE),
+        "run_id": "practice-row-live-20260619-76",
+        "resolution_state_ref": "transcript_edit:resolution_state:fixture-001",
+        "resolution_state_snapshot": json.loads(_RESOLUTION.read_text(encoding="utf-8")),
+    }
+    base.update(overrides)
+    return base
+
+
+def test_runtime_adapter_builds_turn_surface_with_five_tools() -> None:
     adapter = build_deed_to_ir_runtime_adapter()
-    surface = adapter.build_turn_surface(
-        {
-            "dossier_id": "dossier-fixture",
-            "transcript_edit_output_path": str(_FIXTURE),
-            "run_id": "practice-row-live-20260619-76",
-        }
-    )
+    surface = adapter.build_turn_surface(_launch_context())
 
     assert isinstance(surface, TurnSurface)
     assert surface.surface_id == "deed_to_ir"
-    assert len(surface.blocks) == 4
-    assert surface.blocks[0].metadata["deed_to_ir.prompt_block"]["block_id"] == "mapping_family_branch"
-    assert surface.blocks[1].metadata["deed_to_ir.prompt_block"]["block_id"] == "deed_to_ir_domain_branch"
-    assert surface.blocks[3].metadata["deed_to_ir.prompt_block"]["block_id"] == "deed_to_ir_startup_context"
-
-    startup_text = surface.blocks[3].content.lower()
-    assert "startup handoff" in startup_text
-    assert "parcel metadata" in startup_text
-    assert "normalized / mapping lane excerpt" in startup_text
-    assert "source verbatim lane excerpt" in startup_text
-    assert "parcel_1" in startup_text
-    assert "parcel_2" in startup_text
+    assert [b.tool_id for b in surface.tool_bindings] == list(_EXPECTED_TOOL_IDS)
 
     payload = surface.payload["deed_to_ir"]
-    assert payload["tool_ids"] == []
-    assert surface.tool_bindings == ()
+    assert payload["tool_ids"] == list(_EXPECTED_TOOL_IDS)
+    assert len(payload["tool_specs"]) == 5
 
     handoff = surface.payload["deed_to_ir_startup_handoff"]
-    assert handoff["source"]["source_revision_ref"] == "transcript_edit:working:rev:0001"
-    assert handoff["source"]["loaded_source_label"] == "transcript_edit_output"
+    assert handoff["resolution_state_ref"] == "transcript_edit:resolution_state:fixture-001"
+    assert handoff["resolution_state_counts"]["items"] == 2
+    assert "resolution_state_snapshot" not in handoff
+    assert handoff["resolution_state_summary"]
     assert "transcript_edit_output_path" not in handoff["source"]
     assert str(_FIXTURE) not in surface.blocks[3].content
-    assert "output_path" not in startup_text
-    assert "loaded_from" in startup_text
-    assert handoff["counts"]["parcels"] == 2
-    assert "normalized_or_mapping_transcript" in handoff
-    assert "source_transcript_verbatim" in handoff
-    assert handoff["parcel_metadata"]["parcels"][1]["forwardable"] is False
 
 
 def test_runtime_adapter_requires_transcript_edit_output_path() -> None:
@@ -60,13 +62,50 @@ def test_runtime_adapter_requires_transcript_edit_output_path() -> None:
         adapter.build_turn_surface({"dossier_id": "d1"})
 
 
-def test_empty_tool_surface_is_intentional() -> None:
+def test_describe_capabilities_handler() -> None:
     adapter = build_deed_to_ir_runtime_adapter()
-    surface = adapter.build_turn_surface(
-        {
-            "dossier_id": "d1",
-            "transcript_edit_output_path": str(_FIXTURE),
-        }
+    surface = adapter.build_turn_surface(_launch_context())
+    handler = next(b.handler for b in surface.tool_bindings if b.tool_id == "describe_feature_graph_capabilities")
+    result = handler({})
+    assert result["executed"] is True
+    assert "registered_operations" in result["outputs"]
+
+
+def test_hydrate_input_handler_via_bindings() -> None:
+    adapter = build_deed_to_ir_runtime_adapter()
+    surface = adapter.build_turn_surface(_launch_context())
+    handler = next(b.handler for b in surface.tool_bindings if b.tool_id == "hydrate_deed_to_ir_input")
+    result = handler({"sections": ["issues", "resolution_state"]})
+    assert result["executed"] is True
+    assert "issues" in result["outputs"]["results"]
+    assert result["outputs"]["results"]["resolution_state"]["items"]
+
+
+def test_save_ir_handler_sanitizes_exception_paths() -> None:
+    adapter = build_deed_to_ir_runtime_adapter()
+    surface = adapter.build_turn_surface(_launch_context())
+    handler = next(b.handler for b in surface.tool_bindings if b.tool_id == "save_ir_artifact")
+    secret_path = r"C:\secret\dossiers_data\artifacts\feature_graphs\d1\ir.json"
+    with patch(
+        "domains.mapping.deed_to_ir.runtime_adapter.composition.save_ir_artifact",
+        side_effect=OSError(f"Failed to write {secret_path}"),
+    ):
+        result = handler({"feature_graph": {"graph_id": "g", "nodes": [], "edges": []}})
+    assert result["executed"] is False
+    dumped = json.dumps(result)
+    assert secret_path not in dumped
+    assert "C:\\\\secret" not in dumped
+    assert result["outputs"]["error"]["code"] == "deed_to_ir_tool_error"
+    assert result["refusal"]["reason_code"] == "deed_to_ir_tool_error"
+
+
+def test_error_code_accepts_machine_safe_value_error_codes() -> None:
+    from domains.mapping.deed_to_ir.runtime_adapter.composition import _error_code_for_exception
+
+    assert _error_code_for_exception(ValueError("dossier_id_required")) == "dossier_id_required"
+    assert (
+        _error_code_for_exception(ValueError("resolution_state_ref_invalid_prefix"))
+        == "resolution_state_ref_invalid_prefix"
     )
-    assert surface.tool_bindings == ()
-    assert surface.payload["deed_to_ir"]["tool_ids"] == []
+    assert _error_code_for_exception(ValueError("/tmp/secret/file.json missing")) == "deed_to_ir_tool_error"
+    assert _error_code_for_exception(ValueError(r"C:\secret\file.json")) == "deed_to_ir_tool_error"

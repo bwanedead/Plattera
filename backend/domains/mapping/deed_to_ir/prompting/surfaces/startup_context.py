@@ -7,7 +7,7 @@ from domains.prompting import PromptBlock
 from ..branch import DEED_TO_IR_DOMAIN_ID
 from ...payloads import DeedToIrStartupHandoff
 
-DEED_TO_IR_STARTUP_CONTEXT_VERSION = "v2"
+DEED_TO_IR_STARTUP_CONTEXT_VERSION = "v3"
 _STARTUP_CONTEXT_SOURCE_PATH = (
     "backend/domains/mapping/deed_to_ir/prompting/surfaces/startup_context.py"
 )
@@ -91,6 +91,8 @@ def _format_startup_context(handoff: DeedToIrStartupHandoff) -> str:
             lines.append(f"- `{ref}`")
         lines.append("")
 
+    lines.extend(_format_resolution_state_section(handoff))
+
     for label, key in (
         ("Normalized / mapping lane excerpt", "normalized_or_mapping_transcript"),
         ("Source verbatim lane excerpt", "source_transcript_verbatim"),
@@ -107,3 +109,26 @@ def _format_startup_context(handoff: DeedToIrStartupHandoff) -> str:
         "Preserve parcel forwardability metadata; partial/blocked scopes stay explicit."
     )
     return "\n".join(lines)
+
+
+def _format_resolution_state_section(handoff: DeedToIrStartupHandoff) -> list[str]:
+    lines: list[str] = ["### Resolution state (upstream work graph)"]
+    if not handoff.resolution_state_snapshot:
+        lines.append("- unavailable")
+        lines.append("")
+        return lines
+    if handoff.resolution_state_ref:
+        lines.append(f"- resolution_state_ref: `{handoff.resolution_state_ref}`")
+    if handoff.resolution_state_counts:
+        parts = [f"{k}={v}" for k, v in sorted(handoff.resolution_state_counts.items())]
+        lines.append(f"- counts: {', '.join(parts)}")
+    lines.append("- full graph available via `hydrate_deed_to_ir_input` section `resolution_state`")
+    if handoff.resolution_state_summary:
+        lines.append("- bounded summary:")
+        for row in handoff.resolution_state_summary:
+            item_id = row.get("item_id", "?")
+            status = row.get("status", "?")
+            title = row.get("title", "")
+            lines.append(f"  - `{item_id}` status={status!r} title={title!r}")
+    lines.append("")
+    return lines

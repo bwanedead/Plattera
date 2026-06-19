@@ -8,7 +8,7 @@ Validates JSON round-trip serialization and attachment to nodes/edges.
 
 import pytest
 import json
-from .provenance import TextSpan, EvidenceRef, Citation, ProvenanceAttachment
+from .provenance import TextSpan, EvidenceRef, Citation, SourceEntityLink, ProvenanceAttachment
 from .models import FeatureNode, FeatureEdge, FeatureKind
 
 
@@ -219,6 +219,77 @@ class TestProvenanceAttachment:
         assert len(roundtrip.lineage) == 1
 
 
+    def test_provenance_attachment_with_source_entity_links(self):
+        """Test ProvenanceAttachment with agent-authored source entity links."""
+        link = SourceEntityLink(
+            entity_id="p1_call1_distance",
+            entity_type="resolution_unit",
+            source_ref="transcript_edit:resolution_state:abc123",
+            relation="derived_from",
+        )
+        prov = ProvenanceAttachment(
+            citations=[],
+            source_entity_links=[link],
+            created_by="deed_to_ir_agent",
+        )
+        assert len(prov.source_entity_links) == 1
+        assert prov.source_entity_links[0].entity_id == "p1_call1_distance"
+
+        json_str = prov.model_dump_json()
+        roundtrip = ProvenanceAttachment.model_validate_json(json_str)
+        assert len(roundtrip.source_entity_links) == 1
+        assert roundtrip.source_entity_links[0].source_ref == "transcript_edit:resolution_state:abc123"
+
+    def test_node_with_source_entity_links_json_roundtrip(self):
+        """Test FeatureNode provenance with source entity links round-trips."""
+        link = SourceEntityLink(
+            entity_id="unit_bearing_n45",
+            entity_type="resolution_unit",
+            source_ref="transcript_edit:resolution_state:rev-001",
+        )
+        prov = ProvenanceAttachment(source_entity_links=[link])
+        node = FeatureNode(
+            id="traverse_1",
+            kind=FeatureKind.CURVE,
+            provenance=prov,
+        )
+        json_str = node.model_dump_json()
+        roundtrip = FeatureNode.model_validate_json(json_str)
+        assert len(roundtrip.provenance.source_entity_links) == 1
+        assert roundtrip.provenance.source_entity_links[0].entity_id == "unit_bearing_n45"
+
+
+    def test_source_entity_link_rejects_blank_fields(self):
+        with pytest.raises(Exception):
+            SourceEntityLink(
+                entity_id=" ",
+                entity_type="resolution_unit",
+                source_ref="transcript_edit:resolution_state:abc",
+            )
+
+    def test_source_entity_link_rejects_extra_fields(self):
+        with pytest.raises(Exception):
+            SourceEntityLink(
+                entity_id="p1_call1",
+                entity_type="resolution_unit",
+                source_ref="transcript_edit:resolution_state:abc",
+                typo_field="silent_drop",
+            )
+
+    def test_provenance_attachment_rejects_misspelled_link_key(self):
+        with pytest.raises(Exception):
+            ProvenanceAttachment(
+                source_entity_links=[
+                    {
+                        "entity_id": "p1_call1",
+                        "entity_type": "resolution_unit",
+                        "source_ref": "transcript_edit:resolution_state:abc",
+                        "source_entity_link_typo": True,
+                    }
+                ]
+            )
+
+
 class TestProvenanceAttachedToNodes:
     """Tests for provenance attached to FeatureNode."""
 
@@ -285,8 +356,8 @@ class TestProvenanceAttachedToNodes:
 
         assert roundtrip.id == "traverse_1"
         assert roundtrip.provenance is not None
-        assert roundtrip.provenance["created_by"] == "llm_extractor"
-        assert len(roundtrip.provenance["citations"]) == 1
+        assert roundtrip.provenance.created_by == "llm_extractor"
+        assert len(roundtrip.provenance.citations) == 1
 
 
 class TestProvenanceAttachedToEdges:
@@ -337,7 +408,7 @@ class TestProvenanceAttachedToEdges:
 
         assert roundtrip.source_id == "curve_1"
         assert roundtrip.provenance is not None
-        assert len(roundtrip.provenance["citations"]) == 1
+        assert len(roundtrip.provenance.citations) == 1
 
 
 class TestComplexProvenanceScenarios:
@@ -376,7 +447,7 @@ class TestComplexProvenanceScenarios:
 
         json_str = node.model_dump_json()
         roundtrip = FeatureNode.model_validate_json(json_str)
-        assert len(roundtrip.provenance["citations"]) == 2
+        assert len(roundtrip.provenance.citations) == 2
 
     def test_provenance_with_empty_citations(self):
         """Test provenance with no citations (derived feature)."""

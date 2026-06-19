@@ -5,24 +5,28 @@
 - Purpose: Semantic doctrine, startup handoff payloads, tool declarations, and projection for deed-to-IR work — no dossier filesystem access.
 
 ## Contracts & invariants
-- **Domain vs tooling:** Transcript-edit output loading lives in `backend/tooling/mapping/deed_to_ir/` only.
-- **Brief A skeleton:** No IR save/compile/judge tools yet; `execution/tool_specs.py` may declare zero tools intentionally.
+- **Domain vs tooling:** Transcript-edit output loading, input hydration, and IR persistence live in `backend/tooling/mapping/deed_to_ir/` only.
+- **Five foundation tools:** `hydrate_deed_to_ir_input`, `describe_feature_graph_capabilities`, `save_ir_artifact`, `hydrate_feature_graph_artifact_refs`, `list_feature_graph_artifacts`.
+- **No mapping submission yet:** `submit_ir_for_mapping` and compile/judge/render agent actions are deferred.
 - **Pack is the semantic surface owner:** `domain_pack.py` declares mapping-family branch, deed-to-IR branch, procedural guidance, startup context, and closure/handoff semantics.
-- **Startup handoff is injected, not inferred:** Loader copies transcript-edit output fields mechanically; it does not decide forwardability, blockers, or IR meaning.
+- **Startup handoff is injected, not inferred:** Loader copies transcript-edit output fields mechanically; resolution state arrives via explicit launch-context snapshot.
 - **`runtime_adapter/`** is the only harness-facing seam; it must not author mission state, closure, inventory, blockers, or IR.
 
 ## Allowed changes
 - Prompt/tool-spec updates that keep closure layers and mapping purpose intact.
 - New semantic payload dataclasses under `payloads/` when they stay non-orchestrating.
-- Adding real tool specs once save/compile/judge implementations exist.
+- Provenance link shapes on feature-graph nodes/edges via `ProvenanceAttachment.source_entity_links`.
 
 ## Commands
 - Test: from repo root, venv active: `pytest backend/domains/mapping/deed_to_ir/ -q`
+- Tooling tests: `pytest backend/tooling/mapping/deed_to_ir/ -q`
 
 ## Gotchas
-- Launch context for Brief A accepts explicit `transcript_edit_output_path`; ref-based resolution is follow-up.
-- `transcript_edit_output_path` is loader input only — never project raw filesystem paths to startup prompt or handoff payload; use `loaded_source_label`, `source_revision_ref`, and `published_at`.
-- Empty tool surface is valid for Brief A — tests assert intentional zero-tool binding.
+- Launch context accepts explicit `transcript_edit_output_path` and optional paired `resolution_state_ref` + `resolution_state_snapshot`.
+- `resolution_state_ref` and `resolution_state_snapshot` must both be absent or both present; ref must use `transcript_edit:resolution_state:*`.
+- `transcript_edit_output_path` is loader input only — never project raw filesystem paths to startup prompt or handoff payload.
+- Startup prompt shows resolution counts/summary; full graph is via `hydrate_deed_to_ir_input`.
+- Agent authors all `source_entity_links`; deterministic code must not infer atom-to-feature associations.
 
 ## Links
 - Tooling: `backend/tooling/mapping/deed_to_ir/`

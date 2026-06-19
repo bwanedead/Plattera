@@ -13,9 +13,8 @@ from ..manifest import DeedToIrManifest
 from ..payloads import (
     DeedToIrScope,
     DeedToIrStartupHandoff,
-    startup_handoff_from_loader_dict,
 )
-from tooling.mapping.deed_to_ir import load_transcript_edit_output_handoff
+from tooling.mapping.deed_to_ir import build_deed_to_ir_startup_handoff
 from .composition import build_deed_to_ir_turn_surface
 
 
@@ -60,8 +59,14 @@ def _build_startup_handoff(launch_context: Mapping[str, Any]) -> DeedToIrStartup
     output_path = _optional_text(launch_context, "transcript_edit_output_path")
     if not output_path:
         raise ValueError("transcript_edit_output_path_required")
-    loaded = load_transcript_edit_output_handoff(output_path=output_path)
-    return startup_handoff_from_loader_dict(scope=scope, loaded=loaded)
+    resolution_snapshot = launch_context.get("resolution_state_snapshot")
+    snapshot_dict = dict(resolution_snapshot) if isinstance(resolution_snapshot, Mapping) else None
+    return build_deed_to_ir_startup_handoff(
+        scope=scope,
+        transcript_edit_output_path=output_path,
+        resolution_state_ref=_optional_text(launch_context, "resolution_state_ref"),
+        resolution_state_snapshot=snapshot_dict,
+    )
 
 
 def _require_launch_context(raw: object) -> Mapping[str, Any]:

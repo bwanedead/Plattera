@@ -7,7 +7,6 @@ from .payloads import (
     DeedToIrScope,
     DeedToIrStartupHandoff,
     TranscriptEditSourceMetadata,
-    startup_handoff_from_loader_dict,
 )
 from .prompting import (
     PromptBlock,
@@ -37,5 +36,4 @@ __all__ = [
     "build_deed_to_ir_tool_specs",
     "deed_to_ir_closure_semantics",
     "deed_to_ir_handoff_semantics",
-    "startup_handoff_from_loader_dict",
 ]

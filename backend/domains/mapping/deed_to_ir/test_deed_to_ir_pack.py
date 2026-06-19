@@ -23,7 +23,13 @@ def test_manifest_tool_ids_match_tool_specs() -> None:
     manifest = build_deed_to_ir_manifest()
     specs = build_deed_to_ir_tool_specs()
     assert manifest.declared_semantic_tool_ids == tuple(s.tool_id for s in specs)
-    assert manifest.declared_semantic_tool_ids == ()
+    assert manifest.declared_semantic_tool_ids == (
+        "hydrate_deed_to_ir_input",
+        "describe_feature_graph_capabilities",
+        "save_ir_artifact",
+        "hydrate_feature_graph_artifact_refs",
+        "list_feature_graph_artifacts",
+    )
     assert manifest.domain_id == "deed_to_ir"
     assert manifest.family_id == "mapping"
     assert manifest.display_name == "Deed To IR"
@@ -32,8 +38,14 @@ def test_manifest_tool_ids_match_tool_specs() -> None:
 def test_domain_pack_builds() -> None:
     pack = build_deed_to_ir_domain_pack()
     payload = pack.build_surface_payload()
-    assert payload["tool_ids"] == []
-    assert payload["tool_specs"] == []
+    assert payload["tool_ids"] == [
+        "hydrate_deed_to_ir_input",
+        "describe_feature_graph_capabilities",
+        "save_ir_artifact",
+        "hydrate_feature_graph_artifact_refs",
+        "list_feature_graph_artifacts",
+    ]
+    assert len(payload["tool_specs"]) == 5
     assert payload["closure_policy"]["hard_enforced"] is False
     assert payload["closure_policy"]["required_dimension_ids"] == [
         "layer_1_deed_meaning_to_ir_fidelity",
@@ -70,7 +82,8 @@ def test_branch_and_guidance_skeleton_markers() -> None:
         if b.block_id == "deed_to_ir_procedural_guidance"
     )
     assert "forwardable vs blocked" in guidance
-    assert "save/compile/judge" in guidance
+    assert "save_ir_artifact" in guidance
+    assert "deferred" in guidance or "not bound" in guidance
 
 
 def test_mapping_registry_resolves_deed_to_ir() -> None:
