@@ -16,7 +16,7 @@ class DeedToIrClosureSemantics:
 
 
 def build_deed_to_ir_closure_policy() -> DomainClosurePolicy:
-    """Soft closure policy skeleton; hard enforcement arrives with artifact tools."""
+    """Soft semantic closure policy; the harness does not author layer conclusions."""
     return DomainClosurePolicy(
         hard_enforced=False,
         enforce_on_publish=False,
@@ -38,29 +38,29 @@ def build_deed_to_ir_closure_policy() -> DomainClosurePolicy:
             ClosureDimensionStandard(
                 dimension_id="layer_1_deed_meaning_to_ir_fidelity",
                 title="Layer 1 — Deed meaning to IR fidelity",
-                question="Has the deed meaning for the mappable scope been represented in feature-graph IR as faithfully and completely as current information allows?",
+                question="Has the mappable deed meaning been represented faithfully and traceably in IR, with its important values, relationships, structure, and provenance intact?",
                 guidance=(
-                    "Use transcript-edit handoff as the substrate, but record diagnosis and repair "
-                    "when downstream IR or map sanity exposes a real upstream issue."
+                    "Use the transcript-edit handoff as the normal substrate, but diagnose and repair "
+                    "the correct layer when geometric or map sanity exposes a real upstream issue."
                 ),
             ),
             ClosureDimensionStandard(
                 dimension_id="layer_2_ir_geometry_integrity",
                 title="Layer 2 — IR and geometry integrity",
-                question="Assuming the IR expresses the intended deed meaning, is the IR internally coherent and does its compiled/rendered geometry make sense?",
-                guidance="Use compile, judge, and map preview feedback here; those tools are evidence for the layer, not closure by themselves.",
+                question="Does the resulting geometry follow the authored IR and make sense against the deed description?",
+                guidance="Unexplained breaks, impossible geometry, internal contradiction, or visual mismatch keep this layer open until repaired or explicitly blocked.",
             ),
             ClosureDimensionStandard(
                 dimension_id="layer_3_external_dependency_representability_completeness",
                 title="Layer 3 — External dependency and representability completeness",
-                question="Is anything required for honest mapping missing from the current source set, external documents, feature vocabulary, frame data, or dependency graph?",
-                guidance="Record dependencies and representability gaps explicitly; do not guess missing geometry.",
+                question="Are missing sources, external references, frames, unsupported primitives, and other representability limits explicit?",
+                guidance="Record dependencies and representability gaps explicitly; never invent geometry to hide one.",
             ),
             ClosureDimensionStandard(
                 dimension_id="layer_4_map_handoffability_scoped_completion",
                 title="Layer 4 — Map handoffability and scoped completion",
-                question="Given Layers 1-3, what can be handed forward as a mapped IR/map package, what cannot, and at what scope?",
-                guidance="Partial success is valid when mapped scopes, incomplete scopes, produced artifacts, and remaining needs are explicit.",
+                question="Which scopes are honestly mapped and ready to hand forward, which remain incomplete or blocked, and which durable artifacts carry the result?",
+                guidance="Partial success is valid when mapped scopes, blocked scopes, produced artifacts, and remaining needs are explicit.",
             ),
         ),
     )
@@ -75,7 +75,7 @@ def deed_to_ir_closure_semantics() -> DeedToIrClosureSemantics:
         ),
         sufficient_when=(
             "Mappable deed meaning is represented in feature-graph IR as faithfully as current information allows.",
-            "IR and compiled/rendered geometry integrity have been assessed with available deterministic feedback.",
+            "Resulting geometry follows the authored IR and makes sense against the deed description, or remaining mismatches are explicitly blocked.",
             "External dependencies, unsupported primitives, and incomplete source scopes are recorded explicitly.",
             "Final handoff states which scopes are mapped, which are incomplete or dependency-pending, and which artifact refs were produced.",
         ),
@@ -88,7 +88,7 @@ def deed_to_ir_closure_semantics() -> DeedToIrClosureSemantics:
         ),
         anti_patterns=(
             "Treating transcript-edit normalized text as a prison when downstream sanity exposes a real error.",
-            "Treating compile, judge, or render as closure by itself.",
+            "Treating schema validity, successful computation, deterministic diagnostics, or a rendered image as closure by itself.",
             "Collapsing blocked parcel scope into silent whole-deed readiness.",
             "Forcing geometry or fake completeness when scoped partial handoff is the honest result.",
         ),

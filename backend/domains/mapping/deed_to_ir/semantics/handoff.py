@@ -16,22 +16,22 @@ class DeedToIrHandoffSemantics:
 def deed_to_ir_handoff_semantics() -> DeedToIrHandoffSemantics:
     return DeedToIrHandoffSemantics(
         summary=(
-            "Deed-to-IR consumes transcript-edit output lanes and parcel forwardability metadata. "
-            "The job is representable feature-graph IR, not forced geometry compilation."
+            "Deed-to-IR consumes transcript-edit output and resolution-state context to produce "
+            "source-traceable feature-graph IR and an honest scoped mapping handoff."
         ),
         ready_when=(
-            "Startup handoff exposes normalized and verbatim transcript lanes plus parcel metadata.",
-            "Forwardable vs blocked scopes are inventoried from inherited metadata.",
-            "IR authoring tools (future passes) can attach to scoped work without re-litigating transcript truth.",
+            "Startup handoff exposes transcript lanes, parcel metadata, issues, evidence refs, and resolution-state context.",
+            "Forwardable and blocked scopes remain explicit rather than being collapsed into whole-deed readiness.",
+            "IR entities can retain exact links to the upstream resolution units that justify them.",
         ),
         artifact_expectations=(
-            "Transcript-edit output ref or path with source_revision_ref when available.",
-            "parcel_metadata.parcels forwardability copied forward unchanged.",
-            "issues and hitl_decisions available for orientation, not re-adjudication by harness.",
+            "Transcript-edit source revision identity without model-facing filesystem paths.",
+            "Parcel scope metadata, issues, HITL decisions, and resolution-state identity preserved mechanically.",
+            "Durable feature-graph artifacts preserve agent-authored source-entity provenance links.",
         ),
         should_not_hand_off_yet=(
             "Treating normalized transcript as a substitute for IR artifacts.",
-            "Assuming compile/judge success before those tools exist.",
+            "Treating valid IR or a rendered result as proof of deed fidelity by itself.",
             "Rewriting transcript-edit blockers or forwardability in deterministic code.",
         ),
     )

@@ -39,7 +39,7 @@ class DeedToIrRuntimeAdapter:
         )
 
     def enrich_launch_context(self, launch_context: Mapping[str, Any]) -> Mapping[str, Any]:
-        """Brief A: no default enrichments."""
+        """No domain launch-context defaults are currently required."""
         del launch_context
         return {}
 

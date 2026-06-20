@@ -81,17 +81,46 @@ def build_deed_to_ir_tool_specs() -> tuple[SemanticToolSpec, ...]:
             tool_id="describe_feature_graph_capabilities",
             category="read",
             purpose=(
-                "Project the feature-graph request schema, feature kinds, registered operations, "
-                "parameter/operand constraints, and compiler-support status. "
-                "Does not recommend which features or operations the deed should use."
+                "Hydrate exact feature-graph authoring contracts: compact model schemas, provenance, "
+                "registered operations, parameter/operand constraints, compiler-support status, and valid examples. "
+                "Use operation_names for a focused vocabulary packet and validation_schema only when the raw "
+                "canonical Pydantic schema is needed. Does not recommend which operation the deed should use."
             ),
-            expected_request_shape="No inputs.",
+            expected_request_shape=(
+                "sections: optional non-empty subset of core_schema|provenance|operations|examples|artifact_refs|"
+                "validation_schema; defaults to all ergonomic sections except validation_schema. "
+                "operation_names: optional exact registered operation names filtering operations/examples."
+            ),
             expected_request_json_shape={
                 "type": "object",
-                "properties": {},
+                "properties": {
+                    "sections": {
+                        "type": ["array", "null"],
+                        "items": {
+                            "type": "string",
+                            "enum": [
+                                "core_schema",
+                                "provenance",
+                                "operations",
+                                "examples",
+                                "artifact_refs",
+                                "validation_schema",
+                            ],
+                        },
+                        "minItems": 1,
+                    },
+                    "operation_names": {
+                        "type": ["array", "null"],
+                        "items": {"type": "string"},
+                        "minItems": 1,
+                    },
+                },
                 "additionalProperties": False,
             },
-            example_request={},
+            example_request={
+                "sections": ["core_schema", "provenance", "operations", "examples"],
+                "operation_names": ["TiedPoint", "CourseTraverse", "Close"],
+            },
             batching={
                 "allowed": True,
                 "max_calls_per_batch": 2,
@@ -99,8 +128,9 @@ def build_deed_to_ir_tool_specs() -> tuple[SemanticToolSpec, ...]:
                 "can_run_parallel": True,
             },
             expected_result_shape=(
-                "outputs.feature_graph_request_schema, feature_kinds, registered_operations, "
-                "artifact_types, artifact_ref_prefixes."
+                "Selected contract sections. Core includes model_schemas, feature_kinds, content rules, geometry, "
+                "and edge conventions. Operations include exact params, units, operands, support status, and examples. "
+                "Provenance includes source_entity_links. Examples include one complete supported graph."
             ),
         ),
         SemanticToolSpec(
@@ -108,10 +138,16 @@ def build_deed_to_ir_tool_specs() -> tuple[SemanticToolSpec, ...]:
             category="write",
             purpose=(
                 "Validate and persist an agent-authored FeatureGraph IR artifact. "
-                "Schema validation only — no compile, judge, render, repair, or closure behavior."
+                "Schema validation only — no compile, judge, render, repair, or closure behavior. "
+                "The compact core contract is always visible here; use describe_feature_graph_capabilities for details."
             ),
             expected_request_shape=(
-                "feature_graph: required FeatureGraph object. "
+                "feature_graph: required FeatureGraph {graph_id:string, nodes?:FeatureNode[], edges?:FeatureEdge[], "
+                "metadata?:object}; nodes/edges default empty but should be supplied for authored work. "
+                "FeatureNode requires id + kind and permits AT MOST ONE of geometry|op_expr|"
+                "feature_ref; none is valid for unresolved/semantic nodes. FeatureEdge uses exact source_id, target_id, "
+                "and edge_type. OpExpr is {op_name, params?, operands?}. Optional provenance.source_entity_links rows "
+                "are {entity_id, entity_type, source_ref, relation?}. "
                 "artifact_id, source_document_id, created_by: optional strings."
             ),
             expected_request_json_shape={
@@ -120,7 +156,10 @@ def build_deed_to_ir_tool_specs() -> tuple[SemanticToolSpec, ...]:
                 "properties": {
                     "feature_graph": {
                         "type": "object",
-                        "description": "Agent-authored FeatureGraph payload.",
+                        "description": (
+                            "Agent-authored FeatureGraph with graph_id, nodes, edges, and optional metadata. "
+                            "Node content is at most one of geometry, op_expr, or feature_ref."
+                        ),
                     },
                     "artifact_id": {"type": ["string", "null"]},
                     "source_document_id": {"type": ["string", "null"]},
@@ -131,7 +170,32 @@ def build_deed_to_ir_tool_specs() -> tuple[SemanticToolSpec, ...]:
             example_request={
                 "feature_graph": {
                     "graph_id": "parcel_1_ir",
-                    "nodes": [],
+                    "nodes": [
+                        {
+                            "id": "parcel_1_call_1",
+                            "kind": "curve",
+                            "op_expr": {
+                                "op_name": "LineStep",
+                                "params": {
+                                    "bearing": 45.0,
+                                    "distance": 100.0,
+                                    "bearing_raw": "N 45 degrees E",
+                                    "distance_raw": "100 feet",
+                                },
+                                "operands": [],
+                            },
+                            "provenance": {
+                                "source_entity_links": [
+                                    {
+                                        "entity_id": "parcel_1_call_1",
+                                        "entity_type": "resolution_unit",
+                                        "source_ref": "transcript_edit:resolution_state:example",
+                                        "relation": "derived_from",
+                                    }
+                                ]
+                            },
+                        }
+                    ],
                     "edges": [],
                 }
             },

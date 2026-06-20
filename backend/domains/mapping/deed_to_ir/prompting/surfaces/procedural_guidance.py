@@ -9,7 +9,7 @@ from ..branch import DEED_TO_IR_DOMAIN_ID
 DEED_TO_IR_PROCEDURAL_GUIDANCE_SOURCE_REF = (
     "backend/domains/mapping/deed_to_ir/prompting/surfaces/procedural_guidance.py"
 )
-DEED_TO_IR_PROCEDURAL_GUIDANCE_VERSION = "v2"
+DEED_TO_IR_PROCEDURAL_GUIDANCE_VERSION = "v4"
 
 DEED_TO_IR_PROCEDURAL_GUIDANCE_TEXT = """\
 Use this guidance to orient deed-to-IR work. This is **guidance**, not a hard script.
@@ -25,10 +25,7 @@ Use this guidance to orient deed-to-IR work. This is **guidance**, not a hard sc
 - `save_ir_artifact` — persist agent-authored FeatureGraph IR with schema validation only.
 - `list_feature_graph_artifacts` / `hydrate_feature_graph_artifact_refs` — path-free artifact index and hydration.
 - Attach exact upstream links through `ProvenanceAttachment.source_entity_links` when authoring IR nodes/edges.
-
-## Deferred (not bound)
-- No `submit_ir_for_mapping`, compile, judge, render, evaluate, or map tool actions yet.
-- Do not introduce separate agent-facing compile/judge steps unless live evidence shows independent utility.
+- Do not guess schema, operation parameters, units, operand shapes, support status, or provenance contracts. The save tool carries the compact core shape; hydrate the relevant capability sections in the same orientation batch before the first non-trivial IR save when details are not already in context.
 
 ## What not to do
 - Do not parse deed text into IR in bulk prose without durable IR artifacts.

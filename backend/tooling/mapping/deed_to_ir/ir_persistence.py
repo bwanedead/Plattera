@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import re
 import uuid
-from datetime import datetime
 from typing import Any
 
+from feature_graph.artifact_refs import ARTIFACT_REF_PREFIXES, build_feature_graph_artifact_ref
 from feature_graph.artifacts import create_ir_artifact
 from feature_graph.models import FeatureGraph
 from feature_graph.provenance import ProvenanceAttachment
@@ -14,7 +14,7 @@ from pydantic import ValidationError
 
 from services.feature_graph.feature_graph_persistence_service import FeatureGraphPersistenceService
 
-IR_REF_PREFIX = "feature_graph:ir:"
+IR_REF_PREFIX = ARTIFACT_REF_PREFIXES["ir"]
 
 
 def save_ir_artifact(
@@ -48,9 +48,9 @@ def save_ir_artifact(
     service.save_artifact(artifact, dossier_id=dossier_id)
     return {
         "executed": True,
-        "artifact_refs": [f"{IR_REF_PREFIX}{resolved_artifact_id}"],
+        "artifact_refs": [build_feature_graph_artifact_ref("ir", resolved_artifact_id)],
         "outputs": {
-            "ir_artifact_ref": f"{IR_REF_PREFIX}{resolved_artifact_id}",
+            "ir_artifact_ref": build_feature_graph_artifact_ref("ir", resolved_artifact_id),
             "artifact_id": resolved_artifact_id,
             "graph_id": graph.graph_id,
             "node_count": len(graph.nodes),

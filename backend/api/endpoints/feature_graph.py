@@ -19,10 +19,8 @@ from feature_graph.artifacts import (
     BundleArtifact,
 )
 from feature_graph.models import FeatureGraph
-from feature_graph.compiler import compile_graph
-from feature_graph.judge import judge_graph
 from feature_graph.bundle import bundle_feature_graph
-from feature_graph.artifacts import create_compile_artifact, create_judge_artifact
+from services.feature_graph.feature_graph_evaluation_service import FeatureGraphEvaluationService
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +28,7 @@ router = APIRouter()
 
 # Initialize persistence service
 persistence_service = FeatureGraphPersistenceService()
+evaluation_service = FeatureGraphEvaluationService(persistence_service)
 
 
 class SaveArtifactRequest(BaseModel):
@@ -316,38 +315,28 @@ async def compile_feature_graph(request: CompileRequest):
 
         logger.info(f"🔧 Compiling feature graph for dossier {request.dossier_id}")
 
-        # Deserialize graph
         graph = FeatureGraph(**request.graph)
-
-        # Run compiler
-        compile_result = compile_graph(graph)
-        gap_dicts = [gap.model_dump(mode="json") for gap in compile_result.gaps]
-
-        # Create compile artifact
-        artifact_id = request.artifact_id or f"compile_{graph.graph_id}"
-        parent_ids = request.parent_artifact_ids or [graph.graph_id]
-
-        compile_artifact = create_compile_artifact(
-            artifact_id=artifact_id,
-            graph_id=graph.graph_id,
-            compiled_features=compile_result.compiled_features,
-            gaps=gap_dicts,
-            warnings=compile_result.warnings,
-            parent_artifact_ids=parent_ids
+        parent_ids = (
+            request.parent_artifact_ids
+            if request.parent_artifact_ids is not None
+            else []
         )
 
-        # Save artifact
-        result = persistence_service.save_artifact(
-            artifact=compile_artifact,
-            dossier_id=request.dossier_id
+        outcome = evaluation_service.compile_and_persist(
+            graph=graph,
+            dossier_id=request.dossier_id,
+            parent_artifact_ids=parent_ids,
+            artifact_id=request.artifact_id,
         )
 
-        logger.info(f"✅ Compiled graph with {len(compile_result.compiled_features)} features, {len(compile_result.gaps)} gaps")
+        logger.info(
+            f"✅ Compiled graph with {outcome.compiled_feature_count} features, {outcome.gap_count} gaps"
+        )
 
         return CompileResponse(
             success=True,
-            artifact=compile_artifact.model_dump(mode="json"),
-            artifact_id=result["artifact_id"]
+            artifact=outcome.artifact.model_dump(mode="json"),
+            artifact_id=outcome.artifact_id,
         )
 
     except HTTPException:
@@ -390,36 +379,28 @@ async def judge_feature_graph(request: JudgeRequest):
 
         logger.info(f"⚖️ Judging feature graph for dossier {request.dossier_id}")
 
-        # Deserialize graph
         graph = FeatureGraph(**request.graph)
-
-        # Run judge
-        judge_report = judge_graph(graph, include_warnings=request.include_warnings)
-
-        # Create judge artifact
-        artifact_id = request.artifact_id or f"judge_{graph.graph_id}"
-        parent_ids = request.parent_artifact_ids or [graph.graph_id]
-
-        judge_artifact = create_judge_artifact(
-            artifact_id=artifact_id,
-            graph_id=graph.graph_id,
-            report=judge_report,
-            parent_artifact_ids=parent_ids
+        parent_ids = (
+            request.parent_artifact_ids
+            if request.parent_artifact_ids is not None
+            else []
         )
 
-        # Save artifact
-        result = persistence_service.save_artifact(
-            artifact=judge_artifact,
-            dossier_id=request.dossier_id
+        outcome = evaluation_service.judge_and_persist(
+            graph=graph,
+            dossier_id=request.dossier_id,
+            parent_artifact_ids=parent_ids,
+            artifact_id=request.artifact_id,
+            include_warnings=request.include_warnings,
         )
 
-        judge_status = judge_report.to_contract_report()["status"]
-        logger.info(f"✅ Judge report: {judge_status}, {len(judge_report.gaps)} gaps")
+        judge_status = outcome.artifact.report.to_contract_report()["status"]
+        logger.info(f"✅ Judge report: {judge_status}, {outcome.gap_count} gaps")
 
         return JudgeResponse(
             success=True,
-            artifact=judge_artifact.model_dump(mode="json"),
-            artifact_id=result["artifact_id"]
+            artifact=outcome.artifact.model_dump(mode="json"),
+            artifact_id=outcome.artifact_id,
         )
 
     except HTTPException:

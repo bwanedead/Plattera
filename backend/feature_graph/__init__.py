@@ -57,6 +57,14 @@ from .bundle import (
     BundleOperation,
 )
 
+from .artifact_refs import (
+    ARTIFACT_REF_PREFIXES,
+    SUPPORTED_ARTIFACT_TYPES,
+    build_feature_graph_artifact_ref,
+    parse_feature_graph_artifact_ref,
+    validate_artifact_id,
+)
+
 __all__ = [
     "FeatureKind",
     "FeatureNode",
@@ -87,4 +95,9 @@ __all__ = [
     "GapKind",
     "bundle_feature_graph",
     "BundleOperation",
+    "ARTIFACT_REF_PREFIXES",
+    "SUPPORTED_ARTIFACT_TYPES",
+    "build_feature_graph_artifact_ref",
+    "parse_feature_graph_artifact_ref",
+    "validate_artifact_id",
 ]

@@ -9,6 +9,7 @@
 - **Path-free model output:** Never return filesystem paths in tool results or startup projections.
 - **Persistence:** Wrap `FeatureGraphPersistenceService`; do not duplicate artifact storage logic.
 - **Ref scheme:** `feature_graph:ir:{artifact_id}` (+ compile/judge/bundle prefixes for future types).
+- **Capability contract:** Derive compact field inventories from Pydantic models and operation details from `OPERATION_REGISTRY`; keep authored examples in `feature_graph_examples.py` schema-valid and compiler-tested.
 
 ## Commands
 - Test: `pytest backend/tooling/mapping/deed_to_ir/ -q`

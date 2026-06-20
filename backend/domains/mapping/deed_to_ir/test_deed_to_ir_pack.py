@@ -35,6 +35,18 @@ def test_manifest_tool_ids_match_tool_specs() -> None:
     assert manifest.display_name == "Deed To IR"
 
 
+def test_ir_tool_specs_expose_core_contract_and_capability_filters() -> None:
+    specs = {spec.tool_id: spec for spec in build_deed_to_ir_tool_specs()}
+    save = specs["save_ir_artifact"]
+    assert "at most one" in save.expected_request_shape.lower()
+    assert "source_entity_links" in save.expected_request_shape
+    describe = specs["describe_feature_graph_capabilities"]
+    props = describe.expected_request_json_shape["properties"]
+    assert "sections" in props
+    assert "operation_names" in props
+    assert "validation_schema" in props["sections"]["items"]["enum"]
+
+
 def test_domain_pack_builds() -> None:
     pack = build_deed_to_ir_domain_pack()
     payload = pack.build_surface_payload()
@@ -56,22 +68,26 @@ def test_domain_pack_builds() -> None:
     assert len(pack.build_semantic_prompt_blocks()) == 3
 
 
-def test_branch_and_guidance_skeleton_markers() -> None:
+def test_branch_and_guidance_mission_markers() -> None:
     branch = build_deed_to_ir_branch_blocks()[0].text.lower()
     assert "deed-to-ir" in branch
-    assert "transcript-edit output" in branch
+    assert "transcript-edit handoff" in branch
     assert "normalized_or_mapping_transcript" in branch
     assert "source_transcript_verbatim" in branch
     assert "parcel_metadata" in branch
     assert "feature-graph ir" in branch
-    assert "working substrate, not a prison" in branch
-    assert "upstream process context" in branch
-    assert "four layers of deed-to-ir closure" in branch
+    assert "source-traceable geometric program" in branch
+    assert "starting substrate" in branch
+    assert "not a prison" in branch
+    assert "source evidence -> transcript-edit resolution units -> feature-graph ir" in branch
+    assert "four closure obligations" in branch
     assert "deed meaning to ir fidelity" in branch
     assert "ir and geometry integrity" in branch
     assert "external dependency and representability completeness" in branch
     assert "map handoffability and scoped completion" in branch
-    assert "compile, judge, and render are feedback tools" in branch
+    assert "a map that renders is not necessarily a correct map" in branch
+    assert "do not launder a bad interpretation" in branch
+    assert "deterministic mapping feedback informs these layers but does not close them" in branch
     assert "agent_kernel" not in branch
     assert "draft_ir" not in branch
     assert "hydrate_deed" not in branch
@@ -83,7 +99,7 @@ def test_branch_and_guidance_skeleton_markers() -> None:
     )
     assert "forwardable vs blocked" in guidance
     assert "save_ir_artifact" in guidance
-    assert "deferred" in guidance or "not bound" in guidance
+    assert "source_entity_links" in guidance
 
 
 def test_mapping_registry_resolves_deed_to_ir() -> None:
@@ -113,7 +129,7 @@ def test_closure_and_handoff_semantics_stable() -> None:
     assert c.summary.strip()
     assert h.summary.strip()
     assert "mapped, which are incomplete or dependency-pending" in " ".join(c.sufficient_when)
-    assert "compile, judge, or render as closure by itself" in " ".join(c.anti_patterns)
+    assert "rendered image as closure by itself" in " ".join(c.anti_patterns)
     assert "agent_kernel" not in (c.summary + h.summary).lower()
 
 

@@ -84,3 +84,147 @@ def test_mark_final_pointers_from_paths_writes_final_ir_and_bundle() -> None:
         final_bundle = root / "artifacts" / "feature_graphs" / dossier_id / "final_bundle.json"
         assert final_ir.exists()
         assert final_bundle.exists()
+
+
+def test_save_artifact_rejects_unsafe_dossier_id() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        svc = FeatureGraphPersistenceService(
+            root=root / "artifacts" / "feature_graphs",
+            state_dir=root / "state",
+        )
+        artifact = create_ir_artifact(
+            artifact_id="ir_safe_001",
+            graph=_graph("D_SAFE"),
+            created_by="test",
+            source_document_id="D_SAFE",
+        )
+        try:
+            svc.save_artifact(artifact=artifact, dossier_id="../escape")
+            assert False, "expected unsafe dossier_id to be rejected"
+        except Exception as exc:
+            assert "dossier_id_unsafe_path_characters" in str(exc)
+
+
+def test_get_artifact_rejects_unsafe_dossier_id() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        svc = FeatureGraphPersistenceService(
+            root=root / "artifacts" / "feature_graphs",
+            state_dir=root / "state",
+        )
+        try:
+            svc.get_artifact("../escape", "ir_safe_001")
+            assert False, "expected unsafe dossier_id to be rejected"
+        except Exception as exc:
+            assert "dossier_id_unsafe_path_characters" in str(exc)
+
+
+def test_delete_artifact_rejects_unsafe_artifact_id() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        svc = FeatureGraphPersistenceService(
+            root=root / "artifacts" / "feature_graphs",
+            state_dir=root / "state",
+        )
+        try:
+            svc.delete_artifact("D_SAFE", "../escape")
+            assert False, "expected unsafe artifact_id to be rejected"
+        except Exception as exc:
+            assert "feature_graph_artifact_id_invalid" in str(exc)
+
+
+def test_mark_final_pointer_rejects_external_artifact_path() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        svc = FeatureGraphPersistenceService(
+            root=root / "artifacts" / "feature_graphs",
+            state_dir=root / "state",
+        )
+        dossier_id = "D_PTR_CONTAIN"
+        graph = _graph(dossier_id)
+        ir = create_ir_artifact(
+            artifact_id="ir_contain_001",
+            graph=graph,
+            created_by="test",
+            source_document_id=dossier_id,
+        )
+        saved = svc.save_artifact(artifact=ir, dossier_id=dossier_id)
+        external_path = root / "outside" / "ir_contain_001.json"
+        external_path.parent.mkdir(parents=True, exist_ok=True)
+        external_path.write_text("{}", encoding="utf-8")
+
+        try:
+            svc.mark_final_pointer(
+                dossier_id=dossier_id,
+                artifact_type="ir",
+                artifact_path=str(external_path),
+            )
+            assert False, "expected external artifact_path to be rejected"
+        except Exception as exc:
+            assert "feature_graph_final_pointer_target_escape" in str(exc)
+
+        pointer = svc.mark_final_pointer(
+            dossier_id=dossier_id,
+            artifact_type="ir",
+            artifact_path=str(saved["path"]),
+        )
+        assert pointer["success"] is True
+        final_ir = root / "artifacts" / "feature_graphs" / dossier_id / "final_ir.json"
+        payload = json.loads(final_ir.read_text(encoding="utf-8"))
+        assert payload["artifact_id"] == "ir_contain_001"
+        assert payload["dossier_id"] == dossier_id
+        assert payload["artifact_path"] == str(saved["path"])
+
+
+def test_mark_final_pointer_rejects_other_dossier_artifact_path() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        svc = FeatureGraphPersistenceService(
+            root=root / "artifacts" / "feature_graphs",
+            state_dir=root / "state",
+        )
+        graph_a = _graph("D_A", "g_a")
+        graph_b = _graph("D_B", "g_b")
+        saved_a = svc.save_artifact(
+            artifact=create_ir_artifact(
+                artifact_id="ir_other_dossier",
+                graph=graph_a,
+                created_by="test",
+                source_document_id="D_A",
+            ),
+            dossier_id="D_A",
+        )
+        try:
+            svc.mark_final_pointer(
+                dossier_id="D_B",
+                artifact_type="ir",
+                artifact_path=str(saved_a["path"]),
+            )
+            assert False, "expected cross-dossier artifact_path to be rejected"
+        except Exception as exc:
+            assert "feature_graph_final_pointer_target_escape" in str(exc)
+
+
+def test_save_artifact_normalizes_dossier_id_in_pointer_and_index() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        svc = FeatureGraphPersistenceService(
+            root=root / "artifacts" / "feature_graphs",
+            state_dir=root / "state",
+        )
+        dossier_id = "D_NORM"
+        artifact = create_ir_artifact(
+            artifact_id="ir_norm_001",
+            graph=_graph(dossier_id),
+            created_by="test",
+            source_document_id=dossier_id,
+        )
+        svc.save_artifact(artifact=artifact, dossier_id=f"  {dossier_id}  ")
+
+        latest_path = root / "artifacts" / "feature_graphs" / dossier_id / "latest_ir.json"
+        pointer = json.loads(latest_path.read_text(encoding="utf-8"))
+        assert pointer["dossier_id"] == dossier_id
+
+        index = json.loads((root / "state" / "feature_graphs_index.json").read_text(encoding="utf-8"))
+        assert index["artifacts"][0]["dossier_id"] == dossier_id

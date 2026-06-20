@@ -21,12 +21,28 @@ from pathlib import Path
 from typing import Any, Dict, Optional, List, Literal
 
 from config.paths import dossiers_feature_graphs_artifacts_root, dossiers_state_root
+from feature_graph.artifact_refs import validate_artifact_id
 from feature_graph.artifacts import (
     IRArtifact,
     CompileArtifact,
     JudgeArtifact,
     BundleArtifact,
 )
+
+
+class UnsafeFeatureGraphPathError(ValueError):
+    """Raised when dossier_id or artifact_id would escape the artifacts root."""
+
+
+def _require_safe_dossier_id(dossier_id: str) -> str:
+    text = str(dossier_id or "").strip()
+    if not text:
+        raise UnsafeFeatureGraphPathError("dossier_id_empty")
+    if ".." in text or "/" in text or "\\" in text:
+        raise UnsafeFeatureGraphPathError("dossier_id_unsafe_path_characters")
+    if text.startswith("."):
+        raise UnsafeFeatureGraphPathError("dossier_id_unsafe_leading_dot")
+    return text
 
 
 ArtifactType = Literal["ir", "compile", "judge", "bundle"]
@@ -65,6 +81,57 @@ class FeatureGraphPersistenceService:
         self._state_dir = state_dir if state_dir is not None else dossiers_state_root()
         self._index_path = self._state_dir / "feature_graphs_index.json"
         self._state_dir.mkdir(parents=True, exist_ok=True)
+
+    def _artifacts_root_resolved(self) -> Path:
+        return self._artifacts_root.resolve()
+
+    def _artifact_file_path(self, dossier_id: str, artifact_id: str) -> Path:
+        safe_dossier_id = _require_safe_dossier_id(dossier_id)
+        safe_artifact_id = validate_artifact_id(artifact_id)
+        artifact_path = (self._artifacts_root / safe_dossier_id / f"{safe_artifact_id}.json").resolve()
+        root = self._artifacts_root_resolved()
+        if root not in artifact_path.parents:
+            raise UnsafeFeatureGraphPathError("feature_graph_artifact_path_escape")
+        return artifact_path
+
+    def _dossier_dir(self, dossier_id: str) -> Path:
+        safe_dossier_id = _require_safe_dossier_id(dossier_id)
+        dossier_dir = (self._artifacts_root / safe_dossier_id).resolve()
+        root = self._artifacts_root_resolved()
+        if root not in dossier_dir.parents and dossier_dir != root:
+            raise UnsafeFeatureGraphPathError("feature_graph_dossier_path_escape")
+        return dossier_dir
+
+    def _resolve_dossier_artifact_path(
+        self,
+        *,
+        dossier_id: str,
+        artifact_path: str,
+        artifact_id: Optional[str] = None,
+    ) -> tuple[Path, str, str]:
+        safe_dossier_id = _require_safe_dossier_id(dossier_id)
+        dossier_dir = self._dossier_dir(safe_dossier_id)
+        raw = Path(str(artifact_path or "").strip())
+        if not str(raw):
+            raise UnsafeFeatureGraphPathError("feature_graph_artifact_path_empty")
+        try:
+            resolved = raw.resolve() if raw.is_absolute() else (dossier_dir / raw).resolve()
+        except Exception as exc:
+            raise UnsafeFeatureGraphPathError("feature_graph_artifact_path_invalid") from exc
+        if dossier_dir not in resolved.parents:
+            raise UnsafeFeatureGraphPathError("feature_graph_final_pointer_target_escape")
+        if resolved.parent != dossier_dir:
+            raise UnsafeFeatureGraphPathError("feature_graph_final_pointer_target_not_in_dossier")
+        if resolved.suffix.lower() != ".json":
+            raise UnsafeFeatureGraphPathError("feature_graph_final_pointer_target_not_artifact")
+        inferred_id = validate_artifact_id(resolved.stem)
+        if isinstance(artifact_id, str) and artifact_id.strip():
+            validated_id = validate_artifact_id(artifact_id.strip())
+            if validated_id != inferred_id:
+                raise UnsafeFeatureGraphPathError("feature_graph_final_pointer_artifact_id_mismatch")
+        else:
+            validated_id = inferred_id
+        return resolved, safe_dossier_id, validated_id
 
     def _atomic_write(self, path: Path, data: Dict[str, Any]) -> None:
         """
@@ -110,9 +177,10 @@ class FeatureGraphPersistenceService:
         artifact_type: str,
         artifact_path: Path,
     ) -> None:
-        pointer_path = self._artifacts_root / str(dossier_id) / pointer_filename
+        safe_dossier_id = _require_safe_dossier_id(dossier_id)
+        pointer_path = self._dossier_dir(safe_dossier_id) / pointer_filename
         payload = {
-            "dossier_id": str(dossier_id),
+            "dossier_id": safe_dossier_id,
             "artifact_id": str(artifact_id),
             "artifact_type": str(artifact_type),
             "artifact_path": str(artifact_path),
@@ -214,8 +282,7 @@ class FeatureGraphPersistenceService:
         Returns:
             Dict with success status, artifact_id, and path
         """
-        if not dossier_id:
-            raise ValueError("dossier_id is required")
+        safe_dossier_id = _require_safe_dossier_id(dossier_id)
 
         # Serialize artifact to dict
         artifact_dict = artifact.model_dump(mode="json")
@@ -226,9 +293,8 @@ class FeatureGraphPersistenceService:
             raise ValueError("Artifact must have artifact_id and artifact_type")
 
         # Determine save location
-        artifacts_dir = self._artifacts_root / str(dossier_id)
-        artifacts_dir.mkdir(parents=True, exist_ok=True)
-        artifact_path = artifacts_dir / f"{artifact_id}.json"
+        artifact_path = self._artifact_file_path(safe_dossier_id, str(artifact_id))
+        artifact_path.parent.mkdir(parents=True, exist_ok=True)
 
         # Get timestamp
         saved_at = artifact_dict.get("metadata", {}).get("created_at")
@@ -238,7 +304,7 @@ class FeatureGraphPersistenceService:
         # Atomic write
         self._atomic_write(artifact_path, artifact_dict)
         self._update_latest_pointer(
-            dossier_id=str(dossier_id),
+            dossier_id=safe_dossier_id,
             artifact_type=str(artifact_type),
             artifact_id=str(artifact_id),
             artifact_path=artifact_path,
@@ -246,7 +312,7 @@ class FeatureGraphPersistenceService:
 
         # Update index
         self._update_index(
-            dossier_id=dossier_id,
+            dossier_id=safe_dossier_id,
             artifact_id=artifact_id,
             artifact_type=artifact_type,
             saved_at=saved_at,
@@ -270,17 +336,22 @@ class FeatureGraphPersistenceService:
         pointer_name = _FINAL_POINTER_NAMES.get(str(artifact_type))
         if pointer_name is None:
             raise ValueError(f"unsupported_final_pointer_type:{artifact_type}")
-        path = Path(artifact_path)
-        if not artifact_id:
-            artifact_id = path.stem
-        self._write_pointer(
-            dossier_id=str(dossier_id),
-            pointer_filename=pointer_name,
-            artifact_id=str(artifact_id),
-            artifact_type=str(artifact_type),
-            artifact_path=path,
+        resolved_path, safe_dossier_id, validated_id = self._resolve_dossier_artifact_path(
+            dossier_id=dossier_id,
+            artifact_path=artifact_path,
+            artifact_id=artifact_id,
         )
-        return {"success": True, "pointer": str(self._artifacts_root / str(dossier_id) / pointer_name)}
+        self._write_pointer(
+            dossier_id=safe_dossier_id,
+            pointer_filename=pointer_name,
+            artifact_id=validated_id,
+            artifact_type=str(artifact_type),
+            artifact_path=resolved_path,
+        )
+        return {
+            "success": True,
+            "pointer": str(self._dossier_dir(safe_dossier_id) / pointer_name),
+        }
 
     def mark_final_pointers_from_paths(
         self,
@@ -320,7 +391,10 @@ class FeatureGraphPersistenceService:
         parts = rel.parts
         if not parts:
             return None
-        return str(parts[0])
+        try:
+            return _require_safe_dossier_id(str(parts[0]))
+        except UnsafeFeatureGraphPathError:
+            return None
 
     def get_artifact(
         self, dossier_id: str, artifact_id: str
@@ -331,7 +405,7 @@ class FeatureGraphPersistenceService:
         Returns:
             The artifact dict, or None if not found
         """
-        artifact_path = self._artifacts_root / str(dossier_id) / f"{artifact_id}.json"
+        artifact_path = self._artifact_file_path(dossier_id, artifact_id)
         return self._read_json_file(artifact_path)
 
     def list_artifacts(
@@ -351,7 +425,8 @@ class FeatureGraphPersistenceService:
 
         # Filter by dossier_id if provided
         if dossier_id is not None:
-            entries = [e for e in entries if (e or {}).get("dossier_id") == str(dossier_id)]
+            safe_dossier_id = _require_safe_dossier_id(dossier_id)
+            entries = [e for e in entries if (e or {}).get("dossier_id") == safe_dossier_id]
 
         # Filter by artifact_type if provided
         if artifact_type is not None:
@@ -379,7 +454,9 @@ class FeatureGraphPersistenceService:
         Returns:
             Dict with success status
         """
-        artifact_path = self._artifacts_root / str(dossier_id) / f"{artifact_id}.json"
+        safe_dossier_id = _require_safe_dossier_id(dossier_id)
+        safe_artifact_id = validate_artifact_id(artifact_id)
+        artifact_path = self._artifact_file_path(safe_dossier_id, safe_artifact_id)
 
         removed = False
         try:
@@ -396,8 +473,8 @@ class FeatureGraphPersistenceService:
                 e
                 for e in idx.get("artifacts", [])
                 if not (
-                    (e or {}).get("dossier_id") == str(dossier_id)
-                    and (e or {}).get("artifact_id") == artifact_id
+                    (e or {}).get("dossier_id") == safe_dossier_id
+                    and (e or {}).get("artifact_id") == safe_artifact_id
                 )
             ]
             self._atomic_write(self._index_path, idx)

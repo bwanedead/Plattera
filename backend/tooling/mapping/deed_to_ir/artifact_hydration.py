@@ -2,19 +2,17 @@
 
 from __future__ import annotations
 
-import re
 from typing import Any
 
+from feature_graph.artifact_refs import (
+    ARTIFACT_REF_PREFIXES,
+    build_feature_graph_artifact_ref,
+    parse_feature_graph_artifact_ref,
+)
 from services.feature_graph.feature_graph_persistence_service import FeatureGraphPersistenceService
 
-from .ir_persistence import IR_REF_PREFIX
-
-REF_PREFIXES = {
-    "ir": IR_REF_PREFIX,
-    "compile": "feature_graph:compile:",
-    "judge": "feature_graph:judge:",
-    "bundle": "feature_graph:bundle:",
-}
+REF_PREFIXES = ARTIFACT_REF_PREFIXES
+IR_REF_PREFIX = ARTIFACT_REF_PREFIXES["ir"]
 
 DEFAULT_MAX_REFS = 8
 MAX_REFS = 32
@@ -230,9 +228,8 @@ def _bound_list(value: Any, cap: int) -> tuple[list[Any], dict[str, Any]]:
 def _index_entry_to_row(entry: dict[str, Any]) -> dict[str, Any]:
     artifact_type = str(entry.get("artifact_type") or "")
     artifact_id = str(entry.get("artifact_id") or "")
-    prefix = REF_PREFIXES.get(artifact_type, f"feature_graph:{artifact_type}:")
     return {
-        "artifact_ref": f"{prefix}{artifact_id}",
+        "artifact_ref": build_feature_graph_artifact_ref(artifact_type, artifact_id),
         "artifact_id": artifact_id,
         "artifact_type": artifact_type,
         "saved_at": entry.get("saved_at"),
@@ -240,13 +237,10 @@ def _index_entry_to_row(entry: dict[str, Any]) -> dict[str, Any]:
 
 
 def _parse_ref(ref_id: str) -> tuple[str, str] | None:
-    text = str(ref_id or "").strip()
-    for artifact_type, prefix in REF_PREFIXES.items():
-        if text.startswith(prefix):
-            artifact_id = text[len(prefix) :].strip()
-            if artifact_id and re.fullmatch(r"[A-Za-z0-9._-]+", artifact_id):
-                return artifact_type, artifact_id
-    return None
+    try:
+        return parse_feature_graph_artifact_ref(ref_id)
+    except ValueError:
+        return None
 
 
 def _strip_paths(value: Any) -> Any:

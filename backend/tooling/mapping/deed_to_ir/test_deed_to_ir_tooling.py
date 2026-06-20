@@ -9,7 +9,9 @@ from unittest.mock import patch
 
 import pytest
 
-from feature_graph.models import FeatureGraph, FeatureKind, FeatureNode
+from feature_graph.compiler import compile_graph
+from feature_graph.models import FeatureEdge, FeatureGraph, FeatureKind, FeatureNode, FeatureRef, OpExpr
+from feature_graph.operations import OPERATION_REGISTRY
 from feature_graph.provenance import ProvenanceAttachment, SourceEntityLink
 
 from tooling.mapping.deed_to_ir.artifact_hydration import (
@@ -50,6 +52,65 @@ def test_describe_feature_graph_capabilities_projects_registry():
     line_step = next(op for op in ops if op["name"] == "LineStep")
     assert line_step["compiler_support"] == "supported"
     assert "feature_graph:ir:" in caps["artifact_ref_prefixes"]["ir"]
+
+
+def test_capability_projection_covers_runtime_models_without_schema_drift():
+    caps = describe_feature_graph_capabilities(sections=["core_schema", "provenance"])
+    core_models = caps["model_schemas"]
+    assert set(core_models["FeatureGraph"]["fields"]) == set(FeatureGraph.model_fields)
+    assert set(core_models["FeatureNode"]["fields"]) == set(FeatureNode.model_fields)
+    assert set(core_models["FeatureEdge"]["fields"]) == set(FeatureEdge.model_fields)
+    assert set(core_models["FeatureRef"]["fields"]) == set(FeatureRef.model_fields)
+    assert set(core_models["OpExpr"]["fields"]) == set(OpExpr.model_fields)
+    assert "SourceEntityLink" in caps["provenance_schemas"]
+    assert "TextSpan" in caps["provenance_schemas"]
+    assert "at most one" in caps["content_rules"]["feature_node_content"].lower()
+
+
+def test_capability_operation_filter_and_examples_are_valid():
+    selected = ["TiedPoint", "CourseTraverse", "Close"]
+    caps = describe_feature_graph_capabilities(
+        sections=["operations", "examples"],
+        operation_names=selected,
+    )
+    assert [row["name"] for row in caps["registered_operations"]] == selected
+    assert set(caps["examples"]["operation_expressions"]) == set(selected)
+    assert "never copy example values" in caps["examples"]["warning"].lower()
+    assert caps["examples"]["complete_supported_graph"]["nodes"][0]["op_expr"]["params"] == {}
+    graph_payload = caps["examples"]["complete_supported_graph"]
+    boundary_links = graph_payload["nodes"][1]["provenance"]["source_entity_links"]
+    assert len(boundary_links) == 8
+    assert all(link["entity_type"] == "resolution_unit" for link in boundary_links)
+    graph = FeatureGraph.model_validate(graph_payload)
+    compiled = compile_graph(graph)
+    assert {"parcel_1_origin", "parcel_1_boundary", "parcel_1_region"}.issubset(
+        compiled.compiled_features
+    )
+
+
+def test_capability_registry_projection_matches_registered_vocabulary():
+    caps = describe_feature_graph_capabilities(sections=["operations"])
+    assert {row["name"] for row in caps["registered_operations"]} == set(OPERATION_REGISTRY)
+    line_step = next(row for row in caps["registered_operations"] if row["name"] == "LineStep")
+    assert line_step["required_parameters"] == ["bearing", "distance"]
+    examples = describe_feature_graph_capabilities(
+        sections=["examples"], operation_names=["LineStep"]
+    )
+    assert examples["examples"]["operation_expressions"]["LineStep"]["params"]["bearing"] == 45.0
+
+
+def test_canonical_validation_schema_is_explicit_opt_in():
+    default = describe_feature_graph_capabilities()
+    assert "canonical_feature_graph_json_schema" not in default
+    exact = describe_feature_graph_capabilities(sections=["validation_schema"])
+    assert exact["canonical_feature_graph_json_schema"]["title"] == "FeatureGraph"
+
+
+def test_capability_projection_rejects_unknown_sections_and_operations():
+    with pytest.raises(ValueError, match="unknown_feature_graph_capability_sections"):
+        describe_feature_graph_capabilities(sections=["mystery"])
+    with pytest.raises(ValueError, match="unknown_feature_graph_operation_names"):
+        describe_feature_graph_capabilities(operation_names=["MysteryOperation"])
 
 
 def test_hydrate_deed_to_ir_input_sections_bounded_and_path_free():

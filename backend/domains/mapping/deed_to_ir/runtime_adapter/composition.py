@@ -101,8 +101,22 @@ def _tool_handler_entries(
 
 def _make_capabilities_handler() -> Callable[[Any], Any]:
     def handler(request: Any) -> dict[str, Any]:
-        del request
-        return {"executed": True, "outputs": describe_feature_graph_capabilities()}
+        inputs = _extract_inputs(request)
+        sections = inputs.get("sections")
+        operation_names = inputs.get("operation_names")
+        if sections is not None and not isinstance(sections, list):
+            return _error_refusal("invalid_capability_sections", "sections must be an array when provided.")
+        if operation_names is not None and not isinstance(operation_names, list):
+            return _error_refusal("invalid_operation_names", "operation_names must be an array when provided.")
+        try:
+            outputs = describe_feature_graph_capabilities(
+                sections=sections,
+                operation_names=operation_names,
+            )
+        except ValueError as exc:
+            code = _error_code_for_exception(exc)
+            return _error_refusal(code, code)
+        return {"executed": True, "outputs": outputs}
 
     return handler
 

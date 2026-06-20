@@ -71,6 +71,30 @@ def test_describe_capabilities_handler() -> None:
     assert "registered_operations" in result["outputs"]
 
 
+def test_describe_capabilities_handler_supports_focused_contract_packet() -> None:
+    adapter = build_deed_to_ir_runtime_adapter()
+    surface = adapter.build_turn_surface(_launch_context())
+    handler = next(b.handler for b in surface.tool_bindings if b.tool_id == "describe_feature_graph_capabilities")
+    result = handler(
+        {
+            "sections": ["core_schema", "operations", "examples"],
+            "operation_names": ["LineStep"],
+        }
+    )
+    assert result["executed"] is True
+    assert [row["name"] for row in result["outputs"]["registered_operations"]] == ["LineStep"]
+    assert set(result["outputs"]["examples"]["operation_expressions"]) == {"LineStep"}
+
+
+def test_describe_capabilities_handler_rejects_unknown_operation() -> None:
+    adapter = build_deed_to_ir_runtime_adapter()
+    surface = adapter.build_turn_surface(_launch_context())
+    handler = next(b.handler for b in surface.tool_bindings if b.tool_id == "describe_feature_graph_capabilities")
+    result = handler({"operation_names": ["MysteryOperation"]})
+    assert result["executed"] is False
+    assert result["refusal"]["reason_code"] == "unknown_feature_graph_operation_names"
+
+
 def test_hydrate_input_handler_via_bindings() -> None:
     adapter = build_deed_to_ir_runtime_adapter()
     surface = adapter.build_turn_surface(_launch_context())
