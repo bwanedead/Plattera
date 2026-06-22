@@ -8,6 +8,7 @@ from typing import Any
 
 from ..composition import ComposedTurnInput
 from ..hitl.transport import hitl_prompt_visible_slice
+from ..upstream_run_lineage import UPSTREAM_RUN_LINEAGE_LAUNCH_KEY
 from ..memory.continuity_journal import (
     recent_journal_entries_for_prompt,
     recent_step_records_for_prompt,
@@ -37,7 +38,12 @@ from .recent_result_projection import (
 )
 
 _HIDDEN_LAUNCH_CONTEXT_KEYS = frozenset(
-    {"max_iterations", "kernel_resume_snapshot", "kernel_resume_snapshot_path"}
+    {
+        "max_iterations",
+        "kernel_resume_snapshot",
+        "kernel_resume_snapshot_path",
+        UPSTREAM_RUN_LINEAGE_LAUNCH_KEY,
+    }
 )
 _PROMPT_VISIBLE_DOMAIN_CLOSURE_POLICY_KEYS = frozenset(
     {

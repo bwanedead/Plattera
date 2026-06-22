@@ -104,7 +104,7 @@ Start a run with the **generic harness runtime entrypoint**:
 ```powershell
 $runId = "deed-to-ir-live-01"
 $fixtureRoot = (Resolve-Path "..\practice_deeds\right_of_way\deed_to_ir").Path
-$ctx = @{
+$contextObject = @{
   dossier_id = "9f5eecb6-cd7e-483c-b691-b76aa7132e8e"
   transcription_id = "draft_legal_text_image"
   run_id = $runId
@@ -113,7 +113,22 @@ $ctx = @{
   transcript_edit_output_path = Join-Path $fixtureRoot "transcript_edit_output.json"
   resolution_state_ref = "transcript_edit:resolution_state:practice-row-live-20260619-76"
   resolution_state_snapshot_path = Join-Path $fixtureRoot "resolution_state.json"
-} | ConvertTo-Json -Compress
+  upstream_run_lineage = @{
+    schema_version = "upstream_run_lineage.v1"
+    upstream_runs = @(
+      @{
+        run_id = "practice-row-live-20260619-76"
+        domain_id = "transcript_edit"
+        relation = "input_handoff"
+        handoff_refs = @(
+          "transcript_edit:output"
+          "transcript_edit:resolution_state:practice-row-live-20260619-76"
+        )
+      }
+    )
+  }
+}
+$ctx = $contextObject | ConvertTo-Json -Depth 6 -Compress
 
 python -m harness.cli.start `
   --run-id $runId `
@@ -129,9 +144,9 @@ Guidance:
 
 - use a fresh unique `run_id` for every live run
 - keep `workspace_id == run_id` unless you have a specific reason not to
-- the compact launch context contains **fixture paths only**; the resolution graph
-  is loaded mechanically inside the child process from
-  `resolution_state_snapshot_path`
+- the compact launch context contains **fixture paths only** and authored
+  `upstream_run_lineage`; the resolution graph is loaded mechanically inside the
+  child process from `resolution_state_snapshot_path`
 - prefer `max_iterations: 100` for roomier live testing
 
 Watch / status / control:
@@ -196,7 +211,7 @@ agent has not yet earned publication.
 
 After a live run, inspect:
 
-1. `audit/human/timeline.md` — turn sequence, tool calls, publish section if present
+1. `audit/human/timeline.md` — upstream run lineage section (when authored), turn sequence, tool calls, publish section if present
 2. `audit/turn_NNNN.json` — per-turn mechanical records
 3. `result.json` / `done.json` — terminal class and reason code
 4. feature-graph artifacts for the dossier — IR, mapping, sidecars
@@ -210,6 +225,5 @@ After a live run, inspect:
 - Frozen fixture: `practice_deeds/right_of_way/deed_to_ir/`
 - Resolution path loader: `backend/tooling/mapping/deed_to_ir/resolution_state_loading.py`
 - Generic runtime entrypoint: `backend/harness/runtime/runner/entrypoint.py`
+- Upstream run lineage: `backend/harness/runtime/upstream_run_lineage.py`
 - Deed-to-IR runtime adapter: `backend/domains/mapping/deed_to_ir/runtime_adapter/`
-
-Cross-run timeline linking remains future work (Brief F2).

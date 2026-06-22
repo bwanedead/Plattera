@@ -952,7 +952,7 @@ def test_blocking_hitl_respects_logical_max_iterations_across_slices(tmp_path: P
     captured_max_iterations: list[int] = []
     slice_call: list[int] = [0]
 
-    def fake_run_orchestration(self_ref: Any, *, context: Any, composed: Any) -> Any:
+    def fake_run_orchestration(self_ref: Any, *, context: Any, composed: Any, upstream_run_lineage: Any = None) -> Any:
         slice_call[0] += 1
         captured_max_iterations.append(runner_mod._select_max_iterations(context))
         if slice_call[0] == 1:
@@ -1032,7 +1032,7 @@ def test_blocking_hitl_does_not_exceed_budget_when_pause_hits_exact_ceiling(
     fake_snap = {"schema_version": "kernel_resume.v1", "next_iteration": 4, "fake": True}
     slice_call = [0]
 
-    def fake_run_orchestration(self_ref: Any, *, context: Any, composed: Any) -> Any:
+    def fake_run_orchestration(self_ref: Any, *, context: Any, composed: Any, upstream_run_lineage: Any = None) -> Any:
         slice_call[0] += 1
         return SimpleNamespace(
             terminal_class="waiting_human",
@@ -1099,7 +1099,7 @@ def test_blocking_hitl_auto_resumes_when_run_id_not_in_launch_context(tmp_path: 
     _FAKE_SNAP = {"schema_version": "kernel_resume.v1", "next_iteration": 2, "fake": True}
     slice_call: list[int] = [0]
 
-    def fake_run_orchestration(self_ref: Any, *, context: Any, composed: Any) -> Any:
+    def fake_run_orchestration(self_ref: Any, *, context: Any, composed: Any, upstream_run_lineage: Any = None) -> Any:
         slice_call[0] += 1
         if slice_call[0] == 1:
             return SimpleNamespace(
@@ -1252,3 +1252,218 @@ def test_runner_explicit_model_override_is_preserved() -> None:
     """Explicit model override should be respected and not replaced with default."""
     assert runner_module._select_model_name({"model": "gpt-5.4-mini"}) == "gpt-5.4-mini"
     assert runner_module._select_model_name({"model": "gpt-5"}) == "gpt-5"
+
+
+# ---------------------------------------------------------------------------
+# Upstream run lineage
+# ---------------------------------------------------------------------------
+
+
+def _upstream_lineage() -> dict:
+    return {
+        "schema_version": "upstream_run_lineage.v1",
+        "upstream_runs": [
+            {
+                "run_id": "practice-row-live-20260619-76",
+                "domain_id": "transcript_edit",
+                "relation": "input_handoff",
+                "handoff_refs": [
+                    "transcript_edit:output",
+                    "transcript_edit:resolution_state:practice-row-live-20260619-76",
+                ],
+            }
+        ],
+    }
+
+
+def test_runner_strips_upstream_lineage_from_adapter_context_and_prompt(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    model_calls: list[str] = []
+    adapter = FakeSurfaceAdapter(calls=[], surface=_surface([]))
+    run_id = "downstream-lineage-run"
+    _seed_cli_run_state(tmp_path, monkeypatch, run_id)
+
+    def model_caller(prompt: str, model: str, **_kwargs: Any) -> str:
+        model_calls.append(prompt)
+        return json.dumps(
+            {
+                "action_type": None,
+                "action_inputs": {},
+                "idempotency_key": "plan-complete",
+                "skip_execution": True,
+                "wait_for_human": False,
+                "complete_run": True,
+                "rationale": "done",
+                "state_patch": None,
+                "continuity_journal_entry": {"stub": True},
+                "operator_progress_message": None,
+            }
+        )
+
+    runner = RuntimeRunner(adapter=adapter, model_caller=model_caller, targets=_targets(tmp_path))
+    runner.run(
+        launch_context={
+            "run_id": run_id,
+            "model": "gpt-5.4-mini",
+            "max_iterations": 2,
+            "upstream_run_lineage": _upstream_lineage(),
+        }
+    )
+
+    assert adapter.calls
+    assert "upstream_run_lineage" not in adapter.calls[0]
+    assert "practice-row-live-20260619-76" not in model_calls[0]
+
+
+def test_runner_persists_upstream_lineage_in_state_result_done_and_audit_index(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    adapter = FakeSurfaceAdapter(calls=[], surface=_surface([]))
+    run_id = "downstream-lineage-persist"
+    _seed_cli_run_state(tmp_path, monkeypatch, run_id)
+
+    runner = RuntimeRunner(
+        adapter=adapter,
+        model_caller=lambda *_a, **_k: json.dumps(
+            {
+                "action_type": None,
+                "action_inputs": {},
+                "idempotency_key": "plan-complete",
+                "skip_execution": True,
+                "wait_for_human": False,
+                "complete_run": True,
+                "rationale": "done",
+                "state_patch": None,
+                "continuity_journal_entry": {"stub": True},
+                "operator_progress_message": None,
+            }
+        ),
+        targets=_targets(tmp_path),
+    )
+    result = runner.run(
+        launch_context={
+            "run_id": run_id,
+            "model": "gpt-5.4-mini",
+            "max_iterations": 2,
+            "upstream_run_lineage": _upstream_lineage(),
+        }
+    )
+
+    state = cli_run_state.read_state(run_id)
+    assert state is not None
+    assert state.extra["upstream_run_lineage"] == _upstream_lineage()
+
+    result_doc = json.loads((tmp_path / "result.json").read_text(encoding="utf-8"))
+    done_doc = json.loads((tmp_path / "done.json").read_text(encoding="utf-8"))
+    assert result_doc["upstream_run_lineage"] == _upstream_lineage()
+    assert done_doc["upstream_run_lineage"] == _upstream_lineage()
+
+    audit_index = json.loads((cli_run_state.run_dir(run_id) / "audit" / "index.json").read_text(encoding="utf-8"))
+    assert audit_index["upstream_run_lineage"] == _upstream_lineage()
+    assert "transcript_edit:output" not in audit_index["latest_refs"]
+    assert result.result_payload["latest_refs"] == audit_index["latest_refs"]
+
+    stale = cli_run_state.read_state(run_id)
+    assert stale is not None
+    stale.extra = {"model": "gpt-5.4-mini"}
+    cli_run_state.write_state(stale)
+
+    runner._write_artifacts(
+        targets=_targets(tmp_path),
+        result=result,
+    )
+    restored = cli_run_state.read_state(run_id)
+    assert restored is not None
+    assert restored.extra["upstream_run_lineage"] == _upstream_lineage()
+
+
+def test_runner_resume_spawn_argv_preserves_upstream_lineage_without_adapter_exposure(
+    tmp_path: Path,
+) -> None:
+    lineage = _upstream_lineage()
+    launch = {
+        "run_id": "downstream-resume",
+        "upstream_run_lineage": lineage,
+        "model": "gpt-5.4-mini",
+    }
+    spawn_argv = [
+        "python",
+        "-m",
+        "harness.runtime.runner.entrypoint",
+        "--launch-context-json",
+        json.dumps(launch, separators=(",", ":")),
+    ]
+    state = cli_run_state.new_run_state(
+        run_id="downstream-resume",
+        pid=1,
+        loop_kind="deed_to_ir",
+        mode="live",
+        spawn_argv=spawn_argv,
+        status="started",
+        extra={"upstream_run_lineage": lineage},
+    )
+    cli_run_state.write_state(state)
+
+    loaded = cli_run_state.read_state("downstream-resume")
+    assert loaded is not None
+    assert loaded.extra["upstream_run_lineage"] == lineage
+    assert "upstream_run_lineage" in loaded.spawn_argv[-1]
+
+    _, domain_context = __import__(
+        "harness.runtime.upstream_run_lineage",
+        fromlist=["partition_launch_context_for_upstream_lineage"],
+    ).partition_launch_context_for_upstream_lineage(launch)
+    assert "upstream_run_lineage" not in domain_context
+
+
+def test_runner_timeline_includes_upstream_link_when_local_audit_exists(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    upstream_id = "practice-row-live-20260619-76"
+    upstream_timeline = (
+        tmp_path / "cli_runs" / upstream_id / "audit" / "human" / "timeline.md"
+    )
+    upstream_timeline.parent.mkdir(parents=True)
+    upstream_timeline.write_text("# upstream", encoding="utf-8")
+
+    adapter = FakeSurfaceAdapter(calls=[], surface=_surface([]))
+    run_id = "downstream-with-link"
+    _seed_cli_run_state(tmp_path, monkeypatch, run_id)
+
+    runner = RuntimeRunner(
+        adapter=adapter,
+        model_caller=lambda *_a, **_k: json.dumps(
+            {
+                "action_type": None,
+                "action_inputs": {},
+                "idempotency_key": "plan-complete",
+                "skip_execution": True,
+                "wait_for_human": False,
+                "complete_run": True,
+                "rationale": "done",
+                "state_patch": None,
+                "continuity_journal_entry": {"stub": True},
+                "operator_progress_message": None,
+            }
+        ),
+        targets=_targets(tmp_path),
+    )
+    runner.run(
+        launch_context={
+            "run_id": run_id,
+            "model": "gpt-5.4-mini",
+            "max_iterations": 2,
+            "upstream_run_lineage": _upstream_lineage(),
+        }
+    )
+
+    timeline = (cli_run_state.run_dir(run_id) / "audit" / "human" / "timeline.md").read_text(
+        encoding="utf-8"
+    )
+    assert "## Upstream Runs" in timeline
+    assert "[open upstream timeline]" in timeline
+    assert upstream_timeline.read_text(encoding="utf-8") == "# upstream"

@@ -11,7 +11,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from .run_state import new_run_state, write_state
+from .run_state import new_run_state, read_state, write_state
 
 
 def _backend_cwd() -> str:
@@ -127,9 +127,16 @@ def start_run(
     stdout_f.close()
     stderr_f.close()
 
-    state.pid = int(proc.pid or 0)
-    state.status = "started"
-    write_state(state)
+    fresh = read_state(run_id)
+    if fresh is not None:
+        fresh.pid = int(proc.pid or 0)
+        fresh.status = "started"
+        write_state(fresh)
+        state = fresh
+    else:
+        state.pid = int(proc.pid or 0)
+        state.status = "started"
+        write_state(state)
 
     return {
         "run_id": run_id,

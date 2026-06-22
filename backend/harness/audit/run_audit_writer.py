@@ -40,11 +40,13 @@ class RunAuditWriter:
         run_id: str = "",
         session_id: str = "",
         request_id: str = "",
+        upstream_run_lineage: dict[str, Any] | None = None,
     ) -> None:
         self._dir: Path | None = Path(run_dir) / "audit" if run_dir is not None else None
         self._run_id = run_id
         self._session_id = session_id
         self._request_id = request_id
+        self._upstream_run_lineage = upstream_run_lineage
         self._turns: list[dict[str, Any]] = []
         # Index: turn_index → position in _turns list for O(1) supplement lookup.
         self._turn_index_map: dict[int, int] = {}
@@ -174,7 +176,11 @@ class RunAuditWriter:
             merged_turns = self._merge_turns_with_disk()
             self._write_index(run_id, terminal_class, reason_code, iterations, latest_refs, merged_turns)
             self._write_review(terminal_class, reason_code, iterations, trace_events, latest_refs, merged_turns)
-            write_human_timeline(self._dir, merged_turns)
+            write_human_timeline(
+                self._dir,
+                merged_turns,
+                upstream_run_lineage=self._upstream_run_lineage,
+            )
         except Exception:
             _LOG.warning("RunAuditWriter.finalize failed; audit artifacts may be incomplete", exc_info=True)
 
@@ -215,7 +221,11 @@ class RunAuditWriter:
     def _refresh_human_timeline(self) -> None:
         if self._dir is None:
             return
-        write_human_timeline(self._dir, self._turns)
+        write_human_timeline(
+            self._dir,
+            self._turns,
+            upstream_run_lineage=self._upstream_run_lineage,
+        )
 
     def _write_index(
         self,
@@ -232,18 +242,21 @@ class RunAuditWriter:
             terminal_class=terminal_class or None,
             ref_keys=list(latest_refs.keys()),
         )
+        index_payload: dict[str, Any] = {
+            "run_id": run_id,
+            "terminal_class": terminal_class,
+            "terminal_artifact_posture": terminal_artifact_posture,
+            "reason_code": reason_code,
+            "iterations": iterations,
+            "turn_count": len(turns),
+            "repairs_attempted": repairs,
+            "latest_refs": latest_refs,
+        }
+        if isinstance(self._upstream_run_lineage, dict):
+            index_payload["upstream_run_lineage"] = self._upstream_run_lineage
         _write_json_atomic(
             self._dir / "index.json",  # type: ignore[arg-type]
-            {
-                "run_id": run_id,
-                "terminal_class": terminal_class,
-                "terminal_artifact_posture": terminal_artifact_posture,
-                "reason_code": reason_code,
-                "iterations": iterations,
-                "turn_count": len(turns),
-                "repairs_attempted": repairs,
-                "latest_refs": latest_refs,
-            },
+            index_payload,
         )
 
     def _write_review(
@@ -321,23 +334,32 @@ def rewrite_terminal_artifacts(
             "session_id": session_id or None,
             "request_id": request_id or None,
         }
-        write_human_timeline(audit_dir, turns, run_terminal_override=override_payload)
+        existing_lineage = _read_existing_upstream_run_lineage(audit_dir)
+        write_human_timeline(
+            audit_dir,
+            turns,
+            run_terminal_override=override_payload,
+            upstream_run_lineage=existing_lineage,
+        )
         terminal_artifact_posture = classify_terminal_artifact_posture(
             terminal_class=terminal_class or None,
             ref_keys=list(latest_refs.keys()),
         )
+        index_payload: dict[str, Any] = {
+            "run_id": run_id,
+            "terminal_class": terminal_class,
+            "terminal_artifact_posture": terminal_artifact_posture,
+            "reason_code": reason_code,
+            "iterations": iterations,
+            "turn_count": len(turns),
+            "repairs_attempted": sum(1 for t in turns if t.get("repair_attempted")),
+            "latest_refs": latest_refs,
+        }
+        if existing_lineage is not None:
+            index_payload["upstream_run_lineage"] = existing_lineage
         _write_json_atomic(
             audit_dir / "index.json",
-            {
-                "run_id": run_id,
-                "terminal_class": terminal_class,
-                "terminal_artifact_posture": terminal_artifact_posture,
-                "reason_code": reason_code,
-                "iterations": iterations,
-                "turn_count": len(turns),
-                "repairs_attempted": sum(1 for t in turns if t.get("repair_attempted")),
-                "latest_refs": latest_refs,
-            },
+            index_payload,
         )
         event_log.append(
             "run_terminal_override",
@@ -359,6 +381,20 @@ def rewrite_terminal_artifacts(
         (audit_dir / "review.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
     except Exception:
         _LOG.warning("rewrite_terminal_artifacts failed", exc_info=True)
+
+
+def _read_existing_upstream_run_lineage(audit_dir: Path) -> dict[str, Any] | None:
+    index_path = audit_dir / "index.json"
+    if not index_path.is_file():
+        return None
+    try:
+        payload = json.loads(index_path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    lineage = payload.get("upstream_run_lineage")
+    return dict(lineage) if isinstance(lineage, dict) else None
 
 
 def _build_review_lines(

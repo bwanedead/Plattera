@@ -114,6 +114,18 @@ def update_state_fields(run_id: str, **fields: Any) -> HarnessCliRunState | None
     return state
 
 
+def merge_state_extra(run_id: str, extra_patch: dict[str, Any]) -> HarnessCliRunState | None:
+    """Merge keys into ``state.extra`` without dropping concurrent child-process updates."""
+    state = read_state(run_id)
+    if state is None:
+        return None
+    merged = dict(state.extra or {})
+    merged.update(dict(extra_patch))
+    state.extra = merged
+    write_state(state)
+    return state
+
+
 def build_paths(run_id: str) -> HarnessCliRunPaths:
     rd = run_dir(run_id)
     return HarnessCliRunPaths(

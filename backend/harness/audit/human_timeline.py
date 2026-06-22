@@ -28,6 +28,7 @@ from typing import Any
 
 from harness.audit.artifact_ref_links import ArtifactLinkContext, build_run_ref_path_index
 from harness.audit.artifact_ref_links import format_ref_with_link, resolve_artifact_image_link
+from harness.audit.upstream_run_lineage_timeline import render_upstream_runs_section
 from harness.audit.delegate_subtask_timeline import (
     render_delegate_subtask_section,
     render_delegate_turn_integration_summary,
@@ -81,6 +82,7 @@ def write_human_timeline(
     audit_dir: Path,
     turns: list[dict[str, Any]],
     run_terminal_override: Mapping[str, Any] | None = None,
+    upstream_run_lineage: Mapping[str, Any] | None = None,
 ) -> None:
     """Render and atomic-write ``<audit_dir>/human/timeline.md`` from ``turns``.
 
@@ -94,6 +96,7 @@ def write_human_timeline(
             turns,
             run_terminal_override=run_terminal_override,
             audit_dir=audit_dir,
+            upstream_run_lineage=upstream_run_lineage,
         )
         _atomic_write_text(target_dir / "timeline.md", body)
     except Exception:
@@ -104,6 +107,7 @@ def render_timeline(
     turns: list[dict[str, Any]],
     run_terminal_override: Mapping[str, Any] | None = None,
     audit_dir: Path | None = None,
+    upstream_run_lineage: Mapping[str, Any] | None = None,
 ) -> str:
     """Render the full markdown-ish timeline body from accumulated turn records."""
     sorted_turns = sorted(
@@ -117,6 +121,19 @@ def render_timeline(
         "text only — no host-authored semantic judgment.",
         "",
     ]
+    timeline_path = (
+        audit_dir / "human" / "timeline.md"
+        if audit_dir is not None
+        else Path("audit/human/timeline.md")
+    )
+    cli_runs_root = audit_dir.parent.parent if audit_dir is not None else None
+    lines.extend(
+        render_upstream_runs_section(
+            upstream_run_lineage,
+            cli_runs_root=cli_runs_root,
+            downstream_timeline_path=timeline_path,
+        )
+    )
     override = _coerce_mapping(run_terminal_override)
     lines.extend(_render_run_projection(sorted_turns, override, summary_heading="Run Summary"))
     if override:
@@ -130,11 +147,6 @@ def render_timeline(
                 "",
             ]
         )
-    timeline_path = (
-        audit_dir / "human" / "timeline.md"
-        if audit_dir is not None
-        else Path("audit/human/timeline.md")
-    )
     run_dir = audit_dir.parent if audit_dir is not None else None
     run_ref_path_index = build_run_ref_path_index(
         audit_dir=audit_dir,

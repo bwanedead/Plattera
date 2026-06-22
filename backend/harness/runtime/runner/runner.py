@@ -26,6 +26,10 @@ from harness.execution.contracts import ExecutionSessionStartRequest
 from harness.execution.executor import ExecutionExecutor
 from harness.execution.session import ExecutionSessionManager
 from harness.audit.run_audit_writer import rewrite_terminal_artifacts
+from harness.runtime.upstream_run_lineage import (
+    UpstreamRunLineageError,
+    partition_launch_context_for_upstream_lineage,
+)
 from harness.runtime.composition import ComposedTurnInput, DefaultTurnComposer, TurnSurface
 from harness.runtime.control import (
     CONTROL_FILENAME,
@@ -115,6 +119,13 @@ class RuntimeRunner:
           is always the total turns spent across all slices to date.
         """
         context = dict(launch_context or {})
+        upstream_run_lineage: dict[str, Any] | None = None
+        try:
+            upstream_run_lineage, context = partition_launch_context_for_upstream_lineage(context)
+        except UpstreamRunLineageError as exc:
+            raise RuntimeRunnerError(str(exc), reason_code=str(exc)) from exc
+        if upstream_run_lineage is not None:
+            _maybe_persist_upstream_lineage_to_cli_state(upstream_run_lineage)
         # CLI start sets HARNESS_CLI_LOOP_KIND but entrypoint launch JSON may omit
         # loop_kind; blocking-HITL resume must poll the same feedback namespace as
         # harness.cli.answer (which uses run-state loop_kind).
@@ -164,7 +175,11 @@ class RuntimeRunner:
                     context["max_iterations"] = remaining
 
                 orchestration_context = _with_domain_policy_context(context, adapter)
-                loop_result = self._run_orchestration(context=orchestration_context, composed=composed)
+                loop_result = self._run_orchestration(
+                    context=orchestration_context,
+                    composed=composed,
+                    upstream_run_lineage=upstream_run_lineage,
+                )
                 # Update cumulative count; kernel iteration numbers are globally
                 # monotonic so this correctly reflects total turns across all slices.
                 slices_iterations_used = loop_result.iterations
@@ -275,6 +290,7 @@ class RuntimeRunner:
                 result_payload={"error": str(exc), "reason_code": exc.reason_code, "status": "failed"},
                 done_payload={"error": str(exc), "reason_code": exc.reason_code, "status": "failed"},
             )
+            result = _attach_upstream_run_lineage_to_result(result, upstream_run_lineage)
             self._write_artifacts(targets=targets, result=result)
             raise
         except Exception as exc:
@@ -285,12 +301,14 @@ class RuntimeRunner:
                 result_payload={"error": str(exc), "reason_code": reason_code, "status": "failed"},
                 done_payload={"error": str(exc), "reason_code": reason_code, "status": "failed"},
             )
+            result = _attach_upstream_run_lineage_to_result(result, upstream_run_lineage)
             self._write_artifacts(targets=targets, result=result)
             raise RuntimeRunnerError(
                 f"runtime_runner_failed:{reason_code}", reason_code=reason_code
             ) from exc
 
         assert result is not None  # loop always assigns result before break
+        result = _attach_upstream_run_lineage_to_result(result, upstream_run_lineage)
         self._write_artifacts(targets=targets, result=result)
         return result
 
@@ -309,7 +327,13 @@ class RuntimeRunner:
             raise RuntimeRunnerError("turn_surface_required")
         return surface
 
-    def _run_orchestration(self, *, context: Mapping[str, Any], composed: ComposedTurnInput) -> Any:
+    def _run_orchestration(
+        self,
+        *,
+        context: Mapping[str, Any],
+        composed: ComposedTurnInput,
+        upstream_run_lineage: dict[str, Any] | None = None,
+    ) -> Any:
         model_name = _select_model_name(context)
         model_caller = self._model_caller or _build_default_model_caller(model_name=model_name)
         composed = _with_delegate_subtask_tool(
@@ -374,7 +398,12 @@ class RuntimeRunner:
         request_id_prefix = _select_request_id_prefix(context, fallback=run_id)
         tracer = KernelTraceCollector(session_id=session_id, request_id=request_id_prefix, run_id=run_id)
 
-        audit_writer = _build_audit_writer(run_id=run_id, session_id=session_id, request_id=request_id_prefix)
+        audit_writer = _build_audit_writer(
+            run_id=run_id,
+            session_id=session_id,
+            request_id=request_id_prefix,
+            upstream_run_lineage=upstream_run_lineage,
+        )
         resume_checkpoint_writer = _build_resume_checkpoint_writer()
         run_control_reader = _build_run_control_reader()
         prompt_event_observer = KernelPromptEventTraceObserver(tracer=tracer)
@@ -437,6 +466,9 @@ class RuntimeRunner:
             _write_json(targets.result_file, _build_result_document(result))
             _write_json(targets.done_file, _build_done_document(result))
         finally:
+            lineage = result.result_payload.get("upstream_run_lineage")
+            if isinstance(lineage, dict):
+                _maybe_persist_upstream_lineage_to_cli_state(lineage)
             _maybe_update_cli_run_state(result.status)
             _maybe_finalize_retention_and_cleanup(targets)
 
@@ -774,17 +806,44 @@ def _build_exhausted_done_payload(loop_result: Any) -> dict[str, Any]:
     return payload
 
 
+def _attach_upstream_run_lineage_to_result(
+    result: RuntimeRunResult,
+    upstream_run_lineage: dict[str, Any] | None,
+) -> RuntimeRunResult:
+    if upstream_run_lineage is None:
+        return result
+    lineage = _jsonable(upstream_run_lineage)
+    return RuntimeRunResult(
+        status=result.status,
+        reason_code=result.reason_code,
+        result_payload={**dict(result.result_payload), "upstream_run_lineage": lineage},
+        done_payload={**dict(result.done_payload), "upstream_run_lineage": lineage},
+    )
+
+
 def _write_json(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
 
 
-def _build_audit_writer(*, run_id: str = "", session_id: str = "", request_id: str = "") -> Any:
+def _build_audit_writer(
+    *,
+    run_id: str = "",
+    session_id: str = "",
+    request_id: str = "",
+    upstream_run_lineage: dict[str, Any] | None = None,
+) -> Any:
     """Return a ``RunAuditWriter`` scoped to the current CLI run dir, or a no-op if not in a CLI run."""
     from harness.audit.run_audit_writer import RunAuditWriter
     cli_run_id = os.environ.get("HARNESS_CLI_RUN_ID", "").strip()
     if not cli_run_id:
-        return RunAuditWriter(None, run_id=run_id, session_id=session_id, request_id=request_id)
+        return RunAuditWriter(
+            None,
+            run_id=run_id,
+            session_id=session_id,
+            request_id=request_id,
+            upstream_run_lineage=upstream_run_lineage,
+        )
     try:
         from harness.cli.run_state import run_dir as cli_run_dir
         return RunAuditWriter(
@@ -792,9 +851,16 @@ def _build_audit_writer(*, run_id: str = "", session_id: str = "", request_id: s
             run_id=run_id,
             session_id=session_id,
             request_id=request_id,
+            upstream_run_lineage=upstream_run_lineage,
         )
     except Exception:
-        return RunAuditWriter(None, run_id=run_id, session_id=session_id, request_id=request_id)
+        return RunAuditWriter(
+            None,
+            run_id=run_id,
+            session_id=session_id,
+            request_id=request_id,
+            upstream_run_lineage=upstream_run_lineage,
+        )
 
 
 def _build_resume_checkpoint_writer() -> Callable[[Mapping[str, Any]], None] | None:
@@ -858,6 +924,22 @@ def _maybe_update_cli_run_state(status: str) -> None:
         import logging
 
         logging.getLogger(__name__).warning("run-state update failed for run_id=%s", cli_run_id, exc_info=True)
+
+
+def _maybe_persist_upstream_lineage_to_cli_state(upstream_run_lineage: dict[str, Any]) -> None:
+    """Best-effort merge of normalized upstream lineage into state.json extra."""
+    cli_run_id = os.environ.get("HARNESS_CLI_RUN_ID", "").strip()
+    if not cli_run_id:
+        return
+    try:
+        from harness.cli.run_state import merge_state_extra
+
+        merge_state_extra(
+            cli_run_id,
+            {"upstream_run_lineage": _jsonable(upstream_run_lineage)},
+        )
+    except Exception:
+        _LOG.warning("upstream_run_lineage state.json persist failed", exc_info=True)
 
 
 def _maybe_finalize_retention_and_cleanup(targets: RuntimeArtifactTargets) -> None:
