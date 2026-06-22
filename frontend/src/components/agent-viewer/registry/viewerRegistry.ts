@@ -1,3 +1,5 @@
+import { firstText } from '../model/modelUtils';
+
 export type ViewerPrimitiveKind = 'artifact' | 'evidence' | 'work_item' | 'hitl_prompt' | 'action';
 
 export type ViewerRegistryItem = {
@@ -104,10 +106,3 @@ function fallbackPresentation(item: ViewerRegistryItem): ViewerInventoryPresenta
   };
 }
 
-function firstText(...values: any[]): string {
-  for (const value of values) {
-    const text = typeof value === 'string' ? value.trim() : '';
-    if (text) return text;
-  }
-  return '';
-}

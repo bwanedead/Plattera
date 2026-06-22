@@ -129,4 +129,3 @@ export function useAgentViewerInteraction({
   };
 }
 
-export type { NormalizedHitlPrompt };

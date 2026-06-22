@@ -4,7 +4,8 @@ import {
   type CanvasRendererRegistration,
   type CanvasRendererRegistry,
 } from './canvasRendererRegistry';
-import { defaultDomainAdapters, selectDomainAdapters } from './defaultDomainAdapters';
+import { defaultDomainAdapters } from './defaultDomainAdapters';
+import { selectDomainAdapters } from './domainAdapters';
 
 export function createCanvasRegistryForSnapshot(
   snapshot: AgentViewerSnapshot | null,

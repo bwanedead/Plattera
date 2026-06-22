@@ -1,5 +1,5 @@
 import React from 'react';
-import type { NormalizedHitlPrompt } from '../hooks/useAgentViewerInteraction';
+import type { NormalizedHitlPrompt } from '../model/viewTypes';
 
 type InteractionTrayProps = {
   activePrompt: NormalizedHitlPrompt | null;

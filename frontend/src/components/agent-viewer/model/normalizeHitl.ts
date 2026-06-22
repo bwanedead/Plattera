@@ -1,6 +1,6 @@
 import type { AgentViewerEvent, AgentViewerHitlPrompt, AgentViewerSnapshot } from '../../../services/agentViewerApi';
 import type { NormalizedHitlPrompt } from './viewTypes';
-import { firstText } from './modelUtils';
+import { firstText, isRecord } from './modelUtils';
 
 export function hitlPromptsFromSnapshot(snapshot: AgentViewerSnapshot | null): NormalizedHitlPrompt[] {
   if (!snapshot) return [];
@@ -76,8 +76,4 @@ function collectRefs(...sources: unknown[]): string[] {
 function collectStringList(raw: unknown): string[] {
   if (!Array.isArray(raw)) return [];
   return raw.map((value) => (typeof value === 'string' ? value.trim() : '')).filter(Boolean).slice(0, 12);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }

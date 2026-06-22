@@ -1,8 +1,5 @@
 /** Wire types for agent_run_replay.v1 bundles — viewer-owned, not harness schema. */
 
-export const REPLAY_FIXTURES_BASE = '/agent-viewer-replay';
-export const DEFAULT_REPLAY_FIXTURE_ID = 'practice-row-live-20260619-76';
-
 export type ReplayManifest = {
   schema_version: string;
   fixture_id: string;

@@ -12,7 +12,7 @@ import {
   loadReplayTurnSnapshot,
 } from '../transport/replay/replayLoader';
 import type { ReplayBundle } from '../transport/replay/replayTypes';
-import { DEFAULT_REPLAY_FIXTURE_ID } from '../transport/replay/replayTypes';
+import { DEFAULT_REPLAY_FIXTURE_ID } from '../constants';
 
 export type ReplayPlaybackState = {
   currentTurn: number;

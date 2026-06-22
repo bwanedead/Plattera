@@ -8,7 +8,7 @@ import type {
   ReplayTurnIndexEntry,
   ReplayTurnSnapshot,
 } from './replayTypes';
-import { DEFAULT_REPLAY_FIXTURE_ID, REPLAY_FIXTURES_BASE } from './replayTypes';
+import { DEFAULT_REPLAY_FIXTURE_ID, REPLAY_FIXTURES_BASE } from '../../constants';
 
 async function fetchJson<T>(url: string): Promise<T> {
   const response = await fetch(url);

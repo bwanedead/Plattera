@@ -1,11 +1,9 @@
 import type { CanvasRendererRegistration } from '../../../registry/canvasRendererRegistry';
-import type { AgentViewerDomainAdapter } from '../../../registry/domainAdapters';
+import type { ExtendedDomainAdapter } from '../../../registry/defaultDomainAdapters';
 import { TextArtifactRenderer } from '../../generic/TextArtifactRenderer';
 import { extractTranscriptDraftText } from './transcriptDraftText';
 
-export const transcriptEditDomainAdapter: AgentViewerDomainAdapter & {
-  canvasRegistrations: CanvasRendererRegistration[];
-} = {
+export const transcriptEditDomainAdapter: ExtendedDomainAdapter = {
   id: 'domain.transcript_edit',
   label: 'Transcript edit',
   priority: 20,
