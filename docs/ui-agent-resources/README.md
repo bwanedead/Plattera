@@ -3,6 +3,13 @@
 This folder contains lightweight, git-safe replay bundles for building and
 testing a universal agent-process viewer without requiring a live model run.
 
+## Cloud Agent Start
+
+Start with
+[`cloud-agent-initiation-brief.md`](./cloud-agent-initiation-brief.md). It
+defines the base/working branches, required reading, hard no-harness-edit scope,
+long-running product goal, and autonomy expected for cloud UI development.
+
 Before implementation, read:
 
 1. `docs/architecture/agent-viewer-product-vision.md` for the product and UX
