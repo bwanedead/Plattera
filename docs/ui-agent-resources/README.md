@@ -3,6 +3,15 @@
 This folder contains lightweight, git-safe replay bundles for building and
 testing a universal agent-process viewer without requiring a live model run.
 
+Before implementation, read:
+
+1. `docs/architecture/agent-viewer-product-vision.md` for the product and UX
+   north star.
+2. `docs/architecture/agent-viewer-v1.md` for architecture and ownership
+   boundaries.
+3. `docs/ui-agent-resources/platform-viewer-contract.md` for the generic replay
+   lanes and extension contract.
+
 The viewer is a platform surface. It must render generic harness concepts first:
 
 - run identity, status, progress, and terminal outcome
@@ -44,4 +53,3 @@ python docs/ui-agent-resources/scripts/build_transcript_edit_replay.py
 The generator sanitizes local paths, drops raw prompts and binary payloads,
 copies persisted JSON artifacts, builds generic indexes, and validates the
 result before replacing the checked-in fixture.
-

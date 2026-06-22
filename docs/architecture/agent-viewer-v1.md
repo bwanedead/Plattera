@@ -2,8 +2,17 @@
 
 ## Status
 
-Draft planning brief. This document defines the architecture target for the next
-Agent Viewer pass before implementation work begins.
+Active architecture brief. The transport, snapshot, model-normalization, and
+registry foundation is partially implemented, while the universal shell and
+domain renderer system remain in progress. This document defines the target
+boundaries for continued implementation.
+
+Product and UX intent is defined in the companion document:
+
+- `docs/architecture/agent-viewer-product-vision.md`
+
+Read the product vision first when implementing the viewer. Use this brief for
+module boundaries, contracts, and implementation sequencing.
 
 ## Why This Exists
 

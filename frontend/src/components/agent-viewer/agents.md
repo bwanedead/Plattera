@@ -31,6 +31,7 @@
 - Keep existing human-centered workspaces intact; viewer actions should bridge to them rather than absorbing them.
 
 ## Links
+- Docs: `docs/architecture/agent-viewer-product-vision.md`
 - Docs: `docs/architecture/agent-viewer-v1.md`
 - Docs: `docs/architecture/harness/harness-constitution.md`
 - Docs: `docs/architecture/harness/hitl-constitution.md`

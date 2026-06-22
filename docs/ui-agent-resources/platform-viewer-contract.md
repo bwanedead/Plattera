@@ -1,5 +1,9 @@
 # Universal Agent Viewer Contract
 
+Product and UX intent lives in
+`docs/architecture/agent-viewer-product-vision.md`. This document defines the
+generic data lanes and replay contract that support that experience.
+
 ## Core Rule
 
 The viewer consumes the harness's generic execution envelope. It does not make
@@ -54,4 +58,3 @@ Large binaries are not committed. `media_catalog.json` preserves each media
 artifact's ref, role, dimensions when known, descriptor relationship, and
 original byte size. Every media row points to `media/placeholder.svg` so image
 states can be designed without shipping deed imagery.
-

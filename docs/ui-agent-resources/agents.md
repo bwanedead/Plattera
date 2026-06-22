@@ -24,5 +24,6 @@
 - Turn snapshots omit before-state copies; derive them from the prior turn's after-state.
 
 ## Links
+- Docs: `docs/architecture/agent-viewer-product-vision.md`
 - Docs: `docs/ui-agent-resources/platform-viewer-contract.md`
 - Related code: `backend/harness/`
