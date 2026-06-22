@@ -1,3 +1,9 @@
+import {
+  acquireClientLogBridgeRef,
+  getClientLogBridgeRefCount,
+  releaseClientLogBridgeRef,
+} from './clientLogBridgeRefCount';
+
 const API_BASE =
   (typeof process !== 'undefined' &&
     process.env &&
@@ -5,6 +11,10 @@ const API_BASE =
   'http://127.0.0.1:8000';
 
 const FRONTEND_LOG_ENDPOINT = `${API_BASE}/api/logs/frontend`;
+
+let bridgeTeardown: (() => void) | null = null;
+let originalWarn: typeof console.warn | null = null;
+let originalError: typeof console.error | null = null;
 
 export async function postAgentViewerFrontendLog(payload: {
   level: string;
@@ -39,7 +49,7 @@ export async function postAgentViewerTimingLog(
   });
 }
 
-export function installAgentViewerClientLogBridge(): () => void {
+function installBridge(): () => void {
   const postLog = (level: string, args: unknown[]) => {
     try {
       const text = args
@@ -62,15 +72,15 @@ export function installAgentViewerClientLogBridge(): () => void {
     }
   };
 
-  const originalWarn = console.warn;
-  const originalError = console.error;
+  originalWarn = console.warn;
+  originalError = console.error;
   console.warn = (...args: unknown[]) => {
     postLog('WARNING', args);
-    originalWarn(...args);
+    originalWarn?.(...args);
   };
   console.error = (...args: unknown[]) => {
     postLog('ERROR', args);
-    originalError(...args);
+    originalError?.(...args);
   };
 
   const onWindowError = (event: ErrorEvent) => {
@@ -79,8 +89,36 @@ export function installAgentViewerClientLogBridge(): () => void {
   window.addEventListener('error', onWindowError);
 
   return () => {
-    console.warn = originalWarn;
-    console.error = originalError;
+    if (originalWarn) console.warn = originalWarn;
+    if (originalError) console.error = originalError;
     window.removeEventListener('error', onWindowError);
+    originalWarn = null;
+    originalError = null;
   };
+}
+
+export function acquireAgentViewerClientLogBridge(): () => void {
+  acquireClientLogBridgeRef();
+  if (typeof window !== 'undefined' && getClientLogBridgeRefCount() === 1) {
+    bridgeTeardown = installBridge();
+  }
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    releaseClientLogBridgeRef();
+    if (typeof window !== 'undefined' && getClientLogBridgeRefCount() === 0 && bridgeTeardown) {
+      bridgeTeardown();
+      bridgeTeardown = null;
+    }
+  };
+}
+
+/** @deprecated Use acquireAgentViewerClientLogBridge for ref-counted installs. */
+export function installAgentViewerClientLogBridge(): () => void {
+  return acquireAgentViewerClientLogBridge();
+}
+
+export function getAgentViewerClientLogBridgeRefCount(): number {
+  return getClientLogBridgeRefCount();
 }

@@ -8,6 +8,7 @@ type InteractionTrayProps = {
   busy: boolean;
   error: string | null;
   receipt: string | null;
+  pendingAcknowledgment?: boolean;
   onSubmitChoice: (choice: string) => void;
   onSubmitSteering: () => void;
   selectionLabel: string | null;
@@ -20,6 +21,7 @@ export function InteractionTray({
   busy,
   error,
   receipt,
+  pendingAcknowledgment,
   onSubmitChoice,
   onSubmitSteering,
   selectionLabel,
@@ -69,8 +71,11 @@ export function InteractionTray({
         </button>
       </div>
 
+      {pendingAcknowledgment ? (
+        <div className="av-interaction-receipt">Response submitted — awaiting agent acknowledgment.</div>
+      ) : null}
       {error ? <div className="av-run-error">{error}</div> : null}
-      {receipt ? <div className="av-interaction-receipt">{receipt}</div> : null}
+      {receipt && !pendingAcknowledgment ? <div className="av-interaction-receipt">{receipt}</div> : null}
     </section>
   );
 }

@@ -9,6 +9,7 @@ import type {
   ReplayTurnSnapshot,
 } from './replayTypes';
 import { DEFAULT_REPLAY_FIXTURE_ID, REPLAY_FIXTURES_BASE } from '../../constants';
+import type { ReplayFeedbackFile, ReplayMessageFile } from './replayTypes';
 
 async function fetchJson<T>(url: string): Promise<T> {
   const response = await fetch(url);
@@ -16,6 +17,14 @@ async function fetchJson<T>(url: string): Promise<T> {
     throw new Error(`Replay load failed (${response.status}): ${url}`);
   }
   return response.json() as Promise<T>;
+}
+
+async function fetchJsonOptional<T>(url: string): Promise<T | null> {
+  try {
+    return await fetchJson<T>(url);
+  } catch {
+    return null;
+  }
 }
 
 async function fetchJsonl<T extends Record<string, unknown>>(url: string): Promise<T[]> {
@@ -39,12 +48,14 @@ export async function loadReplayBundle(fixtureId: string = DEFAULT_REPLAY_FIXTUR
   const baseUrl = replayFixtureBaseUrl(fixtureId);
   const manifest = await fetchJson<ReplayManifest>(`${baseUrl}/replay_manifest.json`);
 
-  const [turnIndex, events, artifactCatalog, mediaCatalog, finalState] = await Promise.all([
+  const [turnIndex, events, artifactCatalog, mediaCatalog, finalState, feedback, messages] = await Promise.all([
     fetchJson<ReplayTurnIndexEntry[]>(`${baseUrl}/replay/turn_index.json`),
     fetchJsonl<ReplayStreamEvent>(`${baseUrl}/replay/events.jsonl`),
     fetchJson<ReplayArtifactCatalogEntry[]>(`${baseUrl}/artifacts/artifact_catalog.json`),
     fetchJson<ReplayMediaCatalogEntry[]>(`${baseUrl}/artifacts/media_catalog.json`),
     fetchJson<ReplayFinalState>(`${baseUrl}/replay/final_state.json`),
+    fetchJsonOptional<ReplayFeedbackFile>(`${baseUrl}/interactions/feedback.json`),
+    fetchJsonOptional<ReplayMessageFile>(`${baseUrl}/interactions/message.json`),
   ]);
 
   return {
@@ -56,6 +67,10 @@ export async function loadReplayBundle(fixtureId: string = DEFAULT_REPLAY_FIXTUR
     artifactCatalog,
     mediaCatalog,
     finalState,
+    interactions: {
+      feedback,
+      messages,
+    },
   };
 }
 

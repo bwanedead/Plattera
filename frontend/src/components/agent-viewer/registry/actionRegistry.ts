@@ -13,7 +13,7 @@ export type ViewerActionContext = {
 export type ViewerActionHandler = (
   action: AgentViewerAction,
   context: ViewerActionContext,
-) => void | Promise<void>;
+) => boolean | void | Promise<boolean | void>;
 
 export type ViewerActionRegistry = Record<string, ViewerActionHandler>;
 
@@ -22,26 +22,29 @@ const BUILTIN_HANDLERS: ViewerActionRegistry = {
     const command = action.target?.command;
     if (command === 'restart') {
       context.replay?.restart();
-      return;
+      return true;
     }
     if (command === 'refresh_snapshot') {
       context.refreshSnapshot();
-      return;
+      return true;
     }
     const turn = action.target?.turn_index;
     if (command === 'scrub_turn' && typeof turn === 'number') {
       context.replay?.scrubToTurn(turn);
+      return true;
     }
+    return false;
   },
   select_artifact: (action, context) => {
     const ref = action.target?.artifact_ref;
-    if (typeof ref !== 'string' || !ref.trim()) return;
+    if (typeof ref !== 'string' || !ref.trim()) return false;
     context.select({
       kind: 'artifact',
       id: ref.trim(),
       ref: ref.trim(),
       label: action.label || ref.trim(),
     });
+    return true;
   },
 };
 
@@ -60,11 +63,14 @@ export async function executeViewerAction(
     return { ok: false, reason: action.reason || 'Action is disabled' };
   }
 
-  const handler = registry[action.kind] || registry.viewer_command;
+  const handler = registry[action.kind];
   if (!handler) {
-    return { ok: false, reason: `No handler for action kind "${action.kind}"` };
+    return { ok: false, reason: `Unsupported action kind "${action.kind}"` };
   }
 
-  await handler(action, context);
+  const handled = await handler(action, context);
+  if (handled === false) {
+    return { ok: false, reason: `Action "${action.id}" is not supported by handler "${action.kind}"` };
+  }
   return { ok: true };
 }

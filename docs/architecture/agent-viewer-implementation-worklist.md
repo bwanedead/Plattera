@@ -20,7 +20,13 @@ Status: living plan for `cursor/universal-agent-viewer-ui-848b`.
 - [x] Chapter rail / handoff markers
 - [x] Delegate activity lane badge in timeline
 - [x] Keyboard Escape to close overlay
-- [x] Co-located contract tests (`eventIdentity.test.mjs`)
+- [x] **Temporal replay projection** (`loading | available | unavailable`) — no final/prior-state leak
+- [x] **HITL lifecycle** — submitted ≠ consumed; pending acknowledgment UI
+- [x] **Replay interaction lane** — feedback.json + turn HITL exchanges projected chronologically
+- [x] **Ref-counted log bridge** for concurrent viewers
+- [x] **Strict action handler resolution** — unsupported kinds fail visibly
+- [x] Contract tests + `npm run test:agent-viewer`
+- [x] Split `agentViewerShell.css` into focused modules
 
 ## Next
 
@@ -35,9 +41,8 @@ Status: living plan for `cursor/universal-agent-viewer-ui-848b`.
 - [ ] Deed-to-IR artifact presenters
 
 ### Quality
-- [ ] Responsive layout pass (tablet polish beyond single-column collapse)
 - [ ] Keyboard focus trap inside overlay dialog
-- [ ] Frontend test script entry (`npm run test:agent-viewer`)
+- [ ] Wire `test:agent-viewer` into CI/check flow
 
 ## Non-goals (this branch)
 

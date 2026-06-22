@@ -4,6 +4,7 @@ import {
   normalizeReplayBundleToSnapshot,
   replayEventsUpToTurn,
 } from '../model/normalizeReplay';
+import type { ReplayProjectionStatus } from '../model/replayProjection';
 import type { ArtifactLoadResult } from '../model/artifactLoadResult';
 import { loadReplayArtifact } from '../transport/replay/replayArtifactGateway';
 import {
@@ -18,6 +19,7 @@ export type ReplayPlaybackState = {
   currentTurn: number;
   maxTurn: number;
   isPlaying: boolean;
+  projectionStatus: ReplayProjectionStatus;
 };
 
 export type UseAgentViewerReplayResult = {
@@ -48,6 +50,7 @@ export function useAgentViewerReplay(
   const [currentTurn, setCurrentTurn] = React.useState(0);
   const [isPlaying, setIsPlaying] = React.useState(false);
   const [turnSnapshot, setTurnSnapshot] = React.useState<Record<string, unknown> | null>(null);
+  const [projectionStatus, setProjectionStatus] = React.useState<ReplayProjectionStatus>('unavailable');
 
   React.useEffect(() => {
     if (!enabled) return;
@@ -60,6 +63,8 @@ export function useAgentViewerReplay(
         setBundle(loaded);
         setCurrentTurn(0);
         setIsPlaying(false);
+        setTurnSnapshot(null);
+        setProjectionStatus('unavailable');
       })
       .catch((err) => {
         if (cancelled) return;
@@ -76,27 +81,47 @@ export function useAgentViewerReplay(
   const maxTurn = bundle?.manifest.source.turn_count ?? 0;
 
   React.useEffect(() => {
-    if (!bundle || currentTurn <= 0) {
+    if (!bundle) return;
+
+    if (currentTurn <= 0) {
       setTurnSnapshot(null);
+      setProjectionStatus('unavailable');
       return;
     }
+
+    if (currentTurn >= maxTurn) {
+      setTurnSnapshot(null);
+      setProjectionStatus('available');
+      return;
+    }
+
     const entry = findTurnEntry(bundle, currentTurn);
     if (!entry) {
       setTurnSnapshot(null);
+      setProjectionStatus('unavailable');
       return;
     }
+
+    setTurnSnapshot(null);
+    setProjectionStatus('loading');
+
     let cancelled = false;
     loadReplayTurnSnapshot(bundle.baseUrl, entry)
       .then((snapshot) => {
-        if (!cancelled) setTurnSnapshot(snapshot);
+        if (cancelled) return;
+        setTurnSnapshot(snapshot);
+        setProjectionStatus('available');
       })
       .catch(() => {
-        if (!cancelled) setTurnSnapshot(null);
+        if (cancelled) return;
+        setTurnSnapshot(null);
+        setProjectionStatus('unavailable');
       });
+
     return () => {
       cancelled = true;
     };
-  }, [bundle, currentTurn]);
+  }, [bundle, currentTurn, maxTurn]);
 
   React.useEffect(() => {
     if (!isPlaying || !bundle) return;
@@ -113,15 +138,16 @@ export function useAgentViewerReplay(
   const snapshot = React.useMemo(() => {
     if (!bundle) return null;
     return normalizeReplayBundleToSnapshot(bundle, {
-      turnIndex: currentTurn || undefined,
+      turnIndex: currentTurn,
       turnSnapshot,
+      projectionStatus,
     });
-  }, [bundle, currentTurn, turnSnapshot]);
+  }, [bundle, currentTurn, projectionStatus, turnSnapshot]);
 
   const events = React.useMemo(() => {
     if (!bundle || currentTurn <= 0) return [];
-    return replayEventsUpToTurn(bundle, currentTurn);
-  }, [bundle, currentTurn]);
+    return replayEventsUpToTurn(bundle, currentTurn, turnSnapshot);
+  }, [bundle, currentTurn, turnSnapshot]);
 
   const loadArtifact = React.useCallback(
     async (ref: string) => {
@@ -143,6 +169,7 @@ export function useAgentViewerReplay(
       currentTurn,
       maxTurn,
       isPlaying,
+      projectionStatus,
     },
     play: () => {
       if (currentTurn >= maxTurn) setCurrentTurn(0);

@@ -7,11 +7,18 @@ import {
   type AgentViewerLoopKind,
   type AgentViewerSnapshot,
 } from '../../../services/agentViewerApi';
-import { activeHitlPrompt } from '../model/normalizeHitl';
+import {
+  activeHitlPrompt,
+  isSubmittedFeedbackEntry,
+  resolvedPromptIdsFromEvents,
+  resolvedPromptIdsFromFeedback,
+} from '../model/normalizeHitl';
 import type { NormalizedHitlPrompt } from '../model/viewTypes';
 import type { ViewerSelection } from '../selection/selectionTypes';
+import type { AgentViewerTransportMode } from './useAgentViewerRun';
 
 type Params = {
+  mode: AgentViewerTransportMode;
   isOpen: boolean;
   loopKind: AgentViewerLoopKind | null;
   runId: string | null;
@@ -21,6 +28,7 @@ type Params = {
 };
 
 export function useAgentViewerInteraction({
+  mode,
   isOpen,
   loopKind,
   runId,
@@ -35,7 +43,10 @@ export function useAgentViewerInteraction({
   const [receipt, setReceipt] = React.useState<string | null>(null);
 
   React.useEffect(() => {
-    if (!isOpen || !loopKind || !runId) return;
+    if (!isOpen || mode === 'replay' || !loopKind || !runId) {
+      setEntries([]);
+      return;
+    }
     let cancelled = false;
     (async () => {
       try {
@@ -48,20 +59,31 @@ export function useAgentViewerInteraction({
     return () => {
       cancelled = true;
     };
-  }, [isOpen, loopKind, runId]);
+  }, [isOpen, loopKind, mode, runId]);
 
-  const answeredPromptIds = React.useMemo(() => {
-    return new Set(entries.map((entry) => String(entry.prompt_id || '').trim()).filter(Boolean));
+  const resolvedPromptIds = React.useMemo(() => {
+    const fromEvents = resolvedPromptIdsFromEvents(events);
+    const fromFeedback = resolvedPromptIdsFromFeedback(entries);
+    return new Set([...fromEvents, ...fromFeedback]);
+  }, [entries, events]);
+
+  const pendingSubmissions = React.useMemo(() => {
+    return entries.filter((entry) => isSubmittedFeedbackEntry(entry) && !resolvedPromptIdsFromFeedback([entry]).size);
   }, [entries]);
 
   const activePrompt = React.useMemo(
-    () => activeHitlPrompt(snapshot, events, answeredPromptIds),
-    [answeredPromptIds, events, snapshot],
+    () => activeHitlPrompt(snapshot, events, resolvedPromptIds),
+    [events, resolvedPromptIds, snapshot],
+  );
+
+  const pendingPromptId = activePrompt?.promptId ?? null;
+  const hasPendingSubmissionForActivePrompt = Boolean(
+    pendingPromptId && pendingSubmissions.some((entry) => String(entry.prompt_id || '').trim() === pendingPromptId),
   );
 
   const submitPromptAnswer = React.useCallback(
     async (choice?: string | null) => {
-      if (!loopKind || !runId) return;
+      if (!loopKind || !runId || mode === 'replay') return;
       setBusy(true);
       setError(null);
       setReceipt(null);
@@ -72,6 +94,7 @@ export function useAgentViewerInteraction({
           note: note.trim() || null,
           metadata: {
             action: 'prompt_feedback',
+            lifecycle: 'submitted',
             selection_kind: selection?.kind || null,
             selection_id: selection?.id || null,
             selection_ref: selection?.ref || null,
@@ -86,11 +109,11 @@ export function useAgentViewerInteraction({
         setBusy(false);
       }
     },
-    [activePrompt?.promptId, loopKind, note, runId, selection],
+    [activePrompt?.promptId, loopKind, mode, note, runId, selection],
   );
 
   const submitSteeringMessage = React.useCallback(async () => {
-    if (!loopKind || !runId || !note.trim()) return;
+    if (!loopKind || !runId || mode === 'replay' || !note.trim()) return;
     setBusy(true);
     setError(null);
     setReceipt(null);
@@ -101,6 +124,7 @@ export function useAgentViewerInteraction({
         note: note.trim(),
         metadata: {
           action: 'steering_message',
+          lifecycle: 'submitted',
           selection_kind: selection?.kind || null,
           selection_id: selection?.id || null,
           selection_ref: selection?.ref || null,
@@ -114,7 +138,7 @@ export function useAgentViewerInteraction({
     } finally {
       setBusy(false);
     }
-  }, [loopKind, note, runId, selection]);
+  }, [loopKind, mode, note, runId, selection]);
 
   return {
     entries,
@@ -124,8 +148,10 @@ export function useAgentViewerInteraction({
     error,
     receipt,
     activePrompt,
+    hasPendingSubmissionForActivePrompt,
     submitPromptAnswer,
     submitSteeringMessage,
   };
 }
 
+export type { NormalizedHitlPrompt };

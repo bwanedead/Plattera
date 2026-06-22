@@ -1,4 +1,4 @@
-import type { AgentViewerEvent, AgentViewerHitlPrompt, AgentViewerSnapshot } from '../../../services/agentViewerApi';
+import type { AgentViewerFeedbackEntry, AgentViewerEvent, AgentViewerSnapshot } from '../../../services/agentViewerApi';
 import type { NormalizedHitlPrompt } from './viewTypes';
 import { firstText, isRecord } from './modelUtils';
 
@@ -31,22 +31,57 @@ export function hitlPromptFromEvent(event: AgentViewerEvent): NormalizedHitlProm
 export function activeHitlPrompt(
   snapshot: AgentViewerSnapshot | null,
   events: AgentViewerEvent[],
-  answeredPromptIds: Set<string>,
+  resolvedPromptIds: Set<string>,
 ): NormalizedHitlPrompt | null {
   for (const event of events) {
     const fromEvent = hitlPromptFromEvent(event);
     if (!fromEvent) continue;
-    if (answeredPromptIds.has(fromEvent.promptId)) continue;
+    if (resolvedPromptIds.has(fromEvent.promptId)) continue;
     return fromEvent;
   }
   for (const prompt of hitlPromptsFromSnapshot(snapshot)) {
-    if (answeredPromptIds.has(prompt.promptId)) continue;
+    if (resolvedPromptIds.has(prompt.promptId)) continue;
     return prompt;
   }
   return null;
 }
 
-function snapshotPromptToNormalized(prompt: AgentViewerHitlPrompt): NormalizedHitlPrompt {
+export function isConsumedFeedbackEntry(entry: AgentViewerFeedbackEntry): boolean {
+  const metadata = isRecord(entry.metadata) ? entry.metadata : {};
+  const lifecycle = firstText(metadata.lifecycle, metadata.status, metadata.delivery_state).toLowerCase();
+  if (lifecycle === 'consumed' || lifecycle === 'resolved' || lifecycle === 'acknowledged') return true;
+  if (lifecycle === 'submitted' || lifecycle === 'pending' || lifecycle === 'queued') return false;
+  return false;
+}
+
+export function isSubmittedFeedbackEntry(entry: AgentViewerFeedbackEntry): boolean {
+  const metadata = isRecord(entry.metadata) ? entry.metadata : {};
+  const lifecycle = firstText(metadata.lifecycle, metadata.status, metadata.delivery_state).toLowerCase();
+  if (lifecycle === 'submitted' || lifecycle === 'pending' || lifecycle === 'queued') return true;
+  return Boolean(entry.prompt_id || entry.choice || entry.note);
+}
+
+export function resolvedPromptIdsFromEvents(events: AgentViewerEvent[]): Set<string> {
+  const out = new Set<string>();
+  for (const event of events) {
+    if (event.event_type !== 'human_feedback_consumed') continue;
+    const promptId = firstText(event.payload?.prompt_id);
+    if (promptId) out.add(promptId);
+  }
+  return out;
+}
+
+export function resolvedPromptIdsFromFeedback(entries: AgentViewerFeedbackEntry[]): Set<string> {
+  const out = new Set<string>();
+  for (const entry of entries) {
+    if (!isConsumedFeedbackEntry(entry)) continue;
+    const promptId = firstText(entry.prompt_id);
+    if (promptId) out.add(promptId);
+  }
+  return out;
+}
+
+function snapshotPromptToNormalized(prompt: import('../../../services/agentViewerApi').AgentViewerHitlPrompt): NormalizedHitlPrompt {
   return {
     promptId: prompt.prompt_id,
     blocking: prompt.blocking,

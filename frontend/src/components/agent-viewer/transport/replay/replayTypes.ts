@@ -1,5 +1,34 @@
 /** Wire types for agent_run_replay.v1 bundles — viewer-owned, not harness schema. */
 
+export type ReplayFeedbackFile = {
+  loop_kind: string;
+  run_id: string;
+  entries: Array<{
+    submitted_at_epoch_seconds: number;
+    prompt_id?: string | null;
+    choice?: string | null;
+    note?: string | null;
+    metadata?: Record<string, unknown>;
+  }>;
+};
+
+export type ReplayMessageFile = {
+  loop_kind: string;
+  run_id: string;
+  entries: Array<{
+    message_id: string;
+    created_at_epoch_seconds: number;
+    source?: string;
+    text: string;
+    metadata?: Record<string, unknown>;
+  }>;
+};
+
+export type ReplayInteractionBundle = {
+  feedback: ReplayFeedbackFile | null;
+  messages: ReplayMessageFile | null;
+};
+
 export type ReplayManifest = {
   schema_version: string;
   fixture_id: string;
@@ -83,4 +112,5 @@ export type ReplayBundle = {
   artifactCatalog: ReplayArtifactCatalogEntry[];
   mediaCatalog: ReplayMediaCatalogEntry[];
   finalState: ReplayFinalState;
+  interactions: ReplayInteractionBundle;
 };

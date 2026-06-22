@@ -69,6 +69,7 @@ export function AgentViewerShell({ run, onClose }: AgentViewerShellProps) {
   );
 
   const interaction = useAgentViewerInteraction({
+    mode: run.mode,
     isOpen: true,
     loopKind: run.loopKind,
     runId: run.runId,
@@ -227,6 +228,7 @@ export function AgentViewerShell({ run, onClose }: AgentViewerShellProps) {
         busy={interaction.busy}
         error={interaction.error}
         receipt={interaction.receipt}
+        pendingAcknowledgment={interaction.hasPendingSubmissionForActivePrompt}
         onSubmitChoice={(choice) => interaction.submitPromptAnswer(choice)}
         onSubmitSteering={interaction.submitSteeringMessage}
         selectionLabel={selection?.label || null}

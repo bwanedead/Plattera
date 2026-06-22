@@ -7,6 +7,14 @@ import type {
   AgentViewerWorkItem,
 } from '../../../services/agentViewerApi';
 import { firstText, isRecord } from './modelUtils';
+import {
+  extractHitlExchangesFromTurnSnapshot,
+  hitlPromptsFromReplayExchanges,
+  mergeReplayFeedbackIntoExchanges,
+  replayInteractionEventsUpToTurn,
+} from './normalizeReplayInteractions';
+import type { ReplayProjectionStatus, ReplayTurnProjection } from './replayProjection';
+import { createReplayTurnProjection } from './replayProjection';
 import type {
   ReplayArtifactCatalogEntry,
   ReplayBundle,
@@ -16,32 +24,49 @@ import type {
   ReplayTurnIndexEntry,
 } from '../transport/replay/replayTypes';
 
+export type NormalizeReplayOptions = {
+  turnIndex?: number;
+  turnSnapshot?: Record<string, unknown> | null;
+  projectionStatus?: ReplayProjectionStatus;
+};
+
 export function normalizeReplayBundleToSnapshot(
   bundle: ReplayBundle,
-  options: {
-    turnIndex?: number;
-    turnSnapshot?: Record<string, unknown> | null;
-  } = {},
+  options: NormalizeReplayOptions = {},
 ): AgentViewerSnapshot {
   const { manifest, turnIndex, artifactCatalog, finalState } = bundle;
   const source = manifest.source;
-  const atTurn = options.turnIndex ?? source.turn_count;
-  const isTerminal = atTurn >= source.turn_count;
-  const stateSource = pickStateSource(finalState, options.turnSnapshot, isTerminal);
+  const atTurn = options.turnIndex ?? 0;
+  const maxTurn = source.turn_count;
+  const isTerminal = maxTurn > 0 && atTurn >= maxTurn;
+  const projection = createReplayTurnProjection(
+    atTurn,
+    maxTurn,
+    options.turnSnapshot ?? null,
+    options.projectionStatus ?? (isTerminal ? 'available' : 'unavailable'),
+  );
+
+  const stateSource = pickStateSource(finalState, projection);
+  const hitlExchanges = mergeReplayFeedbackIntoExchanges(
+    extractHitlExchangesFromTurnSnapshot(projection.turnSnapshot),
+    bundle.interactions?.feedback ?? null,
+  );
+  const visibleArtifacts = artifactCatalogForTurn(bundle, projection);
 
   return {
     protocol: 'agent_viewer_snapshot_v1',
     run: {
       run_id: source.run_id,
       loop_kind: source.domain_id,
-      status: isTerminal ? source.terminal_status : 'running',
+      status: isTerminal ? source.terminal_status : atTurn > 0 ? 'running' : 'idle',
       active_chapter_id: source.domain_id,
       started_at_epoch_seconds: turnIndex[0]?.started_at_epoch_seconds ?? null,
-      updated_at_epoch_seconds: turnIndex[Math.min(atTurn, turnIndex.length) - 1]?.finished_at_epoch_seconds ?? null,
+      updated_at_epoch_seconds: turnIndex[Math.min(Math.max(atTurn, 1), turnIndex.length) - 1]?.finished_at_epoch_seconds ?? null,
       reason: isTerminal ? source.terminal_decision ?? null : null,
       refs: {
         fixture_id: bundle.fixtureId,
         replay_turn: atTurn,
+        replay_projection_status: projection.status,
         product_refs: {
           dossier_id: source.dossier_id ?? null,
           transcription_id: source.transcription_id ?? null,
@@ -52,15 +77,15 @@ export function normalizeReplayBundleToSnapshot(
       {
         id: source.domain_id,
         title: titleCase(source.domain_id.replace(/_/g, ' ')),
-        status: isTerminal ? source.terminal_status : 'running',
-        artifact_refs: artifactCatalog.slice(0, 12).map((entry) => entry.ref_id),
+        status: isTerminal ? source.terminal_status : atTurn > 0 ? 'running' : 'idle',
+        artifact_refs: visibleArtifacts.slice(0, 12).map((entry) => entry.ref),
       },
     ],
     activity: buildReplayActivity(bundle, atTurn),
-    artifacts: normalizeArtifactCatalog(artifactCatalog),
+    artifacts: visibleArtifacts,
     evidence: [],
     work_items: normalizeResolutionWorkItems(stateSource),
-    hitl_prompts: [],
+    hitl_prompts: hitlPromptsFromReplayExchanges(hitlExchanges, atTurn),
     actions: buildReplayActions(isTerminal),
   };
 }
@@ -104,9 +129,13 @@ export function replayStreamEventToViewerEvent(
   };
 }
 
-export function replayEventsUpToTurn(bundle: ReplayBundle, maxTurn: number): AgentViewerEvent[] {
+export function replayEventsUpToTurn(
+  bundle: ReplayBundle,
+  maxTurn: number,
+  turnSnapshot: Record<string, unknown> | null = null,
+): AgentViewerEvent[] {
   const turnByIndex = new Map(bundle.turnIndex.map((entry) => [entry.turn_index, entry]));
-  return bundle.events
+  const turnEvents = bundle.events
     .filter((event) => event.turn_index <= maxTurn)
     .map((event) =>
       replayStreamEventToViewerEvent(
@@ -115,19 +144,45 @@ export function replayEventsUpToTurn(bundle: ReplayBundle, maxTurn: number): Age
         turnByIndex.get(event.turn_index) ?? null,
       ),
     );
+
+  const hitlExchanges = mergeReplayFeedbackIntoExchanges(
+    extractHitlExchangesFromTurnSnapshot(turnSnapshot),
+    bundle.interactions?.feedback ?? null,
+  );
+  const interactionEvents = replayInteractionEventsUpToTurn(bundle, maxTurn, hitlExchanges);
+  return [...interactionEvents, ...turnEvents];
 }
 
-function pickStateSource(
-  finalState: ReplayFinalState,
-  turnSnapshot: Record<string, unknown> | null | undefined,
-  isTerminal: boolean,
-): Record<string, unknown> {
-  if (isTerminal) return finalState;
-  if (!turnSnapshot) return finalState;
+function pickStateSource(finalState: ReplayFinalState, projection: ReplayTurnProjection): Record<string, unknown> {
+  if (projection.maxTurn > 0 && projection.atTurn >= projection.maxTurn) {
+    return finalState;
+  }
+  if (projection.status !== 'available' || !projection.turnSnapshot) {
+    return {};
+  }
+  const turnSnapshot = projection.turnSnapshot;
   return {
-    mission_state: turnSnapshot.mission_state_after ?? turnSnapshot.mission_state ?? finalState.mission_state,
-    resolution_state: turnSnapshot.resolution_state_after ?? turnSnapshot.resolution_state ?? finalState.resolution_state,
+    mission_state: turnSnapshot.mission_state_after ?? turnSnapshot.mission_state ?? {},
+    resolution_state: turnSnapshot.resolution_state_after ?? turnSnapshot.resolution_state ?? {},
   };
+}
+
+function artifactCatalogForTurn(
+  bundle: ReplayBundle,
+  projection: ReplayTurnProjection,
+): AgentViewerArtifactDescriptor[] {
+  if (projection.atTurn <= 0) return [];
+  if (projection.maxTurn > 0 && projection.atTurn >= projection.maxTurn) {
+    return normalizeArtifactCatalog(bundle.artifactCatalog);
+  }
+  const visibleRefs = new Set<string>();
+  for (const entry of bundle.turnIndex) {
+    if (entry.turn_index > projection.atTurn) continue;
+    for (const ref of entry.artifact_refs || []) {
+      visibleRefs.add(ref);
+    }
+  }
+  return normalizeArtifactCatalog(bundle.artifactCatalog.filter((entry) => visibleRefs.has(entry.ref_id)));
 }
 
 function buildReplayActivity(bundle: ReplayBundle, atTurn: number): AgentViewerActivityEvent[] {
