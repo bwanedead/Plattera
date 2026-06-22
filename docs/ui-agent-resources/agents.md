@@ -8,6 +8,7 @@
 - The viewer core is domain-agnostic; transcript-edit is representative data, not the platform schema.
 - Generated fixtures contain no raw prompts, binary media, secrets, or absolute local paths.
 - Unknown tools, state fields, events, and artifact kinds must remain inspectable.
+- Cloud UI work must not edit `backend/harness/`, active domain packs, or domain tooling; adapt only at the viewer-owned intake seam or document an upstream contract need.
 
 ## Allowed changes
 - Improve the platform contract, fixture generator, validation, and optional domain examples.

@@ -14,6 +14,12 @@ Product and UX intent is defined in the companion document:
 Read the product vision first when implementing the viewer. Use this brief for
 module boundaries, contracts, and implementation sequencing.
 
+Cloud UI scope is narrower than this architecture brief: the harness, active
+domain packs, and domain tooling are read-only. Backend sections below describe
+the intended system boundary; they do not authorize the cloud UI agent to edit
+those systems. Any intake mismatch must stop at a viewer-owned adapter/contract
+seam or become a documented upstream request.
+
 ## Why This Exists
 
 Plattera is moving from hidden backend agent loops toward visible, user-facing

@@ -5,6 +5,7 @@
 - Purpose: Generic Agent Viewer UI substrate: run shell, renderer registry, event/activity display, artifact/evidence presentation, work graph inspection, HITL capture, and viewer actions.
 
 ## Contracts & invariants
+- UI work in this folder must not edit `backend/harness/`, active domain packs, or domain tooling. Treat those systems as read-only and keep compatibility work at the viewer-owned intake/normalization seam.
 - Treat the existing panel as prototype/reference unless a future implementation deliberately keeps it. Do not preserve old structure just because it exists.
 - The viewer shell is composition only: layout, selected view, and child wiring. No transport, raw event scanning, or domain interpretation in shell components.
 - Transport and feedback API behavior stay in hooks/services; presentational components receive typed view models and callbacks.

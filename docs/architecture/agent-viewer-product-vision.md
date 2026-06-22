@@ -38,6 +38,42 @@ If a product idea conflicts with a harness constitutional boundary, the
 constitution wins. The UI displays and transports authored meaning; it does
 not invent semantic truth.
 
+## Hard Scope Boundary For Cloud UI Development
+
+The harness is forbidden territory for this UI effort.
+
+The cloud UI agent must not edit:
+
+- `backend/harness/`
+- harness runtime, orchestration, audit, trace, continuity, or HITL mechanics
+- active domain packs, domain semantics, or domain runtime adapters
+- domain tooling and output production to make the viewer easier to build
+- live run artifacts or producer behavior
+
+The harness and active domains are sensitive, concurrently evolving systems.
+The viewer must consume them without reshaping them from the UI branch.
+
+If the UI would benefit from a different intake shape, work is limited to the
+viewer-owned seam:
+
+- frontend wire types and normalizers
+- replay transport and fixture adapters
+- viewer-owned renderer/domain adapters
+- viewer-owned API/projection contracts outside the harness, when explicitly
+  in scope
+- a documented upstream contract request when the producer lacks required
+  information
+
+Do not solve an intake mismatch by patching the harness or domain implementation.
+Preserve the native payload, adapt it at the viewer boundary when the mapping is
+mechanical and lossless, and record any genuinely missing producer contract for
+separate upstream work.
+
+Current domains are read-only compatibility evidence for the viewer. Inspect
+transcript-edit, deed-to-IR, mapping, and their replay/output shapes to ensure
+the universal model serves real work cleanly. Do not promote their vocabulary
+into the generic shell, and do not edit those domains from the UI effort.
+
 ## Why This Exists
 
 The harness is becoming a durable, generic mission machine with pluggable
@@ -463,6 +499,9 @@ The agent's artifacts and evidence are the visual content.
 
 ## Architectural Guardrails
 
+- Cloud UI work does not modify the harness, active domain packs, or domain
+  tooling. Intake mismatches are handled at the viewer-owned seam or documented
+  as separate upstream contract needs.
 - Transport, replay, normalization, registry, selection state, rendering,
   interaction, and shell layout remain separate responsibilities.
 - The shell does not scan native payloads for domain-specific fields.
@@ -492,20 +531,25 @@ The first universal viewer is not required to:
 A cloud agent implementing this vision should:
 
 1. Read the source hierarchy at the top of this document.
-2. Inspect existing viewer code before deciding whether to migrate or replace
+2. Treat `backend/harness/`, active domains, and domain tooling as read-only.
+3. Inspect existing viewer code before deciding whether to migrate or replace
    a component.
-3. Build the actual operational viewer, not a landing page or visual mockup.
-4. Use the replay bundle as the working backend and keep a transport boundary
+4. Build the actual operational viewer, not a landing page or visual mockup.
+5. Use the replay bundle as the working backend and keep a transport boundary
    compatible with live snapshots/streams.
-5. Implement generic fallback behavior before specialized transcript-edit
+6. Implement generic fallback behavior before specialized transcript-edit
    polish.
-6. Keep domain-specific behavior in registered adapters/renderers.
-7. Preserve raw inspection access for every new polished presentation.
-8. Add focused tests around normalization, unknown-kind fallback, replay
+7. Keep domain-specific behavior in registered adapters/renderers.
+8. Preserve raw inspection access for every new polished presentation.
+9. Add focused tests around normalization, unknown-kind fallback, replay
    ordering, selection continuity, and interaction lifecycle.
-9. Verify desktop and constrained/mobile layouts for overflow and overlap.
-10. Leave the branch in reviewable slices with explicit architecture notes for
+10. Verify desktop and constrained/mobile layouts for overflow and overlap.
+11. Leave the branch in reviewable slices with explicit architecture notes for
     unresolved decisions.
+
+If a required producer field or behavior is missing, stop at a viewer-side
+adapter or a written seam proposal. Do not cross into harness/domain code to
+make the demo work.
 
 The agent may make normal product and design judgments inside these boundaries.
 It should not wait for human approval on every spacing, component, or visual

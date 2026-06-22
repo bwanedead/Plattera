@@ -12,6 +12,11 @@ Before implementation, read:
 3. `docs/ui-agent-resources/platform-viewer-contract.md` for the generic replay
    lanes and extension contract.
 
+Cloud UI work must treat `backend/harness/`, active domain packs, and domain
+tooling as read-only. Use this replay and viewer-owned adapters to develop the
+experience. Document missing upstream contracts rather than patching producers
+from the UI branch.
+
 The viewer is a platform surface. It must render generic harness concepts first:
 
 - run identity, status, progress, and terminal outcome
