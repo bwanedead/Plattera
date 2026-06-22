@@ -3,11 +3,10 @@ import type {
   AgentViewerActivityEvent,
   AgentViewerArtifactDescriptor,
   AgentViewerEvent,
-  AgentViewerEvidencePacket,
-  AgentViewerHitlPrompt,
   AgentViewerSnapshot,
   AgentViewerWorkItem,
 } from '../../../services/agentViewerApi';
+import { firstText, isRecord } from './modelUtils';
 import type {
   ReplayArtifactCatalogEntry,
   ReplayBundle,
@@ -41,10 +40,12 @@ export function normalizeReplayBundleToSnapshot(
       updated_at_epoch_seconds: turnIndex[Math.min(atTurn, turnIndex.length) - 1]?.finished_at_epoch_seconds ?? null,
       reason: isTerminal ? source.terminal_decision ?? null : null,
       refs: {
-        dossier_id: source.dossier_id ?? null,
-        transcription_id: source.transcription_id ?? null,
         fixture_id: bundle.fixtureId,
         replay_turn: atTurn,
+        product_refs: {
+          dossier_id: source.dossier_id ?? null,
+          transcription_id: source.transcription_id ?? null,
+        },
       },
     },
     chapters: [
@@ -91,6 +92,7 @@ export function replayStreamEventToViewerEvent(
     },
     payload: {
       __replay: true,
+      __view_id: `turn-event-${streamEvent.turn_index}`,
       turn_index: streamEvent.turn_index,
       payload_ref: streamEvent.payload_ref,
       summary: streamEvent.summary ?? {},
@@ -217,16 +219,4 @@ function buildReplayActions(isTerminal: boolean): AgentViewerAction[] {
 
 function titleCase(value: string): string {
   return value.replace(/\b\w/g, (char) => char.toUpperCase());
-}
-
-function firstText(...values: unknown[]): string {
-  for (const value of values) {
-    if (typeof value === 'string' && value.trim()) return value.trim();
-    if (typeof value === 'number' && Number.isFinite(value)) return String(value);
-  }
-  return '';
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }

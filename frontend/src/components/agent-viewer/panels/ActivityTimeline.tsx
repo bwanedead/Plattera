@@ -1,5 +1,6 @@
 import React from 'react';
 import type { AgentViewerEvent } from '../../../services/agentViewerApi';
+import { viewerEventIdentity, viewerEventLabel } from '../model/eventIdentity';
 import type { ViewerSelection } from '../selection/selectionTypes';
 
 type ActivityTimelineProps = {
@@ -19,9 +20,8 @@ export function ActivityTimeline({ events, selection, onSelect }: ActivityTimeli
         .slice()
         .reverse()
         .map((event) => {
-          const id = eventDedupeId(event);
+          const id = viewerEventIdentity(event);
           const selected = selection?.kind === 'event' && selection.id === id;
-          const turnIndex = event.payload?.turn_index;
           return (
             <button
               key={id}
@@ -31,17 +31,14 @@ export function ActivityTimeline({ events, selection, onSelect }: ActivityTimeli
                 onSelect({
                   kind: 'event',
                   id,
-                  label: event.status?.line1 || event.event_type,
-                  payload: {
-                    event,
-                    turn_index: turnIndex ?? null,
-                  },
+                  label: viewerEventLabel(event),
+                  payload: { event },
                 })
               }
             >
               <div className="av-activity-row-top">
                 <span className="av-activity-turn">
-                  {typeof turnIndex === 'number' ? `T${turnIndex}` : event.event_type}
+                  {typeof event.payload?.turn_index === 'number' ? `T${event.payload.turn_index}` : event.event_type}
                 </span>
                 <span className="av-activity-stage">{event.status?.stage || 'event'}</span>
               </div>
@@ -52,11 +49,4 @@ export function ActivityTimeline({ events, selection, onSelect }: ActivityTimeli
         })}
     </div>
   );
-}
-
-function eventDedupeId(event: AgentViewerEvent): string {
-  const turn = event.payload?.turn_index;
-  if (typeof turn === 'number') return `turn-event-${turn}`;
-  if (typeof event.seq === 'number') return `seq-${event.seq}`;
-  return `${event.event_type}-${event.timestamp_epoch_seconds ?? 'na'}`;
 }

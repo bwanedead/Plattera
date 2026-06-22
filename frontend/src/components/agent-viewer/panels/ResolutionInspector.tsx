@@ -1,6 +1,7 @@
 import React from 'react';
 import type { AgentViewerInventorySection } from '../model/snapshotInventory';
-import type { ViewerSelection } from '../selection/selectionTypes';
+import type { ViewerPrimitiveKind } from '../registry/viewerRegistry';
+import type { ViewerSelection, ViewerSelectionKind } from '../selection/selectionTypes';
 
 type ResolutionInspectorProps = {
   sections: AgentViewerInventorySection[];
@@ -8,51 +9,44 @@ type ResolutionInspectorProps = {
   onSelect: (selection: ViewerSelection) => void;
 };
 
+const SECTION_PREVIEW_LIMIT = 8;
+
 export function ResolutionInspector({ sections, selection, onSelect }: ResolutionInspectorProps) {
-  const workItems = sections.find((section) => section.id === 'work_item');
-  const artifacts = sections.find((section) => section.id === 'artifact');
+  const visibleSections = sections.filter((section) => section.count > 0 || section.items.length > 0);
 
   return (
     <div className="av-resolution-inspector">
-      <InspectorSection
-        title="Resolution"
-        count={workItems?.count ?? 0}
-        items={(workItems?.items ?? []).slice(0, 12)}
-        selection={selection}
-        kind="work_item"
-        onSelect={onSelect}
-      />
-      <InspectorSection
-        title="Artifacts"
-        count={artifacts?.count ?? 0}
-        items={(artifacts?.items ?? []).slice(0, 10)}
-        selection={selection}
-        kind="artifact"
-        onSelect={onSelect}
-      />
+      {visibleSections.length === 0 ? <div className="av-empty-inline">No inventory yet</div> : null}
+      {visibleSections.map((section) => (
+        <InspectorSection
+          key={section.id}
+          section={section}
+          selection={selection}
+          onSelect={onSelect}
+        />
+      ))}
     </div>
   );
 }
 
 type InspectorSectionProps = {
-  title: string;
-  count: number;
-  items: AgentViewerInventorySection['items'];
+  section: AgentViewerInventorySection;
   selection: ViewerSelection | null;
-  kind: 'work_item' | 'artifact';
   onSelect: (selection: ViewerSelection) => void;
 };
 
-function InspectorSection({ title, count, items, selection, kind, onSelect }: InspectorSectionProps) {
+function InspectorSection({ section, selection, onSelect }: InspectorSectionProps) {
+  const kind = primitiveToSelectionKind(section.id);
+
   return (
     <section className="av-inspector-section">
       <div className="av-inspector-section-header">
-        <span>{title}</span>
-        <span className="av-count">{count}</span>
+        <span>{section.title}</span>
+        <span className="av-count">{section.count}</span>
       </div>
       <div className="av-inspector-list">
-        {items.length === 0 ? <div className="av-empty-inline">None yet</div> : null}
-        {items.map((item) => {
+        {section.items.length === 0 ? <div className="av-empty-inline">None yet</div> : null}
+        {section.items.slice(0, SECTION_PREVIEW_LIMIT).map((item) => {
           const selected = selection?.kind === kind && selection.id === item.id;
           return (
             <button
@@ -78,4 +72,9 @@ function InspectorSection({ title, count, items, selection, kind, onSelect }: In
       </div>
     </section>
   );
+}
+
+function primitiveToSelectionKind(primitive: ViewerPrimitiveKind): ViewerSelectionKind {
+  if (primitive === 'hitl_prompt') return 'hitl';
+  return primitive;
 }

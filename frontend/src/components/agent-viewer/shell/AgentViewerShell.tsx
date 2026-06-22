@@ -2,9 +2,10 @@ import React from 'react';
 import type { AgentViewerRunView } from '../hooks/useAgentViewerRun';
 import { ActivityTimeline } from '../panels/ActivityTimeline';
 import { ArtifactCanvas } from '../panels/ArtifactCanvas';
-import { ReplayControls } from '../panels/ReplayControls';
 import { ResolutionInspector } from '../panels/ResolutionInspector';
 import { RunHeader } from '../panels/RunHeader';
+import { ReplayControls } from '../transport/replay/ReplayControls';
+import { viewerEventIdentity, viewerEventLabel } from '../model/eventIdentity';
 import { useViewerSelection } from '../selection/useViewerSelection';
 
 type AgentViewerShellProps = {
@@ -19,12 +20,11 @@ export function AgentViewerShell({ run, onClose }: AgentViewerShellProps) {
     if (!followLive) return;
     const latest = run.orderedEvents[0];
     if (!latest) return;
-    const turnIndex = latest.payload?.turn_index;
     selectLive({
       kind: 'event',
-      id: typeof turnIndex === 'number' ? `turn-event-${turnIndex}` : `live-${latest.seq ?? 0}`,
-      label: latest.status?.line1 || latest.event_type,
-      payload: { event: latest, turn_index: turnIndex ?? null },
+      id: viewerEventIdentity(latest),
+      label: viewerEventLabel(latest),
+      payload: { event: latest },
     });
   }, [followLive, run.orderedEvents, selectLive]);
 

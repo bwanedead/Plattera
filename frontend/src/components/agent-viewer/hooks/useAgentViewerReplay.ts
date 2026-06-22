@@ -4,7 +4,8 @@ import {
   normalizeReplayBundleToSnapshot,
   replayEventsUpToTurn,
 } from '../model/normalizeReplay';
-import { loadReplayArtifact, type ReplayArtifactResult } from '../transport/replay/replayArtifactGateway';
+import type { ArtifactLoadResult } from '../model/artifactLoadResult';
+import { loadReplayArtifact } from '../transport/replay/replayArtifactGateway';
 import {
   findTurnEntry,
   loadReplayBundle,
@@ -17,7 +18,6 @@ export type ReplayPlaybackState = {
   currentTurn: number;
   maxTurn: number;
   isPlaying: boolean;
-  playbackSpeed: number;
 };
 
 export type UseAgentViewerReplayResult = {
@@ -33,7 +33,7 @@ export type UseAgentViewerReplayResult = {
   stepBackward: () => void;
   scrubToTurn: (turn: number) => void;
   restart: () => void;
-  loadArtifact: (ref: string) => Promise<ReplayArtifactResult>;
+  loadArtifact: (ref: string) => Promise<ArtifactLoadResult>;
 };
 
 const DEFAULT_TICK_MS = 1200;
@@ -47,7 +47,6 @@ export function useAgentViewerReplay(
   const [error, setError] = React.useState<string | null>(null);
   const [currentTurn, setCurrentTurn] = React.useState(0);
   const [isPlaying, setIsPlaying] = React.useState(false);
-  const [playbackSpeed, setPlaybackSpeed] = React.useState(1);
   const [turnSnapshot, setTurnSnapshot] = React.useState<Record<string, unknown> | null>(null);
 
   React.useEffect(() => {
@@ -107,9 +106,9 @@ export function useAgentViewerReplay(
     }
     const timer = window.setTimeout(() => {
       setCurrentTurn((prev) => Math.min(prev + 1, maxTurn));
-    }, DEFAULT_TICK_MS / playbackSpeed);
+    }, DEFAULT_TICK_MS);
     return () => window.clearTimeout(timer);
-  }, [bundle, currentTurn, isPlaying, maxTurn, playbackSpeed]);
+  }, [bundle, currentTurn, isPlaying, maxTurn]);
 
   const snapshot = React.useMemo(() => {
     if (!bundle) return null;
@@ -144,7 +143,6 @@ export function useAgentViewerReplay(
       currentTurn,
       maxTurn,
       isPlaying,
-      playbackSpeed,
     },
     play: () => {
       if (currentTurn >= maxTurn) setCurrentTurn(0);

@@ -1,5 +1,5 @@
 import React from 'react';
-import type { ReplayPlaybackState } from '../hooks/useAgentViewerReplay';
+import type { ReplayPlaybackState } from '../../hooks/useAgentViewerReplay';
 
 type ReplayControlsProps = {
   playback: ReplayPlaybackState;

@@ -5,8 +5,8 @@ import { createRegistryForSnapshot } from '../registry/domainAdapters';
 import { useAgentViewerReplay } from './useAgentViewerReplay';
 import { useAgentViewerSnapshot } from './useAgentViewerSnapshot';
 import { useAgentViewerStream } from './useAgentViewerStream';
-import { DEFAULT_REPLAY_FIXTURE_ID } from '../transport/replay/replayTypes';
-import type { ReplayArtifactResult } from '../transport/replay/replayArtifactGateway';
+import type { ArtifactLoadResult } from '../model/artifactLoadResult';
+import { DEFAULT_REPLAY_FIXTURE_ID } from '../constants';
 
 export type AgentViewerTransportMode = 'live' | 'replay';
 
@@ -28,7 +28,7 @@ export type AgentViewerRunView = {
   loading: boolean;
   error: string | null;
   refreshSnapshot: () => void;
-  loadArtifact?: (ref: string) => Promise<ReplayArtifactResult>;
+  loadArtifact?: (ref: string) => Promise<ArtifactLoadResult>;
   replay?: ReturnType<typeof useAgentViewerReplay>;
 };
 
