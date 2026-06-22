@@ -118,6 +118,11 @@ Raw trace events remain inspectable, but raw event volume must not define the
 default experience. The movie should be authored from meaningful run events,
 turns, actions, state changes, artifacts, delegation, and interaction posture.
 
+"Inner mind" in this product means operationally useful, agent-authored
+transparency: current focus, stated intent, progress, plans, selected material,
+actions, results, state changes, and blockers. It does not mean exposing hidden
+chain-of-thought or fabricating reasoning text the agent did not author.
+
 ### 2. Clean By Default, Raw On Demand
 
 Most users will want a concise, curated presentation. Expert users, reviewers,
@@ -219,6 +224,80 @@ It should not absorb every product workspace into one enormous modal.
 The viewer should support four progressively deeper modes without feeling like
 four separate applications.
 
+### Identity, Instance, And Navigation Model
+
+Agentic work can fragment across dossiers, jobs, runs, agents, delegates, and
+domain handoffs. The viewer needs a UI-owned identity hierarchy that can
+represent this without changing harness identity or forcing every workflow into
+one execution shape.
+
+Use these conceptual levels:
+
+1. **Product scope** - the user-facing subject that owns the work. In the
+   current mapping product this is usually a dossier; other products may use a
+   project, case, document set, repository, or account.
+2. **Mission thread** - the continuous user goal or body of work as experienced
+   by the user. It may span several runs and domain handoffs.
+3. **Run or job** - one concrete execution instance with its own lifecycle and
+   persisted run identity.
+4. **Chapter or domain segment** - a clearly denoted part of the mission, such
+   as transcription, transcript edit, deed-to-IR, or mapping.
+5. **Participant** - the primary agent, a downstream agent, or a delegated
+   subagent contributing work.
+6. **Turn** - one chronological unit of agent motion inside a run.
+
+These are presentation and navigation concepts. They do not authorize a new
+harness state model. The UI should derive them from existing identity metadata,
+launch context, refs, handoff data, and viewer-owned configuration.
+
+#### Viewer Instances
+
+A viewer instance may bind to:
+
+- one mission thread for a continuous cross-handoff experience
+- one run/job for focused monitoring
+- one participant or delegated task for focused inspection
+
+Multiple instances may exist at once. They may be tabs, windows, docked panels,
+or restored sessions depending on product composition.
+
+Closing or hiding a viewer only detaches the presentation. It must not stop,
+pause, cancel, or otherwise mutate the agent process. Stop/pause/cancel are
+separate explicit commands shown only when the runtime exposes them.
+
+#### Run Navigator
+
+The application should provide a persistent way to rediscover agent work after
+the viewer is closed. In the current product, navigation should be groupable by
+dossier and then by mission thread/run. It should support multiple concurrent
+agents or runs under one dossier.
+
+Useful navigator posture includes:
+
+- running, waiting, blocked, completed, failed, or disconnected
+- active domain/chapter
+- whether human attention is requested
+- latest meaningful activity time
+- whether the viewer is currently open
+
+The universal navigator groups by a generic product-scope key. A Plattera
+product adapter supplies dossier labels and links; dossier is not a harness-wide
+ontology requirement.
+
+#### Handoffs And Continuity
+
+A domain handoff should feel like the next chapter of the same mission when the
+user goal remains continuous. The timeline and navigator should clearly mark:
+
+- the outgoing domain/agent
+- the handoff artifact or output package
+- unresolved or carried-forward work
+- the incoming domain/agent
+- the new chapter start
+
+The user may open the downstream run independently, but the mission-thread view
+should preserve the complete story across the boundary.
+
 ### Watch
 
 The default mode. The user sees the live run narrative, current focus, major
@@ -271,6 +350,20 @@ time, connection posture, terminal state, and high-signal controls.
 
 The header should be compact. It is orientation, not a dashboard by itself.
 
+Activity indicators should distinguish real postures such as context loading,
+agent generation/planning, action execution, tool waiting, user waiting,
+handoff, and terminal state. A spinner or motion indicator should reflect an
+actual active posture rather than simulate thinking when no work is occurring.
+
+### Agent Run Navigator
+
+The run navigator is the durable return path to active and historical agent
+work. It may live outside the viewer overlay in application navigation, while
+the open viewer provides a compact local switcher for nearby runs/chapters.
+
+Opening a run restores its selection and inspection context where practical.
+Closing the viewer leaves the run active and visible in navigation.
+
 ### Live Activity And Turn Timeline
 
 Shows the movie of the run:
@@ -311,6 +404,28 @@ transcript lanes, evidence locators, or other specialized presentations.
 The canvas must always have a safe fallback. An unknown artifact is still an
 inspectable artifact.
 
+### Live Attention Stage
+
+The canvas should have an optional follow-live mode that presents what the
+agent is currently using or producing. This is the visual center of the
+"movie."
+
+The attention stage may cycle through:
+
+- artifacts hydrated for the current turn
+- pinned or active refs
+- the source material currently under inspection
+- newly created crops, locators, transforms, and diffs
+- action inputs and returned results
+- the working artifact or output just updated
+
+A compact material strip should show what is in the current attention set and
+why it is present: active, hydrated, pinned, created, evidence, or output.
+
+Automatic following must yield to user inspection. When the user selects an
+older artifact or resolution item, the canvas pauses follow-live and offers a
+clear return-to-live action. New events must not repeatedly steal selection.
+
 ### Mission And Resolution Inspector
 
 Presents the agent-authored work universe in a scannable form:
@@ -331,6 +446,24 @@ able to inspect the same state as a list/table and as raw structured data.
 Do not create new architecture around the retired `work_board` vocabulary.
 Use current generic mission-state and resolution-state concepts.
 
+Resolution state should grow visibly and stably as the run progresses. Domain
+adapters may organize items into groups and may call the smallest covered units
+"atoms," but the generic shell treats them as resolution groups and items.
+
+Each item should support a compact default row and an expanded inspection view
+containing, when available:
+
+- candidate values
+- current determination and posture
+- blocker/waiting state
+- linked evidence and source artifacts
+- contributing turns/actions
+- dependencies and related items
+- raw item payload and provenance
+
+Selecting an item should drive the canvas to its most relevant artifact or
+evidence while preserving access to every linked object.
+
 ### Artifact And Evidence Inventory
 
 Provides a complete, filterable inventory of source, working, derived,
@@ -350,6 +483,24 @@ context to understand what is blocked or affected.
 
 General steering should be available without pretending every message is a
 blocking HITL answer.
+
+Messages and feedback should be context-addressable. The user should be able to
+attach the current selection, including combinations of:
+
+- resolution group/item
+- artifact or evidence ref
+- turn/action/result
+- canvas region or renderer-defined selection
+- chapter/run/participant
+
+The resulting interaction envelope should preserve the user's text and these
+anchors. The UI may describe the message as pending until transport can surface
+it to the agent. It must not imply that the current turn has incorporated input
+that arrived too late for its payload.
+
+Chat/feed is a supporting side surface, not the primary product metaphor. The
+canvas, state, and artifacts remain central; communication stays available in
+context alongside them.
 
 ### Observability And Delegation
 
@@ -374,6 +525,39 @@ The end state should explain:
 
 The user should not need to read the full timeline to understand the final
 posture.
+
+## Transcript-Edit Reference Journey
+
+Transcript edit is a concrete compatibility scenario, not the universal schema.
+It should nevertheless work exceptionally well because it exercises source
+imagery, drafts, crops, evidence, growing resolution state, HITL, revisions,
+publication, and downstream handoff.
+
+A representative journey is:
+
+1. The user runs transcription and chooses whether to start transcript edit.
+2. When enabled, a viewer opens for that dossier and mission thread.
+3. The user may close the viewer and continue other work; transcript edit keeps
+   running and remains discoverable in dossier-scoped agent navigation.
+4. The attention stage follows source images, peer drafts, hydrated refs, crops,
+   evidence, tool results, and working transcript revisions as the agent uses
+   them.
+5. Resolution groups populate as the agent authors the work. Covered units or
+   atoms show open, determined, blocked, waiting, or resolved posture.
+6. The user selects an atom to inspect candidates, determination, evidence,
+   artifacts, contributing turns, and raw state.
+7. The user can attach a message to that atom, artifact, or selected image
+   region. The message remains visibly pending until surfaced to the agent.
+8. A blocking HITL prompt appears with its evidence in context rather than as a
+   detached chat question.
+9. Working and published transcript artifacts remain inspectable with source-
+   faithful and downstream-usable presentations supplied by domain renderers.
+10. If deed-to-IR starts, the mission-thread viewer marks a domain handoff and
+    continues into a new chapter while preserving the transcript-edit story and
+    handoff artifacts.
+
+The same foundation should support a future non-document agent without needing
+a new shell. Only product navigation adapters and domain renderers should vary.
 
 ## Renderer And Domain Extension Model
 
@@ -473,6 +657,12 @@ The UI should be intentionally designed and tested for:
 - completed outcome with published artifacts
 - historical replay with scrub/step controls
 - large inventories and long runs
+- multiple simultaneous runs under one product scope
+- viewer closed while the run continues
+- a mission thread spanning multiple agents and domain handoffs
+- follow-live paused by user inspection and later resumed
+- contextual feedback submitted too late for the active turn and visibly
+  pending the next integration opportunity
 
 Empty and failure states should explain posture without exposing implementation
 noise or implying semantic conclusions the harness did not author.
@@ -576,6 +766,15 @@ The viewer is on the right path when a user can:
 9. Add a new domain renderer or action without editing the generic shell.
 10. Switch from replay transport to live harness transport without rewriting
     normalization or presentation.
+11. Close a viewer without affecting the underlying run and later rediscover it
+    through product-scope navigation.
+12. Monitor several runs or agents in parallel without collapsing their
+    identities.
+13. Follow a continuous mission across explicit agent/domain handoff chapters.
+14. Pause follow-live, inspect a historical item, and return to the current
+    attention set without losing context.
+15. Send feedback anchored to a resolution item, artifact, evidence object, or
+    canvas selection and see its pending/surfaced lifecycle honestly.
 
 ## One-Line Product Rule
 

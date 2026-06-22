@@ -6,6 +6,9 @@
 
 ## Contracts & invariants
 - UI work in this folder must not edit `backend/harness/`, active domain packs, or domain tooling. Treat those systems as read-only and keep compatibility work at the viewer-owned intake/normalization seam.
+- Closing/unmounting a viewer detaches presentation only; it must never stop, pause, or cancel the underlying run.
+- Keep product scope (currently often dossier), mission thread, run/job, chapter/handoff, participant, and turn identities distinct. Product adapters supply dossier navigation; the generic shell does not make dossier harness ontology.
+- Contextual feedback may anchor to resolution items, artifacts, evidence, actions, or canvas selections, but submission must remain pending until transport/agent lifecycle confirms later posture.
 - Treat the existing panel as prototype/reference unless a future implementation deliberately keeps it. Do not preserve old structure just because it exists.
 - The viewer shell is composition only: layout, selected view, and child wiring. No transport, raw event scanning, or domain interpretation in shell components.
 - Transport and feedback API behavior stay in hooks/services; presentational components receive typed view models and callbacks.

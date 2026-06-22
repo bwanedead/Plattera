@@ -94,6 +94,31 @@ backend-log wrapper.
 
 The base viewer should understand only domain-agnostic primitives.
 
+### `ViewerScope`
+
+A UI-owned grouping key for product navigation. In the current mapping product,
+this commonly points to a dossier. Other products may bind it to a project,
+case, repository, or document set. This is viewer/product composition metadata,
+not new harness ontology.
+
+### `MissionThread`
+
+A UI continuity container that groups related runs, chapters, participants,
+handoffs, and outputs around one user goal. It allows a cross-domain handoff to
+feel continuous while preserving the distinct identities of each underlying
+run.
+
+`MissionThread` must be derived from existing launch/handoff metadata or
+viewer-owned association data. The cloud UI effort must not modify the harness
+to create it.
+
+### `ViewerInstance`
+
+The local presentation state for one open viewer bound to a mission thread,
+run/job, or participant. Closing an instance detaches the UI only. Process
+control remains an explicit action and must never be coupled to component
+unmount or window close.
+
 ### `AgentRun`
 
 The active logical run or mission. Carries identity, status, active chapter,
@@ -105,6 +130,15 @@ A visible segment in the run story. Examples: T0 draft generation,
 transcript-edit, deed-to-IR, mapping/georeference, validation/render, handoff.
 Chapters are not hardcoded phases in the shell. They are projected from
 harness/domain state.
+
+A chapter may also denote an explicit agent/domain handoff inside a continuous
+mission thread.
+
+### `ParticipantDescriptor`
+
+Identifies the primary agent, downstream agent, or delegate responsible for a
+visible portion of work. Participant identity supports navigation and
+attribution; it does not imply a new runtime lifecycle.
 
 ### `ActivityEvent`
 
