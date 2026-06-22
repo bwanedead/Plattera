@@ -9,6 +9,7 @@ from .artifact_hydration import (
 from .feature_graph_capabilities import describe_feature_graph_capabilities
 from .input_hydration import make_hydrate_deed_to_ir_input_handler
 from .ir_mapping_submission import submit_ir_for_mapping
+from .output_persistence import publish_deed_to_ir_output
 from .ir_persistence import IR_REF_PREFIX, save_ir_artifact
 from .resolution_state_projection import (
     mechanical_resolution_state_snapshot,
@@ -35,6 +36,7 @@ __all__ = [
     "make_hydrate_artifact_refs_handler",
     "make_hydrate_deed_to_ir_input_handler",
     "mechanical_resolution_state_snapshot",
+    "publish_deed_to_ir_output",
     "resolution_state_counts",
     "resolution_state_startup_summary",
     "save_ir_artifact",

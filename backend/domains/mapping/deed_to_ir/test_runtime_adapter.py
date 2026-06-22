@@ -19,6 +19,7 @@ _EXPECTED_TOOL_IDS = (
     "describe_feature_graph_capabilities",
     "save_ir_artifact",
     "submit_ir_for_mapping",
+    "publish_deed_to_ir_output",
     "hydrate_artifact_refs",
     "list_feature_graph_artifacts",
 )
@@ -28,6 +29,8 @@ def _launch_context(**overrides: object) -> dict:
     base = {
         "dossier_id": "dossier-fixture",
         "transcript_edit_output_path": str(_FIXTURE),
+        "transcription_id": "tx-fixture",
+        "workspace_id": "ws-fixture",
         "run_id": "practice-row-live-20260619-76",
         "resolution_state_ref": "transcript_edit:resolution_state:fixture-001",
         "resolution_state_snapshot": json.loads(_RESOLUTION.read_text(encoding="utf-8")),
@@ -36,7 +39,7 @@ def _launch_context(**overrides: object) -> dict:
     return base
 
 
-def test_runtime_adapter_builds_turn_surface_with_six_tools() -> None:
+def test_runtime_adapter_builds_turn_surface_with_seven_tools() -> None:
     adapter = build_deed_to_ir_runtime_adapter()
     surface = adapter.build_turn_surface(_launch_context())
 
@@ -46,7 +49,7 @@ def test_runtime_adapter_builds_turn_surface_with_six_tools() -> None:
 
     payload = surface.payload["deed_to_ir"]
     assert payload["tool_ids"] == list(_EXPECTED_TOOL_IDS)
-    assert len(payload["tool_specs"]) == 6
+    assert len(payload["tool_specs"]) == 7
 
     handoff = surface.payload["deed_to_ir_startup_handoff"]
     assert handoff["resolution_state_ref"] == "transcript_edit:resolution_state:fixture-001"

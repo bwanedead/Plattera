@@ -15,10 +15,12 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import tempfile
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Optional, List, Literal
+from typing import Any, Dict, Iterator, List, Literal, Mapping, Optional
 
 from config.paths import dossiers_feature_graphs_artifacts_root, dossiers_state_root
 from feature_graph.artifact_refs import validate_artifact_id
@@ -49,7 +51,9 @@ _LATEST_POINTER_NAMES: dict[str, str] = {
 _FINAL_POINTER_NAMES: dict[str, str] = {
     "ir": "final_ir.json",
     "bundle": "final_bundle.json",
+    "mapping": "final_mapping.json",
 }
+_FINAL_POINTER_TYPES = frozenset(_FINAL_POINTER_NAMES.keys())
 
 
 class FeatureGraphPersistenceService:
@@ -329,7 +333,7 @@ class FeatureGraphPersistenceService:
         self,
         *,
         dossier_id: str,
-        artifact_type: Literal["ir", "bundle"],
+        artifact_type: Literal["ir", "bundle", "mapping"],
         artifact_path: str,
         artifact_id: Optional[str] = None,
     ) -> Dict[str, Any]:
@@ -378,6 +382,145 @@ class FeatureGraphPersistenceService:
             )
             written.append("final_bundle.json")
         return {"success": bool(written), "dossier_id": dossier_id, "written": written}
+
+    def mark_final_artifact(
+        self,
+        *,
+        dossier_id: str,
+        artifact_type: Literal["ir", "bundle", "mapping"],
+        artifact_id: str,
+    ) -> Dict[str, Any]:
+        if str(artifact_type) not in _FINAL_POINTER_TYPES:
+            raise ValueError(f"unsupported_final_pointer_type:{artifact_type}")
+        validated_id = validate_artifact_id(str(artifact_id).strip())
+        artifact_path = self._artifact_file_path(dossier_id, validated_id)
+        return self.mark_final_pointer(
+            dossier_id=dossier_id,
+            artifact_type=artifact_type,
+            artifact_path=str(artifact_path),
+            artifact_id=validated_id,
+        )
+
+    def mark_final_artifacts(
+        self,
+        *,
+        dossier_id: str,
+        targets: Mapping[Literal["ir", "bundle", "mapping"], str],
+    ) -> Dict[str, Any]:
+        if not targets:
+            raise ValueError("final_artifact_targets_required")
+
+        safe_dossier_id = _require_safe_dossier_id(dossier_id)
+        dossier_dir = self._dossier_dir(safe_dossier_id)
+
+        validated_targets: list[tuple[str, str, Path, str]] = []
+        for artifact_type, artifact_id in targets.items():
+            pointer_name = _FINAL_POINTER_NAMES.get(str(artifact_type))
+            if pointer_name is None:
+                raise ValueError(f"unsupported_final_pointer_type:{artifact_type}")
+            validated_id = validate_artifact_id(str(artifact_id).strip())
+            artifact_path = self._artifact_file_path(safe_dossier_id, validated_id)
+            resolved_path, _, confirmed_id = self._resolve_dossier_artifact_path(
+                dossier_id=safe_dossier_id,
+                artifact_path=str(artifact_path),
+                artifact_id=validated_id,
+            )
+            validated_targets.append((str(artifact_type), confirmed_id, resolved_path, pointer_name))
+
+        written: list[str] = []
+        with self._dossier_final_pointer_lock(dossier_dir):
+            snapshots: dict[str, tuple[Path, bytes | None]] = {}
+            for _, _, _, pointer_name in validated_targets:
+                pointer_path = dossier_dir / pointer_name
+                snapshots[pointer_name] = (pointer_path, self._snapshot_pointer_bytes(pointer_path))
+
+            try:
+                for artifact_type, confirmed_id, resolved_path, pointer_name in validated_targets:
+                    self._write_pointer(
+                        dossier_id=safe_dossier_id,
+                        pointer_filename=pointer_name,
+                        artifact_id=confirmed_id,
+                        artifact_type=artifact_type,
+                        artifact_path=resolved_path,
+                    )
+                    written.append(pointer_name)
+            except Exception:
+                for pointer_path, snapshot in snapshots.values():
+                    self._restore_pointer_bytes(pointer_path, snapshot)
+                raise
+
+        return {
+            "success": True,
+            "dossier_id": safe_dossier_id,
+            "written": written,
+        }
+
+    @contextmanager
+    def _dossier_final_pointer_lock(self, dossier_dir: Path) -> Iterator[None]:
+        dossier_dir.mkdir(parents=True, exist_ok=True)
+        lock_path = dossier_dir / ".final_pointers.lock"
+        handle = open(lock_path, "a+b")
+        try:
+            if sys.platform == "win32":
+                import msvcrt
+
+                handle.seek(0)
+                msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError as exc:
+            handle.close()
+            raise ValueError("final_pointer_lock_unavailable") from exc
+        try:
+            yield
+        finally:
+            try:
+                if sys.platform == "win32":
+                    import msvcrt
+
+                    handle.seek(0)
+                    msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+                else:
+                    import fcntl
+
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+            finally:
+                handle.close()
+
+    def _snapshot_pointer_bytes(self, path: Path) -> bytes | None:
+        if not path.is_file():
+            return None
+        return path.read_bytes()
+
+    def _restore_pointer_bytes(self, path: Path, snapshot: bytes | None) -> None:
+        if snapshot is None:
+            try:
+                if path.is_file():
+                    path.unlink()
+            except OSError:
+                pass
+            return
+
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fd, tmp_path = tempfile.mkstemp(
+            prefix="fg_pointer_restore_",
+            suffix=".json",
+            dir=str(path.parent),
+        )
+        try:
+            with os.fdopen(fd, "wb") as handle:
+                handle.write(snapshot)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(tmp_path, str(path))
+        finally:
+            try:
+                if os.path.exists(tmp_path):
+                    os.remove(tmp_path)
+            except OSError:
+                pass
 
     def _dossier_id_from_artifact_path(self, artifact_path: str) -> Optional[str]:
         try:

@@ -37,7 +37,7 @@ class MappingCreationOutcome:
     warning_count: int
 
 
-def _require_exact_ir_parent(
+def require_exact_ir_parent(
     *,
     artifact: CompileArtifact | JudgeArtifact,
     ir_artifact_id: str,
@@ -46,6 +46,15 @@ def _require_exact_ir_parent(
     parents = [str(item) for item in (artifact.metadata.parent_artifact_ids or [])]
     if ir_artifact_id not in parents:
         raise ValueError(f"{role}_ir_parent_missing")
+
+
+def _require_exact_ir_parent(
+    *,
+    artifact: CompileArtifact | JudgeArtifact,
+    ir_artifact_id: str,
+    role: str,
+) -> None:
+    require_exact_ir_parent(artifact=artifact, ir_artifact_id=ir_artifact_id, role=role)
 
 
 class FeatureGraphMappingService:

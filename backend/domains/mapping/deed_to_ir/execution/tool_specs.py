@@ -5,6 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from domains.mapping.deed_to_ir.payloads.published_output_tool_schema import (
+    build_publish_deed_to_ir_output_request_json_shape,
+)
+
 
 @dataclass(frozen=True)
 class SemanticToolSpec:
@@ -242,16 +246,58 @@ def build_deed_to_ir_tool_specs() -> tuple[SemanticToolSpec, ...]:
             ),
         ),
         SemanticToolSpec(
+            tool_id="publish_deed_to_ir_output",
+            category="write",
+            purpose=(
+                "Publish one agent-authored deed-to-IR handoff package from a selected mapping revision. "
+                "Mechanically derives exact IR, compile, judge, geometry, and render lineage from the mapping "
+                "artifact. Records agent-authored scope, dependency, and closure posture; does not determine closure."
+            ),
+            expected_request_shape=(
+                "mapping_artifact_ref: required feature_graph:mapping:* ref from the current dossier. "
+                "scope_results, external_dependencies, closure_dimensions, notes: agent-authored bounded rows."
+            ),
+            expected_request_json_shape=build_publish_deed_to_ir_output_request_json_shape(),
+            example_request={
+                "mapping_artifact_ref": "feature_graph:mapping:mapping_parcel_1_ab12cd34",
+                "scope_results": [
+                    {
+                        "scope_id": "parcel_1",
+                        "status": "mapped",
+                        "summary": "Primary parcel mapped with partial dependency pending on adjoiner call.",
+                    }
+                ],
+                "closure_dimensions": [
+                    {
+                        "dimension_id": "layer_4_map_handoffability_scoped_completion",
+                        "status": "partial",
+                        "summary": "Parcel 1 mapped; parcel 2 blocked pending external dependency.",
+                        "basis_refs": ["feature_graph:mapping:mapping_parcel_1_ab12cd34"],
+                    }
+                ],
+            },
+            batching={
+                "allowed": False,
+                "side_effect_class": "write",
+            },
+            expected_result_shape=(
+                "On success: artifact_refs begin with deed_to_ir:output and revision ref, then mapping package "
+                "and render refs. outputs include output_ref, output_revision_ref, selected artifact refs, "
+                "and bounded scope/dependency/closure counts without filesystem paths or image bytes."
+            ),
+        ),
+        SemanticToolSpec(
             tool_id="hydrate_artifact_refs",
             category="read",
             purpose=(
-                "Hydrate feature-graph artifact refs (ir, compile, judge, bundle, mapping) and mapping "
-                "sidecar refs (geometry.geojson, clean.png, control.png). Returns bounded payloads "
+                "Hydrate feature-graph artifact refs (ir, compile, judge, bundle, mapping), mapping "
+                "sidecar refs (geometry.geojson, clean.png, control.png), and deed-to-IR output refs "
+                "(deed_to_ir:output, deed_to_ir:output:rev:NNNN). Returns bounded payloads "
                 "without filesystem paths. PNG sidecars return top-level image_evidence."
             ),
             expected_request_shape=(
-                "ref_ids: required non-empty array of feature_graph:* or artifact://dossiers/feature_graphs/* refs. "
-                "max_refs: optional cap (default 8, max 32)."
+                "ref_ids: required non-empty array of feature_graph:*, artifact://dossiers/feature_graphs/*, "
+                "or deed_to_ir:output* refs. max_refs: optional cap (default 8, max 32)."
             ),
             expected_request_json_shape={
                 "type": "object",

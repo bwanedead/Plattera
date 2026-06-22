@@ -1631,3 +1631,56 @@ def test_tool_result_renders_resolvable_image_refs_as_links(tmp_path: Path, monk
     assert "[open image]" in body
     assert "image_evidence_count: 1" in body
     assert "rendered_feature_count" in body
+
+
+def test_timeline_renders_deed_to_ir_final_output_section(tmp_path: Path, monkeypatch) -> None:
+    from harness.audit.human_timeline import render_timeline
+
+    png_dir = tmp_path / "feature_graphs" / "d1" / "mappings" / "map1"
+    png_dir.mkdir(parents=True)
+    (png_dir / "clean.png").write_bytes(b"png")
+    monkeypatch.setattr(
+        "harness.audit.artifact_ref_links.dossiers_artifacts_root",
+        lambda: tmp_path,
+    )
+    clean_ref = "artifact://dossiers/feature_graphs/d1/mappings/map1/clean.png"
+    turns = [
+        {
+            "turn_index": 1,
+            "parse_ok": True,
+            "tool_request": {
+                "action_type": "publish_deed_to_ir_output",
+                "action_inputs": {
+                    "mapping_artifact_ref": "feature_graph:mapping:map1",
+                },
+            },
+            "tool_result_raw": {
+                "execution_state": "executed",
+                "artifact_refs": ["deed_to_ir:output", "deed_to_ir:output:rev:0001"],
+                "outputs": {
+                    "output_ref": "deed_to_ir:output",
+                    "output_revision_ref": "deed_to_ir:output:rev:0001",
+                    "ir_artifact_ref": "feature_graph:ir:ir1",
+                    "mapping_artifact_ref": "feature_graph:mapping:map1",
+                    "clean_render_ref": clean_ref,
+                    "control_render_ref": "artifact://dossiers/feature_graphs/d1/mappings/map1/control.png",
+                    "scope_status_counts": {"mapped": 1, "blocked": 1},
+                    "external_dependency_count": 2,
+                    "closure_dimension_count": 1,
+                    "closure_dimension_statuses": [
+                        {
+                            "dimension_id": "layer_4_map_handoffability_scoped_completion",
+                            "status": "partial",
+                        }
+                    ],
+                },
+            },
+        }
+    ]
+    body = render_timeline(turns, audit_dir=tmp_path / "audit")
+    assert "## Deed-to-IR Final Output" in body
+    assert "deed_to_ir:output" in body
+    assert "scope_status_counts: blocked=1, mapped=1" in body
+    assert "external_dependency_count: 2" in body
+    assert "layer_4_map_handoffability_scoped_completion: partial" in body
+    assert "[open image]" in body

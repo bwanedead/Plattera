@@ -22,7 +22,7 @@ def build_deed_to_ir_closure_policy() -> DomainClosurePolicy:
         enforce_on_publish=False,
         enforce_on_complete=False,
         save_action_ids=(),
-        publish_action_ids=(),
+        publish_action_ids=("publish_deed_to_ir_output",),
         minimum_resolution_items_for_save=0,
         minimum_resolution_items_for_wait=0,
         minimum_resolution_items_for_publish=0,
@@ -33,7 +33,7 @@ def build_deed_to_ir_closure_policy() -> DomainClosurePolicy:
             "layer_3_external_dependency_representability_completeness",
             "layer_4_map_handoffability_scoped_completion",
         ),
-        required_output_ref_for_complete=None,
+        required_output_ref_for_complete="deed_to_ir:output",
         standards=(
             ClosureDimensionStandard(
                 dimension_id="layer_1_deed_meaning_to_ir_fidelity",

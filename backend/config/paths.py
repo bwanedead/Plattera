@@ -162,6 +162,15 @@ def dossiers_feature_graphs_artifacts_root(dossier_id: str | None = None) -> Pat
     return base if dossier_id is None else base / str(dossier_id)
 
 
+def dossiers_deed_to_ir_artifacts_root(dossier_id: str | None = None) -> Path:
+    """
+    Root for deed-to-IR published output revisions.
+    Layout: artifacts/deed_to_ir/<dossier_id>/<transcription_id>/<workspace_id>/output/...
+    """
+    base = dossiers_artifacts_root() / "deed_to_ir"
+    return base if dossier_id is None else base / str(dossier_id)
+
+
 def harness_artifacts_root() -> Path:
     """
     Root for harness-native runtime artifacts.

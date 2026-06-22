@@ -18,6 +18,7 @@ from tooling.mapping.deed_to_ir.feature_graph_capabilities import describe_featu
 from tooling.mapping.deed_to_ir.input_hydration import make_hydrate_deed_to_ir_input_handler
 from tooling.mapping.deed_to_ir.ir_mapping_submission import submit_ir_for_mapping
 from tooling.mapping.deed_to_ir.ir_persistence import save_ir_artifact
+from tooling.mapping.deed_to_ir.output_persistence import publish_deed_to_ir_output
 
 from ..domain_pack import DeedToIrDomainPack
 from ..payloads import DeedToIrStartupHandoff
@@ -95,8 +96,17 @@ def _tool_handler_entries(
             _make_submit_ir_handler(dossier_id=dossier_id),
         ),
         (
+            "publish_deed_to_ir_output",
+            _make_publish_output_handler(dossier_id=dossier_id, handoff=handoff),
+        ),
+        (
             HYDRATE_ARTIFACT_REFS,
-            make_hydrate_artifact_refs_handler(dossier_id=dossier_id),
+            make_hydrate_artifact_refs_handler(
+                dossier_id=dossier_id,
+                transcription_id=handoff.scope.transcription_id,
+                workspace_id=handoff.scope.workspace_id,
+                run_id=handoff.scope.run_id,
+            ),
         ),
         (
             "list_feature_graph_artifacts",
@@ -155,6 +165,41 @@ def _make_submit_ir_handler(*, dossier_id: str) -> Callable[[Any], Any]:
             return submit_ir_for_mapping(
                 dossier_id=dossier_id,
                 ir_artifact_ref=ir_artifact_ref,
+            )
+        except Exception as exc:
+            return _exception_refusal(exc)
+
+    return handler
+
+
+def _make_publish_output_handler(
+    *,
+    dossier_id: str,
+    handoff: DeedToIrStartupHandoff,
+) -> Callable[[Any], Any]:
+    def handler(request: Any) -> dict[str, Any]:
+        inputs = _extract_inputs(request)
+        try:
+            return publish_deed_to_ir_output(
+                dossier_id=dossier_id,
+                transcription_id=handoff.scope.transcription_id,
+                workspace_id=handoff.scope.workspace_id,
+                run_id=handoff.scope.run_id,
+                transcript_edit_source_revision_ref=handoff.source.source_revision_ref,
+                resolution_state_ref=handoff.resolution_state_ref,
+                mapping_artifact_ref=_optional_str(inputs.get("mapping_artifact_ref")) or "",
+                scope_results=inputs.get("scope_results") if isinstance(inputs.get("scope_results"), list) else [],
+                external_dependencies=(
+                    inputs.get("external_dependencies")
+                    if isinstance(inputs.get("external_dependencies"), list)
+                    else []
+                ),
+                closure_dimensions=(
+                    inputs.get("closure_dimensions")
+                    if isinstance(inputs.get("closure_dimensions"), list)
+                    else []
+                ),
+                notes=inputs.get("notes") if isinstance(inputs.get("notes"), list) else [],
             )
         except Exception as exc:
             return _exception_refusal(exc)

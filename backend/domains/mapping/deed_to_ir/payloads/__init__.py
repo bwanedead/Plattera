@@ -5,9 +5,21 @@ from .startup_handoff import (
     DeedToIrStartupHandoff,
     TranscriptEditSourceMetadata,
 )
+from .published_output import (
+    ClosureDimensionRow,
+    DeedToIrPublishedOutput,
+    DeedToIrSelectedArtifacts,
+    ExternalDependencyRow,
+    ScopeResultRow,
+)
 
 __all__ = [
+    "ClosureDimensionRow",
+    "DeedToIrPublishedOutput",
     "DeedToIrScope",
+    "DeedToIrSelectedArtifacts",
     "DeedToIrStartupHandoff",
+    "ExternalDependencyRow",
+    "ScopeResultRow",
     "TranscriptEditSourceMetadata",
 ]

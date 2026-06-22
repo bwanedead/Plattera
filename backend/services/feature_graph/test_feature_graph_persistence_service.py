@@ -247,3 +247,121 @@ def test_mark_final_pointer_rejects_missing_target() -> None:
             assert False, "expected missing final pointer target to be rejected"
         except Exception as exc:
             assert "feature_graph_final_pointer_target_missing" in str(exc)
+
+
+def test_mark_final_artifacts_writes_ir_and_bundle_pointers() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        svc = FeatureGraphPersistenceService(
+            root=root / "artifacts" / "feature_graphs",
+            state_dir=root / "state",
+        )
+        dossier_id = "D_FINAL_TX"
+        graph = _graph(dossier_id, "g_final_tx")
+        ir = create_ir_artifact(
+            artifact_id="ir_final_tx_001",
+            graph=graph,
+            created_by="test",
+            source_document_id=dossier_id,
+        )
+        ir_saved = svc.save_artifact(artifact=ir, dossier_id=dossier_id)
+        bundle = create_bundle_artifact(
+            artifact_id="bundle_final_tx_001",
+            target_graph=graph,
+            parent_artifact_ids=[ir.artifact_id],
+            created_by="test",
+        )
+        bundle_saved = svc.save_artifact(artifact=bundle, dossier_id=dossier_id)
+
+        result = svc.mark_final_artifacts(
+            dossier_id=dossier_id,
+            targets={
+                "ir": ir.artifact_id,
+                "bundle": bundle.artifact_id,
+            },
+        )
+        assert result["success"] is True
+        final_ir = json.loads(
+            (root / "artifacts" / "feature_graphs" / dossier_id / "final_ir.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        final_bundle = json.loads(
+            (root / "artifacts" / "feature_graphs" / dossier_id / "final_bundle.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        assert final_ir["artifact_path"] == str(ir_saved["path"])
+        assert final_bundle["artifact_path"] == str(bundle_saved["path"])
+
+
+def test_mark_final_artifacts_restores_snapshots_when_second_write_fails(monkeypatch) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        svc = FeatureGraphPersistenceService(
+            root=root / "artifacts" / "feature_graphs",
+            state_dir=root / "state",
+        )
+        dossier_id = "D_FINAL_ROLLBACK"
+        graph_a = _graph(dossier_id, "g_a")
+        graph_b = _graph(dossier_id, "g_b")
+        ir_a = create_ir_artifact(
+            artifact_id="ir_final_a",
+            graph=graph_a,
+            created_by="test",
+            source_document_id=dossier_id,
+        )
+        ir_b = create_ir_artifact(
+            artifact_id="ir_final_b",
+            graph=graph_b,
+            created_by="test",
+            source_document_id=dossier_id,
+        )
+        svc.save_artifact(artifact=ir_a, dossier_id=dossier_id)
+        svc.save_artifact(artifact=ir_b, dossier_id=dossier_id)
+        bundle_a = create_bundle_artifact(
+            artifact_id="bundle_final_a",
+            target_graph=graph_a,
+            parent_artifact_ids=[ir_a.artifact_id],
+            created_by="test",
+        )
+        bundle_b = create_bundle_artifact(
+            artifact_id="bundle_final_b",
+            target_graph=graph_b,
+            parent_artifact_ids=[ir_b.artifact_id],
+            created_by="test",
+        )
+        svc.save_artifact(artifact=bundle_a, dossier_id=dossier_id)
+        svc.save_artifact(artifact=bundle_b, dossier_id=dossier_id)
+
+        svc.mark_final_artifacts(
+            dossier_id=dossier_id,
+            targets={"ir": ir_a.artifact_id, "bundle": bundle_a.artifact_id},
+        )
+        final_ir_path = root / "artifacts" / "feature_graphs" / dossier_id / "final_ir.json"
+        final_bundle_path = root / "artifacts" / "feature_graphs" / dossier_id / "final_bundle.json"
+        before_ir = final_ir_path.read_bytes()
+        before_bundle = final_bundle_path.read_bytes()
+
+        original_write = FeatureGraphPersistenceService._write_pointer
+        call_count = {"n": 0}
+
+        def _fail_on_second_write(self, **kwargs):
+            call_count["n"] += 1
+            if call_count["n"] == 2:
+                raise ValueError("final_pointer_write_failed")
+            return original_write(self, **kwargs)
+
+        monkeypatch.setattr(FeatureGraphPersistenceService, "_write_pointer", _fail_on_second_write)
+
+        try:
+            svc.mark_final_artifacts(
+                dossier_id=dossier_id,
+                targets={"ir": ir_b.artifact_id, "bundle": bundle_b.artifact_id},
+            )
+            assert False, "expected second pointer write failure"
+        except ValueError as exc:
+            assert "final_pointer_write_failed" in str(exc)
+
+        assert final_ir_path.read_bytes() == before_ir
+        assert final_bundle_path.read_bytes() == before_bundle

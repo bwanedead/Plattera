@@ -28,6 +28,7 @@ def test_manifest_tool_ids_match_tool_specs() -> None:
         "describe_feature_graph_capabilities",
         "save_ir_artifact",
         "submit_ir_for_mapping",
+        "publish_deed_to_ir_output",
         "hydrate_artifact_refs",
         "list_feature_graph_artifacts",
     )
@@ -48,6 +49,66 @@ def test_ir_tool_specs_expose_core_contract_and_capability_filters() -> None:
     assert "validation_schema" in props["sections"]["items"]["enum"]
 
 
+def test_publish_tool_spec_exposes_row_contracts_from_models() -> None:
+    from domains.mapping.deed_to_ir.payloads.published_output import (
+        ALLOWED_CLOSURE_DIMENSION_IDS,
+        MAX_CLOSURE_DIMENSIONS,
+        MAX_EXTERNAL_DEPENDENCIES,
+        MAX_NOTE_LENGTH,
+        MAX_REF_LENGTH,
+        MAX_ROW_REFS,
+        MAX_SCOPE_RESULTS,
+    )
+
+    publish = {spec.tool_id: spec for spec in build_deed_to_ir_tool_specs()}["publish_deed_to_ir_output"]
+    shape = publish.expected_request_json_shape
+    assert shape["additionalProperties"] is False
+    assert shape["required"] == ["mapping_artifact_ref"]
+
+    scope = shape["properties"]["scope_results"]
+    assert scope["maxItems"] == MAX_SCOPE_RESULTS
+    scope_item = scope["items"]
+    assert scope_item["additionalProperties"] is False
+    assert scope_item["required"] == ["scope_id", "status"]
+    scope_props = scope_item["properties"]
+    assert set(scope_props) == {
+        "scope_id",
+        "status",
+        "summary",
+        "blocker_refs",
+        "dependency_refs",
+    }
+    assert scope_props["scope_id"]["maxLength"] == 128
+    assert scope_props["blocker_refs"]["maxItems"] == MAX_ROW_REFS
+    assert scope_props["blocker_refs"]["items"]["maxLength"] == MAX_REF_LENGTH
+
+    deps = shape["properties"]["external_dependencies"]
+    assert deps["maxItems"] == MAX_EXTERNAL_DEPENDENCIES
+    dep_item = deps["items"]
+    assert dep_item["additionalProperties"] is False
+    assert dep_item["required"] == ["dependency_id", "affected_scope", "description", "status"]
+    assert set(dep_item["properties"]) == {
+        "dependency_id",
+        "affected_scope",
+        "description",
+        "status",
+        "available_refs",
+    }
+    assert dep_item["properties"]["available_refs"]["items"]["maxLength"] == MAX_REF_LENGTH
+
+    closure = shape["properties"]["closure_dimensions"]
+    assert closure["maxItems"] == MAX_CLOSURE_DIMENSIONS
+    closure_item = closure["items"]
+    assert closure_item["additionalProperties"] is False
+    assert closure_item["required"] == ["dimension_id", "status"]
+    assert closure_item["properties"]["dimension_id"]["enum"] == sorted(ALLOWED_CLOSURE_DIMENSION_IDS)
+    assert closure_item["properties"]["basis_refs"]["items"]["minLength"] == 1
+
+    notes = shape["properties"]["notes"]
+    assert notes["items"]["maxLength"] == MAX_NOTE_LENGTH
+    assert notes["items"]["minLength"] == 1
+
+
 def test_domain_pack_builds() -> None:
     pack = build_deed_to_ir_domain_pack()
     payload = pack.build_surface_payload()
@@ -56,11 +117,14 @@ def test_domain_pack_builds() -> None:
         "describe_feature_graph_capabilities",
         "save_ir_artifact",
         "submit_ir_for_mapping",
+        "publish_deed_to_ir_output",
         "hydrate_artifact_refs",
         "list_feature_graph_artifacts",
     ]
-    assert len(payload["tool_specs"]) == 6
+    assert len(payload["tool_specs"]) == 7
     assert payload["closure_policy"]["hard_enforced"] is False
+    assert payload["closure_policy"]["publish_action_ids"] == ["publish_deed_to_ir_output"]
+    assert payload["closure_policy"]["required_output_ref_for_complete"] == "deed_to_ir:output"
     assert payload["closure_policy"]["required_dimension_ids"] == [
         "layer_1_deed_meaning_to_ir_fidelity",
         "layer_2_ir_geometry_integrity",

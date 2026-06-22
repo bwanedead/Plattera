@@ -152,6 +152,14 @@ def render_timeline(
         )
         lines.append("")
     lines.extend(_render_run_projection(sorted_turns, override, summary_heading="Final Run Summary"))
+    deed_output_lines = _render_deed_to_ir_final_output_section(
+        sorted_turns,
+        audit_dir=audit_dir,
+        timeline_path=timeline_path,
+        run_ref_path_index=run_ref_path_index,
+    )
+    if deed_output_lines:
+        lines.extend(deed_output_lines)
     return "\n".join(lines) + "\n"
 
 
@@ -434,6 +442,80 @@ def _final_artifact_projection(
         lines.extend(f"  - {line}" for line in payload_summary)
     lines.extend(_render_final_text_lanes(draft_payload, transcript_text))
     lines.extend(_render_final_payload_metadata(draft_payload))
+    return lines
+
+
+def _render_deed_to_ir_final_output_section(
+    turns: list[Mapping[str, Any]],
+    *,
+    audit_dir: Path | None,
+    timeline_path: Path,
+    run_ref_path_index: Mapping[str, str],
+) -> list[str]:
+    publish_turn: Mapping[str, Any] | None = None
+    for turn in reversed(turns):
+        if _pick_action_type(turn) != "publish_deed_to_ir_output":
+            continue
+        if not _artifact_write_succeeded(turn):
+            continue
+        publish_turn = turn
+        break
+    if publish_turn is None:
+        return []
+
+    result = _coerce_mapping(publish_turn.get("tool_result_raw"))
+    outputs = _coerce_mapping(result.get("outputs"))
+    link_context = ArtifactLinkContext(
+        timeline_path=timeline_path,
+        ref_path_index=dict(run_ref_path_index),
+    )
+    lines: list[str] = ["", "## Deed-to-IR Final Output", ""]
+    for label, key in (
+        ("output_ref", "output_ref"),
+        ("output_revision_ref", "output_revision_ref"),
+        ("ir_artifact_ref", "ir_artifact_ref"),
+        ("mapping_artifact_ref", "mapping_artifact_ref"),
+    ):
+        value = outputs.get(key)
+        if isinstance(value, str) and value.strip():
+            lines.append(f"- {label}: {value}")
+
+    render_refs = [
+        str(outputs.get("clean_render_ref") or "").strip(),
+        str(outputs.get("control_render_ref") or "").strip(),
+    ]
+    for ref in render_refs:
+        if not ref:
+            continue
+        link = resolve_artifact_image_link(ref, link_context, link_label="open image")
+        if link is not None:
+            lines.append(f"- render_ref: {format_ref_with_link(ref, link, link_label='open image')}")
+        else:
+            lines.append(f"- render_ref: {ref}")
+
+    scope_counts = outputs.get("scope_status_counts")
+    if isinstance(scope_counts, dict) and scope_counts:
+        parts = ", ".join(f"{key}={value}" for key, value in sorted(scope_counts.items()))
+        lines.append(f"- scope_status_counts: {parts}")
+    else:
+        lines.append(f"- scope_result_count: {outputs.get('scope_result_count', 0)}")
+
+    lines.append(f"- external_dependency_count: {outputs.get('external_dependency_count', 0)}")
+
+    closure_count = outputs.get("closure_dimension_count")
+    if closure_count is not None:
+        lines.append(f"- closure_dimension_count: {closure_count}")
+
+    closure_rows = outputs.get("closure_dimension_statuses")
+    if isinstance(closure_rows, list) and closure_rows:
+        lines.append("- closure_dimension_statuses:")
+        for row in closure_rows[:8]:
+            row_map = _coerce_mapping(row)
+            dimension_id = row_map.get("dimension_id") or "unknown"
+            status = row_map.get("status") or "unknown"
+            lines.append(f"  - {dimension_id}: {status}")
+
+    lines.append("")
     return lines
 
 

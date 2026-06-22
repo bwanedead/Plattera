@@ -74,17 +74,29 @@ def hydrate_artifact_refs(
     ref_ids: list[str],
     max_refs: int = DEFAULT_MAX_REFS,
     persistence: FeatureGraphPersistenceService | None = None,
+    transcription_id: str | None = None,
+    workspace_id: str | None = None,
+    run_id: str | None = None,
 ) -> dict[str, Any]:
-    """Hydrate feature-graph and mapping sidecar refs without exposing filesystem paths."""
+    """Hydrate feature-graph, mapping sidecar, and deed-to-IR output refs without exposing paths."""
     return hydrate_feature_graph_artifact_refs(
         dossier_id=dossier_id,
         ref_ids=ref_ids,
         max_refs=max_refs,
         persistence=persistence,
+        transcription_id=transcription_id,
+        workspace_id=workspace_id,
+        run_id=run_id,
     )
 
 
-def make_hydrate_artifact_refs_handler(*, dossier_id: str) -> Callable[[Any], Any]:
+def make_hydrate_artifact_refs_handler(
+    *,
+    dossier_id: str,
+    transcription_id: str | None = None,
+    workspace_id: str | None = None,
+    run_id: str | None = None,
+) -> Callable[[Any], Any]:
     """Return a handler for the canonical ``hydrate_artifact_refs`` tool ID."""
 
     def handler(request: Any) -> dict[str, Any]:
@@ -97,6 +109,9 @@ def make_hydrate_artifact_refs_handler(*, dossier_id: str) -> Callable[[Any], An
                 dossier_id=dossier_id,
                 ref_ids=[str(item) for item in ref_ids if isinstance(item, str) and str(item).strip()],
                 max_refs=inputs.get("max_refs"),
+                transcription_id=transcription_id,
+                workspace_id=workspace_id,
+                run_id=run_id,
             )
         except Exception as exc:
             if isinstance(exc, ValueError) and str(exc).strip():
@@ -112,6 +127,9 @@ def hydrate_feature_graph_artifact_refs(
     ref_ids: list[str],
     max_refs: int = DEFAULT_MAX_REFS,
     persistence: FeatureGraphPersistenceService | None = None,
+    transcription_id: str | None = None,
+    workspace_id: str | None = None,
+    run_id: str | None = None,
 ) -> dict[str, Any]:
     """Hydrate feature-graph artifact refs without exposing filesystem paths."""
     if not dossier_id:
@@ -136,6 +154,19 @@ def hydrate_feature_graph_artifact_refs(
     image_evidence: list[dict[str, Any]] = []
     for ref_id in ref_ids:
         text = str(ref_id or "").strip()
+        if text.startswith("deed_to_ir:output"):
+            row, error = _hydrate_deed_to_ir_output_ref(
+                dossier_id=dossier_id,
+                ref_id=text,
+                transcription_id=transcription_id,
+                workspace_id=workspace_id,
+                run_id=run_id,
+            )
+            if row is not None:
+                results.append(row)
+            else:
+                errors.append({"ref_id": text, "reason": error or "output_hydration_failed"})
+            continue
         if text.startswith(DOSSIER_ARTIFACT_REF_PREFIX):
             row, error, evidence = _hydrate_sidecar_ref(
                 dossier_id=dossier_id,
@@ -475,6 +506,88 @@ def _clamp(value: Any, *, default: int, maximum: int) -> int:
     if parsed < 1:
         return default
     return min(parsed, maximum)
+
+
+def _hydrate_deed_to_ir_output_ref(
+    *,
+    dossier_id: str,
+    ref_id: str,
+    transcription_id: str | None,
+    workspace_id: str | None,
+    run_id: str | None,
+) -> tuple[dict[str, Any] | None, str | None]:
+    from domains.mapping.deed_to_ir.payloads.published_output import (
+        MAX_CLOSURE_DIMENSIONS,
+        MAX_EXTERNAL_DEPENDENCIES,
+        MAX_NOTES,
+        MAX_SCOPE_RESULTS,
+        DeedToIrPublishedOutput,
+    )
+    from .output_persistence import load_published_output, resolve_workspace_key
+    from .output_refs import parse_output_ref
+
+    if not str(transcription_id or "").strip():
+        return None, "transcription_id_required"
+    workspace_key = resolve_workspace_key(workspace_id=workspace_id, run_id=run_id)
+    if not workspace_key:
+        return None, "workspace_identity_required"
+
+    kind, revision_digits = parse_output_ref(ref_id)
+    if kind == "invalid":
+        return None, "unsupported_output_ref"
+    if kind == "latest":
+        revision_digits = None
+
+    raw = load_published_output(
+        dossier_id=dossier_id,
+        transcription_id=str(transcription_id).strip(),
+        workspace_id=workspace_key,
+        revision_digits=revision_digits,
+    )
+    if raw is None:
+        return None, "output_not_found"
+    try:
+        output = DeedToIrPublishedOutput.model_validate(raw)
+    except Exception:
+        return None, "output_invalid"
+
+    scopes, scope_meta = _bound_list(
+        [row.model_dump(mode="json") for row in output.scope_results],
+        MAX_SCOPE_RESULTS,
+    )
+    deps, deps_meta = _bound_list(
+        [row.model_dump(mode="json") for row in output.external_dependencies],
+        MAX_EXTERNAL_DEPENDENCIES,
+    )
+    closure, closure_meta = _bound_list(
+        [row.model_dump(mode="json") for row in output.closure_dimensions],
+        MAX_CLOSURE_DIMENSIONS,
+    )
+    notes, notes_meta = _bound_list(list(output.notes), MAX_NOTES)
+    row: dict[str, Any] = {
+        "ref_id": ref_id,
+        "artifact_type": "deed_to_ir_output",
+        "schema_version": output.schema_version,
+        "source": output.source.model_dump(mode="json"),
+        "selected_artifacts": output.selected_artifacts.model_dump(mode="json"),
+        "scope_results": scopes,
+        "external_dependencies": deps,
+        "closure_dimensions": closure,
+        "notes": notes,
+    }
+    trunc = {
+        k: v
+        for k, v in {
+            "scope_results": scope_meta or None,
+            "external_dependencies": deps_meta or None,
+            "closure_dimensions": closure_meta or None,
+            "notes": notes_meta or None,
+        }.items()
+        if v
+    }
+    if trunc:
+        row["truncated"] = trunc
+    return _strip_paths(row), None
 
 
 def _refusal(code: str, message: str) -> dict[str, Any]:
