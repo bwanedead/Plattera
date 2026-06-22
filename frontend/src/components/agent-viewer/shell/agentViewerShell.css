@@ -1,5 +1,41 @@
+.av-standalone-page {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.av-standalone-page .av-shell {
+  min-height: 100vh;
+  height: auto;
+}
+
+.av-overlay-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 12000;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  padding: 12px;
+}
+
+.av-overlay-frame {
+  flex: 1;
+  width: 100%;
+  max-width: 100%;
+  border-radius: 14px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.45);
+}
+
 .av-shell {
   --av-bg: #0b0d10;
+  flex: 1;
+  min-height: 0;
   --av-panel: #12151a;
   --av-panel-2: #171b22;
   --av-border: rgba(255, 255, 255, 0.08);
@@ -10,7 +46,8 @@
   --av-success: #5fd38d;
   --av-warning: #f0c15a;
   --av-danger: #ff7b7b;
-  min-height: 100vh;
+  min-height: 0;
+  height: 100%;
   background: radial-gradient(circle at top, #141a24 0%, var(--av-bg) 42%);
   color: var(--av-text);
   display: flex;

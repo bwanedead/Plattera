@@ -8,5 +8,9 @@ export function AgentViewerReplayWorkspace() {
     isOpen: true,
   });
 
-  return <AgentViewerShell run={run} />;
+  return (
+    <div className="av-standalone-page">
+      <AgentViewerShell run={run} />
+    </div>
+  );
 }

@@ -7,6 +7,7 @@ import { useAgentViewerSnapshot } from './useAgentViewerSnapshot';
 import { useAgentViewerStream } from './useAgentViewerStream';
 import type { ArtifactLoadResult } from '../model/artifactLoadResult';
 import { DEFAULT_REPLAY_FIXTURE_ID } from '../constants';
+import { loadLiveArtifact } from '../transport/live/liveArtifactGateway';
 
 export type AgentViewerTransportMode = 'live' | 'replay';
 
@@ -108,7 +109,7 @@ export function useAgentViewerRun({
     loading,
     error,
     refreshSnapshot,
-    loadArtifact: mode === 'replay' ? replay.loadArtifact : undefined,
+    loadArtifact: mode === 'replay' ? replay.loadArtifact : loadLiveArtifact,
     replay: mode === 'replay' ? replay : undefined,
   };
 }
