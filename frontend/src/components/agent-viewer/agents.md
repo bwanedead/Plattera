@@ -18,12 +18,13 @@
 - Unknown artifact/evidence/action kinds must fall back safely without hiding payloads.
 
 ## Allowed changes
-- Safe: add focused `shell/`, `model/`, `registry/`, `renderers/`, `panels/`, and `hooks/` modules when the responsibility is real.
+- Safe: add focused `shell/`, `model/`, `registry/`, `renderers/`, `panels/`, `hooks/`, `transport/`, and `selection/` modules when the responsibility is real.
 - Safe: port useful prototype behavior into the new structure when it fits the generic model.
 - Avoid: growing `AgentViewerPanel.tsx`, `agentViewerUtils.ts`, or one large renderer as a catch-all.
 - Avoid: adding deed/transcript/PLSS/mapping fields to shared viewer types; use generic fields plus opaque domain payload.
 
 ## Commands
+- Replay dev page: `npm --prefix frontend run dev` then open `/agent-viewer/`
 - Build: `.venv\scripts\activate.ps1; npm --prefix frontend run build`
 - Typecheck: `.venv\scripts\activate.ps1; npm --prefix frontend run typecheck`
 - Governance: `.venv\scripts\activate.ps1; npm --prefix frontend run governance`
