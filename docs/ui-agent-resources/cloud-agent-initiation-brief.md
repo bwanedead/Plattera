@@ -18,7 +18,9 @@ judgments autonomously inside the boundaries below.
 
 - Base branch: `moving-into-deed-to-IR`
 - Create a dedicated working branch before making UI changes.
-- Recommended working branch: `codex/universal-agent-viewer-ui`
+- Follow the active Cursor/cloud harness branch-naming convention rather than
+  forcing a specific prefix. Choose a descriptive name centered on
+  `universal-agent-viewer-ui`.
 - Branch from the latest committed `moving-into-deed-to-IR` that contains this
   brief and the Agent Viewer vision documentation.
 - Do not commit UI implementation work directly to `moving-into-deed-to-IR`.
