@@ -22,9 +22,9 @@
 - Tooling tests: `pytest backend/tooling/mapping/deed_to_ir/ -q`
 
 ## Gotchas
-- Launch context accepts explicit `transcript_edit_output_path` and optional paired `resolution_state_ref` + `resolution_state_snapshot`.
-- `resolution_state_ref` and `resolution_state_snapshot` must both be absent or both present; ref must use `transcript_edit:resolution_state:*`.
-- `transcript_edit_output_path` is loader input only — never project raw filesystem paths to startup prompt or handoff payload.
+- Launch context accepts explicit `transcript_edit_output_path` and optional paired `resolution_state_ref` with either inline `resolution_state_snapshot` or `resolution_state_snapshot_path` (mutually exclusive).
+- `resolution_state_ref` must pair with exactly one snapshot source; ref must use `transcript_edit:resolution_state:*`.
+- `transcript_edit_output_path` and `resolution_state_snapshot_path` are loader input only — never project raw filesystem paths to startup prompt or handoff payload.
 - Startup prompt shows resolution counts/summary; full graph is via `hydrate_deed_to_ir_input`.
 - Agent authors all `source_entity_links`; deterministic code must not infer atom-to-feature associations.
 

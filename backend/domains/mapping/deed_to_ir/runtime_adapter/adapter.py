@@ -59,8 +59,18 @@ def _build_startup_handoff(launch_context: Mapping[str, Any]) -> DeedToIrStartup
     output_path = _optional_text(launch_context, "transcript_edit_output_path")
     if not output_path:
         raise ValueError("transcript_edit_output_path_required")
-    resolution_snapshot = launch_context.get("resolution_state_snapshot")
-    snapshot_dict = dict(resolution_snapshot) if isinstance(resolution_snapshot, Mapping) else None
+    from tooling.mapping.deed_to_ir.resolution_state_loading import resolve_resolution_state_snapshot
+
+    inline_snapshot = launch_context.get("resolution_state_snapshot")
+    snapshot_dict = resolve_resolution_state_snapshot(
+        resolution_state_snapshot=(
+            dict(inline_snapshot) if isinstance(inline_snapshot, Mapping) else None
+        ),
+        resolution_state_snapshot_path=_optional_text(
+            launch_context,
+            "resolution_state_snapshot_path",
+        ),
+    )
     return build_deed_to_ir_startup_handoff(
         scope=scope,
         transcript_edit_output_path=output_path,

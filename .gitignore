@@ -207,8 +207,11 @@ pids
 tmp/
 temp/
 
-# Practice deeds working folder
-practice_deeds/
+# Practice deeds working folder (except frozen deed-to-IR live handoff fixture)
+practice_deeds/*
+!practice_deeds/right_of_way/
+practice_deeds/right_of_way/*
+!practice_deeds/right_of_way/deed_to_ir/
 
 # Environment variables (API keys, etc.)
 .env

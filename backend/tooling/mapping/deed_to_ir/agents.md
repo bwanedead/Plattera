@@ -13,6 +13,10 @@
 
 ## Commands
 - Test: `pytest backend/tooling/mapping/deed_to_ir/ -q`
+- Live launch: see `docs/architecture/harness/deed-to-ir-live-loop-testing.md`
+
+## Gotchas
+- `resolution_state_snapshot_path` loads JSON mechanically and pairs with `resolution_state_ref`; mutually exclusive with inline `resolution_state_snapshot`.
 
 ## Links
 - Domain pack: `backend/domains/mapping/deed_to_ir/`
