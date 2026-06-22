@@ -5,13 +5,14 @@ from __future__ import annotations
 import re
 from typing import Literal
 
-FeatureGraphArtifactType = Literal["ir", "compile", "judge", "bundle"]
+FeatureGraphArtifactType = Literal["ir", "compile", "judge", "bundle", "mapping"]
 
 ARTIFACT_REF_PREFIXES: dict[str, str] = {
     "ir": "feature_graph:ir:",
     "compile": "feature_graph:compile:",
     "judge": "feature_graph:judge:",
     "bundle": "feature_graph:bundle:",
+    "mapping": "feature_graph:mapping:",
 }
 
 SUPPORTED_ARTIFACT_TYPES = frozenset(ARTIFACT_REF_PREFIXES.keys())

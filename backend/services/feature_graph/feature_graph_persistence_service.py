@@ -28,29 +28,23 @@ from feature_graph.artifacts import (
     JudgeArtifact,
     BundleArtifact,
 )
+from feature_graph.mapping_artifacts import MappingArtifact
 
 
-class UnsafeFeatureGraphPathError(ValueError):
-    """Raised when dossier_id or artifact_id would escape the artifacts root."""
+from feature_graph.path_safety import UnsafeFeatureGraphPathError, require_safe_dossier_id
 
 
 def _require_safe_dossier_id(dossier_id: str) -> str:
-    text = str(dossier_id or "").strip()
-    if not text:
-        raise UnsafeFeatureGraphPathError("dossier_id_empty")
-    if ".." in text or "/" in text or "\\" in text:
-        raise UnsafeFeatureGraphPathError("dossier_id_unsafe_path_characters")
-    if text.startswith("."):
-        raise UnsafeFeatureGraphPathError("dossier_id_unsafe_leading_dot")
-    return text
+    return require_safe_dossier_id(dossier_id)
 
 
-ArtifactType = Literal["ir", "compile", "judge", "bundle"]
+ArtifactType = Literal["ir", "compile", "judge", "bundle", "mapping"]
 _LATEST_POINTER_NAMES: dict[str, str] = {
     "ir": "latest_ir.json",
     "compile": "latest_compile.json",
     "judge": "latest_judge.json",
     "bundle": "latest_bundle.json",
+    "mapping": "latest_mapping.json",
 }
 _FINAL_POINTER_NAMES: dict[str, str] = {
     "ir": "final_ir.json",
@@ -131,6 +125,8 @@ class FeatureGraphPersistenceService:
                 raise UnsafeFeatureGraphPathError("feature_graph_final_pointer_artifact_id_mismatch")
         else:
             validated_id = inferred_id
+        if not resolved.is_file():
+            raise UnsafeFeatureGraphPathError("feature_graph_final_pointer_target_missing")
         return resolved, safe_dossier_id, validated_id
 
     def _atomic_write(self, path: Path, data: Dict[str, Any]) -> None:
@@ -269,7 +265,7 @@ class FeatureGraphPersistenceService:
 
     def save_artifact(
         self,
-        artifact: IRArtifact | CompileArtifact | JudgeArtifact | BundleArtifact,
+        artifact: IRArtifact | CompileArtifact | JudgeArtifact | BundleArtifact | MappingArtifact,
         dossier_id: str,
     ) -> Dict[str, Any]:
         """

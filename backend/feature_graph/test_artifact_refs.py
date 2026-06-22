@@ -19,9 +19,15 @@ def test_build_and_parse_round_trip():
     assert artifact_id == "compile_chain_001"
 
 
+def test_mapping_ref_build_and_parse():
+    ref = build_feature_graph_artifact_ref("mapping", "mapping_parcel_001")
+    artifact_type, artifact_id = parse_feature_graph_artifact_ref(ref)
+    assert artifact_type == "mapping"
+    assert artifact_id == "mapping_parcel_001"
+
 def test_unknown_artifact_type_fails():
     with pytest.raises(FeatureGraphArtifactRefError, match="feature_graph_artifact_type_unsupported"):
-        build_feature_graph_artifact_ref("mapping", "x1")
+        build_feature_graph_artifact_ref("render", "x1")
 
 
 def test_malformed_ref_fails():

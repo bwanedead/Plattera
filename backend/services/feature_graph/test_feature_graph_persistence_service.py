@@ -228,3 +228,22 @@ def test_save_artifact_normalizes_dossier_id_in_pointer_and_index() -> None:
 
         index = json.loads((root / "state" / "feature_graphs_index.json").read_text(encoding="utf-8"))
         assert index["artifacts"][0]["dossier_id"] == dossier_id
+
+
+def test_mark_final_pointer_rejects_missing_target() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        svc = FeatureGraphPersistenceService(
+            root=root / "artifacts" / "feature_graphs",
+            state_dir=root / "state",
+        )
+        dossier_id = "D_FINAL_MISSING"
+        try:
+            svc.mark_final_pointer(
+                dossier_id=dossier_id,
+                artifact_type="ir",
+                artifact_path=str(root / "artifacts" / "feature_graphs" / dossier_id / "missing.json"),
+            )
+            assert False, "expected missing final pointer target to be rejected"
+        except Exception as exc:
+            assert "feature_graph_final_pointer_target_missing" in str(exc)
