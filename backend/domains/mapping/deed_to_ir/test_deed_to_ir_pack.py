@@ -27,7 +27,8 @@ def test_manifest_tool_ids_match_tool_specs() -> None:
         "hydrate_deed_to_ir_input",
         "describe_feature_graph_capabilities",
         "save_ir_artifact",
-        "hydrate_feature_graph_artifact_refs",
+        "submit_ir_for_mapping",
+        "hydrate_artifact_refs",
         "list_feature_graph_artifacts",
     )
     assert manifest.domain_id == "deed_to_ir"
@@ -54,10 +55,11 @@ def test_domain_pack_builds() -> None:
         "hydrate_deed_to_ir_input",
         "describe_feature_graph_capabilities",
         "save_ir_artifact",
-        "hydrate_feature_graph_artifact_refs",
+        "submit_ir_for_mapping",
+        "hydrate_artifact_refs",
         "list_feature_graph_artifacts",
     ]
-    assert len(payload["tool_specs"]) == 5
+    assert len(payload["tool_specs"]) == 6
     assert payload["closure_policy"]["hard_enforced"] is False
     assert payload["closure_policy"]["required_dimension_ids"] == [
         "layer_1_deed_meaning_to_ir_fidelity",
@@ -98,8 +100,10 @@ def test_branch_and_guidance_mission_markers() -> None:
         if b.block_id == "deed_to_ir_procedural_guidance"
     )
     assert "forwardable vs blocked" in guidance
-    assert "save_ir_artifact" in guidance
+    assert "tool specs" in guidance
+    assert "submit saved ir for mapping" in guidance
     assert "source_entity_links" in guidance
+    assert "hydrate_feature_graph_artifact_refs" not in guidance
 
 
 def test_mapping_registry_resolves_deed_to_ir() -> None:

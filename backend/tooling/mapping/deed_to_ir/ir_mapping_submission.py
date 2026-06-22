@@ -1,0 +1,148 @@
+"""Submit saved IR artifacts for internal compile/judge/render mapping."""
+
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+
+from feature_graph.artifact_refs import parse_feature_graph_artifact_ref
+from feature_graph.artifacts import IRArtifact
+from services.feature_graph.feature_graph_evaluation_service import FeatureGraphEvaluationService
+from services.feature_graph.feature_graph_mapping_service import FeatureGraphMappingService
+from services.feature_graph.feature_graph_mapping_sidecar_service import FeatureGraphMappingSidecarService
+from services.feature_graph.feature_graph_mapping_submission_service import (
+    FeatureGraphMappingSubmissionService,
+)
+from services.feature_graph.feature_graph_persistence_service import FeatureGraphPersistenceService
+
+from .artifact_hydration import image_evidence_from_png_path, resolve_sidecar_path_for_ref
+
+
+def submit_ir_for_mapping(
+    *,
+    dossier_id: str,
+    ir_artifact_ref: str,
+    persistence: FeatureGraphPersistenceService | None = None,
+    submission: FeatureGraphMappingSubmissionService | None = None,
+) -> dict[str, Any]:
+    if not dossier_id:
+        raise ValueError("dossier_id_required")
+    parsed = _parse_ir_ref(ir_artifact_ref)
+    if parsed is None:
+        return _refusal("ir_artifact_ref_invalid", "ir_artifact_ref must be a canonical feature_graph:ir ref.")
+    _, ir_artifact_id = parsed
+    service = persistence or FeatureGraphPersistenceService()
+    raw = service.get_artifact(dossier_id, ir_artifact_id)
+    if not isinstance(raw, dict):
+        return _refusal("ir_artifact_not_found", "IR artifact was not found in the current dossier.")
+    try:
+        ir_artifact = IRArtifact.model_validate(raw)
+    except Exception:
+        return _refusal("ir_artifact_invalid", "Stored IR artifact payload failed validation.")
+    if str(raw.get("artifact_type") or "") != "ir":
+        return _refusal("ir_artifact_type_mismatch", "Ref must point to an IR artifact.")
+
+    submitter = submission or _default_submission_service(service)
+    outcome = submitter.submit_ir_artifact(ir_artifact=ir_artifact, dossier_id=dossier_id)
+    mapping = outcome.mapping
+    compile_outcome = outcome.evaluation.compile_outcome
+    judge_outcome = outcome.evaluation.judge_outcome
+    artifact = mapping.artifact
+
+    image_evidence: list[dict[str, Any]] = []
+    for descriptor, label in (
+        (artifact.clean_render, "clean_render"),
+        (artifact.control_render, "control_render"),
+    ):
+        evidence = _image_evidence_for_sidecar_ref(
+            dossier_id=dossier_id,
+            ref_id=descriptor.ref,
+            persistence=service,
+        )
+        if evidence is not None:
+            image_evidence.append(evidence)
+
+    artifact_refs = [
+        mapping.artifact_ref,
+        artifact.control_render.ref,
+        artifact.clean_render.ref,
+        artifact.geometry.ref,
+        compile_outcome.artifact_ref,
+        judge_outcome.artifact_ref,
+        outcome.ir_artifact_ref,
+    ]
+
+    return {
+        "executed": True,
+        "artifact_refs": artifact_refs,
+        "image_evidence": image_evidence,
+        "outputs": {
+            "mapping_artifact_ref": mapping.artifact_ref,
+            "compile_artifact_ref": compile_outcome.artifact_ref,
+            "judge_artifact_ref": judge_outcome.artifact_ref,
+            "geometry_ref": artifact.geometry.ref,
+            "clean_render_ref": artifact.clean_render.ref,
+            "control_render_ref": artifact.control_render.ref,
+            "graph_id": mapping.graph_id,
+            "compiled_feature_count": compile_outcome.compiled_feature_count,
+            "rendered_feature_count": mapping.rendered_feature_count,
+            "skipped_feature_count": mapping.skipped_feature_count,
+            "compile_gap_count": len(compile_outcome.artifact.gaps),
+            "judge_gap_count": len(judge_outcome.artifact.report.gaps),
+            "warning_count": mapping.warning_count,
+            "coordinate_space": artifact.coordinate_space,
+            "world_bbox": artifact.world_bbox.model_dump(mode="json"),
+        },
+    }
+
+
+def _default_submission_service(
+    persistence: FeatureGraphPersistenceService,
+) -> FeatureGraphMappingSubmissionService:
+    sidecars = FeatureGraphMappingSidecarService(artifacts_root=persistence.artifacts_root)
+    evaluation = FeatureGraphEvaluationService(persistence)
+    mapping = FeatureGraphMappingService(persistence=persistence, sidecars=sidecars)
+    return FeatureGraphMappingSubmissionService(evaluation=evaluation, mapping=mapping)
+
+
+def _parse_ir_ref(ref: str) -> tuple[str, str] | None:
+    try:
+        artifact_type, artifact_id = parse_feature_graph_artifact_ref(ref)
+    except ValueError:
+        return None
+    if artifact_type != "ir":
+        return None
+    return artifact_type, artifact_id
+
+
+def _image_evidence_for_sidecar_ref(
+    *,
+    dossier_id: str,
+    ref_id: str,
+    persistence: FeatureGraphPersistenceService,
+) -> dict[str, Any] | None:
+    try:
+        path = resolve_sidecar_path_for_ref(
+            dossier_id=dossier_id,
+            ref_id=ref_id,
+            artifacts_root=persistence.artifacts_root,
+        )
+    except ValueError:
+        return None
+    if path.suffix.lower() != ".png":
+        return None
+    return image_evidence_from_png_path(ref_id=ref_id, path=path)
+
+
+def _refusal(code: str, message: str) -> dict[str, Any]:
+    return {
+        "executed": False,
+        "refusal": {
+            "reason_code": code,
+            "retryable": False,
+            "blocked_by_invariant": True,
+            "blocked_by_budget": False,
+            "missing_inputs": [],
+        },
+        "outputs": {"error": {"code": code, "message": message}},
+    }

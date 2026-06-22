@@ -210,14 +210,47 @@ def build_deed_to_ir_tool_specs() -> tuple[SemanticToolSpec, ...]:
             ),
         ),
         SemanticToolSpec(
-            tool_id="hydrate_feature_graph_artifact_refs",
-            category="read",
+            tool_id="submit_ir_for_mapping",
+            category="write",
             purpose=(
-                "Hydrate one or more feature-graph artifact refs (ir, compile, judge, bundle). "
-                "Returns bounded artifact payloads without filesystem paths."
+                "Submit one saved IR artifact for mapping. Internally compiles, judges, projects geometry, "
+                "and renders clean/control maps as deterministic stages of this single submission. "
+                "Compile, judge, and render are not separate agent workflow actions."
             ),
             expected_request_shape=(
-                "ref_ids: required non-empty array of feature_graph:* refs. "
+                "ir_artifact_ref: required canonical feature_graph:ir:* ref from the current dossier."
+            ),
+            expected_request_json_shape={
+                "type": "object",
+                "required": ["ir_artifact_ref"],
+                "properties": {
+                    "ir_artifact_ref": {"type": "string"},
+                },
+                "additionalProperties": False,
+            },
+            example_request={
+                "ir_artifact_ref": "feature_graph:ir:ir_parcel_1_ab12cd34",
+            },
+            batching={
+                "allowed": False,
+                "side_effect_class": "write",
+            },
+            expected_result_shape=(
+                "On success: artifact_refs include mapping, compile, judge, IR, and sidecar refs. "
+                "Top-level image_evidence carries clean/control PNG payloads. outputs include bounded "
+                "counts, coordinate_space, world_bbox, and canonical refs without filesystem paths."
+            ),
+        ),
+        SemanticToolSpec(
+            tool_id="hydrate_artifact_refs",
+            category="read",
+            purpose=(
+                "Hydrate feature-graph artifact refs (ir, compile, judge, bundle, mapping) and mapping "
+                "sidecar refs (geometry.geojson, clean.png, control.png). Returns bounded payloads "
+                "without filesystem paths. PNG sidecars return top-level image_evidence."
+            ),
+            expected_request_shape=(
+                "ref_ids: required non-empty array of feature_graph:* or artifact://dossiers/feature_graphs/* refs. "
                 "max_refs: optional cap (default 8, max 32)."
             ),
             expected_request_json_shape={
@@ -244,8 +277,9 @@ def build_deed_to_ir_tool_specs() -> tuple[SemanticToolSpec, ...]:
                 "can_run_parallel": True,
             },
             expected_result_shape=(
-                "outputs.results: hydrated artifacts keyed by ref with bounded graph payloads. "
-                "outputs.errors: per-ref not_found or prefix errors. outputs.hydrated_count."
+                "outputs.results: hydrated artifacts or sidecars keyed by ref with bounded payloads. "
+                "outputs.errors: per-ref not_found, prefix, or scope errors. "
+                "image_evidence: present for PNG sidecar refs only."
             ),
         ),
         SemanticToolSpec(
@@ -253,10 +287,10 @@ def build_deed_to_ir_tool_specs() -> tuple[SemanticToolSpec, ...]:
             category="read",
             purpose=(
                 "List indexed feature-graph artifacts for the current dossier. "
-                "Supports current and future artifact types without assuming compile/judge artifacts exist."
+                "Supports ir, compile, judge, bundle, and mapping artifact types."
             ),
             expected_request_shape=(
-                "artifact_type: optional filter (ir|compile|judge|bundle). "
+                "artifact_type: optional filter (ir|compile|judge|bundle|mapping). "
                 "limit: optional cap (default 32, max 64)."
             ),
             expected_request_json_shape={
@@ -264,7 +298,7 @@ def build_deed_to_ir_tool_specs() -> tuple[SemanticToolSpec, ...]:
                 "properties": {
                     "artifact_type": {
                         "type": ["string", "null"],
-                        "enum": ["ir", "compile", "judge", "bundle", None],
+                        "enum": ["ir", "compile", "judge", "bundle", "mapping", None],
                     },
                     "limit": {"type": ["integer", "null"]},
                 },

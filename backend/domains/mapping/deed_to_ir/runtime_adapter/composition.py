@@ -9,12 +9,14 @@ from dataclasses import is_dataclass
 from typing import Any
 
 from harness.runtime.composition import ToolBinding, TurnBlock, TurnSurface
+from tooling.artifact_capability import HYDRATE_ARTIFACT_REFS
 from tooling.mapping.deed_to_ir.artifact_hydration import (
-    hydrate_feature_graph_artifact_refs,
     list_feature_graph_artifacts,
+    make_hydrate_artifact_refs_handler,
 )
 from tooling.mapping.deed_to_ir.feature_graph_capabilities import describe_feature_graph_capabilities
 from tooling.mapping.deed_to_ir.input_hydration import make_hydrate_deed_to_ir_input_handler
+from tooling.mapping.deed_to_ir.ir_mapping_submission import submit_ir_for_mapping
 from tooling.mapping.deed_to_ir.ir_persistence import save_ir_artifact
 
 from ..domain_pack import DeedToIrDomainPack
@@ -89,8 +91,12 @@ def _tool_handler_entries(
             _make_save_ir_handler(dossier_id=dossier_id),
         ),
         (
-            "hydrate_feature_graph_artifact_refs",
-            _make_hydrate_fg_refs_handler(dossier_id=dossier_id),
+            "submit_ir_for_mapping",
+            _make_submit_ir_handler(dossier_id=dossier_id),
+        ),
+        (
+            HYDRATE_ARTIFACT_REFS,
+            make_hydrate_artifact_refs_handler(dossier_id=dossier_id),
         ),
         (
             "list_feature_graph_artifacts",
@@ -139,17 +145,16 @@ def _make_save_ir_handler(*, dossier_id: str) -> Callable[[Any], Any]:
     return handler
 
 
-def _make_hydrate_fg_refs_handler(*, dossier_id: str) -> Callable[[Any], Any]:
+def _make_submit_ir_handler(*, dossier_id: str) -> Callable[[Any], Any]:
     def handler(request: Any) -> dict[str, Any]:
         inputs = _extract_inputs(request)
-        ref_ids = inputs.get("ref_ids")
-        if not isinstance(ref_ids, list) or not ref_ids:
-            return _error_refusal("ref_ids_required", "ref_ids must be a non-empty array.")
+        ir_artifact_ref = _optional_str(inputs.get("ir_artifact_ref"))
+        if not ir_artifact_ref:
+            return _error_refusal("ir_artifact_ref_required", "ir_artifact_ref is required.")
         try:
-            return hydrate_feature_graph_artifact_refs(
+            return submit_ir_for_mapping(
                 dossier_id=dossier_id,
-                ref_ids=[str(r) for r in ref_ids if isinstance(r, str) and str(r).strip()],
-                max_refs=inputs.get("max_refs"),
+                ir_artifact_ref=ir_artifact_ref,
             )
         except Exception as exc:
             return _exception_refusal(exc)

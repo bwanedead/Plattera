@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import Any
 
 from harness.audit.artifact_ref_links import ArtifactLinkContext, build_run_ref_path_index
+from harness.audit.artifact_ref_links import format_ref_with_link, resolve_artifact_image_link
 from harness.audit.delegate_subtask_timeline import (
     render_delegate_subtask_section,
     render_delegate_turn_integration_summary,
@@ -855,7 +856,16 @@ def _render_tool_result(
     if isinstance(artifact_refs, list) and artifact_refs:
         lines.append("  artifact_refs_out:")
         for ref in artifact_refs[:32]:
-            lines.append(f"    - {ref}")
+            ref_text = str(ref)
+            link = (
+                resolve_artifact_image_link(ref_text, link_context, link_label="open image")
+                if link_context is not None
+                else None
+            )
+            if link is not None:
+                lines.append(f"    - {format_ref_with_link(ref_text, link, link_label='open image')}")
+            else:
+                lines.append(f"    - {ref_text}")
     else:
         lines.append("  artifact_refs_out: none")
 

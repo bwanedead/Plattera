@@ -1597,3 +1597,37 @@ def test_timeline_renders_source_window_line_for_crop(tmp_path: Path) -> None:
     assert "source_window:" in body
     assert "bottom_full_width" in body
     assert "can_expand_down=false" in body
+
+
+def test_tool_result_renders_resolvable_image_refs_as_links(tmp_path: Path, monkeypatch) -> None:
+    from harness.audit.artifact_ref_links import ArtifactLinkContext
+    from harness.audit.human_timeline import _render_tool_result
+
+    png_dir = tmp_path / "feature_graphs" / "d1" / "mappings" / "map1"
+    png_dir.mkdir(parents=True)
+    (png_dir / "clean.png").write_bytes(b"png")
+
+    timeline_path = tmp_path / "audit" / "human" / "timeline.md"
+    timeline_path.parent.mkdir(parents=True)
+    ref = "artifact://dossiers/feature_graphs/d1/mappings/map1/clean.png"
+    monkeypatch.setattr(
+        "harness.audit.artifact_ref_links.dossiers_artifacts_root",
+        lambda: tmp_path,
+    )
+    context = ArtifactLinkContext(timeline_path=timeline_path, ref_path_index={})
+    turn = {
+        "tool_result_raw": {
+            "execution_state": "executed",
+            "artifact_refs": [ref, "feature_graph:mapping:map1"],
+            "outputs": {
+                "rendered_feature_count": 2,
+                "skipped_feature_count": 0,
+            },
+            "image_evidence": [{"ref_id": ref, "media_type": "image/png", "b64": "cG5n"}],
+        }
+    }
+    body = "\n".join(_render_tool_result(turn, link_context=context))
+    assert ref in body
+    assert "[open image]" in body
+    assert "image_evidence_count: 1" in body
+    assert "rendered_feature_count" in body

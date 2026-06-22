@@ -1,18 +1,28 @@
-"""Feature-graph artifact listing and ref hydration for deed-to-IR tools."""
+"""Feature-graph artifact listing and unified ref hydration for deed-to-IR tools."""
 
 from __future__ import annotations
 
+import base64
+import json
+from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 from feature_graph.artifact_refs import (
     ARTIFACT_REF_PREFIXES,
     build_feature_graph_artifact_ref,
     parse_feature_graph_artifact_ref,
+    validate_artifact_id,
+)
+from feature_graph.path_safety import require_safe_dossier_id
+from services.feature_graph.feature_graph_mapping_sidecar_service import (
+    FeatureGraphMappingSidecarService,
 )
 from services.feature_graph.feature_graph_persistence_service import FeatureGraphPersistenceService
 
 REF_PREFIXES = ARTIFACT_REF_PREFIXES
 IR_REF_PREFIX = ARTIFACT_REF_PREFIXES["ir"]
+DOSSIER_ARTIFACT_REF_PREFIX = "artifact://dossiers/"
 
 DEFAULT_MAX_REFS = 8
 MAX_REFS = 32
@@ -27,6 +37,10 @@ MAX_JUDGE_GAPS = 64
 MAX_JUDGE_WARNINGS = 32
 MAX_JUDGE_ARTIFACT_KEYS = 32
 MAX_BUNDLE_DEPENDENCY_GRAPHS = 16
+MAX_MAPPING_SKIPPED = 32
+MAX_RENDERED_FEATURE_IDS = 64
+MAX_GEOJSON_FEATURES = 64
+ALLOWED_SIDECAR_NAMES = frozenset({"geometry.geojson", "clean.png", "control.png"})
 
 
 def list_feature_graph_artifacts(
@@ -54,6 +68,44 @@ def list_feature_graph_artifacts(
     }
 
 
+def hydrate_artifact_refs(
+    *,
+    dossier_id: str,
+    ref_ids: list[str],
+    max_refs: int = DEFAULT_MAX_REFS,
+    persistence: FeatureGraphPersistenceService | None = None,
+) -> dict[str, Any]:
+    """Hydrate feature-graph and mapping sidecar refs without exposing filesystem paths."""
+    return hydrate_feature_graph_artifact_refs(
+        dossier_id=dossier_id,
+        ref_ids=ref_ids,
+        max_refs=max_refs,
+        persistence=persistence,
+    )
+
+
+def make_hydrate_artifact_refs_handler(*, dossier_id: str) -> Callable[[Any], Any]:
+    """Return a handler for the canonical ``hydrate_artifact_refs`` tool ID."""
+
+    def handler(request: Any) -> dict[str, Any]:
+        inputs: dict[str, Any] = dict(request.inputs) if hasattr(request, "inputs") else dict(request) if isinstance(request, dict) else {}
+        ref_ids = inputs.get("ref_ids")
+        if not isinstance(ref_ids, list) or not ref_ids:
+            return _refusal("ref_ids_required", "ref_ids must be a non-empty array.")
+        try:
+            return hydrate_artifact_refs(
+                dossier_id=dossier_id,
+                ref_ids=[str(item) for item in ref_ids if isinstance(item, str) and str(item).strip()],
+                max_refs=inputs.get("max_refs"),
+            )
+        except Exception as exc:
+            if isinstance(exc, ValueError) and str(exc).strip():
+                return _refusal(str(exc).strip(), str(exc).strip())
+            raise
+
+    return handler
+
+
 def hydrate_feature_graph_artifact_refs(
     *,
     dossier_id: str,
@@ -78,23 +130,39 @@ def hydrate_feature_graph_artifact_refs(
             },
         }
     service = persistence or FeatureGraphPersistenceService()
+    sidecars = FeatureGraphMappingSidecarService(artifacts_root=service.artifacts_root)
     results: list[dict[str, Any]] = []
     errors: list[dict[str, Any]] = []
+    image_evidence: list[dict[str, Any]] = []
     for ref_id in ref_ids:
-        parsed = _parse_ref(ref_id)
+        text = str(ref_id or "").strip()
+        if text.startswith(DOSSIER_ARTIFACT_REF_PREFIX):
+            row, error, evidence = _hydrate_sidecar_ref(
+                dossier_id=dossier_id,
+                ref_id=text,
+                sidecars=sidecars,
+            )
+            if row is not None:
+                results.append(row)
+                if evidence is not None:
+                    image_evidence.append(evidence)
+            else:
+                errors.append({"ref_id": text, "reason": error or "sidecar_hydration_failed"})
+            continue
+        parsed = _parse_ref(text)
         if parsed is None:
-            errors.append({"ref_id": ref_id, "reason": "unsupported_ref_prefix"})
+            errors.append({"ref_id": text, "reason": "unsupported_ref_prefix"})
             continue
         artifact_type, artifact_id = parsed
         artifact = service.get_artifact(dossier_id, artifact_id)
         if not isinstance(artifact, dict):
-            errors.append({"ref_id": ref_id, "reason": "not_found"})
+            errors.append({"ref_id": text, "reason": "not_found"})
             continue
         if str(artifact.get("artifact_type") or "") != artifact_type:
-            errors.append({"ref_id": ref_id, "reason": "artifact_type_mismatch"})
+            errors.append({"ref_id": text, "reason": "artifact_type_mismatch"})
             continue
-        results.append(_hydrated_row(ref_id=ref_id, artifact=artifact))
-    return {
+        results.append(_hydrated_row(ref_id=text, artifact=artifact))
+    payload: dict[str, Any] = {
         "executed": True,
         "outputs": {
             "results": results,
@@ -103,6 +171,9 @@ def hydrate_feature_graph_artifact_refs(
             "hydrated_count": len(results),
         },
     }
+    if image_evidence:
+        payload["image_evidence"] = image_evidence
+    return payload
 
 
 def _hydrated_row(*, ref_id: str, artifact: dict[str, Any]) -> dict[str, Any]:
@@ -152,7 +223,136 @@ def _hydrated_row(*, ref_id: str, artifact: dict[str, Any]) -> dict[str, Any]:
         trunc = {k: v for k, v in (tg_meta | deps_meta).items() if v}
         if trunc:
             row["truncated"] = trunc
+    elif artifact_type == "mapping":
+        row["graph_id"] = artifact.get("graph_id")
+        row["source_ir_artifact_ref"] = artifact.get("source_ir_artifact_ref")
+        row["compile_artifact_ref"] = artifact.get("compile_artifact_ref")
+        row["judge_artifact_ref"] = artifact.get("judge_artifact_ref")
+        row["geometry"] = _strip_paths(artifact.get("geometry"))
+        row["clean_render"] = _strip_paths(artifact.get("clean_render"))
+        row["control_render"] = _strip_paths(artifact.get("control_render"))
+        row["coordinate_space"] = artifact.get("coordinate_space")
+        row["world_bbox"] = artifact.get("world_bbox")
+        rendered_ids = artifact.get("rendered_feature_ids")
+        skipped = artifact.get("skipped_features")
+        row["rendered_feature_ids"], rendered_meta = _bound_list(rendered_ids, MAX_RENDERED_FEATURE_IDS)
+        row["skipped_features"], skipped_meta = _bound_list(skipped, MAX_MAPPING_SKIPPED)
+        row["gap_count"] = artifact.get("gap_count")
+        row["warning_count"] = artifact.get("warning_count")
+        trunc: dict[str, Any] = {}
+        if rendered_meta:
+            trunc["rendered_feature_ids"] = rendered_meta
+        if skipped_meta:
+            trunc["skipped_features"] = skipped_meta
+        if trunc:
+            row["truncated"] = trunc
     return _strip_paths(row)
+
+
+def _hydrate_sidecar_ref(
+    *,
+    dossier_id: str,
+    ref_id: str,
+    sidecars: FeatureGraphMappingSidecarService,
+) -> tuple[dict[str, Any] | None, str | None, dict[str, Any] | None]:
+    try:
+        parsed = _parse_sidecar_ref(dossier_id=dossier_id, ref_id=ref_id)
+    except ValueError as exc:
+        return None, str(exc), None
+    if parsed is None:
+        return None, "unsupported_sidecar_ref", None
+    mapping_id, sidecar_name = parsed
+    try:
+        path = sidecars.resolve_existing_sidecar_path(dossier_id, mapping_id, sidecar_name)  # type: ignore[arg-type]
+    except Exception:
+        return None, "sidecar_not_found", None
+    if sidecar_name == "geometry.geojson":
+        try:
+            return _hydrate_geojson_sidecar(ref_id=ref_id, path=path), None, None
+        except ValueError:
+            return None, "geojson_sidecar_invalid", None
+    if sidecar_name in {"clean.png", "control.png"}:
+        row = {
+            "ref_id": ref_id,
+            "artifact_type": "mapping_sidecar",
+            "sidecar_name": sidecar_name,
+            "media_type": "image/png",
+        }
+        evidence = _image_evidence_from_png(ref_id=ref_id, path=path)
+        return row, None, evidence
+    return None, "unsupported_sidecar_name", None
+
+
+def resolve_sidecar_path_for_ref(
+    *,
+    dossier_id: str,
+    ref_id: str,
+    artifacts_root: Path | None = None,
+) -> Path:
+    parsed = _parse_sidecar_ref(dossier_id=dossier_id, ref_id=ref_id)
+    if parsed is None:
+        raise ValueError("unsupported_sidecar_ref")
+    mapping_id, sidecar_name = parsed
+    sidecars = FeatureGraphMappingSidecarService(artifacts_root=artifacts_root)
+    return sidecars.resolve_existing_sidecar_path(dossier_id, mapping_id, sidecar_name)  # type: ignore[arg-type]
+
+
+def _parse_sidecar_ref(*, dossier_id: str, ref_id: str) -> tuple[str, str] | None:
+    text = str(ref_id or "").strip()
+    if not text.startswith(DOSSIER_ARTIFACT_REF_PREFIX):
+        return None
+    relative = text[len(DOSSIER_ARTIFACT_REF_PREFIX) :]
+    parts = [part for part in relative.replace("\\", "/").split("/") if part]
+    if len(parts) != 5:
+        return None
+    root_segment, ref_dossier_id, mappings_segment, mapping_id, sidecar_name = parts
+    if root_segment != "feature_graphs" or mappings_segment != "mappings":
+        return None
+    if sidecar_name not in ALLOWED_SIDECAR_NAMES:
+        return None
+    safe_dossier_id = require_safe_dossier_id(dossier_id)
+    if require_safe_dossier_id(ref_dossier_id) != safe_dossier_id:
+        raise ValueError("cross_dossier_ref")
+    return validate_artifact_id(mapping_id), sidecar_name
+
+
+def _hydrate_geojson_sidecar(*, ref_id: str, path: Path) -> dict[str, Any]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ValueError("geojson_sidecar_invalid") from exc
+    if not isinstance(payload, dict):
+        raise ValueError("geojson_sidecar_invalid")
+    features = payload.get("features") if isinstance(payload.get("features"), list) else []
+    bounded = features[:MAX_GEOJSON_FEATURES]
+    return {
+        "ref_id": ref_id,
+        "artifact_type": "geometry_sidecar",
+        "sidecar_name": "geometry.geojson",
+        "media_type": "application/geo+json",
+        "feature_collection": {
+            "type": "FeatureCollection",
+            "features": bounded,
+        },
+        "feature_count": len(features),
+        "truncated": len(features) > MAX_GEOJSON_FEATURES,
+    }
+
+
+def image_evidence_from_png_path(*, ref_id: str, path: Path) -> dict[str, Any] | None:
+    try:
+        payload = base64.b64encode(path.read_bytes()).decode("ascii")
+    except OSError:
+        return None
+    return {
+        "ref_id": ref_id,
+        "b64": payload,
+        "media_type": "image/png",
+    }
+
+
+def _image_evidence_from_png(*, ref_id: str, path: Path) -> dict[str, Any] | None:
+    return image_evidence_from_png_path(ref_id=ref_id, path=path)
 
 
 def _bound_graph_dict(graph: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:

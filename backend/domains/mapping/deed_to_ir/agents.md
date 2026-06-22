@@ -6,8 +6,8 @@
 
 ## Contracts & invariants
 - **Domain vs tooling:** Transcript-edit output loading, input hydration, and IR persistence live in `backend/tooling/mapping/deed_to_ir/` only.
-- **Five foundation tools:** `hydrate_deed_to_ir_input`, `describe_feature_graph_capabilities`, `save_ir_artifact`, `hydrate_feature_graph_artifact_refs`, `list_feature_graph_artifacts`.
-- **No mapping submission yet:** `submit_ir_for_mapping` and compile/judge/render agent actions are deferred.
+- **Six foundation tools:** `hydrate_deed_to_ir_input`, `describe_feature_graph_capabilities`, `save_ir_artifact`, `submit_ir_for_mapping`, `hydrate_artifact_refs`, `list_feature_graph_artifacts`.
+- **Mapping submission is one action:** `submit_ir_for_mapping` internally compiles, judges, and renders; those are not separate agent workflow actions.
 - **Pack is the semantic surface owner:** `domain_pack.py` declares mapping-family branch, deed-to-IR branch, procedural guidance, startup context, and closure/handoff semantics.
 - **Startup handoff is injected, not inferred:** Loader copies transcript-edit output fields mechanically; resolution state arrives via explicit launch-context snapshot.
 - **`runtime_adapter/`** is the only harness-facing seam; it must not author mission state, closure, inventory, blockers, or IR.

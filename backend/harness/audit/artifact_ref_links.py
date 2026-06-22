@@ -9,6 +9,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from config.paths import dossiers_artifacts_root
+
 MAX_INLINE_THUMBNAILS_PER_TURN = 4
 _MAX_AUDIT_JSON_DESCRIPTORS = 64
 _MAX_DERIVED_DESCRIPTOR_FILES = 512
@@ -147,6 +149,10 @@ def resolve_artifact_image_link(
         return None
     absolute_path = str(context.ref_path_index.get(normalized_ref) or "").strip()
     if not absolute_path:
+        dossier_path = _resolve_dossiers_artifact_file(normalized_ref)
+        if dossier_path is not None:
+            absolute_path = str(dossier_path)
+    if not absolute_path:
         return None
     file_path = Path(absolute_path)
     if not file_path.is_file():
@@ -210,6 +216,24 @@ def _markdown_target(relative_path: str) -> str:
     if any(char in normalized for char in (" ", "(", ")", "<", ">")):
         return f"<{normalized}>"
     return normalized
+
+
+def _resolve_dossiers_artifact_file(ref_id: str) -> Path | None:
+    prefix = "artifact://dossiers/"
+    text = str(ref_id or "").strip()
+    if not text.startswith(prefix):
+        return None
+    if not text.lower().endswith(".png"):
+        return None
+    relative = text[len(prefix) :].replace("\\", "/")
+    parts = [part for part in relative.split("/") if part and part != "."]
+    if any(part == ".." for part in parts):
+        return None
+    root = dossiers_artifacts_root().resolve()
+    candidate = (root / Path(*parts)).resolve()
+    if root not in candidate.parents:
+        return None
+    return candidate if candidate.is_file() else None
 
 
 def _collect_ref_paths_from_value(value: Any, index: dict[str, str]) -> None:

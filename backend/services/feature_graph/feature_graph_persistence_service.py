@@ -76,6 +76,10 @@ class FeatureGraphPersistenceService:
         self._index_path = self._state_dir / "feature_graphs_index.json"
         self._state_dir.mkdir(parents=True, exist_ok=True)
 
+    @property
+    def artifacts_root(self) -> Path:
+        return self._artifacts_root
+
     def _artifacts_root_resolved(self) -> Path:
         return self._artifacts_root.resolve()
 

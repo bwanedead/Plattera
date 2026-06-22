@@ -15,11 +15,13 @@ from feature_graph.operations import OPERATION_REGISTRY
 from feature_graph.provenance import ProvenanceAttachment, SourceEntityLink
 
 from tooling.mapping.deed_to_ir.artifact_hydration import (
+    hydrate_artifact_refs,
     hydrate_feature_graph_artifact_refs,
     list_feature_graph_artifacts,
 )
 from tooling.mapping.deed_to_ir.feature_graph_capabilities import describe_feature_graph_capabilities
 from tooling.mapping.deed_to_ir.input_hydration import make_hydrate_deed_to_ir_input_handler
+from tooling.mapping.deed_to_ir.ir_mapping_submission import submit_ir_for_mapping
 from tooling.mapping.deed_to_ir.ir_persistence import save_ir_artifact
 from tooling.mapping.deed_to_ir.resolution_state_projection import (
     mechanical_resolution_state_snapshot,
@@ -371,3 +373,414 @@ def test_list_and_hydrate_feature_graph_artifacts_path_free():
         dumped = json.dumps(hydrated)
         assert "artifact_path" not in dumped
         assert tmpdir not in dumped
+
+
+def _mappable_graph() -> FeatureGraph:
+    return FeatureGraph(
+        graph_id="parcel_tool_submit",
+        nodes=[
+            FeatureNode(
+                id="pob",
+                kind=FeatureKind.POINT,
+                geometry={"type": "Point", "coordinates": [0.0, 0.0]},
+            ),
+            FeatureNode(
+                id="traverse",
+                kind=FeatureKind.CURVE,
+                op_expr=OpExpr(
+                    op_name="CourseTraverse",
+                    operands=["pob"],
+                    params={
+                        "courses": [
+                            {"bearing": 90.0, "distance": 100.0},
+                            {"bearing": 0.0, "distance": 50.0},
+                        ]
+                    },
+                ),
+            ),
+            FeatureNode(
+                id="parcel",
+                kind=FeatureKind.REGION,
+                op_expr=OpExpr(op_name="Close", operands=["traverse"]),
+            ),
+        ],
+        edges=[],
+    )
+
+
+def test_submit_ir_for_mapping_end_to_end_persists_all_artifacts() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        from services.feature_graph.feature_graph_persistence_service import FeatureGraphPersistenceService
+
+        service = FeatureGraphPersistenceService(
+            root=Path(tmpdir) / "artifacts",
+            state_dir=Path(tmpdir) / "state",
+        )
+        saved = save_ir_artifact(
+            dossier_id="d-submit",
+            feature_graph=_mappable_graph().model_dump(mode="json"),
+            artifact_id="ir_tool_submit",
+            persistence=service,
+        )
+        ir_ref = saved["outputs"]["ir_artifact_ref"]
+        result = submit_ir_for_mapping(
+            dossier_id="d-submit",
+            ir_artifact_ref=ir_ref,
+            persistence=service,
+        )
+        assert result["executed"] is True
+        outputs = result["outputs"]
+        assert outputs["mapping_artifact_ref"].startswith("feature_graph:mapping:")
+        assert outputs["compile_artifact_ref"].startswith("feature_graph:compile:")
+        assert outputs["judge_artifact_ref"].startswith("feature_graph:judge:")
+        assert outputs["rendered_feature_count"] >= 1
+        assert isinstance(result.get("image_evidence"), list)
+        assert len(result["image_evidence"]) == 2
+        assert "image_evidence" not in outputs
+        assert "b64" not in json.dumps(outputs)
+        mapping_id = outputs["mapping_artifact_ref"].split(":", 2)[2]
+        sidecar_dir = Path(tmpdir) / "artifacts" / "d-submit" / "mappings" / mapping_id
+        assert (sidecar_dir / "geometry.geojson").exists()
+        assert (sidecar_dir / "clean.png").exists()
+        assert (sidecar_dir / "control.png").exists()
+        compile_id = outputs["compile_artifact_ref"].split(":", 2)[2]
+        compile_raw = service.get_artifact("d-submit", compile_id)
+        assert compile_raw is not None
+        assert compile_raw["metadata"]["parent_artifact_ids"] == ["ir_tool_submit"]
+        dumped = json.dumps(result)
+        assert tmpdir not in dumped
+
+
+def test_submit_ir_for_mapping_repeated_ids_are_distinct() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        from services.feature_graph.feature_graph_persistence_service import FeatureGraphPersistenceService
+
+        service = FeatureGraphPersistenceService(
+            root=Path(tmpdir) / "artifacts",
+            state_dir=Path(tmpdir) / "state",
+        )
+        saved = save_ir_artifact(
+            dossier_id="d-repeat",
+            feature_graph=_mappable_graph().model_dump(mode="json"),
+            artifact_id="ir_repeat_tool",
+            persistence=service,
+        )
+        ir_ref = saved["outputs"]["ir_artifact_ref"]
+        first = submit_ir_for_mapping(dossier_id="d-repeat", ir_artifact_ref=ir_ref, persistence=service)
+        second = submit_ir_for_mapping(dossier_id="d-repeat", ir_artifact_ref=ir_ref, persistence=service)
+        assert first["outputs"]["mapping_artifact_ref"] != second["outputs"]["mapping_artifact_ref"]
+        assert first["outputs"]["compile_artifact_ref"] != second["outputs"]["compile_artifact_ref"]
+
+
+def test_submit_ir_for_mapping_partial_compile_still_maps_valid_features() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        from services.feature_graph.feature_graph_persistence_service import FeatureGraphPersistenceService
+
+        service = FeatureGraphPersistenceService(
+            root=Path(tmpdir) / "artifacts",
+            state_dir=Path(tmpdir) / "state",
+        )
+        graph = FeatureGraph(
+            graph_id="partial_tool",
+            nodes=[
+                FeatureNode(
+                    id="good",
+                    kind=FeatureKind.POINT,
+                    geometry={"type": "Point", "coordinates": [0.0, 0.0]},
+                ),
+                FeatureNode(
+                    id="bad",
+                    kind=FeatureKind.POINT,
+                    geometry={"type": "Point", "coordinates": ["north", 0.0]},
+                ),
+            ],
+            edges=[],
+        )
+        saved = save_ir_artifact(
+            dossier_id="d-partial",
+            feature_graph=graph.model_dump(mode="json"),
+            artifact_id="ir_partial_tool",
+            persistence=service,
+        )
+        result = submit_ir_for_mapping(
+            dossier_id="d-partial",
+            ir_artifact_ref=saved["outputs"]["ir_artifact_ref"],
+            persistence=service,
+        )
+        assert result["executed"] is True
+        assert result["outputs"]["rendered_feature_count"] >= 1
+        assert result["outputs"]["skipped_feature_count"] >= 1
+
+
+@pytest.mark.parametrize(
+    ("ir_ref", "dossier_id", "expected_code"),
+    [
+        ("feature_graph:compile:compile_only", "d-refuse", "ir_artifact_ref_invalid"),
+        ("feature_graph:ir:missing_ir", "d-refuse", "ir_artifact_not_found"),
+        ("not-a-ref", "d-refuse", "ir_artifact_ref_invalid"),
+    ],
+)
+def test_submit_ir_for_mapping_refuses_invalid_refs(
+    ir_ref: str,
+    dossier_id: str,
+    expected_code: str,
+) -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        from services.feature_graph.feature_graph_persistence_service import FeatureGraphPersistenceService
+
+        service = FeatureGraphPersistenceService(
+            root=Path(tmpdir) / "artifacts",
+            state_dir=Path(tmpdir) / "state",
+        )
+        result = submit_ir_for_mapping(
+            dossier_id=dossier_id,
+            ir_artifact_ref=ir_ref,
+            persistence=service,
+        )
+        assert result["executed"] is False
+        assert result["refusal"]["reason_code"] == expected_code
+
+
+def test_submit_ir_for_mapping_refuses_cross_dossier_ir() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        from services.feature_graph.feature_graph_persistence_service import FeatureGraphPersistenceService
+
+        service = FeatureGraphPersistenceService(
+            root=Path(tmpdir) / "artifacts",
+            state_dir=Path(tmpdir) / "state",
+        )
+        saved = save_ir_artifact(
+            dossier_id="d-owner",
+            feature_graph=_mappable_graph().model_dump(mode="json"),
+            artifact_id="ir_owner_only",
+            persistence=service,
+        )
+        result = submit_ir_for_mapping(
+            dossier_id="d-other",
+            ir_artifact_ref=saved["outputs"]["ir_artifact_ref"],
+            persistence=service,
+        )
+        assert result["executed"] is False
+        assert result["refusal"]["reason_code"] == "ir_artifact_not_found"
+
+
+def test_hydrate_artifact_refs_supports_mapping_and_sidecars_path_free() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        from services.feature_graph.feature_graph_persistence_service import FeatureGraphPersistenceService
+
+        service = FeatureGraphPersistenceService(
+            root=Path(tmpdir) / "artifacts",
+            state_dir=Path(tmpdir) / "state",
+        )
+        saved = save_ir_artifact(
+            dossier_id="d-hydrate-map",
+            feature_graph=_mappable_graph().model_dump(mode="json"),
+            artifact_id="ir_hydrate_map",
+            persistence=service,
+        )
+        submitted = submit_ir_for_mapping(
+            dossier_id="d-hydrate-map",
+            ir_artifact_ref=saved["outputs"]["ir_artifact_ref"],
+            persistence=service,
+        )
+        mapping_ref = submitted["outputs"]["mapping_artifact_ref"]
+        geo_ref = submitted["outputs"]["geometry_ref"]
+        clean_ref = submitted["outputs"]["clean_render_ref"]
+        hydrated = hydrate_artifact_refs(
+            dossier_id="d-hydrate-map",
+            ref_ids=[mapping_ref, geo_ref, clean_ref],
+            persistence=service,
+        )
+        assert hydrated["executed"] is True
+        assert hydrated["outputs"]["hydrated_count"] == 3
+        mapping_row = next(row for row in hydrated["outputs"]["results"] if row["artifact_type"] == "mapping")
+        assert mapping_row["source_ir_artifact_ref"] == saved["outputs"]["ir_artifact_ref"]
+        assert "path" not in json.dumps(hydrated).lower() or "artifact_path" not in json.dumps(hydrated)
+        assert tmpdir not in json.dumps(hydrated)
+        assert isinstance(hydrated.get("image_evidence"), list)
+        assert hydrated["image_evidence"][0]["ref_id"] == clean_ref
+        assert "b64" in hydrated["image_evidence"][0]
+        assert "b64" not in json.dumps(hydrated["outputs"])
+
+
+def test_hydrate_geojson_sidecar_is_feature_bounded() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        from services.feature_graph.feature_graph_mapping_sidecar_service import (
+            FeatureGraphMappingSidecarService,
+        )
+        from services.feature_graph.feature_graph_persistence_service import FeatureGraphPersistenceService
+
+        service = FeatureGraphPersistenceService(
+            root=Path(tmpdir) / "artifacts",
+            state_dir=Path(tmpdir) / "state",
+        )
+        sidecars = FeatureGraphMappingSidecarService(artifacts_root=service.artifacts_root)
+        mapping_id = "mapping_geo_bounds"
+        features = {
+            "type": "FeatureCollection",
+            "features": [
+                {
+                    "type": "Feature",
+                    "geometry": {"type": "Point", "coordinates": [i, i]},
+                    "properties": {},
+                }
+                for i in range(100)
+            ],
+        }
+        mapping_dir = Path(tmpdir) / "artifacts" / "d-geo" / "mappings" / mapping_id
+        mapping_dir.mkdir(parents=True)
+        (mapping_dir / "geometry.geojson").write_text(json.dumps(features), encoding="utf-8")
+        geo_ref = f"artifact://dossiers/feature_graphs/d-geo/mappings/{mapping_id}/geometry.geojson"
+        hydrated = hydrate_artifact_refs(
+            dossier_id="d-geo",
+            ref_ids=[geo_ref],
+            persistence=service,
+        )
+        row = hydrated["outputs"]["results"][0]
+        assert len(row["feature_collection"]["features"]) <= 64
+        assert row.get("truncated") is True
+
+
+def test_list_feature_graph_artifacts_includes_mapping_type() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        from services.feature_graph.feature_graph_persistence_service import FeatureGraphPersistenceService
+
+        service = FeatureGraphPersistenceService(
+            root=Path(tmpdir) / "artifacts",
+            state_dir=Path(tmpdir) / "state",
+        )
+        saved = save_ir_artifact(
+            dossier_id="d-list-map",
+            feature_graph=_mappable_graph().model_dump(mode="json"),
+            artifact_id="ir_list_map",
+            persistence=service,
+        )
+        submit_ir_for_mapping(
+            dossier_id="d-list-map",
+            ir_artifact_ref=saved["outputs"]["ir_artifact_ref"],
+            persistence=service,
+        )
+        listed = list_feature_graph_artifacts(
+            dossier_id="d-list-map",
+            artifact_type="mapping",
+            persistence=service,
+        )
+        rows = listed["outputs"]["artifacts"]
+        assert len(rows) == 1
+        assert rows[0]["artifact_type"] == "mapping"
+
+
+def test_malformed_geojson_sidecar_does_not_abort_mixed_hydration_batch() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        from services.feature_graph.feature_graph_persistence_service import FeatureGraphPersistenceService
+
+        service = FeatureGraphPersistenceService(
+            root=Path(tmpdir) / "artifacts",
+            state_dir=Path(tmpdir) / "state",
+        )
+        graph = FeatureGraph(graph_id="g_mixed", nodes=[], edges=[])
+        save_ir_artifact(
+            dossier_id="d-mixed",
+            feature_graph=graph.model_dump(mode="json"),
+            artifact_id="ir_mixed_ok",
+            persistence=service,
+        )
+        mapping_dir = Path(tmpdir) / "artifacts" / "d-mixed" / "mappings" / "mapping_bad_geo"
+        mapping_dir.mkdir(parents=True)
+        (mapping_dir / "geometry.geojson").write_text("{not-json", encoding="utf-8")
+        bad_geo_ref = "artifact://dossiers/feature_graphs/d-mixed/mappings/mapping_bad_geo/geometry.geojson"
+        hydrated = hydrate_artifact_refs(
+            dossier_id="d-mixed",
+            ref_ids=[bad_geo_ref, "feature_graph:ir:ir_mixed_ok"],
+            persistence=service,
+        )
+        assert hydrated["executed"] is True
+        assert hydrated["outputs"]["hydrated_count"] == 1
+        assert len(hydrated["outputs"]["errors"]) == 1
+        assert hydrated["outputs"]["errors"][0]["reason"] == "geojson_sidecar_invalid"
+        assert hydrated["outputs"]["results"][0]["ref_id"] == "feature_graph:ir:ir_mixed_ok"
+
+
+def test_mapping_hydration_truncation_uses_named_lanes() -> None:
+    from feature_graph.mapping_artifacts import (
+        GeometryArtifactDescriptor,
+        RenderArtifactDescriptor,
+        SkippedFeatureRecord,
+        WorldBBox,
+        create_mapping_artifact,
+    )
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        from services.feature_graph.feature_graph_persistence_service import FeatureGraphPersistenceService
+
+        service = FeatureGraphPersistenceService(
+            root=Path(tmpdir) / "artifacts",
+            state_dir=Path(tmpdir) / "state",
+        )
+        bbox = WorldBBox(min_x=0.0, min_y=0.0, max_x=1.0, max_y=1.0)
+        sidecar_ref = (
+            "artifact://dossiers/feature_graphs/d-trunc/mappings/mapping_trunc_lanes/geometry.geojson"
+        )
+        geometry = GeometryArtifactDescriptor(
+            ref=sidecar_ref,
+            byte_count=1,
+            sha256="a" * 64,
+            world_bbox=bbox,
+            rendered_feature_count=100,
+            skipped_feature_count=100,
+        )
+        render = RenderArtifactDescriptor(
+            ref="artifact://dossiers/feature_graphs/d-trunc/mappings/mapping_trunc_lanes/clean.png",
+            profile="clean",
+            byte_count=1,
+            sha256="b" * 64,
+            width=100,
+            height=100,
+            world_bbox=bbox,
+        )
+        control = RenderArtifactDescriptor(
+            ref="artifact://dossiers/feature_graphs/d-trunc/mappings/mapping_trunc_lanes/control.png",
+            profile="control",
+            byte_count=1,
+            sha256="c" * 64,
+            width=100,
+            height=100,
+            world_bbox=bbox,
+        )
+        artifact = create_mapping_artifact(
+            artifact_id="mapping_trunc_lanes",
+            graph_id="g_trunc",
+            source_ir_artifact_id="ir_trunc",
+            source_ir_artifact_ref="feature_graph:ir:ir_trunc",
+            compile_artifact_id="compile_trunc",
+            compile_artifact_ref="feature_graph:compile:compile_trunc",
+            judge_artifact_id="judge_trunc",
+            judge_artifact_ref="feature_graph:judge:judge_trunc",
+            geometry=geometry,
+            clean_render=render,
+            control_render=control,
+            coordinate_space="world",
+            world_bbox=bbox,
+            rendered_feature_ids=[f"rendered_{i}" for i in range(100)],
+            skipped_features=[
+                SkippedFeatureRecord(
+                    node_id=f"skip_{i}",
+                    graph_id="g_trunc",
+                    kind="point",
+                    reason="test",
+                )
+                for i in range(100)
+            ],
+        )
+        service.save_artifact(artifact, dossier_id="d-trunc")
+        hydrated = hydrate_artifact_refs(
+            dossier_id="d-trunc",
+            ref_ids=["feature_graph:mapping:mapping_trunc_lanes"],
+            persistence=service,
+        )
+        row = hydrated["outputs"]["results"][0]
+        trunc = row["truncated"]
+        assert trunc["rendered_feature_ids"]["total"] == 100
+        assert trunc["skipped_features"]["total"] == 100
+        assert trunc["rendered_feature_ids"]["truncated"] is True
+        assert trunc["skipped_features"]["truncated"] is True

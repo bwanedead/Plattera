@@ -18,7 +18,8 @@ _EXPECTED_TOOL_IDS = (
     "hydrate_deed_to_ir_input",
     "describe_feature_graph_capabilities",
     "save_ir_artifact",
-    "hydrate_feature_graph_artifact_refs",
+    "submit_ir_for_mapping",
+    "hydrate_artifact_refs",
     "list_feature_graph_artifacts",
 )
 
@@ -35,7 +36,7 @@ def _launch_context(**overrides: object) -> dict:
     return base
 
 
-def test_runtime_adapter_builds_turn_surface_with_five_tools() -> None:
+def test_runtime_adapter_builds_turn_surface_with_six_tools() -> None:
     adapter = build_deed_to_ir_runtime_adapter()
     surface = adapter.build_turn_surface(_launch_context())
 
@@ -45,7 +46,7 @@ def test_runtime_adapter_builds_turn_surface_with_five_tools() -> None:
 
     payload = surface.payload["deed_to_ir"]
     assert payload["tool_ids"] == list(_EXPECTED_TOOL_IDS)
-    assert len(payload["tool_specs"]) == 5
+    assert len(payload["tool_specs"]) == 6
 
     handoff = surface.payload["deed_to_ir_startup_handoff"]
     assert handoff["resolution_state_ref"] == "transcript_edit:resolution_state:fixture-001"
