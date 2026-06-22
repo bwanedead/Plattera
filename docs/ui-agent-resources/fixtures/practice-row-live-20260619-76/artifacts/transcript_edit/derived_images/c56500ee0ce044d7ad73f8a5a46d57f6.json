@@ -1,0 +1,203 @@
+{
+  "ref_id": "image:derived:c56500ee0ce044d7ad73f8a5a46d57f6",
+  "parent_ref_id": "image:assoc:draft_legal_text_image:original",
+  "sub_action": "point_crops_scaffold",
+  "params": {
+    "show": [
+      "grid"
+    ]
+  },
+  "transform_metadata": {
+    "source_ref": "image:assoc:draft_legal_text_image:original",
+    "source_width_height": [
+      4000,
+      3000
+    ],
+    "point_count": 0,
+    "crop_set": {
+      "points": [],
+      "point_count": 0,
+      "overlay_role": "point_crop_placement_scaffold",
+      "coordinate_lattice": {
+        "major_step_norm": 0.1,
+        "minor_step_norm": 0.025,
+        "major_labels": [
+          "0.10",
+          "0.20",
+          "0.30",
+          "0.40",
+          "0.50",
+          "0.60",
+          "0.70",
+          "0.80",
+          "0.90"
+        ],
+        "minor_labels": false,
+        "coordinate_space": "normalized_source_image",
+        "origin": "top_left",
+        "x_increases": "right",
+        "y_increases": "down",
+        "label_placement": {
+          "major_x": [
+            "top",
+            "bottom"
+          ],
+          "major_y": [
+            "left",
+            "right"
+          ],
+          "minor": false
+        },
+        "label_style": {
+          "background": true,
+          "opposite_margins": true,
+          "font_size_px": 15
+        },
+        "line_style": {
+          "major_width_px": 3,
+          "minor_width_px": 1,
+          "major_color": [
+            58,
+            58,
+            58
+          ],
+          "minor_color": [
+            235,
+            235,
+            235
+          ]
+        },
+        "reference_cells": {
+          "cols": 10,
+          "rows": 10,
+          "cell_labels": true,
+          "cell_label_stride": 2
+        }
+      },
+      "grid": {
+        "enabled": true,
+        "coordinate_space": "source_image_norm",
+        "major_step_norm": 0.1,
+        "minor_step_norm": 0.025,
+        "major_line": {
+          "color": [
+            58,
+            58,
+            58
+          ],
+          "width": 3
+        },
+        "minor_line": {
+          "color": [
+            235,
+            235,
+            235
+          ],
+          "width": 1
+        },
+        "edge_labels": "major_only",
+        "cols": 10,
+        "rows": 10,
+        "cell_labels": true
+      },
+      "legend": {
+        "kind": "placement_scaffold",
+        "point_count": 0
+      }
+    },
+    "overlay_role": "point_crop_placement_scaffold",
+    "coordinate_lattice": {
+      "major_step_norm": 0.1,
+      "minor_step_norm": 0.025,
+      "major_labels": [
+        "0.10",
+        "0.20",
+        "0.30",
+        "0.40",
+        "0.50",
+        "0.60",
+        "0.70",
+        "0.80",
+        "0.90"
+      ],
+      "minor_labels": false,
+      "coordinate_space": "normalized_source_image",
+      "origin": "top_left",
+      "x_increases": "right",
+      "y_increases": "down",
+      "label_placement": {
+        "major_x": [
+          "top",
+          "bottom"
+        ],
+        "major_y": [
+          "left",
+          "right"
+        ],
+        "minor": false
+      },
+      "label_style": {
+        "background": true,
+        "opposite_margins": true,
+        "font_size_px": 15
+      },
+      "line_style": {
+        "major_width_px": 3,
+        "minor_width_px": 1,
+        "major_color": [
+          58,
+          58,
+          58
+        ],
+        "minor_color": [
+          235,
+          235,
+          235
+        ]
+      },
+      "reference_cells": {
+        "cols": 10,
+        "rows": 10,
+        "cell_labels": true,
+        "cell_label_stride": 2
+      }
+    },
+    "grid": {
+      "enabled": true,
+      "coordinate_space": "source_image_norm",
+      "major_step_norm": 0.1,
+      "minor_step_norm": 0.025,
+      "major_line": {
+        "color": [
+          58,
+          58,
+          58
+        ],
+        "width": 3
+      },
+      "minor_line": {
+        "color": [
+          235,
+          235,
+          235
+        ],
+        "width": 1
+      },
+      "edge_labels": "major_only",
+      "cols": 10,
+      "rows": 10,
+      "cell_labels": true
+    },
+    "legend": {
+      "kind": "placement_scaffold",
+      "point_count": 0
+    }
+  },
+  "absolute_path": "<REPO_ROOT>\\backend\\dossiers_data\\artifacts\\transcript_edit\\9f5eecb6-cd7e-483c-b691-b76aa7132e8e\\draft_legal_text_image\\practice-row-live-20260619-76\\derived_images\\c56500ee0ce044d7ad73f8a5a46d57f6.png",
+  "basename": "c56500ee0ce044d7ad73f8a5a46d57f6.png",
+  "size_bytes": 12804787,
+  "width_height": [
+    4000,
+    3000
+  ]
+}

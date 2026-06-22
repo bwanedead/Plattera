@@ -1,0 +1,13 @@
+{
+  "loop_kind": "transcript_edit",
+  "run_id": "practice-row-live-20260619-76",
+  "entries": [
+    {
+      "message_id": "user-msg-5d1a7a1980984100932974019039433b",
+      "created_at_epoch_seconds": 1781811914,
+      "source": "tester",
+      "text": "Correction: Parcel 1 NW corner tie bearing should be N. 4° 00' W., not N. 2° 00' W. The source shows 4 degrees — 4 is the correct value.",
+      "metadata": {}
+    }
+  ]
+}

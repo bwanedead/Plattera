@@ -1,0 +1,30 @@
+{
+  "schema_version": "agent_run_replay.v1",
+  "fixture_id": "practice-row-live-20260619-76",
+  "source": {
+    "domain_id": "transcript_edit",
+    "run_id": "practice-row-live-20260619-76",
+    "dossier_id": "9f5eecb6-cd7e-483c-b691-b76aa7132e8e",
+    "transcription_id": "draft_legal_text_image",
+    "turn_count": 29,
+    "terminal_status": "completed",
+    "terminal_decision": "complete_run"
+  },
+  "viewer_contract": {
+    "core_is_domain_agnostic": true,
+    "unknown_fields_are_preserved": true,
+    "domain_payloads_are_optional_extensions": true,
+    "event_stream": "replay/events.jsonl",
+    "turn_index": "replay/turn_index.json",
+    "artifact_catalog": "artifacts/artifact_catalog.json",
+    "media_catalog": "artifacts/media_catalog.json"
+  },
+  "sanitization": {
+    "raw_prompts": "omitted",
+    "binary_media": "replaced_by_media/placeholder.svg",
+    "absolute_paths": "tokenized",
+    "before_state_snapshots": "omitted; derive from prior turn",
+    "resume_and_execution_session_internals": "omitted",
+    "original_source_bytes": 190426566
+  }
+}

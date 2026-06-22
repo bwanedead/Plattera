@@ -1,0 +1,20 @@
+{
+  "loop_kind": "transcript_edit",
+  "run_id": "practice-row-live-20260619-76",
+  "entries": [
+    {
+      "submitted_at_epoch_seconds": 1781810021,
+      "prompt_id": "hitl-ad8f78d47b3f49c29b593ca39704c173",
+      "choice": "Only this visible image is available; treat the Parcel 2 continuation as unavailable",
+      "note": "Source image genuinely cuts off mid Parcel 2; no continuation page in dossier.",
+      "metadata": {}
+    },
+    {
+      "submitted_at_epoch_seconds": 1781812260,
+      "prompt_id": "hitl-33c567d9a2f84db7b6b9bacaaef73067",
+      "choice": "Use Range 75 West from the introductory situs",
+      "note": "Prefatory situs governs; parcel-start Range 74 references are deed errors per practice baseline.",
+      "metadata": {}
+    }
+  ]
+}

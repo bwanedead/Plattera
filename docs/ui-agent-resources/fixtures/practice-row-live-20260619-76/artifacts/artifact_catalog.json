@@ -1,0 +1,332 @@
+[
+  {
+    "ref_id": "image:assoc:draft_legal_text_image:original",
+    "kind": "image",
+    "occurrence_count": 382,
+    "media_placeholder": "media/placeholder.svg"
+  },
+  {
+    "ref_id": "image:assoc:tx-1:original",
+    "kind": "image",
+    "occurrence_count": 261,
+    "media_placeholder": "media/placeholder.svg"
+  },
+  {
+    "ref_id": "image:derived:1f7514454f8a4f95a24a5a24588f7219",
+    "kind": "image",
+    "occurrence_count": 81,
+    "media_placeholder": "media/placeholder.svg"
+  },
+  {
+    "ref_id": "image:derived:22015beb73c14255afb166e3c146a8f2",
+    "kind": "image",
+    "occurrence_count": 42,
+    "media_placeholder": "media/placeholder.svg"
+  },
+  {
+    "ref_id": "image:derived:25c44c64e1184670b4e04db80ff3bcb7",
+    "kind": "image",
+    "occurrence_count": 107,
+    "media_placeholder": "media/placeholder.svg"
+  },
+  {
+    "ref_id": "image:derived:40cc4bc92ee44178aef707187838358e",
+    "kind": "image",
+    "occurrence_count": 121,
+    "media_placeholder": "media/placeholder.svg"
+  },
+  {
+    "ref_id": "image:derived:46ead28997e5494ba76e45329acea4f4",
+    "kind": "image",
+    "occurrence_count": 73,
+    "media_placeholder": "media/placeholder.svg"
+  },
+  {
+    "ref_id": "image:derived:4bb4a18ef4ce4164b37b7d1d0d022f54",
+    "kind": "image",
+    "occurrence_count": 28,
+    "media_placeholder": "media/placeholder.svg"
+  },
+  {
+    "ref_id": "image:derived:523e479a744742cd992ccb6dbe67dae2",
+    "kind": "image",
+    "occurrence_count": 149,
+    "media_placeholder": "media/placeholder.svg"
+  },
+  {
+    "ref_id": "image:derived:65eb6c9a7e5546f5951b7aa9457846c3",
+    "kind": "image",
+    "occurrence_count": 38,
+    "media_placeholder": "media/placeholder.svg"
+  },
+  {
+    "ref_id": "image:derived:694e5e464c63406d87ea868906843c51",
+    "kind": "image",
+    "occurrence_count": 98,
+    "media_placeholder": "media/placeholder.svg"
+  },
+  {
+    "ref_id": "image:derived:7cf15e032b6c430da02d9819450b0f9b",
+    "kind": "image",
+    "occurrence_count": 95,
+    "media_placeholder": "media/placeholder.svg"
+  },
+  {
+    "ref_id": "image:derived:7ec927e6bd36489490034b530d3e0270",
+    "kind": "image",
+    "occurrence_count": 28,
+    "media_placeholder": "media/placeholder.svg"
+  },
+  {
+    "ref_id": "image:derived:862b6467221e4cef91cc980f17f17ed4",
+    "kind": "image",
+    "occurrence_count": 59,
+    "media_placeholder": "media/placeholder.svg"
+  },
+  {
+    "ref_id": "image:derived:919bde0761c24e2eb3722bf2f0f9b578",
+    "kind": "image",
+    "occurrence_count": 78,
+    "media_placeholder": "media/placeholder.svg"
+  },
+  {
+    "ref_id": "image:derived:953e88a2f6f34d1fb499ba10c9736f38",
+    "kind": "image",
+    "occurrence_count": 42,
+    "media_placeholder": "media/placeholder.svg"
+  },
+  {
+    "ref_id": "image:derived:9bb40c730d4e49b1a841a11618f0dc69",
+    "kind": "image",
+    "occurrence_count": 88,
+    "media_placeholder": "media/placeholder.svg"
+  },
+  {
+    "ref_id": "image:derived:a6c03628e0a94b9e8aedfcc4d199fa5a",
+    "kind": "image",
+    "occurrence_count": 98,
+    "media_placeholder": "media/placeholder.svg"
+  },
+  {
+    "ref_id": "image:derived:b048916d399444bd93abefe7ba2c45bf",
+    "kind": "image",
+    "occurrence_count": 98,
+    "media_placeholder": "media/placeholder.svg"
+  },
+  {
+    "ref_id": "image:derived:b307f5119ab24386995bbf23462ad99f",
+    "kind": "image",
+    "occurrence_count": 28,
+    "media_placeholder": "media/placeholder.svg"
+  },
+  {
+    "ref_id": "image:derived:b3e3d59ce098495fa545572be6751e67",
+    "kind": "image",
+    "occurrence_count": 28,
+    "media_placeholder": "media/placeholder.svg"
+  },
+  {
+    "ref_id": "image:derived:bc5e61712e724c01ab745909d09be275",
+    "kind": "image",
+    "occurrence_count": 26,
+    "media_placeholder": "media/placeholder.svg"
+  },
+  {
+    "ref_id": "image:derived:be2d8e4c4e874867ab8c9adcfc9e4e3e",
+    "kind": "image",
+    "occurrence_count": 42,
+    "media_placeholder": "media/placeholder.svg"
+  },
+  {
+    "ref_id": "image:derived:c56500ee0ce044d7ad73f8a5a46d57f6",
+    "kind": "image",
+    "occurrence_count": 98,
+    "media_placeholder": "media/placeholder.svg"
+  },
+  {
+    "ref_id": "image:derived:c6eb0b8548634fdaabe2cc6a816e33d0",
+    "kind": "image",
+    "occurrence_count": 146,
+    "media_placeholder": "media/placeholder.svg"
+  },
+  {
+    "ref_id": "image:derived:cbaa4bcb49c44200943b1b2f1f0299fc",
+    "kind": "image",
+    "occurrence_count": 146,
+    "media_placeholder": "media/placeholder.svg"
+  },
+  {
+    "ref_id": "image:derived:cdf64602eeae4c1396108bb1dbdf1729",
+    "kind": "image",
+    "occurrence_count": 74,
+    "media_placeholder": "media/placeholder.svg"
+  },
+  {
+    "ref_id": "image:derived:cf6ecf1a45ca4814b127a74a91e5a3f0",
+    "kind": "image",
+    "occurrence_count": 96,
+    "media_placeholder": "media/placeholder.svg"
+  },
+  {
+    "ref_id": "image:derived:d36c62312d414a21988959fe33075f95",
+    "kind": "image",
+    "occurrence_count": 83,
+    "media_placeholder": "media/placeholder.svg"
+  },
+  {
+    "ref_id": "image:derived:e66037d64cfc4e34bfc00de0734bac2b",
+    "kind": "image",
+    "occurrence_count": 98,
+    "media_placeholder": "media/placeholder.svg"
+  },
+  {
+    "ref_id": "image:derived:fba6f159e40d4010896245d6525d4acf",
+    "kind": "image",
+    "occurrence_count": 103,
+    "media_placeholder": "media/placeholder.svg"
+  },
+  {
+    "ref_id": "image:derived:tx:crop_001",
+    "kind": "image",
+    "occurrence_count": 87,
+    "media_placeholder": "media/placeholder.svg"
+  },
+  {
+    "ref_id": "subtask:turn12:p1_bearing_read",
+    "kind": "delegate_result",
+    "occurrence_count": 47,
+    "media_placeholder": null
+  },
+  {
+    "ref_id": "subtask:turn12:p1_call2_distance_read",
+    "kind": "delegate_result",
+    "occurrence_count": 31,
+    "media_placeholder": null
+  },
+  {
+    "ref_id": "subtask:turn12:p1_offset_read",
+    "kind": "delegate_result",
+    "occurrence_count": 75,
+    "media_placeholder": null
+  },
+  {
+    "ref_id": "subtask:turn17:p2_bearing",
+    "kind": "delegate_result",
+    "occurrence_count": 20,
+    "media_placeholder": null
+  },
+  {
+    "ref_id": "subtask:turn17:p2_call1_bearing",
+    "kind": "delegate_result",
+    "occurrence_count": 60,
+    "media_placeholder": null
+  },
+  {
+    "ref_id": "subtask:turn17:p2_call1_distance",
+    "kind": "delegate_result",
+    "occurrence_count": 60,
+    "media_placeholder": null
+  },
+  {
+    "ref_id": "subtask:turn17:p2_distance",
+    "kind": "delegate_result",
+    "occurrence_count": 60,
+    "media_placeholder": null
+  },
+  {
+    "ref_id": "subtask:turn17:p2_offset",
+    "kind": "delegate_result",
+    "occurrence_count": 60,
+    "media_placeholder": null
+  },
+  {
+    "ref_id": "subtask:turn9:p1_acreage",
+    "kind": "delegate_result",
+    "occurrence_count": 176,
+    "media_placeholder": null
+  },
+  {
+    "ref_id": "subtask:turn9:p1_call1_bearing",
+    "kind": "delegate_result",
+    "occurrence_count": 173,
+    "media_placeholder": null
+  },
+  {
+    "ref_id": "subtask:turn9:p1_call2_bearing",
+    "kind": "delegate_result",
+    "occurrence_count": 173,
+    "media_placeholder": null
+  },
+  {
+    "ref_id": "subtask:turn9:p1_offset_from_canal",
+    "kind": "delegate_result",
+    "occurrence_count": 43,
+    "media_placeholder": null
+  },
+  {
+    "ref_id": "subtask:turn9:p1_pob_corner_bearing",
+    "kind": "delegate_result",
+    "occurrence_count": 58,
+    "media_placeholder": null
+  },
+  {
+    "ref_id": "subtask:turn9:p1_pob_corner_distance",
+    "kind": "delegate_result",
+    "occurrence_count": 111,
+    "media_placeholder": null
+  },
+  {
+    "ref_id": "t0:raw:draft_1",
+    "kind": "source_draft",
+    "occurrence_count": 101,
+    "media_placeholder": null
+  },
+  {
+    "ref_id": "t0:raw:draft_2",
+    "kind": "source_draft",
+    "occurrence_count": 38,
+    "media_placeholder": null
+  },
+  {
+    "ref_id": "t0:raw:draft_3",
+    "kind": "source_draft",
+    "occurrence_count": 38,
+    "media_placeholder": null
+  },
+  {
+    "ref_id": "t0:raw:gpt4o_pass1",
+    "kind": "source_draft",
+    "occurrence_count": 87,
+    "media_placeholder": null
+  },
+  {
+    "ref_id": "transcript_edit:output",
+    "kind": "domain_artifact",
+    "occurrence_count": 210,
+    "media_placeholder": null
+  },
+  {
+    "ref_id": "transcript_edit:working",
+    "kind": "domain_artifact",
+    "occurrence_count": 96,
+    "media_placeholder": null
+  },
+  {
+    "ref_id": "transcript_edit:working:rev:0001",
+    "kind": "domain_artifact",
+    "occurrence_count": 190,
+    "media_placeholder": null
+  },
+  {
+    "ref_id": "transcript_edit:working:rev:0003",
+    "kind": "domain_artifact",
+    "occurrence_count": 87,
+    "media_placeholder": null
+  },
+  {
+    "ref_id": "transcript_edit:working:rev:NNNN",
+    "kind": "domain_artifact",
+    "occurrence_count": 522,
+    "media_placeholder": null
+  }
+]

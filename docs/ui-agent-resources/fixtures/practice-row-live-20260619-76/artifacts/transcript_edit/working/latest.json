@@ -1,0 +1,10 @@
+{
+  "byte_length": 8002,
+  "content_sha256": "6c258920c93950c9e5c6fa0ba98f8e5b7444499f19d2c2fa9456e108d50b1cdb",
+  "ref_id": "transcript_edit:working:rev:0001",
+  "relative_path": "working/rev_0001.json",
+  "revision": 1,
+  "saved_at": "2026-06-18T19:56:17Z",
+  "schema_version": 1,
+  "tool": "save_transcript_edit"
+}

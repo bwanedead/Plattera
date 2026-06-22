@@ -1,0 +1,152 @@
+{
+  "ref_id": "image:derived:be2d8e4c4e874867ab8c9adcfc9e4e3e",
+  "parent_ref_id": "image:assoc:draft_legal_text_image:original",
+  "crop_set_overlay_ref": "image:derived:862b6467221e4cef91cc980f17f17ed4",
+  "sub_action": "point_crops_crop",
+  "params": {
+    "parent_point_alias": "p1_pob_corner_distance"
+  },
+  "absolute_path": "<REPO_ROOT>\\backend\\dossiers_data\\artifacts\\transcript_edit\\9f5eecb6-cd7e-483c-b691-b76aa7132e8e\\draft_legal_text_image\\practice-row-live-20260619-76\\derived_images\\be2d8e4c4e874867ab8c9adcfc9e4e3e.png",
+  "basename": "be2d8e4c4e874867ab8c9adcfc9e4e3e.png",
+  "size_bytes": 2192423,
+  "width_height": [
+    3200,
+    650
+  ],
+  "transform_metadata": {
+    "alias": "p1_pob_corner_distance",
+    "letter": "B",
+    "color": [
+      0,
+      200,
+      220
+    ],
+    "size": "small_plus",
+    "shape": "wide",
+    "point_norm": [
+      0.399,
+      0.632
+    ],
+    "box_px": [
+      636,
+      1701,
+      2556,
+      2091
+    ],
+    "box_norm": [
+      0.159,
+      0.567,
+      0.639,
+      0.697
+    ],
+    "source_width_height": [
+      4000,
+      3000
+    ],
+    "crop_set_overlay_ref": "image:derived:862b6467221e4cef91cc980f17f17ed4",
+    "zoom_factor": 1.6667,
+    "unzoomed_width_height": [
+      1920,
+      390
+    ],
+    "output_width_height": [
+      3200,
+      650
+    ],
+    "zoom_cap_applied": false,
+    "scale_x": 1.0,
+    "scale_y": 1.0,
+    "template_width_height_norm": [
+      0.48,
+      0.13
+    ],
+    "resolved_width_height_norm": [
+      0.48,
+      0.13
+    ],
+    "local_source_ref": "image:assoc:draft_legal_text_image:original",
+    "local_source_width_height": [
+      4000,
+      3000
+    ],
+    "local_point_norm": [
+      0.399,
+      0.632
+    ],
+    "local_box_px": [
+      636,
+      1701,
+      2556,
+      2091
+    ],
+    "local_box_norm": [
+      0.159,
+      0.567,
+      0.639,
+      0.697
+    ],
+    "root_source_ref": "image:assoc:draft_legal_text_image:original",
+    "root_source_width_height": [
+      4000,
+      3000
+    ],
+    "root_point_norm": [
+      0.399,
+      0.632
+    ],
+    "root_box_norm": [
+      0.159,
+      0.567,
+      0.639,
+      0.697
+    ],
+    "root_box_px": [
+      636,
+      1701,
+      2556,
+      2091
+    ],
+    "projection_available": true,
+    "projection_unavailable_reason": null,
+    "projection_chain": [],
+    "crop_frame_room_norm": {
+      "x_minus": 0.159,
+      "x_plus": 0.361,
+      "y_minus": 0.567,
+      "y_plus": 0.303
+    },
+    "crop_frame_touches_edge": {
+      "x_minus": false,
+      "x_plus": false,
+      "y_minus": false,
+      "y_plus": false
+    },
+    "crop_frame_can_expand": {
+      "x_minus": true,
+      "x_plus": true,
+      "y_minus": true,
+      "y_plus": true
+    },
+    "root_crop_frame_room_norm": {
+      "x_minus": 0.159,
+      "x_plus": 0.361,
+      "y_minus": 0.567,
+      "y_plus": 0.303
+    },
+    "root_crop_frame_touches_edge": {
+      "x_minus": false,
+      "x_plus": false,
+      "y_minus": false,
+      "y_plus": false
+    },
+    "root_crop_frame_can_expand": {
+      "x_minus": true,
+      "x_plus": true,
+      "y_minus": true,
+      "y_plus": true
+    },
+    "previous_crop_set_overlay_ref": "image:derived:cf6ecf1a45ca4814b127a74a91e5a3f0"
+  },
+  "root_source_ref": "image:assoc:draft_legal_text_image:original",
+  "previous_crop_set_overlay_ref": "image:derived:cf6ecf1a45ca4814b127a74a91e5a3f0"
+}

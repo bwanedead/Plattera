@@ -1,0 +1,430 @@
+{
+  "ref_id": "image:derived:65eb6c9a7e5546f5951b7aa9457846c3",
+  "parent_ref_id": "image:assoc:draft_legal_text_image:original",
+  "sub_action": "point_crops",
+  "params": {
+    "points": [
+      {
+        "alias": "p1_call2_distance",
+        "point_norm": [
+          0.78,
+          0.758
+        ],
+        "size": "small",
+        "shape": "wide",
+        "zoom_factor": 3.0
+      }
+    ],
+    "show": [
+      "pin",
+      "letter"
+    ]
+  },
+  "transform_metadata": {
+    "source_ref": "image:assoc:draft_legal_text_image:original",
+    "show": [
+      "pin",
+      "letter"
+    ],
+    "legend_height": 120,
+    "key_band_height": 26,
+    "source_width_height": [
+      4000,
+      3000
+    ],
+    "point_count": 1,
+    "crop_set": {
+      "points": [
+        {
+          "alias": "p1_call2_distance",
+          "letter": "A",
+          "color": [
+            255,
+            200,
+            0
+          ],
+          "point_norm": [
+            0.78,
+            0.758
+          ],
+          "box_px": [
+            2480,
+            2004,
+            3760,
+            2544
+          ],
+          "box_norm": [
+            0.62,
+            0.668,
+            0.94,
+            0.848
+          ],
+          "size": "small",
+          "shape": "wide",
+          "crop_ref": "image:derived:fba6f159e40d4010896245d6525d4acf",
+          "zoom_factor": 2.5,
+          "unzoomed_width_height": [
+            1280,
+            540
+          ],
+          "output_width_height": [
+            3200,
+            1350
+          ],
+          "zoom_cap_applied": true,
+          "requested_zoom_factor": 3.0,
+          "max_output_dimension": 3200,
+          "scale_x": 1.0,
+          "scale_y": 1.0,
+          "template_width_height_norm": [
+            0.32,
+            0.18
+          ],
+          "resolved_width_height_norm": [
+            0.32,
+            0.18
+          ],
+          "local_source_ref": "image:assoc:draft_legal_text_image:original",
+          "local_source_width_height": [
+            4000,
+            3000
+          ],
+          "local_point_norm": [
+            0.78,
+            0.758
+          ],
+          "local_box_px": [
+            2480,
+            2004,
+            3760,
+            2544
+          ],
+          "local_box_norm": [
+            0.62,
+            0.668,
+            0.94,
+            0.848
+          ],
+          "root_source_ref": "image:assoc:draft_legal_text_image:original",
+          "root_source_width_height": [
+            4000,
+            3000
+          ],
+          "root_point_norm": [
+            0.78,
+            0.758
+          ],
+          "root_box_norm": [
+            0.62,
+            0.668,
+            0.94,
+            0.848
+          ],
+          "root_box_px": [
+            2480,
+            2004,
+            3760,
+            2544
+          ],
+          "projection_available": true,
+          "projection_unavailable_reason": null,
+          "projection_chain": [],
+          "crop_frame_room_norm": {
+            "x_minus": 0.62,
+            "x_plus": 0.06,
+            "y_minus": 0.668,
+            "y_plus": 0.152
+          },
+          "crop_frame_touches_edge": {
+            "x_minus": false,
+            "x_plus": false,
+            "y_minus": false,
+            "y_plus": false
+          },
+          "crop_frame_can_expand": {
+            "x_minus": true,
+            "x_plus": true,
+            "y_minus": true,
+            "y_plus": true
+          },
+          "root_crop_frame_room_norm": {
+            "x_minus": 0.62,
+            "x_plus": 0.06,
+            "y_minus": 0.668,
+            "y_plus": 0.152
+          },
+          "root_crop_frame_touches_edge": {
+            "x_minus": false,
+            "x_plus": false,
+            "y_minus": false,
+            "y_plus": false
+          },
+          "root_crop_frame_can_expand": {
+            "x_minus": true,
+            "x_plus": true,
+            "y_minus": true,
+            "y_plus": true
+          }
+        }
+      ],
+      "review_rows": [
+        {
+          "letter": "A",
+          "alias": "p1_call2_distance",
+          "point_norm": [
+            0.78,
+            0.758
+          ],
+          "nearest_major_anchor": [
+            0.8,
+            0.8
+          ],
+          "offset_from_anchor": [
+            -0.02,
+            -0.042
+          ],
+          "crop_ref": "image:derived:fba6f159e40d4010896245d6525d4acf",
+          "box_norm": [
+            0.62,
+            0.668,
+            0.94,
+            0.848
+          ],
+          "size": "small",
+          "shape": "wide",
+          "zoom_factor": 2.5,
+          "projection_available": true,
+          "root_point_norm": [
+            0.78,
+            0.758
+          ],
+          "root_box_norm": [
+            0.62,
+            0.668,
+            0.94,
+            0.848
+          ],
+          "crop_frame_room_norm": {
+            "x_minus": 0.62,
+            "x_plus": 0.06,
+            "y_minus": 0.668,
+            "y_plus": 0.152
+          },
+          "crop_frame_touches_edge": {
+            "x_minus": false,
+            "x_plus": false,
+            "y_minus": false,
+            "y_plus": false
+          },
+          "crop_frame_can_expand": {
+            "x_minus": true,
+            "x_plus": true,
+            "y_minus": true,
+            "y_plus": true
+          },
+          "root_crop_frame_room_norm": {
+            "x_minus": 0.62,
+            "x_plus": 0.06,
+            "y_minus": 0.668,
+            "y_plus": 0.152
+          },
+          "root_crop_frame_touches_edge": {
+            "x_minus": false,
+            "x_plus": false,
+            "y_minus": false,
+            "y_plus": false
+          },
+          "root_crop_frame_can_expand": {
+            "x_minus": true,
+            "x_plus": true,
+            "y_minus": true,
+            "y_plus": true
+          }
+        }
+      ],
+      "review_lines": [
+        "A p1_call2_distance -> crop=image:derived:fba6f159e40d4010896245d6525d4acf point=[0.78,0.758] box=[0.62,0.668,0.94,0.848] room=[x-0.62 x+0.06 y-0.668 y+0.152] size=small/wide zoom=2.5 anchor=[0.8,0.8] offset=[-0.020,-0.042] root=[0.78,0.758]"
+      ],
+      "point_key_lines": [
+        "A p1_call2_distance point=[0.780,0.758] small/wide"
+      ],
+      "overlay_role": "point_crop_master"
+    },
+    "overlay_role": "point_crop_master",
+    "coordinate_lattice": {
+      "major_step_norm": 0.1,
+      "minor_step_norm": 0.025,
+      "major_labels": [
+        "0.10",
+        "0.20",
+        "0.30",
+        "0.40",
+        "0.50",
+        "0.60",
+        "0.70",
+        "0.80",
+        "0.90"
+      ],
+      "minor_labels": false,
+      "coordinate_space": "normalized_source_image",
+      "origin": "top_left",
+      "x_increases": "right",
+      "y_increases": "down",
+      "label_placement": {
+        "major_x": [
+          "top",
+          "bottom"
+        ],
+        "major_y": [
+          "left",
+          "right"
+        ],
+        "minor": false
+      },
+      "label_style": {
+        "background": true,
+        "opposite_margins": true,
+        "font_size_px": 15
+      },
+      "line_style": {
+        "major_width_px": 3,
+        "minor_width_px": 1,
+        "major_color": [
+          58,
+          58,
+          58
+        ],
+        "minor_color": [
+          235,
+          235,
+          235
+        ]
+      },
+      "reference_cells": {
+        "cols": 10,
+        "rows": 10,
+        "cell_labels": true,
+        "cell_label_stride": 2
+      }
+    },
+    "grid": {
+      "enabled": true,
+      "coordinate_space": "source_image_norm",
+      "major_step_norm": 0.1,
+      "minor_step_norm": 0.025,
+      "major_line": {
+        "color": [
+          58,
+          58,
+          58
+        ],
+        "width": 3
+      },
+      "minor_line": {
+        "color": [
+          235,
+          235,
+          235
+        ],
+        "width": 1
+      },
+      "edge_labels": "major_only",
+      "cols": 10,
+      "rows": 10,
+      "cell_labels": true
+    },
+    "legend": {
+      "size_colors": {
+        "small": [
+          220,
+          70,
+          70
+        ],
+        "small_plus": [
+          245,
+          166,
+          35
+        ],
+        "medium": [
+          70,
+          130,
+          220
+        ],
+        "large": [
+          80,
+          180,
+          100
+        ]
+      },
+      "size_labels": {
+        "small": "small",
+        "small_plus": "small+",
+        "medium": "medium",
+        "large": "large"
+      }
+    },
+    "box_render": {
+      "fill_alpha": 48,
+      "outline_width": 4,
+      "color_matches_point": true
+    },
+    "pin_render": {
+      "radius_px": 12,
+      "halo_padding_px": 5,
+      "halo_rgba": [
+        255,
+        255,
+        255,
+        245
+      ],
+      "ring_rgba": [
+        35,
+        35,
+        35,
+        255
+      ],
+      "fill_alpha": 225,
+      "outline_width_px": 3,
+      "bullseye_tick_len_px": 10,
+      "bullseye_tick_width_px": 2,
+      "anchor": "point_norm"
+    },
+    "letter_render": {
+      "pad_px": 5,
+      "font_size_px": 14,
+      "bg_rgba": [
+        255,
+        255,
+        255,
+        245
+      ],
+      "text_rgba": [
+        15,
+        15,
+        15,
+        255
+      ],
+      "outline_rgba": [
+        30,
+        30,
+        30,
+        255
+      ],
+      "placement": "upper_right_of_pin"
+    },
+    "point_key_band": {
+      "enabled": true,
+      "height_px": 26,
+      "max_rows": 16,
+      "row_count": 1,
+      "overflow_count": 0
+    }
+  },
+  "absolute_path": "<REPO_ROOT>\\backend\\dossiers_data\\artifacts\\transcript_edit\\9f5eecb6-cd7e-483c-b691-b76aa7132e8e\\draft_legal_text_image\\practice-row-live-20260619-76\\derived_images\\65eb6c9a7e5546f5951b7aa9457846c3.png",
+  "basename": "65eb6c9a7e5546f5951b7aa9457846c3.png",
+  "size_bytes": 12817517,
+  "width_height": [
+    4000,
+    3146
+  ]
+}

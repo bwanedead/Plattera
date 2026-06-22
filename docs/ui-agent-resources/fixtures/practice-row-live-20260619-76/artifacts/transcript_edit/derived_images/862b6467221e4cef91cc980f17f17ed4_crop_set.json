@@ -1,0 +1,1520 @@
+{
+  "master_overlay_ref": "image:derived:862b6467221e4cef91cc980f17f17ed4",
+  "source_ref": "image:assoc:draft_legal_text_image:original",
+  "show": [
+    "pin",
+    "letter"
+  ],
+  "legend_height": 120,
+  "key_band_height": 106,
+  "source_width_height": [
+    4000,
+    3000
+  ],
+  "points": [
+    {
+      "alias": "p1_pob_corner_bearing",
+      "letter": "A",
+      "color": [
+        255,
+        200,
+        0
+      ],
+      "point_norm": [
+        0.319,
+        0.632
+      ],
+      "box_px": [
+        636,
+        1626,
+        1916,
+        2166
+      ],
+      "box_norm": [
+        0.159,
+        0.542,
+        0.479,
+        0.722
+      ],
+      "size": "small",
+      "shape": "wide",
+      "crop_ref": "image:derived:919bde0761c24e2eb3722bf2f0f9b578",
+      "zoom_factor": 2.5,
+      "unzoomed_width_height": [
+        1280,
+        540
+      ],
+      "output_width_height": [
+        3200,
+        1350
+      ],
+      "zoom_cap_applied": true,
+      "requested_zoom_factor": 3.0,
+      "max_output_dimension": 3200,
+      "scale_x": 1.0,
+      "scale_y": 1.0,
+      "template_width_height_norm": [
+        0.32,
+        0.18
+      ],
+      "resolved_width_height_norm": [
+        0.32,
+        0.18
+      ],
+      "local_source_ref": "image:assoc:draft_legal_text_image:original",
+      "local_source_width_height": [
+        4000,
+        3000
+      ],
+      "local_point_norm": [
+        0.319,
+        0.632
+      ],
+      "local_box_px": [
+        636,
+        1626,
+        1916,
+        2166
+      ],
+      "local_box_norm": [
+        0.159,
+        0.542,
+        0.479,
+        0.722
+      ],
+      "root_source_ref": "image:assoc:draft_legal_text_image:original",
+      "root_source_width_height": [
+        4000,
+        3000
+      ],
+      "root_point_norm": [
+        0.319,
+        0.632
+      ],
+      "root_box_norm": [
+        0.159,
+        0.542,
+        0.479,
+        0.722
+      ],
+      "root_box_px": [
+        636,
+        1626,
+        1916,
+        2166
+      ],
+      "projection_available": true,
+      "projection_unavailable_reason": null,
+      "projection_chain": [],
+      "trim_to_text_block": false,
+      "crop_frame_room_norm": {
+        "x_minus": 0.159,
+        "x_plus": 0.521,
+        "y_minus": 0.542,
+        "y_plus": 0.278
+      },
+      "crop_frame_touches_edge": {
+        "x_minus": false,
+        "x_plus": false,
+        "y_minus": false,
+        "y_plus": false
+      },
+      "crop_frame_can_expand": {
+        "x_minus": true,
+        "x_plus": true,
+        "y_minus": true,
+        "y_plus": true
+      },
+      "root_crop_frame_room_norm": {
+        "x_minus": 0.159,
+        "x_plus": 0.521,
+        "y_minus": 0.542,
+        "y_plus": 0.278
+      },
+      "root_crop_frame_touches_edge": {
+        "x_minus": false,
+        "x_plus": false,
+        "y_minus": false,
+        "y_plus": false
+      },
+      "root_crop_frame_can_expand": {
+        "x_minus": true,
+        "x_plus": true,
+        "y_minus": true,
+        "y_plus": true
+      }
+    },
+    {
+      "alias": "p1_pob_corner_distance",
+      "letter": "B",
+      "color": [
+        0,
+        200,
+        220
+      ],
+      "point_norm": [
+        0.399,
+        0.632
+      ],
+      "box_px": [
+        636,
+        1701,
+        2556,
+        2091
+      ],
+      "box_norm": [
+        0.159,
+        0.567,
+        0.639,
+        0.697
+      ],
+      "size": "small_plus",
+      "shape": "wide",
+      "crop_ref": "image:derived:be2d8e4c4e874867ab8c9adcfc9e4e3e",
+      "zoom_factor": 1.6667,
+      "unzoomed_width_height": [
+        1920,
+        390
+      ],
+      "output_width_height": [
+        3200,
+        650
+      ],
+      "zoom_cap_applied": false,
+      "scale_x": 1.0,
+      "scale_y": 1.0,
+      "template_width_height_norm": [
+        0.48,
+        0.13
+      ],
+      "resolved_width_height_norm": [
+        0.48,
+        0.13
+      ],
+      "local_source_ref": "image:assoc:draft_legal_text_image:original",
+      "local_source_width_height": [
+        4000,
+        3000
+      ],
+      "local_point_norm": [
+        0.399,
+        0.632
+      ],
+      "local_box_px": [
+        636,
+        1701,
+        2556,
+        2091
+      ],
+      "local_box_norm": [
+        0.159,
+        0.567,
+        0.639,
+        0.697
+      ],
+      "root_source_ref": "image:assoc:draft_legal_text_image:original",
+      "root_source_width_height": [
+        4000,
+        3000
+      ],
+      "root_point_norm": [
+        0.399,
+        0.632
+      ],
+      "root_box_norm": [
+        0.159,
+        0.567,
+        0.639,
+        0.697
+      ],
+      "root_box_px": [
+        636,
+        1701,
+        2556,
+        2091
+      ],
+      "projection_available": true,
+      "projection_unavailable_reason": null,
+      "projection_chain": [],
+      "crop_frame_room_norm": {
+        "x_minus": 0.159,
+        "x_plus": 0.361,
+        "y_minus": 0.567,
+        "y_plus": 0.303
+      },
+      "crop_frame_touches_edge": {
+        "x_minus": false,
+        "x_plus": false,
+        "y_minus": false,
+        "y_plus": false
+      },
+      "crop_frame_can_expand": {
+        "x_minus": true,
+        "x_plus": true,
+        "y_minus": true,
+        "y_plus": true
+      },
+      "root_crop_frame_room_norm": {
+        "x_minus": 0.159,
+        "x_plus": 0.361,
+        "y_minus": 0.567,
+        "y_plus": 0.303
+      },
+      "root_crop_frame_touches_edge": {
+        "x_minus": false,
+        "x_plus": false,
+        "y_minus": false,
+        "y_plus": false
+      },
+      "root_crop_frame_can_expand": {
+        "x_minus": true,
+        "x_plus": true,
+        "y_minus": true,
+        "y_plus": true
+      }
+    },
+    {
+      "alias": "p1_offset_from_canal",
+      "letter": "C",
+      "color": [
+        255,
+        100,
+        180
+      ],
+      "point_norm": [
+        0.579,
+        0.642
+      ],
+      "box_px": [
+        180,
+        1716,
+        3723,
+        2136
+      ],
+      "box_norm": [
+        0.045,
+        0.572,
+        0.93075,
+        0.712
+      ],
+      "size": "span_line",
+      "shape": "wide",
+      "crop_ref": "image:derived:9bb40c730d4e49b1a841a11618f0dc69",
+      "zoom_factor": 0.9024,
+      "unzoomed_width_height": [
+        3543,
+        420
+      ],
+      "output_width_height": [
+        3200,
+        379
+      ],
+      "zoom_cap_applied": true,
+      "requested_zoom_factor": 1.6667,
+      "max_output_dimension": 3200,
+      "scale_x": 1.1,
+      "scale_y": 1.0,
+      "template_width_height_norm": [
+        0.85,
+        0.14
+      ],
+      "resolved_width_height_norm": [
+        0.935,
+        0.14
+      ],
+      "local_source_ref": "image:assoc:draft_legal_text_image:original",
+      "local_source_width_height": [
+        4000,
+        3000
+      ],
+      "local_point_norm": [
+        0.579,
+        0.642
+      ],
+      "local_box_px": [
+        180,
+        1716,
+        3723,
+        2136
+      ],
+      "local_box_norm": [
+        0.045,
+        0.572,
+        0.93075,
+        0.712
+      ],
+      "root_source_ref": "image:assoc:draft_legal_text_image:original",
+      "root_source_width_height": [
+        4000,
+        3000
+      ],
+      "root_point_norm": [
+        0.579,
+        0.642
+      ],
+      "root_box_norm": [
+        0.045,
+        0.572,
+        0.93075,
+        0.712
+      ],
+      "root_box_px": [
+        180,
+        1716,
+        3723,
+        2136
+      ],
+      "projection_available": true,
+      "projection_unavailable_reason": null,
+      "projection_chain": [],
+      "crop_intent": "span_line",
+      "trim_to_text_block": true,
+      "trim_axis": "x",
+      "trim_applied": true,
+      "trim_method": "dark_pixel_column_density_v1",
+      "trim_padding_norm": 0.02,
+      "pre_trim_box_norm": [
+        0.065,
+        0.572,
+        1.0,
+        0.712
+      ],
+      "text_block_bounds_norm": [
+        0.065,
+        0.91075
+      ],
+      "crop_frame_room_norm": {
+        "x_minus": 0.045,
+        "x_plus": 0.06925,
+        "y_minus": 0.572,
+        "y_plus": 0.288
+      },
+      "crop_frame_touches_edge": {
+        "x_minus": false,
+        "x_plus": false,
+        "y_minus": false,
+        "y_plus": false
+      },
+      "crop_frame_can_expand": {
+        "x_minus": true,
+        "x_plus": true,
+        "y_minus": true,
+        "y_plus": true
+      },
+      "root_crop_frame_room_norm": {
+        "x_minus": 0.045,
+        "x_plus": 0.06925,
+        "y_minus": 0.572,
+        "y_plus": 0.288
+      },
+      "root_crop_frame_touches_edge": {
+        "x_minus": false,
+        "x_plus": false,
+        "y_minus": false,
+        "y_plus": false
+      },
+      "root_crop_frame_can_expand": {
+        "x_minus": true,
+        "x_plus": true,
+        "y_minus": true,
+        "y_plus": true
+      }
+    },
+    {
+      "alias": "p1_call1_bearing",
+      "letter": "D",
+      "color": [
+        140,
+        255,
+        120
+      ],
+      "point_norm": [
+        0.292,
+        0.686
+      ],
+      "box_px": [
+        208,
+        1863,
+        2128,
+        2253
+      ],
+      "box_norm": [
+        0.052,
+        0.621,
+        0.532,
+        0.751
+      ],
+      "size": "small_plus",
+      "shape": "wide",
+      "crop_ref": "image:derived:22015beb73c14255afb166e3c146a8f2",
+      "zoom_factor": 1.6667,
+      "unzoomed_width_height": [
+        1920,
+        390
+      ],
+      "output_width_height": [
+        3200,
+        650
+      ],
+      "zoom_cap_applied": false,
+      "scale_x": 1.0,
+      "scale_y": 1.0,
+      "template_width_height_norm": [
+        0.48,
+        0.13
+      ],
+      "resolved_width_height_norm": [
+        0.48,
+        0.13
+      ],
+      "local_source_ref": "image:assoc:draft_legal_text_image:original",
+      "local_source_width_height": [
+        4000,
+        3000
+      ],
+      "local_point_norm": [
+        0.292,
+        0.686
+      ],
+      "local_box_px": [
+        208,
+        1863,
+        2128,
+        2253
+      ],
+      "local_box_norm": [
+        0.052,
+        0.621,
+        0.532,
+        0.751
+      ],
+      "root_source_ref": "image:assoc:draft_legal_text_image:original",
+      "root_source_width_height": [
+        4000,
+        3000
+      ],
+      "root_point_norm": [
+        0.292,
+        0.686
+      ],
+      "root_box_norm": [
+        0.052,
+        0.621,
+        0.532,
+        0.751
+      ],
+      "root_box_px": [
+        208,
+        1863,
+        2128,
+        2253
+      ],
+      "projection_available": true,
+      "projection_unavailable_reason": null,
+      "projection_chain": [],
+      "crop_frame_room_norm": {
+        "x_minus": 0.052,
+        "x_plus": 0.468,
+        "y_minus": 0.621,
+        "y_plus": 0.249
+      },
+      "crop_frame_touches_edge": {
+        "x_minus": false,
+        "x_plus": false,
+        "y_minus": false,
+        "y_plus": false
+      },
+      "crop_frame_can_expand": {
+        "x_minus": true,
+        "x_plus": true,
+        "y_minus": true,
+        "y_plus": true
+      },
+      "root_crop_frame_room_norm": {
+        "x_minus": 0.052,
+        "x_plus": 0.468,
+        "y_minus": 0.621,
+        "y_plus": 0.249
+      },
+      "root_crop_frame_touches_edge": {
+        "x_minus": false,
+        "x_plus": false,
+        "y_minus": false,
+        "y_plus": false
+      },
+      "root_crop_frame_can_expand": {
+        "x_minus": true,
+        "x_plus": true,
+        "y_minus": true,
+        "y_plus": true
+      }
+    },
+    {
+      "alias": "p1_call2_bearing",
+      "letter": "E",
+      "color": [
+        255,
+        160,
+        80
+      ],
+      "point_norm": [
+        0.181,
+        0.748
+      ],
+      "box_px": [
+        0,
+        2049,
+        1920,
+        2439
+      ],
+      "box_norm": [
+        0.0,
+        0.683,
+        0.48,
+        0.813
+      ],
+      "size": "small_plus",
+      "shape": "wide",
+      "crop_ref": "image:derived:cdf64602eeae4c1396108bb1dbdf1729",
+      "zoom_factor": 1.6667,
+      "unzoomed_width_height": [
+        1920,
+        390
+      ],
+      "output_width_height": [
+        3200,
+        650
+      ],
+      "zoom_cap_applied": false,
+      "scale_x": 1.0,
+      "scale_y": 1.0,
+      "template_width_height_norm": [
+        0.48,
+        0.13
+      ],
+      "resolved_width_height_norm": [
+        0.48,
+        0.13
+      ],
+      "local_source_ref": "image:assoc:draft_legal_text_image:original",
+      "local_source_width_height": [
+        4000,
+        3000
+      ],
+      "local_point_norm": [
+        0.181,
+        0.748
+      ],
+      "local_box_px": [
+        0,
+        2049,
+        1920,
+        2439
+      ],
+      "local_box_norm": [
+        0.0,
+        0.683,
+        0.48,
+        0.813
+      ],
+      "root_source_ref": "image:assoc:draft_legal_text_image:original",
+      "root_source_width_height": [
+        4000,
+        3000
+      ],
+      "root_point_norm": [
+        0.181,
+        0.748
+      ],
+      "root_box_norm": [
+        0.0,
+        0.683,
+        0.48,
+        0.813
+      ],
+      "root_box_px": [
+        0,
+        2049,
+        1920,
+        2439
+      ],
+      "projection_available": true,
+      "projection_unavailable_reason": null,
+      "projection_chain": [],
+      "crop_frame_room_norm": {
+        "x_minus": 0.0,
+        "x_plus": 0.52,
+        "y_minus": 0.683,
+        "y_plus": 0.187
+      },
+      "crop_frame_touches_edge": {
+        "x_minus": true,
+        "x_plus": false,
+        "y_minus": false,
+        "y_plus": false
+      },
+      "crop_frame_can_expand": {
+        "x_minus": false,
+        "x_plus": true,
+        "y_minus": true,
+        "y_plus": true
+      },
+      "root_crop_frame_room_norm": {
+        "x_minus": 0.0,
+        "x_plus": 0.52,
+        "y_minus": 0.683,
+        "y_plus": 0.187
+      },
+      "root_crop_frame_touches_edge": {
+        "x_minus": true,
+        "x_plus": false,
+        "y_minus": false,
+        "y_plus": false
+      },
+      "root_crop_frame_can_expand": {
+        "x_minus": false,
+        "x_plus": true,
+        "y_minus": true,
+        "y_plus": true
+      }
+    },
+    {
+      "alias": "p1_acreage",
+      "letter": "F",
+      "color": [
+        160,
+        140,
+        255
+      ],
+      "point_norm": [
+        0.749,
+        0.805
+      ],
+      "box_px": [
+        2036,
+        2220,
+        3956,
+        2610
+      ],
+      "box_norm": [
+        0.509,
+        0.74,
+        0.989,
+        0.87
+      ],
+      "size": "small_plus",
+      "shape": "wide",
+      "crop_ref": "image:derived:953e88a2f6f34d1fb499ba10c9736f38",
+      "zoom_factor": 1.6667,
+      "unzoomed_width_height": [
+        1920,
+        390
+      ],
+      "output_width_height": [
+        3200,
+        650
+      ],
+      "zoom_cap_applied": false,
+      "scale_x": 1.0,
+      "scale_y": 1.0,
+      "template_width_height_norm": [
+        0.48,
+        0.13
+      ],
+      "resolved_width_height_norm": [
+        0.48,
+        0.13
+      ],
+      "local_source_ref": "image:assoc:draft_legal_text_image:original",
+      "local_source_width_height": [
+        4000,
+        3000
+      ],
+      "local_point_norm": [
+        0.749,
+        0.805
+      ],
+      "local_box_px": [
+        2036,
+        2220,
+        3956,
+        2610
+      ],
+      "local_box_norm": [
+        0.509,
+        0.74,
+        0.989,
+        0.87
+      ],
+      "root_source_ref": "image:assoc:draft_legal_text_image:original",
+      "root_source_width_height": [
+        4000,
+        3000
+      ],
+      "root_point_norm": [
+        0.749,
+        0.805
+      ],
+      "root_box_norm": [
+        0.509,
+        0.74,
+        0.989,
+        0.87
+      ],
+      "root_box_px": [
+        2036,
+        2220,
+        3956,
+        2610
+      ],
+      "projection_available": true,
+      "projection_unavailable_reason": null,
+      "projection_chain": [],
+      "crop_frame_room_norm": {
+        "x_minus": 0.509,
+        "x_plus": 0.011,
+        "y_minus": 0.74,
+        "y_plus": 0.13
+      },
+      "crop_frame_touches_edge": {
+        "x_minus": false,
+        "x_plus": false,
+        "y_minus": false,
+        "y_plus": false
+      },
+      "crop_frame_can_expand": {
+        "x_minus": true,
+        "x_plus": true,
+        "y_minus": true,
+        "y_plus": true
+      },
+      "root_crop_frame_room_norm": {
+        "x_minus": 0.509,
+        "x_plus": 0.011,
+        "y_minus": 0.74,
+        "y_plus": 0.13
+      },
+      "root_crop_frame_touches_edge": {
+        "x_minus": false,
+        "x_plus": false,
+        "y_minus": false,
+        "y_plus": false
+      },
+      "root_crop_frame_can_expand": {
+        "x_minus": true,
+        "x_plus": true,
+        "y_minus": true,
+        "y_plus": true
+      }
+    }
+  ],
+  "placement_surface_ref": "image:derived:cf6ecf1a45ca4814b127a74a91e5a3f0",
+  "previous_crop_set_overlay_ref": "image:derived:cf6ecf1a45ca4814b127a74a91e5a3f0",
+  "adjustments_applied": [
+    {
+      "target": {
+        "alias": "p1_pob_corner_bearing"
+      },
+      "prior_point_norm": [
+        0.319,
+        0.632
+      ],
+      "new_point_norm": [
+        0.319,
+        0.632
+      ],
+      "prior_size": "small_plus",
+      "new_size": "small",
+      "prior_shape": "wide",
+      "new_shape": "wide",
+      "prior_resolved_width_height_norm": [
+        0.48,
+        0.13
+      ],
+      "new_resolved_width_height_norm": [
+        0.32,
+        0.18
+      ],
+      "prior_zoom_factor": 1.6667,
+      "new_zoom_factor": 3.0
+    },
+    {
+      "target": {
+        "alias": "p1_offset_from_canal"
+      },
+      "prior_point_norm": [
+        0.529,
+        0.642
+      ],
+      "new_point_norm": [
+        0.579,
+        0.642
+      ],
+      "prior_size": "small_plus",
+      "new_size": "span_line",
+      "prior_shape": "wide",
+      "new_shape": "wide",
+      "prior_crop_intent": null,
+      "new_crop_intent": "span_line",
+      "prior_resolved_width_height_norm": [
+        0.48,
+        0.13
+      ],
+      "new_resolved_width_height_norm": [
+        0.935,
+        0.14
+      ],
+      "prior_scale_x": 1.0,
+      "new_scale_x": 1.1,
+      "shift_norm": [
+        0.05,
+        0.0
+      ],
+      "prior_trim_to_text_block": false,
+      "new_trim_to_text_block": true
+    }
+  ],
+  "overlay_role": "point_crop_master",
+  "coordinate_lattice": {
+    "major_step_norm": 0.1,
+    "minor_step_norm": 0.025,
+    "major_labels": [
+      "0.10",
+      "0.20",
+      "0.30",
+      "0.40",
+      "0.50",
+      "0.60",
+      "0.70",
+      "0.80",
+      "0.90"
+    ],
+    "minor_labels": false,
+    "coordinate_space": "normalized_source_image",
+    "origin": "top_left",
+    "x_increases": "right",
+    "y_increases": "down",
+    "label_placement": {
+      "major_x": [
+        "top",
+        "bottom"
+      ],
+      "major_y": [
+        "left",
+        "right"
+      ],
+      "minor": false
+    },
+    "label_style": {
+      "background": true,
+      "opposite_margins": true,
+      "font_size_px": 15
+    },
+    "line_style": {
+      "major_width_px": 3,
+      "minor_width_px": 1,
+      "major_color": [
+        58,
+        58,
+        58
+      ],
+      "minor_color": [
+        235,
+        235,
+        235
+      ]
+    },
+    "reference_cells": {
+      "cols": 10,
+      "rows": 10,
+      "cell_labels": true,
+      "cell_label_stride": 2
+    }
+  },
+  "grid": {
+    "enabled": true,
+    "coordinate_space": "source_image_norm",
+    "major_step_norm": 0.1,
+    "minor_step_norm": 0.025,
+    "major_line": {
+      "color": [
+        58,
+        58,
+        58
+      ],
+      "width": 3
+    },
+    "minor_line": {
+      "color": [
+        235,
+        235,
+        235
+      ],
+      "width": 1
+    },
+    "edge_labels": "major_only",
+    "cols": 10,
+    "rows": 10,
+    "cell_labels": true
+  },
+  "legend": {
+    "size_colors": {
+      "small": [
+        220,
+        70,
+        70
+      ],
+      "small_plus": [
+        245,
+        166,
+        35
+      ],
+      "medium": [
+        70,
+        130,
+        220
+      ],
+      "large": [
+        80,
+        180,
+        100
+      ]
+    },
+    "size_labels": {
+      "small": "small",
+      "small_plus": "small+",
+      "medium": "medium",
+      "large": "large"
+    }
+  },
+  "box_render": {
+    "fill_alpha": 48,
+    "outline_width": 4,
+    "color_matches_point": true
+  },
+  "pin_render": {
+    "radius_px": 12,
+    "halo_padding_px": 5,
+    "halo_rgba": [
+      255,
+      255,
+      255,
+      245
+    ],
+    "ring_rgba": [
+      35,
+      35,
+      35,
+      255
+    ],
+    "fill_alpha": 225,
+    "outline_width_px": 3,
+    "bullseye_tick_len_px": 10,
+    "bullseye_tick_width_px": 2,
+    "anchor": "point_norm"
+  },
+  "letter_render": {
+    "pad_px": 5,
+    "font_size_px": 14,
+    "bg_rgba": [
+      255,
+      255,
+      255,
+      245
+    ],
+    "text_rgba": [
+      15,
+      15,
+      15,
+      255
+    ],
+    "outline_rgba": [
+      30,
+      30,
+      30,
+      255
+    ],
+    "placement": "upper_right_of_pin"
+  },
+  "point_key_band": {
+    "enabled": true,
+    "height_px": 106,
+    "max_rows": 16,
+    "row_count": 6,
+    "overflow_count": 0
+  },
+  "review_rows": [
+    {
+      "letter": "A",
+      "alias": "p1_pob_corner_bearing",
+      "point_norm": [
+        0.319,
+        0.632
+      ],
+      "nearest_major_anchor": [
+        0.3,
+        0.6
+      ],
+      "offset_from_anchor": [
+        0.019,
+        0.032
+      ],
+      "crop_ref": "image:derived:919bde0761c24e2eb3722bf2f0f9b578",
+      "box_norm": [
+        0.159,
+        0.542,
+        0.479,
+        0.722
+      ],
+      "size": "small",
+      "shape": "wide",
+      "trim_to_text_block": false,
+      "zoom_factor": 2.5,
+      "projection_available": true,
+      "root_point_norm": [
+        0.319,
+        0.632
+      ],
+      "root_box_norm": [
+        0.159,
+        0.542,
+        0.479,
+        0.722
+      ],
+      "crop_frame_room_norm": {
+        "x_minus": 0.159,
+        "x_plus": 0.521,
+        "y_minus": 0.542,
+        "y_plus": 0.278
+      },
+      "crop_frame_touches_edge": {
+        "x_minus": false,
+        "x_plus": false,
+        "y_minus": false,
+        "y_plus": false
+      },
+      "crop_frame_can_expand": {
+        "x_minus": true,
+        "x_plus": true,
+        "y_minus": true,
+        "y_plus": true
+      },
+      "root_crop_frame_room_norm": {
+        "x_minus": 0.159,
+        "x_plus": 0.521,
+        "y_minus": 0.542,
+        "y_plus": 0.278
+      },
+      "root_crop_frame_touches_edge": {
+        "x_minus": false,
+        "x_plus": false,
+        "y_minus": false,
+        "y_plus": false
+      },
+      "root_crop_frame_can_expand": {
+        "x_minus": true,
+        "x_plus": true,
+        "y_minus": true,
+        "y_plus": true
+      }
+    },
+    {
+      "letter": "B",
+      "alias": "p1_pob_corner_distance",
+      "point_norm": [
+        0.399,
+        0.632
+      ],
+      "nearest_major_anchor": [
+        0.4,
+        0.6
+      ],
+      "offset_from_anchor": [
+        -0.001,
+        0.032
+      ],
+      "crop_ref": "image:derived:be2d8e4c4e874867ab8c9adcfc9e4e3e",
+      "box_norm": [
+        0.159,
+        0.567,
+        0.639,
+        0.697
+      ],
+      "size": "small_plus",
+      "shape": "wide",
+      "zoom_factor": 1.667,
+      "projection_available": true,
+      "root_point_norm": [
+        0.399,
+        0.632
+      ],
+      "root_box_norm": [
+        0.159,
+        0.567,
+        0.639,
+        0.697
+      ],
+      "crop_frame_room_norm": {
+        "x_minus": 0.159,
+        "x_plus": 0.361,
+        "y_minus": 0.567,
+        "y_plus": 0.303
+      },
+      "crop_frame_touches_edge": {
+        "x_minus": false,
+        "x_plus": false,
+        "y_minus": false,
+        "y_plus": false
+      },
+      "crop_frame_can_expand": {
+        "x_minus": true,
+        "x_plus": true,
+        "y_minus": true,
+        "y_plus": true
+      },
+      "root_crop_frame_room_norm": {
+        "x_minus": 0.159,
+        "x_plus": 0.361,
+        "y_minus": 0.567,
+        "y_plus": 0.303
+      },
+      "root_crop_frame_touches_edge": {
+        "x_minus": false,
+        "x_plus": false,
+        "y_minus": false,
+        "y_plus": false
+      },
+      "root_crop_frame_can_expand": {
+        "x_minus": true,
+        "x_plus": true,
+        "y_minus": true,
+        "y_plus": true
+      }
+    },
+    {
+      "letter": "C",
+      "alias": "p1_offset_from_canal",
+      "point_norm": [
+        0.579,
+        0.642
+      ],
+      "nearest_major_anchor": [
+        0.6,
+        0.6
+      ],
+      "offset_from_anchor": [
+        -0.021,
+        0.042
+      ],
+      "crop_ref": "image:derived:9bb40c730d4e49b1a841a11618f0dc69",
+      "box_norm": [
+        0.045,
+        0.572,
+        0.931,
+        0.712
+      ],
+      "size": "span_line",
+      "shape": "wide",
+      "crop_intent": "span_line",
+      "trim_to_text_block": true,
+      "trim_axis": "x",
+      "trim_applied": true,
+      "trim_padding_norm": 0.02,
+      "pre_trim_box_norm": [
+        0.065,
+        0.572,
+        1.0,
+        0.712
+      ],
+      "text_block_bounds_norm": [
+        0.065,
+        0.911
+      ],
+      "zoom_factor": 0.902,
+      "projection_available": true,
+      "root_point_norm": [
+        0.579,
+        0.642
+      ],
+      "root_box_norm": [
+        0.045,
+        0.572,
+        0.931,
+        0.712
+      ],
+      "crop_frame_room_norm": {
+        "x_minus": 0.045,
+        "x_plus": 0.06925,
+        "y_minus": 0.572,
+        "y_plus": 0.288
+      },
+      "crop_frame_touches_edge": {
+        "x_minus": false,
+        "x_plus": false,
+        "y_minus": false,
+        "y_plus": false
+      },
+      "crop_frame_can_expand": {
+        "x_minus": true,
+        "x_plus": true,
+        "y_minus": true,
+        "y_plus": true
+      },
+      "root_crop_frame_room_norm": {
+        "x_minus": 0.045,
+        "x_plus": 0.06925,
+        "y_minus": 0.572,
+        "y_plus": 0.288
+      },
+      "root_crop_frame_touches_edge": {
+        "x_minus": false,
+        "x_plus": false,
+        "y_minus": false,
+        "y_plus": false
+      },
+      "root_crop_frame_can_expand": {
+        "x_minus": true,
+        "x_plus": true,
+        "y_minus": true,
+        "y_plus": true
+      }
+    },
+    {
+      "letter": "D",
+      "alias": "p1_call1_bearing",
+      "point_norm": [
+        0.292,
+        0.686
+      ],
+      "nearest_major_anchor": [
+        0.3,
+        0.7
+      ],
+      "offset_from_anchor": [
+        -0.008,
+        -0.014
+      ],
+      "crop_ref": "image:derived:22015beb73c14255afb166e3c146a8f2",
+      "box_norm": [
+        0.052,
+        0.621,
+        0.532,
+        0.751
+      ],
+      "size": "small_plus",
+      "shape": "wide",
+      "zoom_factor": 1.667,
+      "projection_available": true,
+      "root_point_norm": [
+        0.292,
+        0.686
+      ],
+      "root_box_norm": [
+        0.052,
+        0.621,
+        0.532,
+        0.751
+      ],
+      "crop_frame_room_norm": {
+        "x_minus": 0.052,
+        "x_plus": 0.468,
+        "y_minus": 0.621,
+        "y_plus": 0.249
+      },
+      "crop_frame_touches_edge": {
+        "x_minus": false,
+        "x_plus": false,
+        "y_minus": false,
+        "y_plus": false
+      },
+      "crop_frame_can_expand": {
+        "x_minus": true,
+        "x_plus": true,
+        "y_minus": true,
+        "y_plus": true
+      },
+      "root_crop_frame_room_norm": {
+        "x_minus": 0.052,
+        "x_plus": 0.468,
+        "y_minus": 0.621,
+        "y_plus": 0.249
+      },
+      "root_crop_frame_touches_edge": {
+        "x_minus": false,
+        "x_plus": false,
+        "y_minus": false,
+        "y_plus": false
+      },
+      "root_crop_frame_can_expand": {
+        "x_minus": true,
+        "x_plus": true,
+        "y_minus": true,
+        "y_plus": true
+      }
+    },
+    {
+      "letter": "E",
+      "alias": "p1_call2_bearing",
+      "point_norm": [
+        0.181,
+        0.748
+      ],
+      "nearest_major_anchor": [
+        0.2,
+        0.7
+      ],
+      "offset_from_anchor": [
+        -0.019,
+        0.048
+      ],
+      "crop_ref": "image:derived:cdf64602eeae4c1396108bb1dbdf1729",
+      "box_norm": [
+        0.0,
+        0.683,
+        0.48,
+        0.813
+      ],
+      "size": "small_plus",
+      "shape": "wide",
+      "zoom_factor": 1.667,
+      "projection_available": true,
+      "root_point_norm": [
+        0.181,
+        0.748
+      ],
+      "root_box_norm": [
+        0.0,
+        0.683,
+        0.48,
+        0.813
+      ],
+      "crop_frame_room_norm": {
+        "x_minus": 0.0,
+        "x_plus": 0.52,
+        "y_minus": 0.683,
+        "y_plus": 0.187
+      },
+      "crop_frame_touches_edge": {
+        "x_minus": true,
+        "x_plus": false,
+        "y_minus": false,
+        "y_plus": false
+      },
+      "crop_frame_can_expand": {
+        "x_minus": false,
+        "x_plus": true,
+        "y_minus": true,
+        "y_plus": true
+      },
+      "root_crop_frame_room_norm": {
+        "x_minus": 0.0,
+        "x_plus": 0.52,
+        "y_minus": 0.683,
+        "y_plus": 0.187
+      },
+      "root_crop_frame_touches_edge": {
+        "x_minus": true,
+        "x_plus": false,
+        "y_minus": false,
+        "y_plus": false
+      },
+      "root_crop_frame_can_expand": {
+        "x_minus": false,
+        "x_plus": true,
+        "y_minus": true,
+        "y_plus": true
+      }
+    },
+    {
+      "letter": "F",
+      "alias": "p1_acreage",
+      "point_norm": [
+        0.749,
+        0.805
+      ],
+      "nearest_major_anchor": [
+        0.7,
+        0.8
+      ],
+      "offset_from_anchor": [
+        0.049,
+        0.005
+      ],
+      "crop_ref": "image:derived:953e88a2f6f34d1fb499ba10c9736f38",
+      "box_norm": [
+        0.509,
+        0.74,
+        0.989,
+        0.87
+      ],
+      "size": "small_plus",
+      "shape": "wide",
+      "zoom_factor": 1.667,
+      "projection_available": true,
+      "root_point_norm": [
+        0.749,
+        0.805
+      ],
+      "root_box_norm": [
+        0.509,
+        0.74,
+        0.989,
+        0.87
+      ],
+      "crop_frame_room_norm": {
+        "x_minus": 0.509,
+        "x_plus": 0.011,
+        "y_minus": 0.74,
+        "y_plus": 0.13
+      },
+      "crop_frame_touches_edge": {
+        "x_minus": false,
+        "x_plus": false,
+        "y_minus": false,
+        "y_plus": false
+      },
+      "crop_frame_can_expand": {
+        "x_minus": true,
+        "x_plus": true,
+        "y_minus": true,
+        "y_plus": true
+      },
+      "root_crop_frame_room_norm": {
+        "x_minus": 0.509,
+        "x_plus": 0.011,
+        "y_minus": 0.74,
+        "y_plus": 0.13
+      },
+      "root_crop_frame_touches_edge": {
+        "x_minus": false,
+        "x_plus": false,
+        "y_minus": false,
+        "y_plus": false
+      },
+      "root_crop_frame_can_expand": {
+        "x_minus": true,
+        "x_plus": true,
+        "y_minus": true,
+        "y_plus": true
+      }
+    }
+  ],
+  "review_lines": [
+    "A p1_pob_corner_bearing -> crop=image:derived:919bde0761c24e2eb3722bf2f0f9b578 point=[0.319,0.632] box=[0.159,0.542,0.479,0.722] room=[x-0.159 x+0.521 y-0.542 y+0.278] size=small/wide zoom=2.5 anchor=[0.3,0.6] offset=[+0.019,+0.032] root=[0.319,0.632]",
+    "B p1_pob_corner_distance -> crop=image:derived:be2d8e4c4e874867ab8c9adcfc9e4e3e point=[0.399,0.632] box=[0.159,0.567,0.639,0.697] room=[x-0.159 x+0.361 y-0.567 y+0.303] size=small_plus/wide zoom=1.667 anchor=[0.4,0.6] offset=[-0.001,+0.032] root=[0.399,0.632]",
+    "C p1_offset_from_canal -> crop=image:derived:9bb40c730d4e49b1a841a11618f0dc69 point=[0.579,0.642] box=[0.045,0.572,0.931,0.712] room=[x-0.045 x+0.06925 y-0.572 y+0.288] size=span_line/wide intent=span_line trim=x applied padding=0.02 zoom=0.902 anchor=[0.6,0.6] offset=[-0.021,+0.042] root=[0.579,0.642]",
+    "D p1_call1_bearing -> crop=image:derived:22015beb73c14255afb166e3c146a8f2 point=[0.292,0.686] box=[0.052,0.621,0.532,0.751] room=[x-0.052 x+0.468 y-0.621 y+0.249] size=small_plus/wide zoom=1.667 anchor=[0.3,0.7] offset=[-0.008,-0.014] root=[0.292,0.686]",
+    "E p1_call2_bearing -> crop=image:derived:cdf64602eeae4c1396108bb1dbdf1729 point=[0.181,0.748] box=[0.0,0.683,0.48,0.813] edge=x- room=[x-0.0 x+0.52 y-0.683 y+0.187] size=small_plus/wide zoom=1.667 anchor=[0.2,0.7] offset=[-0.019,+0.048] root=[0.181,0.748]",
+    "F p1_acreage -> crop=image:derived:953e88a2f6f34d1fb499ba10c9736f38 point=[0.749,0.805] box=[0.509,0.74,0.989,0.87] room=[x-0.509 x+0.011 y-0.74 y+0.13] size=small_plus/wide zoom=1.667 anchor=[0.7,0.8] offset=[+0.049,+0.005] root=[0.749,0.805]"
+  ],
+  "point_key_lines": [
+    "A p1_pob_corner_bearing point=[0.319,0.632] small/wide",
+    "B p1_pob_corner_distance point=[0.399,0.632] small+<LOCAL_PATH>",
+    "C p1_offset_from_canal point=[0.579,0.642] span_line",
+    "D p1_call1_bearing point=[0.292,0.686] small+<LOCAL_PATH>",
+    "E p1_call2_bearing point=[0.181,0.748] small+<LOCAL_PATH>",
+    "F p1_acreage point=[0.749,0.805] small+<LOCAL_PATH>"
+  ],
+  "point_key_row_count": 6,
+  "point_key_overflow_count": 0
+}
