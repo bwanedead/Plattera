@@ -9,6 +9,22 @@ type ActivityTimelineProps = {
   onSelect: (selection: ViewerSelection) => void;
 };
 
+function delegateSignal(event: AgentViewerEvent): boolean {
+  const actions = event.payload?.actions;
+  if (Array.isArray(actions)) {
+    return actions.some((entry) => {
+      if (!entry || typeof entry !== 'object') return false;
+      const actionType = String(
+        (entry as Record<string, unknown>).action_type ||
+          (entry as Record<string, unknown>).tool_id ||
+          '',
+      ).toLowerCase();
+      return actionType.includes('delegate');
+    });
+  }
+  return event.event_type.toLowerCase().includes('delegate');
+}
+
 export function ActivityTimeline({ events, selection, onSelect }: ActivityTimelineProps) {
   if (!events.length) {
     return <div className="av-empty-panel">No activity yet. Start replay or connect to a live run.</div>;
@@ -22,6 +38,7 @@ export function ActivityTimeline({ events, selection, onSelect }: ActivityTimeli
         .map((event) => {
           const id = viewerEventIdentity(event);
           const selected = selection?.kind === 'event' && selection.id === id;
+          const hasDelegate = delegateSignal(event);
           return (
             <button
               key={id}
@@ -40,7 +57,10 @@ export function ActivityTimeline({ events, selection, onSelect }: ActivityTimeli
                 <span className="av-activity-turn">
                   {typeof event.payload?.turn_index === 'number' ? `T${event.payload.turn_index}` : event.event_type}
                 </span>
-                <span className="av-activity-stage">{event.status?.stage || 'event'}</span>
+                <span className="av-activity-stage-row">
+                  {hasDelegate ? <span className="av-activity-delegate">delegate</span> : null}
+                  <span className="av-activity-stage">{event.status?.stage || 'event'}</span>
+                </span>
               </div>
               <div className="av-activity-line1">{event.status?.line1 || event.event_type}</div>
               {event.status?.line2 ? <div className="av-activity-line2">{event.status.line2}</div> : null}

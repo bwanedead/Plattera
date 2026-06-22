@@ -2,6 +2,7 @@ import React from 'react';
 import type { AgentViewerEvent, AgentViewerLoopKind, AgentViewerSnapshot } from '../../../services/agentViewerApi';
 import { buildSnapshotView, mergeSnapshotAndLiveEvents, type AgentViewerSnapshotView } from '../model/snapshotModel';
 import { createRegistryForSnapshot } from '../registry/domainAdapters';
+import { defaultDomainAdapters } from '../registry/defaultDomainAdapters';
 import { useAgentViewerReplay } from './useAgentViewerReplay';
 import { useAgentViewerSnapshot } from './useAgentViewerSnapshot';
 import { useAgentViewerStream } from './useAgentViewerStream';
@@ -21,6 +22,8 @@ export type UseAgentViewerRunParams = {
 
 export type AgentViewerRunView = {
   mode: AgentViewerTransportMode;
+  loopKind: AgentViewerLoopKind | null;
+  runId: string | null;
   snapshot: AgentViewerSnapshot | null;
   snapshotView: AgentViewerSnapshotView;
   events: AgentViewerEvent[];
@@ -75,7 +78,7 @@ export function useAgentViewerRun({
   }, [connectionEpoch, hasLiveRun, refreshSnapshot]);
 
   const snapshot = mode === 'replay' ? replay.snapshot : liveSnapshot;
-  const registry = React.useMemo(() => createRegistryForSnapshot(snapshot), [snapshot]);
+  const registry = React.useMemo(() => createRegistryForSnapshot(snapshot, defaultDomainAdapters), [snapshot]);
   const snapshotView = React.useMemo(
     () => (mode === 'replay' ? buildSnapshotView(snapshot, registry) : liveSnapshotView),
     [liveSnapshotView, mode, registry, snapshot],
@@ -101,6 +104,8 @@ export function useAgentViewerRun({
 
   return {
     mode,
+    loopKind: snapshot?.run.loop_kind ?? activeLoopKind,
+    runId: snapshot?.run.run_id ?? activeRunId,
     snapshot,
     snapshotView,
     events,

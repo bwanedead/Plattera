@@ -1,6 +1,6 @@
 import React from 'react';
+import type { CanvasRendererRegistry } from '../registry/canvasRendererRegistry';
 import type { ArtifactLoader } from '../model/artifactLoadResult';
-import { defaultCanvasRendererRegistry } from '../registry/canvasRendererRegistry';
 import type { ViewerSelection } from '../selection/selectionTypes';
 
 type ArtifactCanvasProps = {
@@ -8,9 +8,20 @@ type ArtifactCanvasProps = {
   followLive: boolean;
   onResumeFollowLive: () => void;
   loadArtifact?: ArtifactLoader;
+  canvasRegistry: CanvasRendererRegistry;
+  rawOpen: boolean;
+  onToggleRaw: () => void;
 };
 
-export function ArtifactCanvas({ selection, followLive, onResumeFollowLive, loadArtifact }: ArtifactCanvasProps) {
+export function ArtifactCanvas({
+  selection,
+  followLive,
+  onResumeFollowLive,
+  loadArtifact,
+  canvasRegistry,
+  rawOpen,
+  onToggleRaw,
+}: ArtifactCanvasProps) {
   const [artifactState, setArtifactState] = React.useState<Awaited<ReturnType<ArtifactLoader>> | null>(null);
   const [loading, setLoading] = React.useState(false);
 
@@ -38,25 +49,31 @@ export function ArtifactCanvas({ selection, followLive, onResumeFollowLive, load
     };
   }, [loadArtifact, selection]);
 
-  const rendered = selection
-    ? defaultCanvasRendererRegistry.render({
-        selection,
-        artifact: artifactState,
-        loading,
-      })
-    : null;
+  const rendered =
+    selection && !loading
+      ? canvasRegistry.render({
+          selection,
+          artifact: artifactState,
+          loading,
+        })
+      : null;
 
   return (
     <div className="av-artifact-canvas">
       <div className="av-canvas-toolbar">
         <div className="av-canvas-title">{selection?.label || 'Universal canvas'}</div>
-        {!followLive ? (
-          <button type="button" className="av-button av-button-ghost" onClick={onResumeFollowLive}>
-            Return to live
+        <div className="av-canvas-toolbar-actions">
+          <button type="button" className="av-button av-button-ghost" onClick={onToggleRaw}>
+            {rawOpen ? 'Hide raw' : 'Show raw'}
           </button>
-        ) : (
-          <span className="av-follow-live">Following live attention</span>
-        )}
+          {!followLive ? (
+            <button type="button" className="av-button av-button-ghost" onClick={onResumeFollowLive}>
+              Return to live
+            </button>
+          ) : (
+            <span className="av-follow-live">Following live</span>
+          )}
+        </div>
       </div>
 
       <div className="av-canvas-body">

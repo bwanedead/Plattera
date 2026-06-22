@@ -11,6 +11,7 @@ export const AgentViewerPanel: React.FC<AgentViewerPanelProps> = ({
   isOpen,
   loopKind,
   runId,
+  sessionKey,
   onClose,
 }) => {
   const run = useAgentViewerRun({
@@ -20,7 +21,18 @@ export const AgentViewerPanel: React.FC<AgentViewerPanelProps> = ({
     runId,
   });
 
+  React.useEffect(() => {
+    if (!isOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [isOpen, onClose]);
+
   if (!isOpen) return null;
+
+  const shellKey = sessionKey || runId || 'agent-viewer-live';
 
   return (
     <div
@@ -33,8 +45,9 @@ export const AgentViewerPanel: React.FC<AgentViewerPanelProps> = ({
         onClick={(event) => event.stopPropagation()}
         role="dialog"
         aria-label="Agent viewer"
+        aria-modal="true"
       >
-        <AgentViewerShell run={run} onClose={onClose} />
+        <AgentViewerShell key={shellKey} run={run} onClose={onClose} />
       </div>
     </div>
   );

@@ -1,4 +1,4 @@
-import { getAgentViewerArtifactImageUrl, getAgentViewerArtifactJson } from '../../../services/agentViewerApi';
+import { getAgentViewerArtifactImageUrl, getAgentViewerArtifactJson } from '../../../../services/agentViewerApi';
 import type { ArtifactLoadResult } from '../../model/artifactLoadResult';
 
 export async function loadLiveArtifact(ref: string): Promise<ArtifactLoadResult> {

@@ -20,6 +20,7 @@
 - Replay dev page: `npm --prefix frontend run dev` → `/agent-viewer/`
 - Live overlay: opened from host workspaces via `AgentViewerPanel`
 - Build: `npm --prefix frontend run build`
+- Contract tests: `cd frontend && npx tsx --test src/components/agent-viewer/model/eventIdentity.test.mjs`
 
 ## Gotchas
 - `AgentViewerPanelProps` includes workspace-owned fields (`transcriptionDrafts`, `isTranscribing`) that the viewer intentionally ignores.
