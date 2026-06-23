@@ -102,7 +102,7 @@ cd backend
 Start a run with the **generic harness runtime entrypoint**:
 
 ```powershell
-$runId = "deed-to-ir-live-01"
+$runId = "deed-to-ir-live-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
 $fixtureRoot = (Resolve-Path "..\practice_deeds\right_of_way\deed_to_ir").Path
 $contextObject = @{
   dossier_id = "9f5eecb6-cd7e-483c-b691-b76aa7132e8e"
@@ -142,7 +142,9 @@ python -m harness.cli.start `
 
 Guidance:
 
-- use a fresh unique `run_id` for every live run
+- use the timestamp-based `run_id` above for every live run; its
+  `yyyyMMdd-HHmmss` suffix sorts chronologically by folder name in IDE explorer
+  views, so the newest deed-to-IR run is easy to identify
 - keep `workspace_id == run_id` unless you have a specific reason not to
 - the compact launch context contains **fixture paths only** and authored
   `upstream_run_lineage`; the resolution graph is loaded mechanically inside the
