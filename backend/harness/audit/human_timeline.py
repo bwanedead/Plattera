@@ -126,11 +126,9 @@ def render_timeline(
         if audit_dir is not None
         else Path("audit/human/timeline.md")
     )
-    cli_runs_root = audit_dir.parent.parent if audit_dir is not None else None
     lines.extend(
         render_upstream_runs_section(
             upstream_run_lineage,
-            cli_runs_root=cli_runs_root,
             downstream_timeline_path=timeline_path,
         )
     )

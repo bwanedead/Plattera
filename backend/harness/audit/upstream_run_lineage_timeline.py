@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -11,8 +11,8 @@ from typing import Any
 def render_upstream_runs_section(
     upstream_run_lineage: Mapping[str, Any] | None,
     *,
-    cli_runs_root: Path | None,
     downstream_timeline_path: Path,
+    resolve_upstream_timeline_path: Callable[[str], Path | None] | None = None,
 ) -> list[str]:
     """Render compact upstream-run identity near the top of the human timeline."""
     if not isinstance(upstream_run_lineage, Mapping):
@@ -21,6 +21,11 @@ def render_upstream_runs_section(
     upstream_runs = upstream_run_lineage.get("upstream_runs")
     if not isinstance(upstream_runs, list) or not upstream_runs:
         return []
+
+    if resolve_upstream_timeline_path is None:
+        from harness.cli.run_layout import resolve_run_human_timeline_path
+
+        resolve_upstream_timeline_path = resolve_run_human_timeline_path
 
     lines: list[str] = ["## Upstream Runs", ""]
     for row in upstream_runs:
@@ -41,11 +46,9 @@ def render_upstream_runs_section(
             if rendered_refs:
                 lines.append(f"  - handoff refs: {rendered_refs}")
 
-        if cli_runs_root is not None and run_id.strip():
-            upstream_timeline = (
-                cli_runs_root / run_id.strip() / "audit" / "human" / "timeline.md"
-            )
-            if upstream_timeline.is_file():
+        if run_id.strip():
+            upstream_timeline = resolve_upstream_timeline_path(run_id.strip())
+            if upstream_timeline is not None and upstream_timeline.is_file():
                 rel = os.path.relpath(upstream_timeline, downstream_timeline_path.parent)
                 rel = rel.replace("\\", "/")
                 lines.append(f"  - [open upstream timeline]({rel})")

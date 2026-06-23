@@ -111,6 +111,7 @@ def start_run(
         return {
             "run_id": run_id,
             "pid": None,
+            "run_collection": state.run_collection,
             "done_file": paths.done_file,
             "result_file": paths.result_file,
             "log_file": paths.stdout_log,
@@ -141,6 +142,7 @@ def start_run(
     return {
         "run_id": run_id,
         "pid": state.pid,
+        "run_collection": state.run_collection,
         "done_file": paths.done_file,
         "result_file": paths.result_file,
         "log_file": paths.stdout_log,

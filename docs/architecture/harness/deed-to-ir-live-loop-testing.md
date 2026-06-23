@@ -149,25 +149,107 @@ Guidance:
   child process from `resolution_state_snapshot_path`
 - prefer `max_iterations: 100` for roomier live testing
 
-Watch / status / control:
+Check status:
 
 ```powershell
-python -m harness.cli.watch --run-id $runId --timeout 7200
 python -m harness.cli.status --run-id $runId
+```
+
+Watch the run in the foreground:
+
+```powershell
+while ($true) {
+  $watchEvent = python -m harness.cli.watch --run-id $runId --timeout 7200 --poll-interval 3 | ConvertFrom-Json
+
+  if ($watchEvent.event -eq "timeout") {
+    continue
+  }
+
+  if ($watchEvent.event -eq "hitl") {
+    # Inspect the returned prompt and choices. Use prompt_id exactly as returned.
+    python -m harness.cli.answer --run-id $runId --prompt-id $watchEvent.prompt_id --choice "<operator answer>" --note "<optional note>"
+    continue
+  }
+
+  if ($watchEvent.event -eq "loop_done") {
+    break
+  }
+
+  # event=error or an unknown event: inspect status and logs before continuing.
+  break
+}
+```
+
+`watch` is a blocking poll that returns one JSON event and exits. The loop above
+keeps monitoring the same run until terminal completion or an explicit operator
+decision. Do not detach or background the watcher: the testing agent needs the
+foreground event so it can answer HITL promptly and continue observing the same
+run.
+
+Watch events:
+
+- `hitl`: inspect the prompt and any choices, answer the exact returned
+  `prompt_id`, then continue watching
+- `loop_done`: the run reached a terminal state; exit the watch loop and review
+  final artifacts
+- `timeout`: no event arrived during that watch window; continue watching
+- `error`: inspect `status`, `stdout.log`, `stderr.log`, and the human timeline
+
+When `watch` returns a HITL event, it consumes the operator-side pending prompt
+sidecar so the same prompt is not shown repeatedly. The prompt remains answerable
+with the returned `prompt_id`; do not expect a later `status` call to rediscover it.
+
+Use graceful operator controls when needed:
+
+```powershell
 python -m harness.cli.pause --run-id $runId
 python -m harness.cli.stop --run-id $runId
-python -m harness.cli.resume --run-id $runId
-python -m harness.cli.message --run-id $runId --text "..." --source tester
 ```
+
+Pause and stop are honored at safe runtime boundaries. They do not kill a model or
+tool call in progress. Once the run reaches `paused` or `stopped`, it remains
+resumable when `kernel_resume.json` exists:
+
+```powershell
+python -m harness.cli.status --run-id $runId
+python -m harness.cli.resume --run-id $runId
+```
+
+If the provider disconnects, the child process exits, or another resumable failure
+occurs, inspect status before starting over. Resume the same logical run when status
+reports an interrupted resumable checkpoint:
+
+```powershell
+python -m harness.cli.status --run-id $runId
+python -m harness.cli.resume --run-id $runId
+```
+
+Resume restores the last completed-turn checkpoint. It does not replay a partially
+failed model call or infer domain meaning. Completed runs are not reopened by the
+current resume path.
+
+### Tester-to-agent corrections
+
+HITL is agent-initiated. To give a tester-initiated correction or missing context,
+send an exact message for the next turn:
+
+```powershell
+python -m harness.cli.message --run-id $runId --text "Correction: <specific IR, source, mapping, or artifact issue and the requested repair>." --source tester
+```
+
+Name the affected source unit, IR entity, mapping feature, or artifact ref when
+possible. State what appears wrong and what should be rechecked; do not replace
+normal evidence and repair work with broad critique. If the run is interrupted,
+send the message first, resume, then return to the foreground watch loop.
 
 ---
 
 ## 6. Artifact and Timeline Locations
 
-For downstream run `<runId>` under the harness CLI artifacts root:
+New runs are stored under a namespaced collection derived from `--loop-kind`:
 
 ```text
-backend/harness/cli_artifacts/cli_runs/<runId>/
+backend/harness/cli_artifacts/cli_runs/by_loop_kind/deed_to_ir/<runId>/
   state.json
   kernel_resume.json
   done.json
@@ -180,6 +262,31 @@ backend/harness/cli_artifacts/cli_runs/<runId>/
     turn_0001.json
     turn_0002.json
 ```
+
+Example deed-to-IR timeline path:
+
+```text
+C:\projects\Plattera\backend\harness\cli_artifacts\cli_runs\by_loop_kind\deed_to_ir\<runId>\audit\human\timeline.md
+```
+
+Legacy flat runs (pre-partition) remain readable in place, for example upstream run
+`practice-row-live-20260619-76`:
+
+```text
+backend/harness/cli_artifacts/cli_runs/practice-row-live-20260619-76/
+  audit/human/timeline.md
+```
+
+Retention keeps the latest **5 unpinned runs per collection** independently:
+`transcript_edit`, `deed_to_ir`, and legacy flat runs each have their own queue.
+A sixth deed-to-IR run removes only the oldest unpinned deed-to-IR run; it does
+not evict transcript-edit runs.
+
+Keep `audit/human/timeline.md` open while the foreground watcher runs. The file is
+created after the first audited turn and rewritten as later turns complete. Use it
+to inspect orientation, state changes, tool calls, IR revisions, mapping submission,
+render inspection, repairs, publication, and upstream-run lineage while the run is
+still active.
 
 Domain artifacts (outside harness CLI dir):
 

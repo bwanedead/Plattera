@@ -399,10 +399,10 @@ remains possible as a fallback, but is not the normal path.
 
 ## 5. Where To Inspect Artifacts
 
-Harness CLI run-state and child logs:
+Harness CLI run-state and child logs for **new runs** (namespaced by `--loop-kind`):
 
 ```text
-backend/harness/cli_artifacts/cli_runs/<run_id>/
+backend/harness/cli_artifacts/cli_runs/by_loop_kind/transcript_edit/<run_id>/
   state.json
   control.json
   kernel_resume.json
@@ -419,6 +419,9 @@ backend/harness/cli_artifacts/cli_runs/<run_id>/
   audit/turn_0002.json
   ...
 ```
+
+Legacy flat runs remain at `backend/harness/cli_artifacts/cli_runs/<run_id>/` (for
+example `practice-row-live-20260619-76` from earlier live testing).
 
 What the audit files are for:
 
@@ -452,7 +455,10 @@ backend/harness/cli_artifacts/
 
 Retention / reset notes:
 
-- normal CLI run retention keeps the latest 5 unpinned runs
+- normal CLI run retention keeps the latest **5 unpinned runs per collection**
+  (`transcript_edit`, `deed_to_ir`, and legacy flat runs each independently)
+- a sixth deed-to-IR run removes only the oldest unpinned deed-to-IR run; it does
+  not evict transcript-edit runs
 - a one-time blank-slate purge helper exists for emergency reset scenarios; do
   not use it as part of normal testing flow
 

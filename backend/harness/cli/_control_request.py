@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from ._process_util import is_pid_alive
-from .run_state import read_state, run_dir
+from .run_state import read_state, run_dir, run_layout_issue
 from harness.runtime.control import CONTROL_FILENAME, write_run_control_request
 
 
@@ -29,6 +29,15 @@ def request_run_control(
     interpret what ``command`` means beyond rejecting unknown values.
     """
     rid = str(run_id or "").strip()
+    layout_issue = run_layout_issue(rid)
+    if layout_issue == "run_id_ambiguous":
+        return {
+            "event": "control_requested",
+            "run_id": rid,
+            "command": command,
+            "status": "refused",
+            "reason_code": "run_id_ambiguous",
+        }
     state = read_state(rid)
     if state is None:
         return {
@@ -36,7 +45,7 @@ def request_run_control(
             "run_id": rid,
             "command": command,
             "status": "refused",
-            "reason_code": "missing_state",
+            "reason_code": layout_issue or "missing_state",
         }
 
     done_file = Path(state.paths.done_file)

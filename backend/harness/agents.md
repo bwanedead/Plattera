@@ -26,7 +26,7 @@
 
 ## Operator CLI (`harness/cli/`)
 
-- **Purpose:** Process and path plumbing only (`start`, `watch`, `answer`, `status`). Run-state lives under `harness_cli_artifacts_root() / "cli_runs" / <run_id> /` (`state.json`, `done.json`, `result.json`, logs). Not orchestration.
+- **Purpose:** Process and path plumbing only (`start`, `watch`, `answer`, `status`). Run-state for **new runs** lives under `harness_cli_artifacts_root() / "cli_runs" / "by_loop_kind" / <run_collection> / <run_id> /` (`state.json`, `done.json`, `result.json`, logs). Legacy flat runs remain at `cli_runs/<run_id>/`. Canonical discovery: `harness/cli/run_layout.py`. Not orchestration.
 - **Upstream lineage:** Optional launch-context `upstream_run_lineage` is normalized/stored in `state.json` extra, result/done payloads, and `audit/index.json`; it is stripped before domain adapters and model prompts. See `backend/harness/runtime/upstream_run_lineage.py`.
 - **Start:** Spawns a detached child with env `HARNESS_CLI_RUN_ID`, `HARNESS_CLI_DONE_FILE`, `HARNESS_CLI_RESULT_FILE`, `HARNESS_CLI_STDOUT_LOG`, `HARNESS_CLI_STDERR_LOG`, `HARNESS_CLI_LOOP_KIND`. Real runners (e.g. future transcript-edit) should read these paths and write `done.json` / `result.json` on completion; default `--stub` uses `harness.cli.stub_worker`.
 - **HITL:** Pending prompts still use `dossiers_artifacts_root() / hitl_prompts / {run_id}_pending.json` (see `runtime/hitl/watch.py`). **`--loop-kind` on `start` must match** the loop’s feedback namespace and `harness.cli.answer` / `feedback_store`.

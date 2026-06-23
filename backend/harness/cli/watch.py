@@ -9,7 +9,7 @@ from typing import Any
 
 from harness.runtime.hitl.watch import run_watch
 
-from .run_state import read_state
+from .run_state import read_state, run_layout_issue
 
 
 def _latest_resume_started_at_epoch_seconds(extra: dict[str, Any]) -> float | None:
@@ -44,9 +44,16 @@ def watch_run(
     timeout_seconds: int,
     poll_interval: float,
 ) -> dict[str, Any]:
+    layout_issue = run_layout_issue(run_id)
+    if layout_issue == "run_id_ambiguous":
+        return {"event": "error", "reason": "run_id_ambiguous", "run_id": run_id}
     state = read_state(run_id)
     if state is None:
-        return {"event": "error", "reason": "missing_run_state", "run_id": run_id}
+        return {
+            "event": "error",
+            "reason": layout_issue or "missing_run_state",
+            "run_id": run_id,
+        }
     done_file = state.paths.done_file or None
     done_not_before = _latest_resume_started_at_epoch_seconds(state.extra)
     return run_watch(

@@ -7,6 +7,7 @@ import os
 import subprocess
 import sys
 import time
+import uuid
 from pathlib import Path
 
 import pytest
@@ -20,14 +21,6 @@ from harness.cli.watch import watch_run
 from harness.runtime.hitl import watch as hitl_watch
 from harness.runtime.user_messages import store as user_message_store
 from services.agent_viewer import feedback_store
-
-
-@pytest.fixture
-def isolated_harness_root(tmp_path, monkeypatch):
-    root = tmp_path / "harness_art"
-    root.mkdir()
-    monkeypatch.setattr(rs, "harness_cli_artifacts_root", lambda: root)
-    return root
 
 
 @pytest.fixture
@@ -364,7 +357,7 @@ def test_status_missing_and_ok(isolated_harness_root, isolated_dossiers_artifact
 
 def test_cli_start_module_invocation_smoke(isolated_harness_root):
     """``python -m harness.cli.start`` argv path (same interpreter)."""
-    rid = "cli-mod-smoke"
+    rid = f"cli-mod-smoke-{uuid.uuid4().hex[:8]}"
     proc = subprocess.run(
         [
             sys.executable,
@@ -387,7 +380,7 @@ def test_cli_start_module_invocation_smoke(isolated_harness_root):
 
 
 def test_cli_start_module_invocation_accepts_model_override(isolated_harness_root):
-    rid = "cli-model-smoke"
+    rid = f"cli-model-smoke-{uuid.uuid4().hex[:8]}"
     proc = subprocess.run(
         [
             sys.executable,

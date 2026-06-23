@@ -1,8 +1,7 @@
 """Durable run-state records for harness CLI operator flows.
 
-Each ``start`` creates a directory under
-``harness_cli_artifacts_root() / "cli_runs" / <run_id> /`` with deterministic
-JSON metadata and sibling artifact paths (logs, done, result).
+New runs are allocated under ``cli_runs/by_loop_kind/<run_collection>/<run_id>/``.
+Legacy flat runs under ``cli_runs/<run_id>/`` remain discoverable.
 """
 
 from __future__ import annotations
@@ -13,17 +12,17 @@ from pathlib import Path
 from time import time
 from typing import Any
 
-from config.paths import harness_cli_artifacts_root
-
-
-def cli_runs_root() -> Path:
-    root = harness_cli_artifacts_root() / "cli_runs"
-    root.mkdir(parents=True, exist_ok=True)
-    return root
+from .run_layout import (
+    RunLayoutError,
+    allocate_run_directory,
+    cli_runs_root,
+    normalize_run_collection,
+    resolve_run_directory,
+)
 
 
 def run_dir(run_id: str) -> Path:
-    return cli_runs_root() / str(run_id).strip()
+    return resolve_run_directory(run_id).path
 
 
 def state_path(run_id: str) -> Path:
@@ -45,6 +44,7 @@ class HarnessCliRunState:
     run_id: str
     pid: int
     loop_kind: str
+    run_collection: str
     mode: str
     paths: HarnessCliRunPaths
     spawn_argv: list[str]
@@ -53,9 +53,7 @@ class HarnessCliRunState:
     extra: dict[str, Any]
 
     def to_json_dict(self) -> dict[str, Any]:
-        d = asdict(self)
-        d["paths"] = asdict(self.paths)
-        return d
+        return asdict(self)
 
     @classmethod
     def from_json_dict(cls, data: dict[str, Any]) -> HarnessCliRunState:
@@ -68,10 +66,14 @@ class HarnessCliRunState:
             stdout_log=str(paths_raw.get("stdout_log", "")),
             stderr_log=str(paths_raw.get("stderr_log", "")),
         )
+        loop_kind = str(data.get("loop_kind", ""))
+        # Migration accommodation for pre-collection state.json files.
+        run_collection = str(data.get("run_collection") or loop_kind or "").strip()
         return cls(
             run_id=str(data.get("run_id", "")),
             pid=int(data.get("pid", 0)),
-            loop_kind=str(data.get("loop_kind", "")),
+            loop_kind=loop_kind,
+            run_collection=run_collection,
             mode=str(data.get("mode", "")),
             paths=paths,
             spawn_argv=list(data.get("spawn_argv") or []),
@@ -87,8 +89,23 @@ def write_state(state: HarnessCliRunState) -> None:
     p.write_text(json.dumps(state.to_json_dict(), ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+def run_layout_issue(run_id: str) -> str | None:
+    """Return a layout reason code when ``run_id`` is unsafe, missing, or ambiguous."""
+    try:
+        resolve_run_directory(run_id)
+        return None
+    except RunLayoutError as exc:
+        return exc.code
+
+
 def read_state(run_id: str) -> HarnessCliRunState | None:
-    p = state_path(run_id)
+    try:
+        resolved = resolve_run_directory(run_id)
+    except RunLayoutError as exc:
+        if exc.code in {"run_id_not_found", "run_id_ambiguous"}:
+            return None
+        raise
+    p = resolved.path / "state.json"
     if not p.exists():
         return None
     try:
@@ -126,8 +143,8 @@ def merge_state_extra(run_id: str, extra_patch: dict[str, Any]) -> HarnessCliRun
     return state
 
 
-def build_paths(run_id: str) -> HarnessCliRunPaths:
-    rd = run_dir(run_id)
+def build_paths(*, run_id: str, run_collection: str) -> HarnessCliRunPaths:
+    rd = allocate_run_directory(run_id=run_id, run_collection=run_collection)
     return HarnessCliRunPaths(
         run_dir=str(rd.resolve()),
         state_file=str((rd / "state.json").resolve()),
@@ -148,11 +165,13 @@ def new_run_state(
     status: str = "started",
     extra: dict[str, Any] | None = None,
 ) -> HarnessCliRunState:
-    paths = build_paths(run_id)
+    run_collection = normalize_run_collection(loop_kind)
+    paths = build_paths(run_id=run_id, run_collection=run_collection)
     return HarnessCliRunState(
         run_id=run_id,
         pid=pid,
         loop_kind=loop_kind,
+        run_collection=run_collection,
         mode=mode,
         paths=paths,
         spawn_argv=list(spawn_argv),

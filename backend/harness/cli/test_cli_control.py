@@ -24,14 +24,6 @@ from harness.runtime.control import (
 
 
 @pytest.fixture
-def isolated_harness_root(tmp_path, monkeypatch):
-    root = tmp_path / "harness_art"
-    root.mkdir()
-    monkeypatch.setattr(rs, "harness_cli_artifacts_root", lambda: root)
-    return root
-
-
-@pytest.fixture
 def isolated_dossiers_artifacts_shim(tmp_path, monkeypatch):
     import config.paths as paths_mod
 
@@ -99,7 +91,7 @@ def test_control_contract_invalid_schema_returns_none(tmp_path):
 def test_pause_refuses_missing_run(isolated_harness_root):
     out = pause_run(run_id="not-a-run")
     assert out["status"] == "refused"
-    assert out["reason_code"] == "missing_state"
+    assert out["reason_code"] in {"missing_state", "run_id_not_found"}
 
 
 def test_pause_refuses_completed_run(isolated_harness_root, monkeypatch):

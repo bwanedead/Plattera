@@ -16,14 +16,6 @@ from harness.cli.status import status_run
 from harness.mission_state import new_mission_state, new_resolution_state
 
 
-@pytest.fixture
-def isolated_harness_root(tmp_path, monkeypatch):
-    root = tmp_path / "harness_art"
-    root.mkdir()
-    monkeypatch.setattr(rs, "harness_cli_artifacts_root", lambda: root)
-    return root
-
-
 def _minimal_valid_snapshot() -> dict:
     resolution = new_resolution_state()
     mission = new_mission_state(

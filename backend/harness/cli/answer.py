@@ -9,7 +9,7 @@ from typing import Any
 
 from harness.runtime.hitl.inject import inject
 
-from .run_state import read_state
+from .run_state import read_state, run_layout_issue
 
 
 def _print_json(obj: dict[str, Any]) -> None:
@@ -27,11 +27,18 @@ def answer_run(
     note: str | None,
     loop_kind: str | None,
 ) -> dict[str, Any]:
+    layout_issue = run_layout_issue(run_id)
+    if layout_issue == "run_id_ambiguous":
+        return {"status": "error", "reason": "run_id_ambiguous", "run_id": run_id}
     lk = loop_kind
     if not lk:
         state = read_state(run_id)
         if state is None:
-            return {"status": "error", "reason": "missing_run_state", "run_id": run_id}
+            return {
+                "status": "error",
+                "reason": layout_issue or "missing_run_state",
+                "run_id": run_id,
+            }
         lk = state.loop_kind
     return inject(loop_kind=lk, run_id=run_id, prompt_id=prompt_id, choice=choice, note=note)
 

@@ -28,7 +28,7 @@ from typing import Any
 
 from harness.runtime.user_messages.store import append_entry as _append_user_message
 
-from .run_state import read_state
+from .run_state import read_state, run_layout_issue
 
 
 def _print_json(obj: dict[str, Any]) -> None:
@@ -48,11 +48,18 @@ def inject_user_message(
     message_id: str | None = None,
 ) -> dict[str, Any]:
     """Append a user message to the per-run store and return the persisted row."""
+    layout_issue = run_layout_issue(run_id)
+    if layout_issue == "run_id_ambiguous":
+        return {"status": "error", "reason": "run_id_ambiguous", "run_id": run_id}
     lk = loop_kind
     if not lk:
         state = read_state(run_id)
         if state is None:
-            return {"status": "error", "reason": "missing_run_state", "run_id": run_id}
+            return {
+                "status": "error",
+                "reason": layout_issue or "missing_run_state",
+                "run_id": run_id,
+            }
         lk = state.loop_kind
     entry = _append_user_message(
         loop_kind=lk,

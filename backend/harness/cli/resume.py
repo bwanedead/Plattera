@@ -16,7 +16,7 @@ from time import time
 from typing import Any, Mapping
 
 from ._process_util import is_pid_alive
-from .run_state import read_state, run_dir, write_state
+from .run_state import read_state, run_dir, run_layout_issue, write_state
 from .start import _child_env, _popen_flags, _backend_cwd
 from harness.runtime.control import (
     CONTROL_FILENAME,
@@ -147,6 +147,13 @@ def classify_resumability(run_id: str) -> dict[str, Any]:
       - ``checkpoint_path``: path string if the checkpoint exists
       - ``resume_command``: shell hint if resumable
     """
+    layout_issue = run_layout_issue(run_id)
+    if layout_issue == "run_id_ambiguous":
+        return {
+            "run_id": run_id,
+            "resumability": "run_id_ambiguous",
+            "reason_code": "run_id_ambiguous",
+        }
     state = read_state(run_id)
     if state is None:
         return {

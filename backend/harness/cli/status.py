@@ -13,7 +13,7 @@ from harness.runtime.hitl.watch import hitl_pending_path
 from harness.runtime.model_failure_classifier import resume_hint_for_reason_code
 
 from ._process_util import is_pid_alive
-from .run_state import read_state, run_dir
+from .run_state import read_state, run_dir, run_layout_issue
 
 _OPERATOR_INTERRUPT_REASON_CODES = {"paused_by_operator", "stopped_by_operator"}
 
@@ -26,11 +26,23 @@ def _print_json(obj: dict[str, Any]) -> None:
 
 
 def status_run(*, run_id: str) -> dict[str, Any]:
+    layout_issue = run_layout_issue(run_id)
+    if layout_issue == "run_id_ambiguous":
+        return {
+            "run_id": run_id,
+            "state": "ambiguous",
+            "reason_code": "run_id_ambiguous",
+            "process_alive": None,
+            "done_file_exists": False,
+            "result_file_exists": False,
+            "hitl_pending": False,
+        }
     state = read_state(run_id)
     if state is None:
         return {
             "run_id": run_id,
             "state": "missing",
+            "reason_code": layout_issue or "run_id_not_found",
             "process_alive": None,
             "done_file_exists": False,
             "result_file_exists": False,
@@ -99,6 +111,7 @@ def status_run(*, run_id: str) -> dict[str, Any]:
         "status": state.status,
         "mode": state.mode,
         "loop_kind": state.loop_kind,
+        "run_collection": state.run_collection,
         "pid": pid,
         "process_alive": alive,
         "done_file_exists": done_p.is_file(),

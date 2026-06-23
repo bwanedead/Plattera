@@ -45,7 +45,9 @@ def _targets(tmp_path: Path) -> RuntimeArtifactTargets:
 
 def _seed_cli_run_state(tmp_path: Path, monkeypatch, run_id: str) -> None:
     monkeypatch.setenv("HARNESS_CLI_RUN_ID", run_id)
-    monkeypatch.setattr(cli_run_state, "cli_runs_root", lambda: tmp_path / "cli_runs")
+    import harness.cli.run_layout as layout_mod
+
+    monkeypatch.setattr(layout_mod, "cli_runs_root", lambda: tmp_path / "cli_runs")
     cli_run_state.write_state(
         cli_run_state.new_run_state(
             run_id=run_id,
@@ -340,11 +342,14 @@ def test_audit_writer_finalize_called_on_resumable_model_interruption(tmp_path: 
     run_id = "audit-failure-test"
     cli_run_dir = tmp_path / "cli_runs" / run_id
     cli_run_dir.mkdir(parents=True)
+    (cli_run_dir / "state.json").write_text(
+        _json.dumps({"run_id": run_id}),
+        encoding="utf-8",
+    )
 
     monkeypatch.setenv("HARNESS_CLI_RUN_ID", run_id)
-    # Point cli_runs_root at tmp_path/cli_runs so run_dir() resolves correctly.
-    import harness.cli.run_state as rs_mod
-    monkeypatch.setattr(rs_mod, "cli_runs_root", lambda: tmp_path / "cli_runs")
+    import harness.cli.run_layout as layout_mod
+    monkeypatch.setattr(layout_mod, "cli_runs_root", lambda: tmp_path / "cli_runs")
 
     call_count = 0
 

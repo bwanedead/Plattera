@@ -86,13 +86,15 @@ def test_purge_all_cli_runs_removes_all_dirs(monkeypatch: pytest.MonkeyPatch, tm
     for run_id in ["r1", "r2", "r3"]:
         _make_run_dir(root, run_id)
 
-    import harness.cli.run_state as rs_mod
-    monkeypatch.setattr(rs_mod, "cli_runs_root", lambda: root)
+    import harness.cli.run_layout as layout_mod
+    monkeypatch.setattr(layout_mod, "cli_runs_root", lambda: root)
 
     purged = purge_all_cli_runs()
 
     assert set(purged) == {"r1", "r2", "r3"}
-    assert list(root.iterdir()) == []
+    from harness.cli.run_layout import list_run_dirs_in_bucket
+
+    assert list_run_dirs_in_bucket(root, legacy_flat=True) == []
 
 
 def test_purge_all_cli_runs_removes_pinned_too(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -101,13 +103,15 @@ def test_purge_all_cli_runs_removes_pinned_too(monkeypatch: pytest.MonkeyPatch, 
     _make_run_dir(root, "pinned-run", pinned=True)
     _make_run_dir(root, "normal-run", pinned=False)
 
-    import harness.cli.run_state as rs_mod
-    monkeypatch.setattr(rs_mod, "cli_runs_root", lambda: root)
+    import harness.cli.run_layout as layout_mod
+    monkeypatch.setattr(layout_mod, "cli_runs_root", lambda: root)
 
     purged = purge_all_cli_runs()
 
     assert set(purged) == {"pinned-run", "normal-run"}
-    assert list(root.iterdir()) == []
+    from harness.cli.run_layout import list_run_dirs_in_bucket
+
+    assert list_run_dirs_in_bucket(root, legacy_flat=True) == []
 
 
 def test_purge_all_cli_runs_cleans_linked_transcript_edit_workspaces(
@@ -127,8 +131,8 @@ def test_purge_all_cli_runs_cleans_linked_transcript_edit_workspaces(
     unrelated = te_root / "dossier1" / "tx1" / "other-run"
     unrelated.mkdir(parents=True)
 
-    import harness.cli.run_state as rs_mod
-    monkeypatch.setattr(rs_mod, "cli_runs_root", lambda: root)
+    import harness.cli.run_layout as layout_mod
+    monkeypatch.setattr(layout_mod, "cli_runs_root", lambda: root)
 
     import config.paths as paths_mod
     monkeypatch.setattr(paths_mod, "dossiers_transcript_edit_artifacts_root", lambda dossier_id=None: te_root)
@@ -143,8 +147,8 @@ def test_purge_all_cli_runs_cleans_linked_transcript_edit_workspaces(
 def test_purge_all_cli_runs_noop_when_root_missing(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     root = tmp_path / "does_not_exist"
 
-    import harness.cli.run_state as rs_mod
-    monkeypatch.setattr(rs_mod, "cli_runs_root", lambda: root)
+    import harness.cli.run_layout as layout_mod
+    monkeypatch.setattr(layout_mod, "cli_runs_root", lambda: root)
 
     purged = purge_all_cli_runs()
     assert purged == []
@@ -154,8 +158,8 @@ def test_purge_all_cli_runs_noop_when_root_empty(monkeypatch: pytest.MonkeyPatch
     root = tmp_path / "cli_runs"
     root.mkdir()
 
-    import harness.cli.run_state as rs_mod
-    monkeypatch.setattr(rs_mod, "cli_runs_root", lambda: root)
+    import harness.cli.run_layout as layout_mod
+    monkeypatch.setattr(layout_mod, "cli_runs_root", lambda: root)
 
     purged = purge_all_cli_runs()
     assert purged == []
@@ -174,8 +178,8 @@ def test_cleanup_keeps_latest_4_unpinned(monkeypatch: pytest.MonkeyPatch, tmp_pa
     for i, run_id in enumerate(["r1", "r2", "r3", "r4", "r5", "r6", "r7"]):
         _make_run_dir(root, run_id, pinned=False, age=(70 - i * 10))
 
-    import harness.cli.run_state as rs_mod
-    monkeypatch.setattr(rs_mod, "cli_runs_root", lambda: root)
+    import harness.cli.run_layout as layout_mod
+    monkeypatch.setattr(layout_mod, "cli_runs_root", lambda: root)
 
     deleted = cleanup_old_cli_runs(keep_n=4)
 
@@ -192,8 +196,8 @@ def test_cleanup_does_not_delete_pinned(monkeypatch: pytest.MonkeyPatch, tmp_pat
         pinned = run_id == "r1"  # r1 is oldest but pinned
         _make_run_dir(root, run_id, pinned=pinned, age=(50 - i * 10))
 
-    import harness.cli.run_state as rs_mod
-    monkeypatch.setattr(rs_mod, "cli_runs_root", lambda: root)
+    import harness.cli.run_layout as layout_mod
+    monkeypatch.setattr(layout_mod, "cli_runs_root", lambda: root)
 
     deleted = cleanup_old_cli_runs(keep_n=4)
 
@@ -205,8 +209,8 @@ def test_cleanup_does_not_delete_pinned(monkeypatch: pytest.MonkeyPatch, tmp_pat
 def test_cleanup_noop_when_cli_runs_root_missing(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     root = tmp_path / "does_not_exist"
 
-    import harness.cli.run_state as rs_mod
-    monkeypatch.setattr(rs_mod, "cli_runs_root", lambda: root)
+    import harness.cli.run_layout as layout_mod
+    monkeypatch.setattr(layout_mod, "cli_runs_root", lambda: root)
 
     deleted = cleanup_old_cli_runs(keep_n=4)
     assert deleted == []
@@ -218,16 +222,18 @@ def test_cleanup_noop_when_cli_runs_root_missing(monkeypatch: pytest.MonkeyPatch
 
 
 def test_write_run_retention_json_writes_correct_fields(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    run_dir = tmp_path / "run-abc"
-    run_dir.mkdir()
+    root = tmp_path / "cli_runs"
+    run_dir = root / "run-abc"
+    run_dir.mkdir(parents=True)
+    (run_dir / "state.json").write_text(json.dumps({"run_id": "run-abc"}), encoding="utf-8")
 
-    import harness.cli.run_state as rs_mod
-    monkeypatch.setattr(rs_mod, "cli_runs_root", lambda: tmp_path)
+    import harness.cli.run_layout as layout_mod
+    monkeypatch.setattr(layout_mod, "cli_runs_root", lambda: root)
 
     write_run_retention_json("run-abc")
 
     ret = json.loads((run_dir / "retention.json").read_text())
     assert ret["run_id"] == "run-abc"
     assert ret["pinned"] is False
-    assert ret["cleanup_policy_version"] == "v1"
+    assert ret["cleanup_policy_version"] == "v2"
     assert isinstance(ret["created_at_epoch_seconds"], float)
