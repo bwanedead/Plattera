@@ -7,10 +7,11 @@ import json
 import os
 import subprocess
 import sys
-import uuid
 from pathlib import Path
 from typing import Any
 
+from .run_id_allocator import RunIdAllocatorError, allocate_automatic_run_id
+from .run_layout import RunLayoutError, normalize_run_id
 from .run_state import new_run_state, read_state, write_state
 
 
@@ -59,6 +60,17 @@ def build_module_argv(module: str, module_args: list[str]) -> list[str]:
     return [sys.executable, "-m", module, *module_args]
 
 
+def _resolve_run_id(*, explicit_run_id: str | None, loop_kind: str):
+    text = str(explicit_run_id or "").strip()
+    if text:
+        return normalize_run_id(text), None
+    try:
+        allocated = allocate_automatic_run_id(run_collection=loop_kind)
+    except (RunLayoutError, RunIdAllocatorError) as exc:
+        raise RunLayoutError(getattr(exc, "code", "run_id_allocation_failed")) from exc
+    return allocated.run_id, allocated.run_dir
+
+
 def start_run(
     *,
     run_id: str,
@@ -67,6 +79,7 @@ def start_run(
     spawn_argv: list[str],
     model: str | None = None,
     child_env_extra: dict[str, str] | None = None,
+    run_dir: Path | None = None,
 ) -> dict[str, Any]:
     model_str = str(model or "").strip()
     extra: dict[str, Any] = {}
@@ -80,8 +93,10 @@ def start_run(
         spawn_argv=list(spawn_argv),
         status="spawning",
         extra=extra or None,
+        run_dir=run_dir,
     )
     paths = state.paths
+    human_timeline_path = str((Path(paths.run_dir) / "audit" / "human" / "timeline.md").resolve())
     Path(paths.run_dir).mkdir(parents=True, exist_ok=True)
 
     env = _child_env(paths=paths, run_id=run_id, loop_kind=loop_kind, model=model)
@@ -112,6 +127,8 @@ def start_run(
             "run_id": run_id,
             "pid": None,
             "run_collection": state.run_collection,
+            "run_dir": paths.run_dir,
+            "human_timeline_path": human_timeline_path,
             "done_file": paths.done_file,
             "result_file": paths.result_file,
             "log_file": paths.stdout_log,
@@ -143,6 +160,8 @@ def start_run(
         "run_id": run_id,
         "pid": state.pid,
         "run_collection": state.run_collection,
+        "run_dir": paths.run_dir,
+        "human_timeline_path": human_timeline_path,
         "done_file": paths.done_file,
         "result_file": paths.result_file,
         "log_file": paths.stdout_log,
@@ -161,7 +180,11 @@ def main() -> None:
         prog="harness.cli.start",
         description="Spawn a background harness run with durable run-state under harness artifacts.",
     )
-    parser.add_argument("--run-id", default=None, help="Explicit run id (default: random hcli- prefix).")
+    parser.add_argument(
+        "--run-id",
+        default=None,
+        help="Explicit run id (default: auto-allocated per loop-kind sequence).",
+    )
     parser.add_argument(
         "--loop-kind",
         default="harness_cli",
@@ -195,8 +218,12 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    run_id = (args.run_id or "").strip() or f"hcli-{uuid.uuid4().hex[:12]}"
     loop_kind = str(args.loop_kind or "harness_cli").strip() or "harness_cli"
+    try:
+        run_id, preallocated_run_dir = _resolve_run_id(explicit_run_id=args.run_id, loop_kind=loop_kind)
+    except RunLayoutError as exc:
+        _print_json({"status": "error", "error": exc.code})
+        sys.exit(2)
 
     use_stub = args.stub or not args.python_module
     if use_stub:
@@ -216,6 +243,7 @@ def main() -> None:
         mode=mode,
         spawn_argv=spawn_argv,
         model=str(args.model or "").strip() or None,
+        run_dir=preallocated_run_dir,
     )
     _print_json(out)
     if out.get("status", "").startswith("spawn_failed"):

@@ -6,7 +6,7 @@ from collections.abc import Sequence
 from typing import Any
 
 from feature_graph.artifact_refs import ARTIFACT_REF_PREFIXES
-from feature_graph.models import FeatureGraph, FeatureKind
+from feature_graph.models import FeatureKind
 from feature_graph.operations import OPERATION_REGISTRY
 
 from .feature_graph_contract_projection import (
@@ -21,14 +21,18 @@ from .feature_graph_examples import (
     build_reference_node_example,
 )
 
-DEFAULT_CAPABILITY_SECTIONS = (
-    "core_schema",
-    "provenance",
-    "operations",
-    "examples",
-    "artifact_refs",
+DEFAULT_CAPABILITY_SECTIONS = ("starter_contract",)
+VALID_CAPABILITY_SECTIONS = frozenset(
+    (
+        "starter_contract",
+        "core_schema",
+        "provenance",
+        "operations",
+        "examples",
+        "artifact_refs",
+        "validation_schema",
+    )
 )
-VALID_CAPABILITY_SECTIONS = frozenset((*DEFAULT_CAPABILITY_SECTIONS, "validation_schema"))
 
 
 def describe_feature_graph_capabilities(
@@ -38,8 +42,13 @@ def describe_feature_graph_capabilities(
 ) -> dict[str, Any]:
     """Project exact contract facts without recommending deed-specific choices."""
     selected_sections = _normalize_sections(sections)
-    selected_operations = _select_operations(operation_names)
+    selected_operations = _select_operations(operation_names) if operation_names is not None else None
     result: dict[str, Any] = {"sections": selected_sections}
+
+    if "starter_contract" in selected_sections:
+        result["starter_contract"] = _build_starter_contract(
+            operation_names=selected_operations,
+        )
 
     if "core_schema" in selected_sections:
         core = build_core_schema_projection()
@@ -56,9 +65,13 @@ def describe_feature_graph_capabilities(
         result["provenance_rules"] = provenance["rules"]
 
     if "operations" in selected_sections:
-        result["registered_operations"] = [
-            _project_operation(OPERATION_REGISTRY[name]) for name in selected_operations
-        ]
+        ops = selected_operations if selected_operations is not None else sorted(OPERATION_REGISTRY)
+        if operation_names is None:
+            result["registered_operations"] = _compact_operation_index(ops)
+        else:
+            result["registered_operations"] = [
+                _project_operation(OPERATION_REGISTRY[name]) for name in ops
+            ]
         result["operation_contract"] = {
             "op_name": "Exact registered name when available; unregistered names remain representable.",
             "params": "Object governed by the selected operation's parameter contract.",
@@ -70,6 +83,7 @@ def describe_feature_graph_capabilities(
         }
 
     if "examples" in selected_sections:
+        ops = selected_operations if selected_operations is not None else sorted(OPERATION_REGISTRY)
         result["examples"] = {
             "warning": (
                 "Contract-shape examples only. Never copy example values, geometry, ids, or scope into run IR "
@@ -80,7 +94,7 @@ def describe_feature_graph_capabilities(
             "external_feature_reference_node": build_reference_node_example(),
             "operation_expressions": {
                 name: build_operation_example(OPERATION_REGISTRY[name])
-                for name in selected_operations
+                for name in ops
             },
         }
 
@@ -92,6 +106,38 @@ def describe_feature_graph_capabilities(
         result["canonical_feature_graph_json_schema"] = canonical_feature_graph_json_schema()
 
     return result
+
+
+def _build_starter_contract(*, operation_names: list[str] | None) -> dict[str, Any]:
+    core = build_core_schema_projection()
+    provenance = build_provenance_schema_projection()
+    ops = operation_names if operation_names is not None else sorted(OPERATION_REGISTRY)
+    if operation_names is None:
+        operations = _compact_operation_index(ops)
+    else:
+        operations = [_project_operation(OPERATION_REGISTRY[name]) for name in ops]
+    return {
+        "feature_kinds": [kind.value for kind in FeatureKind],
+        "node_content_alternatives": core["content_rules"]["feature_node_content"],
+        "op_expr_shape": core["models"]["OpExpr"]["fields"],
+        "provenance_link_required_fields": provenance["models"]["SourceEntityLink"]["fields"],
+        "artifact_ref_prefixes": dict(ARTIFACT_REF_PREFIXES),
+        "operations": operations,
+    }
+
+
+def _compact_operation_index(operation_names: list[str]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for name in operation_names:
+        operation = OPERATION_REGISTRY[name]
+        rows.append(
+            {
+                "name": operation.name,
+                "category": operation.category.value,
+                "compiler_support": "supported" if operation.supported else "unsupported",
+            }
+        )
+    return rows
 
 
 def _normalize_sections(sections: Sequence[str] | None) -> list[str]:

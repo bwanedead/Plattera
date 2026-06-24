@@ -44,6 +44,7 @@ def build_prompt_observability_summary(
     closure_policy: Mapping[str, Any] | None = None,
     turn_records: list[dict[str, Any]] | None = None,
     delegate_observation_worklist_reminder: str | None = None,
+    claim_inventory_pressure_enabled: bool = False,
 ) -> dict[str, Any]:
     """Return host-owned loop-health facts safe to expose in prompts and audits."""
     telemetry = loop_memory.telemetry
@@ -485,6 +486,7 @@ def build_prompt_observability_summary(
         complete_with_unconsumed_hitl_count=hitl_ledger_metrics["complete_with_unconsumed_hitl_count"],
         hitl_consumed_unknown_prompt_count=hitl_ledger_metrics["hitl_consumed_unknown_prompt_count"],
         artifact_state_dirty_since_write_count=artifact_state_dirty_since_write_count,
+        claim_inventory_pressure_enabled=claim_inventory_pressure_enabled,
     )
     summary["performance_evaluation"] = build_performance_evaluation(
         loop_memory,
@@ -1667,6 +1669,7 @@ def _mechanical_flags(
     complete_with_unconsumed_hitl_count: int = 0,
     hitl_consumed_unknown_prompt_count: int = 0,
     artifact_state_dirty_since_write_count: int = 0,
+    claim_inventory_pressure_enabled: bool = False,
 ) -> list[str]:
     flags: list[str] = []
     repair_bundle = feedback.get("state_patch_repair_bundle")
@@ -1740,7 +1743,7 @@ def _mechanical_flags(
         )
     if long_determined_value_units_count > 0:
         flags.append(f"long_determined_value_units:{long_determined_value_units_count}")
-    if artifact_claim_inventory_suspect_count > 0:
+    if claim_inventory_pressure_enabled and artifact_claim_inventory_suspect_count > 0:
         flags.append(f"artifact_claim_inventory_suspect:{artifact_claim_inventory_suspect_count}")
     if resolution_item_count >= 3 and success_condition_count == 0:
         flags.append(
@@ -1781,7 +1784,8 @@ def _mechanical_flags(
     # dwelling on the same active item. Strictly structural — no mission-specific
     # content inspection.
     if (
-        _as_optional_text(work_universe_posture) == "partial"
+        claim_inventory_pressure_enabled
+        and _as_optional_text(work_universe_posture) == "partial"
         and resolution_item_count >= 3
         and atomic_item_count == 0
         and covered_unit_count == 0
@@ -1854,7 +1858,8 @@ def _mechanical_flags(
         )
     )
     if (
-        sparse_claim_inventory
+        claim_inventory_pressure_enabled
+        and sparse_claim_inventory
         and resolution_item_count >= 2
         and (
             closure_ready_to_close

@@ -24,8 +24,14 @@ from tooling.mapping.deed_to_ir.input_hydration import make_hydrate_deed_to_ir_i
 from tooling.mapping.deed_to_ir.ir_mapping_submission import submit_ir_for_mapping
 from tooling.mapping.deed_to_ir.ir_persistence import save_ir_artifact
 from tooling.mapping.deed_to_ir.resolution_state_projection import (
+    build_resolution_state_index,
+    build_resolution_state_selected_rows,
     mechanical_resolution_state_snapshot,
     resolution_state_counts,
+)
+
+_PRACTICE_RESOLUTION_FIXTURE = (
+    Path(__file__).resolve().parents[4] / "practice_deeds" / "right_of_way" / "deed_to_ir" / "resolution_state.json"
 )
 
 _FIXTURE = Path(__file__).resolve().parents[3] / "domains" / "mapping" / "deed_to_ir" / "test_fixtures"
@@ -45,15 +51,17 @@ def _handoff_context() -> dict:
     }
 
 
-def test_describe_feature_graph_capabilities_projects_registry():
+def test_describe_feature_graph_capabilities_projects_starter_contract():
     caps = describe_feature_graph_capabilities()
-    assert "feature_kinds" in caps
-    assert "point" in caps["feature_kinds"]
-    ops = caps["registered_operations"]
+    assert caps.get("sections") == ["starter_contract"]
+    starter = caps["starter_contract"]
+    assert "feature_kinds" in starter
+    assert "point" in starter["feature_kinds"]
+    ops = starter["operations"]
     assert any(op["name"] == "LineStep" for op in ops)
     line_step = next(op for op in ops if op["name"] == "LineStep")
     assert line_step["compiler_support"] == "supported"
-    assert "feature_graph:ir:" in caps["artifact_ref_prefixes"]["ir"]
+    assert "feature_graph:ir:" in starter["artifact_ref_prefixes"]["ir"]
 
 
 def test_capability_projection_covers_runtime_models_without_schema_drift():
@@ -94,7 +102,14 @@ def test_capability_registry_projection_matches_registered_vocabulary():
     caps = describe_feature_graph_capabilities(sections=["operations"])
     assert {row["name"] for row in caps["registered_operations"]} == set(OPERATION_REGISTRY)
     line_step = next(row for row in caps["registered_operations"] if row["name"] == "LineStep")
-    assert line_step["required_parameters"] == ["bearing", "distance"]
+    assert line_step["compiler_support"] == "supported"
+    assert "category" in line_step
+    detailed = describe_feature_graph_capabilities(
+        sections=["operations"],
+        operation_names=["LineStep"],
+    )
+    line_step_detailed = next(row for row in detailed["registered_operations"] if row["name"] == "LineStep")
+    assert line_step_detailed["required_parameters"] == ["bearing", "distance"]
     examples = describe_feature_graph_capabilities(
         sections=["examples"], operation_names=["LineStep"]
     )
@@ -104,6 +119,7 @@ def test_capability_registry_projection_matches_registered_vocabulary():
 def test_canonical_validation_schema_is_explicit_opt_in():
     default = describe_feature_graph_capabilities()
     assert "canonical_feature_graph_json_schema" not in default
+    assert "starter_contract" in default
     exact = describe_feature_graph_capabilities(sections=["validation_schema"])
     assert exact["canonical_feature_graph_json_schema"]["title"] == "FeatureGraph"
 
@@ -133,6 +149,9 @@ def test_hydrate_deed_to_ir_input_sections_bounded_and_path_free():
     assert outputs["results"]["resolution_state"]["resolution_state_ref"].startswith(
         "transcript_edit:resolution_state:"
     )
+    resolution = outputs["results"]["resolution_state"]
+    assert resolution["projection_mode"] == "index"
+    assert isinstance(resolution, dict)
     dumped = json.dumps(outputs)
     assert "test_fixtures" not in dumped.lower()
     assert "c:\\\\" not in dumped.lower()
@@ -149,9 +168,106 @@ def test_hydrate_resolution_state_exact_unit_filter_includes_parent():
     )
     items = result["outputs"]["results"]["resolution_state"]["items"]
     assert len(items) == 1
-    unit = items[0]["covered_units"][0]
+    unit = items[0]["units"][0]
     assert unit["unit_id"] == "p1_call1_bearing"
     assert unit["parent_item_id"] == "p1_calls_group"
+
+
+def test_selected_rows_global_unit_cap_reports_truncation_and_not_found():
+    units = [
+        {
+            "unit_id": f"unit_{index}",
+            "title": f"Unit {index}",
+            "status": "open",
+            "value_kind": "distance",
+        }
+        for index in range(40)
+    ]
+    snapshot = {
+        "items": [
+            {
+                "item_id": "group_a",
+                "title": "Group A",
+                "kind": "work_unit",
+                "status": "open",
+                "covered_units": units,
+            }
+        ],
+        "relations": [],
+    }
+    wanted = [f"unit_{index}" for index in range(40)]
+    rows, not_found, truncation = build_resolution_state_selected_rows(snapshot, wanted)
+    emitted = sum(len(item.get("units") or []) for item in rows)
+    assert emitted <= 32
+    assert truncation.get("units_omitted", 0) >= 8
+    assert len(not_found) >= 8
+    assert "unit_39" in not_found or truncation["units_omitted"] >= 8
+
+
+def test_selected_rows_item_row_cap_applies_to_unit_matches_across_items():
+    snapshot = {
+        "items": [
+            {
+                "item_id": f"item_{index}",
+                "title": f"Item {index}",
+                "kind": "work_unit",
+                "status": "open",
+                "covered_units": [
+                    {
+                        "unit_id": f"unit_{index}",
+                        "title": f"Unit {index}",
+                        "status": "open",
+                        "value_kind": "distance",
+                    }
+                ],
+            }
+            for index in range(20)
+        ],
+        "relations": [],
+    }
+    wanted = [f"unit_{index}" for index in range(20)]
+    rows, not_found, truncation = build_resolution_state_selected_rows(snapshot, wanted)
+    assert len(rows) <= 16
+    assert truncation.get("units_omitted", 0) >= 4
+    assert len(not_found) >= 4
+
+
+def test_hydrate_resolution_state_caps_requested_unit_ids_in_filter():
+    handler = make_hydrate_deed_to_ir_input_handler(
+        handoff_context={
+            "resolution_state_ref": "transcript_edit:resolution_state:test",
+            "resolution_state_snapshot": {
+                "items": [
+                    {
+                        "item_id": "item_0",
+                        "title": "Item 0",
+                        "kind": "work_unit",
+                        "status": "open",
+                        "covered_units": [
+                            {
+                                "unit_id": "unit_0",
+                                "title": "Unit 0",
+                                "status": "open",
+                                "value_kind": "distance",
+                            }
+                        ],
+                    }
+                ],
+                "relations": [],
+            },
+        }
+    )
+    requested = [f"unit_{index}" for index in range(100)]
+    result = handler(
+        {
+            "sections": ["resolution_state"],
+            "resolution_unit_ids": requested,
+        }
+    )
+    resolution = result["outputs"]["results"]["resolution_state"]
+    assert len(resolution["filter"]["resolution_unit_ids"]) == 64
+    assert resolution["filter"]["resolution_unit_ids_omitted"] == 36
+    assert any(e.get("reason") == "resolution_unit_ids_truncated" for e in result["outputs"]["errors"])
 
 
 def test_hydrate_resolution_state_not_found_reports_error():
@@ -175,6 +291,28 @@ def test_resolution_state_projection_mechanical_copy():
     counts = resolution_state_counts(snapshot)
     assert counts["items"] == 2
     assert counts["covered_units"] == 1
+
+
+def test_practice_resolution_state_index_exposes_all_items_and_units():
+    raw = json.loads(_PRACTICE_RESOLUTION_FIXTURE.read_text(encoding="utf-8"))
+    index = build_resolution_state_index(raw, resolution_state_ref="transcript_edit:resolution_state:practice")
+    assert index["projection_mode"] == "index"
+    assert isinstance(index, dict)
+    assert index["totals"]["items"] == 5
+    assert index["totals"]["covered_units"] == 15
+    unit_ids = [
+        unit["unit_id"]
+        for item in index["items"]
+        for unit in (item.get("units") or [])
+    ]
+    assert "p1_call1_distance" in unit_ids
+    assert len(unit_ids) == 15
+    relations = index.get("relations") or []
+    assert len(relations) == 4
+    assert all("source" in rel and "target" in rel for rel in relations)
+    dumped = json.dumps(index)
+    assert "opaque_payload" not in dumped
+    assert not dumped.startswith('"{')
 
 
 def test_save_ir_artifact_validates_and_persists_without_paths():

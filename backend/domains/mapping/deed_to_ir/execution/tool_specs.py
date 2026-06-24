@@ -8,6 +8,16 @@ from typing import Any
 from domains.mapping.deed_to_ir.payloads.published_output_tool_schema import (
     build_publish_deed_to_ir_output_request_json_shape,
 )
+from tooling.mapping.deed_to_ir.input_hydration import MAX_RESOLUTION_UNIT_IDS
+from tooling.mapping.deed_to_ir.resolution_state_projection import (
+    MAX_INDEX_ITEMS,
+    MAX_INDEX_RELATIONS,
+    MAX_INDEX_UNITS,
+    MAX_SELECTED_ITEM_ROWS,
+    MAX_SELECTED_UNITS_TOTAL,
+)
+
+_RESOLUTION_UNIT_ID_MAX_LENGTH = 128
 
 
 @dataclass(frozen=True)
@@ -29,13 +39,16 @@ def build_deed_to_ir_tool_specs() -> tuple[SemanticToolSpec, ...]:
             category="read",
             purpose=(
                 "Hydrate bounded upstream deed-to-IR input lanes from the startup handoff context. "
-                "Sections include transcript lanes, parcel metadata, issues, HITL decisions, evidence refs, "
-                "and the full resolution_state work graph. Deterministic code copies fields mechanically — "
+                "Sections include transcript lanes, parcel metadata, issues, HITL decisions, and evidence refs. "
+                "resolution_state returns a compact index by default (projection_mode=index: item/unit/relation "
+                "inventory without opaque payloads). When resolution_unit_ids is supplied, returns selected_rows "
+                "projections for the requested ids only. Deterministic code copies fields mechanically — "
                 "no semantic summaries or filesystem paths."
             ),
             expected_request_shape=(
                 "sections: required non-empty array of section names. "
-                "resolution_unit_ids: optional exact ids to filter resolution_state items or covered units."
+                "resolution_unit_ids: optional exact item or covered-unit ids (max 64) to switch "
+                "resolution_state into selected_rows mode."
             ),
             expected_request_json_shape={
                 "type": "object",
@@ -59,8 +72,16 @@ def build_deed_to_ir_tool_specs() -> tuple[SemanticToolSpec, ...]:
                     },
                     "resolution_unit_ids": {
                         "type": ["array", "null"],
-                        "items": {"type": "string"},
-                        "description": "Optional exact resolution item or covered-unit ids.",
+                        "items": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": _RESOLUTION_UNIT_ID_MAX_LENGTH,
+                        },
+                        "maxItems": MAX_RESOLUTION_UNIT_IDS,
+                        "description": (
+                            "Optional exact resolution item or covered-unit ids. When present, "
+                            "resolution_state hydrates as projection_mode=selected_rows instead of index."
+                        ),
                     },
                 },
                 "additionalProperties": False,
@@ -77,8 +98,14 @@ def build_deed_to_ir_tool_specs() -> tuple[SemanticToolSpec, ...]:
             },
             expected_result_shape=(
                 "outputs.results: map of section -> bounded payload. "
+                "resolution_state without resolution_unit_ids: projection_mode=index with compact "
+                f"items (max {MAX_INDEX_ITEMS}), units (max {MAX_INDEX_UNITS}), relations (max {MAX_INDEX_RELATIONS}), "
+                "and optional truncation counts. "
+                "resolution_state with resolution_unit_ids: projection_mode=selected_rows with up to "
+                f"{MAX_SELECTED_ITEM_ROWS} item rows and {MAX_SELECTED_UNITS_TOTAL} matched units total, "
+                "filter echoing the capped id list, and optional truncation/not_found errors. "
                 "outputs.errors: unavailable/not_found entries per section or resolution_unit_id. "
-                "Covered-unit filter results include parent_item_id and parent_item_title."
+                "Selected-row unit matches include parent_item_id and parent_item_title when available."
             ),
         ),
         SemanticToolSpec(

@@ -143,8 +143,11 @@ def merge_state_extra(run_id: str, extra_patch: dict[str, Any]) -> HarnessCliRun
     return state
 
 
-def build_paths(*, run_id: str, run_collection: str) -> HarnessCliRunPaths:
-    rd = allocate_run_directory(run_id=run_id, run_collection=run_collection)
+def build_paths(*, run_id: str, run_collection: str, run_dir: Path | None = None) -> HarnessCliRunPaths:
+    if run_dir is not None:
+        rd = run_dir
+    else:
+        rd = allocate_run_directory(run_id=run_id, run_collection=run_collection)
     return HarnessCliRunPaths(
         run_dir=str(rd.resolve()),
         state_file=str((rd / "state.json").resolve()),
@@ -164,9 +167,10 @@ def new_run_state(
     spawn_argv: list[str],
     status: str = "started",
     extra: dict[str, Any] | None = None,
+    run_dir: Path | None = None,
 ) -> HarnessCliRunState:
     run_collection = normalize_run_collection(loop_kind)
-    paths = build_paths(run_id=run_id, run_collection=run_collection)
+    paths = build_paths(run_id=run_id, run_collection=run_collection, run_dir=run_dir)
     return HarnessCliRunState(
         run_id=run_id,
         pid=pid,

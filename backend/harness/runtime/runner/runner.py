@@ -119,6 +119,11 @@ class RuntimeRunner:
           is always the total turns spent across all slices to date.
         """
         context = dict(launch_context or {})
+        from harness.cli.launch_identity import merge_cli_launch_identity
+
+        context, identity_err = merge_cli_launch_identity(context)
+        if identity_err:
+            raise RuntimeRunnerError(identity_err, reason_code=identity_err)
         upstream_run_lineage: dict[str, Any] | None = None
         try:
             upstream_run_lineage, context = partition_launch_context_for_upstream_lineage(context)
@@ -718,6 +723,9 @@ def _select_model_name(context: Mapping[str, Any]) -> str:
 
 
 def _select_run_id(context: Mapping[str, Any]) -> str:
+    cli_run_id = str(os.environ.get("HARNESS_CLI_RUN_ID", "") or "").strip()
+    if cli_run_id:
+        return cli_run_id
     value = str(context.get("run_id") or context.get("session_id") or "").strip()
     return value or f"run-{uuid4().hex}"
 
@@ -1118,6 +1126,9 @@ def _with_domain_policy_context(
         closure_policy = getattr(manifest, "closure_policy", None)
         if closure_policy is not None and "domain_closure_policy" not in merged:
             merged["domain_closure_policy"] = _jsonable(closure_policy)
+        work_graph_policy = getattr(manifest, "work_graph_policy", None)
+        if work_graph_policy is not None and "domain_work_graph_policy" not in merged:
+            merged["domain_work_graph_policy"] = _jsonable(work_graph_policy)
     enrich = getattr(adapter, "enrich_launch_context", None)
     if callable(enrich):
         try:

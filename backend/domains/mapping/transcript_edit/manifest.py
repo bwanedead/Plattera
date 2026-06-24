@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from domains.closure_policy import DomainClosurePolicy
+from domains.work_graph_policy import DomainWorkGraphPolicy
 from .semantics.closure import build_transcript_edit_closure_policy
 
 
@@ -25,6 +26,9 @@ class TranscriptEditManifest:
     closure_module_ref: str = "domains.mapping.transcript_edit.semantics.closure"
     handoff_module_ref: str = "domains.mapping.transcript_edit.semantics.handoff"
     closure_policy: DomainClosurePolicy = field(default_factory=build_transcript_edit_closure_policy)
+    work_graph_policy: DomainWorkGraphPolicy = field(
+        default_factory=lambda: DomainWorkGraphPolicy(claim_inventory_pressure_enabled=True)
+    )
     declared_semantic_tool_ids: tuple[str, ...] = ()
 
 

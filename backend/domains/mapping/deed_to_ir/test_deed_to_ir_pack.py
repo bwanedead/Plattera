@@ -49,6 +49,25 @@ def test_ir_tool_specs_expose_core_contract_and_capability_filters() -> None:
     assert "validation_schema" in props["sections"]["items"]["enum"]
 
 
+def test_hydrate_tool_spec_exposes_resolution_projection_limits() -> None:
+    from tooling.mapping.deed_to_ir.input_hydration import MAX_RESOLUTION_UNIT_IDS
+
+    hydrate = {spec.tool_id: spec for spec in build_deed_to_ir_tool_specs()}["hydrate_deed_to_ir_input"]
+    assert "projection_mode=index" in hydrate.purpose
+    assert "selected_rows" in hydrate.purpose
+    assert "full resolution_state work graph" not in hydrate.purpose.lower()
+
+    unit_ids = hydrate.expected_request_json_shape["properties"]["resolution_unit_ids"]
+    assert unit_ids["maxItems"] == MAX_RESOLUTION_UNIT_IDS
+    assert unit_ids["items"]["maxLength"] == 128
+    assert unit_ids["items"]["minLength"] == 1
+
+    result = hydrate.expected_result_shape.lower()
+    assert "projection_mode=index" in result
+    assert "projection_mode=selected_rows" in result
+    assert "truncation" in result
+
+
 def test_publish_tool_spec_exposes_row_contracts_from_models() -> None:
     from domains.mapping.deed_to_ir.payloads.published_output import (
         ALLOWED_CLOSURE_DIMENSION_IDS,

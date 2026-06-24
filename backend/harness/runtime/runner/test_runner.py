@@ -188,6 +188,7 @@ def test_runner_invokes_orchestration_and_writes_loop_result_artifacts(tmp_path:
             "request_id_prefix": "req-1",
             "run_id": "run-1",
             "session_id": "session-1",
+            "workspace_id": "run-1",
         }
     ]
     assert len(model_calls) == 2
@@ -1387,7 +1388,11 @@ def test_runner_persists_upstream_lineage_in_state_result_done_and_audit_index(
 
 def test_runner_resume_spawn_argv_preserves_upstream_lineage_without_adapter_exposure(
     tmp_path: Path,
+    monkeypatch,
 ) -> None:
+    import harness.cli.run_layout as layout_mod
+
+    monkeypatch.setattr(layout_mod, "cli_runs_root", lambda: tmp_path / "cli_runs")
     lineage = _upstream_lineage()
     launch = {
         "run_id": "downstream-resume",
@@ -1429,9 +1434,13 @@ def test_runner_timeline_includes_upstream_link_when_local_audit_exists(
     monkeypatch,
 ) -> None:
     upstream_id = "practice-row-live-20260619-76"
-    upstream_timeline = (
-        tmp_path / "cli_runs" / upstream_id / "audit" / "human" / "timeline.md"
+    upstream_run_dir = tmp_path / "cli_runs" / upstream_id
+    upstream_run_dir.mkdir(parents=True)
+    (upstream_run_dir / "state.json").write_text(
+        json.dumps({"run_id": upstream_id}),
+        encoding="utf-8",
     )
+    upstream_timeline = upstream_run_dir / "audit" / "human" / "timeline.md"
     upstream_timeline.parent.mkdir(parents=True)
     upstream_timeline.write_text("# upstream", encoding="utf-8")
 

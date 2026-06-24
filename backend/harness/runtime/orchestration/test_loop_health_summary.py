@@ -427,6 +427,7 @@ def _flags(**kwargs) -> list[str]:
         explicit_non_blocking_without_notes_count=0,
         notebook_shaped_graph_rows_count=0,
         complete_run_blockers=[],
+        claim_inventory_pressure_enabled=True,
     )
     base.update(kwargs)
     return _mechanical_flags(**base)
@@ -1324,7 +1325,8 @@ def test_artifact_claim_inventory_suspect_fires_near_closure_with_substantial_ar
         outputs_for_continuity={"payload": {"text": "substantial output text " * 60}},
     )
     summary = build_prompt_observability_summary(
-        _mem(ready_to_close=True, step_result_records=[result_record])
+        _mem(ready_to_close=True, step_result_records=[result_record]),
+        claim_inventory_pressure_enabled=True,
     )
 
     assert summary["artifact_claim_inventory_suspect_count"] == 1
@@ -1382,6 +1384,39 @@ def test_artifact_claim_inventory_suspect_does_not_fire_for_small_artifact_paylo
 
     assert summary["artifact_claim_inventory_suspect_count"] == 0
     assert not any(flag.startswith("artifact_claim_inventory_suspect") for flag in summary["mechanical_flags"])
+
+
+def test_claim_inventory_flags_suppressed_when_pressure_disabled() -> None:
+    result_record = _result_record(
+        1,
+        artifact_refs=["artifact://working"],
+        outputs_for_continuity={"payload": {"text": "substantial output text " * 60}},
+    )
+    summary = build_prompt_observability_summary(
+        _mem(ready_to_close=True, step_result_records=[result_record]),
+        claim_inventory_pressure_enabled=False,
+    )
+    assert summary["artifact_claim_inventory_suspect_count"] == 1
+    assert not any(flag.startswith("artifact_claim_inventory_suspect") for flag in summary["mechanical_flags"])
+    assert not any(flag.startswith("output_claim_coverage_debt") for flag in summary["mechanical_flags"])
+    assert not any(
+        flag.startswith("coarse_work_graph_under_active_investigation")
+        for flag in summary["mechanical_flags"]
+    )
+
+
+def test_claim_inventory_flags_surface_when_pressure_enabled() -> None:
+    result_record = _result_record(
+        1,
+        artifact_refs=["artifact://working"],
+        outputs_for_continuity={"payload": {"text": "substantial output text " * 60}},
+    )
+    summary = build_prompt_observability_summary(
+        _mem(ready_to_close=True, step_result_records=[result_record]),
+        claim_inventory_pressure_enabled=True,
+    )
+    assert summary["artifact_claim_inventory_suspect_count"] == 1
+    assert "artifact_claim_inventory_suspect:1" in summary["mechanical_flags"]
 
 
 # ---------------------------------------------------------------------------

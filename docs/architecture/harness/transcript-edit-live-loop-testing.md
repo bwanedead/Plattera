@@ -5,6 +5,11 @@ speed on transcript-edit live-loop testing.
 
 Read this doc first, then follow the links in sections 2 and 6.
 
+If the intended test is the downstream **deed-to-IR** stage, use
+[`docs/architecture/harness/deed-to-ir-live-loop-testing.md`](./deed-to-ir-live-loop-testing.md)
+instead. That guide starts from the frozen transcript-edit handoff and covers
+the deed-to-IR launch, foreground watcher, timeline, and artifact review flow.
+
 ---
 
 ## 1. What You Are Testing

@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from domains.closure_policy import DomainClosurePolicy
+from domains.work_graph_policy import DomainWorkGraphPolicy, default_work_graph_policy
 from .semantics.closure import build_deed_to_ir_closure_policy
 
 
@@ -25,6 +26,7 @@ class DeedToIrManifest:
     closure_module_ref: str = "domains.mapping.deed_to_ir.semantics.closure"
     handoff_module_ref: str = "domains.mapping.deed_to_ir.semantics.handoff"
     closure_policy: DomainClosurePolicy = field(default_factory=build_deed_to_ir_closure_policy)
+    work_graph_policy: DomainWorkGraphPolicy = field(default_factory=default_work_graph_policy)
     declared_semantic_tool_ids: tuple[str, ...] = ()
 
 

@@ -43,6 +43,7 @@ _HIDDEN_LAUNCH_CONTEXT_KEYS = frozenset(
         "kernel_resume_snapshot",
         "kernel_resume_snapshot_path",
         UPSTREAM_RUN_LINEAGE_LAUNCH_KEY,
+        "domain_work_graph_policy",
     }
 )
 _PROMPT_VISIBLE_DOMAIN_CLOSURE_POLICY_KEYS = frozenset(
@@ -68,6 +69,14 @@ def domain_closure_policy_for_ref_projection(
     if not isinstance(raw, Mapping):
         return None
     return dict(raw)
+
+
+def _claim_inventory_pressure_from_launch_context(
+    opaque_launch_context: Mapping[str, Any] | None,
+) -> bool:
+    from domains.work_graph_policy import claim_inventory_pressure_enabled
+
+    return claim_inventory_pressure_enabled(opaque_launch_context)
 
 
 def build_turn_prompt_document(
@@ -299,6 +308,9 @@ def _build_structured_state(
                 context.loop_memory,
                 closure_policy=closure_policy,
                 delegate_observation_worklist_reminder=delegate_observation_reminder_from_context(
+                    opaque_launch_context,
+                ),
+                claim_inventory_pressure_enabled=_claim_inventory_pressure_from_launch_context(
                     opaque_launch_context,
                 ),
             )

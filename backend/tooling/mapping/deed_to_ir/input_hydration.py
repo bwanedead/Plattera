@@ -5,9 +5,15 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from typing import Any
 
+from .resolution_state_projection import (
+    build_resolution_state_index,
+    build_resolution_state_selected_rows,
+)
+
 MAX_TRANSCRIPT_CHARS = 12000
 MAX_LIST_ROWS = 32
 MAX_RESOLUTION_ITEMS = 64
+MAX_RESOLUTION_UNIT_IDS = 64
 MAX_EVIDENCE_REFS = 48
 
 VALID_SECTIONS = frozenset(
@@ -40,14 +46,23 @@ def make_hydrate_deed_to_ir_input_handler(
                 "unknown_sections",
                 f"Unknown sections: {', '.join(unknown)}.",
             )
-        unit_ids = _parse_unit_ids(inputs.get("resolution_unit_ids"))
+        unit_ids, unit_ids_omitted = _parse_unit_ids(inputs.get("resolution_unit_ids"))
         results: dict[str, Any] = {}
         errors: list[dict[str, str]] = []
+        if unit_ids_omitted:
+            errors.append(
+                {
+                    "section": "resolution_state",
+                    "reason": "resolution_unit_ids_truncated",
+                    "omitted_count": unit_ids_omitted,
+                }
+            )
         for section in sections:
             payload, section_errors = _hydrate_section(
                 section=section,
                 handoff=handoff_context,
                 resolution_unit_ids=unit_ids,
+                unit_ids_omitted=unit_ids_omitted,
             )
             if payload is not None:
                 results[section] = payload
@@ -70,6 +85,7 @@ def _hydrate_section(
     section: str,
     handoff: Mapping[str, Any],
     resolution_unit_ids: list[str] | None,
+    unit_ids_omitted: int = 0,
 ) -> tuple[Any | None, list[dict[str, str]]]:
     errors: list[dict[str, str]] = []
     if section == "normalized_transcript":
@@ -109,13 +125,19 @@ def _hydrate_section(
             return None, errors
         return {"evidence_refs": [str(r) for r in refs[:MAX_EVIDENCE_REFS]]}, errors
     if section == "resolution_state":
-        return _hydrate_resolution_state(handoff, resolution_unit_ids)
+        return _hydrate_resolution_state(
+            handoff,
+            resolution_unit_ids,
+            unit_ids_omitted=unit_ids_omitted,
+        )
     return None, [_section_error(section, "unsupported")]
 
 
 def _hydrate_resolution_state(
     handoff: Mapping[str, Any],
     resolution_unit_ids: list[str] | None,
+    *,
+    unit_ids_omitted: int = 0,
 ) -> tuple[Any | None, list[dict[str, str]]]:
     errors: list[dict[str, str]] = []
     ref = handoff.get("resolution_state_ref")
@@ -124,79 +146,35 @@ def _hydrate_resolution_state(
         errors.append(_section_error("resolution_state", "unavailable"))
         return None, errors
     if resolution_unit_ids:
-        filtered_items, not_found = _filter_resolution_units(snapshot, resolution_unit_ids)
+        rows, not_found, truncation = build_resolution_state_selected_rows(
+            snapshot,
+            resolution_unit_ids,
+            resolution_state_ref=str(ref) if ref is not None else None,
+        )
+        filter_payload: dict[str, Any] = {"resolution_unit_ids": resolution_unit_ids}
+        if unit_ids_omitted:
+            filter_payload["resolution_unit_ids_omitted"] = unit_ids_omitted
         payload: dict[str, Any] = {
+            "projection_mode": "selected_rows",
             "resolution_state_ref": ref,
-            "items": filtered_items,
-            "relations": [],
-            "filter": {"resolution_unit_ids": resolution_unit_ids},
+            "items": rows,
+            "filter": filter_payload,
         }
+        if truncation:
+            payload["truncation"] = truncation
         if not_found:
             errors.extend(
                 {"section": "resolution_state", "resolution_unit_id": uid, "reason": "not_found"}
                 for uid in not_found
             )
-        if not filtered_items and not_found:
+        if not rows and not_found:
             return None, errors
         return payload, errors
-    items = snapshot.get("items") if isinstance(snapshot.get("items"), list) else []
-    relations = snapshot.get("relations") if isinstance(snapshot.get("relations"), list) else []
-    payload = {
-        "resolution_state_ref": ref,
-        "items": items[:MAX_RESOLUTION_ITEMS],
-        "relations": relations[:MAX_LIST_ROWS],
-    }
-    for key in ("schema_version", "updated_at_epoch_seconds", "active_item_id", "opaque_payload"):
-        if key in snapshot:
-            payload[key] = snapshot.get(key)
-    if len(items) > MAX_RESOLUTION_ITEMS:
-        payload["truncated"] = True
-        payload["items_total"] = len(items)
+    payload = build_resolution_state_index(
+        snapshot,
+        resolution_state_ref=str(ref) if ref is not None else None,
+    )
     return payload, errors
-
-
-def _filter_resolution_units(
-    snapshot: Mapping[str, Any],
-    unit_ids: list[str],
-) -> tuple[list[dict[str, Any]], list[str]]:
-    wanted = set(unit_ids)
-    found: set[str] = set()
-    results: list[dict[str, Any]] = []
-    items = snapshot.get("items") if isinstance(snapshot.get("items"), list) else []
-    for item in items:
-        if not isinstance(item, Mapping):
-            continue
-        item_id = str(item.get("item_id") or "").strip()
-        if item_id and item_id in wanted:
-            results.append(dict(item))
-            found.add(item_id)
-            continue
-        units = item.get("covered_units")
-        if not isinstance(units, list):
-            continue
-        matched_units = []
-        for unit in units:
-            if not isinstance(unit, Mapping):
-                continue
-            unit_id = str(unit.get("unit_id") or "").strip()
-            if unit_id and unit_id in wanted:
-                row = dict(unit)
-                row["parent_item_id"] = item_id
-                row["parent_item_title"] = item.get("title")
-                matched_units.append(row)
-                found.add(unit_id)
-        if matched_units:
-            results.append(
-                {
-                    "item_id": item_id,
-                    "title": item.get("title"),
-                    "kind": item.get("kind"),
-                    "status": item.get("status"),
-                    "covered_units": matched_units,
-                }
-            )
-    not_found = sorted(wanted - found)
-    return results, not_found
 
 
 def _bound_text(text: str) -> str:
@@ -215,16 +193,20 @@ def _parse_sections(value: Any) -> list[str]:
     return out
 
 
-def _parse_unit_ids(value: Any) -> list[str] | None:
+def _parse_unit_ids(value: Any) -> tuple[list[str] | None, int]:
     if value is None:
-        return None
+        return None, 0
     if not isinstance(value, list):
-        return None
+        return None, 0
     out: list[str] = []
     for entry in value:
         if isinstance(entry, str) and entry.strip() and entry.strip() not in out:
             out.append(entry.strip())
-    return out or None
+    if not out:
+        return None, 0
+    if len(out) <= MAX_RESOLUTION_UNIT_IDS:
+        return out, 0
+    return out[:MAX_RESOLUTION_UNIT_IDS], len(out) - MAX_RESOLUTION_UNIT_IDS
 
 
 def _section_error(section: str, reason: str) -> dict[str, str]:

@@ -72,7 +72,8 @@ def test_describe_capabilities_handler() -> None:
     handler = next(b.handler for b in surface.tool_bindings if b.tool_id == "describe_feature_graph_capabilities")
     result = handler({})
     assert result["executed"] is True
-    assert "registered_operations" in result["outputs"]
+    assert "starter_contract" in result["outputs"]
+    assert result["outputs"]["sections"] == ["starter_contract"]
 
 
 def test_describe_capabilities_handler_supports_focused_contract_packet() -> None:

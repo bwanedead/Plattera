@@ -99,16 +99,14 @@ cd C:\projects\Plattera
 cd backend
 ```
 
-Start a run with the **generic harness runtime entrypoint**:
+Start a run with the **generic harness runtime entrypoint**. The CLI allocates a
+sortable run id automatically when `--run-id` is omitted:
 
 ```powershell
-$runId = "deed-to-ir-live-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
 $fixtureRoot = (Resolve-Path "..\practice_deeds\right_of_way\deed_to_ir").Path
 $contextObject = @{
   dossier_id = "9f5eecb6-cd7e-483c-b691-b76aa7132e8e"
   transcription_id = "draft_legal_text_image"
-  run_id = $runId
-  workspace_id = $runId
   max_iterations = 100
   transcript_edit_output_path = Join-Path $fixtureRoot "transcript_edit_output.json"
   resolution_state_ref = "transcript_edit:resolution_state:practice-row-live-20260619-76"
@@ -130,26 +128,34 @@ $contextObject = @{
 }
 $ctx = $contextObject | ConvertTo-Json -Depth 6 -Compress
 
-python -m harness.cli.start `
-  --run-id $runId `
+$startResult = python -m harness.cli.start `
   --loop-kind deed_to_ir `
   --python-module harness.runtime.runner.entrypoint `
   --module-arg=--domain-id `
   --module-arg=deed_to_ir `
   --module-arg=--launch-context-json `
-  --module-arg=$ctx
+  --module-arg=$ctx | ConvertFrom-Json
+
+$runId = $startResult.run_id
+$startResult.run_collection
+$startResult.human_timeline_path
 ```
 
 Guidance:
 
-- use the timestamp-based `run_id` above for every live run; its
-  `yyyyMMdd-HHmmss` suffix sorts chronologically by folder name in IDE explorer
-  views, so the newest deed-to-IR run is easy to identify
-- keep `workspace_id == run_id` unless you have a specific reason not to
+- capture `$runId` from `$startResult.run_id`; do not author timestamp-based ids
+- keep the launch and foreground watch loop in one persistent PowerShell / PTY
+  session so `$runId` remains available
+- do **not** create repo-root scratch files such as `deed_to_ir_run_id.txt` to
+  carry the ID between shell calls; run identity already lives in the CLI run
+  directory and `state.json`, and scratch pointers leave the worktree dirty
+- omit `run_id` and `workspace_id` from launch context unless you need an explicit
+  override; the CLI injects both from the generated id when absent
 - the compact launch context contains **fixture paths only** and authored
   `upstream_run_lineage`; the resolution graph is loaded mechanically inside the
   child process from `resolution_state_snapshot_path`
 - prefer `max_iterations: 100` for roomier live testing
+- automatic ids look like `deed-to-ir-live-r00000001` and increase per collection
 
 Check status:
 
