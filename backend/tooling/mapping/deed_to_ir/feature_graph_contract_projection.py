@@ -6,7 +6,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from feature_graph.models import FeatureEdge, FeatureGraph, FeatureNode, FeatureRef, OpExpr
+from feature_graph.models import FeatureEdge, FeatureGraph, FeatureKind, FeatureNode, FeatureRef, OpExpr
 from feature_graph.provenance import (
     Citation,
     EvidenceRef,
@@ -32,15 +32,59 @@ PROVENANCE_MODELS: tuple[type[BaseModel], ...] = (
     EvidenceRef,
 )
 
+ALLOWED_FEATURE_NODE_KINDS: tuple[str, ...] = tuple(kind.value for kind in FeatureKind)
+FEATURE_NODE_PLACEHOLDER_KIND = FeatureKind.UNKNOWN.value
+
+
+def allowed_feature_node_kinds() -> list[str]:
+    return list(ALLOWED_FEATURE_NODE_KINDS)
+
+
+def build_feature_node_kind_contract() -> dict[str, Any]:
+    return {
+        "allowed_kinds": allowed_feature_node_kinds(),
+        "placeholder_kind": FEATURE_NODE_PLACEHOLDER_KIND,
+        "kind_required": True,
+        "content_alternatives": (
+            "Provide at most one of geometry, op_expr, or feature_ref. Omitting all three is valid "
+            f"for unresolved or placeholder nodes — use kind={FEATURE_NODE_PLACEHOLDER_KIND!r}, "
+            "not an invented kind string outside the allowed FeatureKind enum."
+        ),
+    }
+
+
+def build_compact_feature_node_request_schema() -> dict[str, Any]:
+    """Compact agent-visible FeatureNode shape for save_ir_artifact tool spec."""
+    return {
+        "type": "object",
+        "required": ["id", "kind"],
+        "additionalProperties": True,
+        "properties": {
+            "id": {"type": "string", "minLength": 1},
+            "kind": {
+                "type": "string",
+                "enum": allowed_feature_node_kinds(),
+                "description": (
+                    f"Exact FeatureKind enum value. Use {FEATURE_NODE_PLACEHOLDER_KIND!r} for "
+                    "unresolved or placeholder nodes."
+                ),
+            },
+            "label": {"type": ["string", "null"]},
+            "geometry": {"type": ["object", "null"]},
+            "op_expr": {"type": ["object", "null"]},
+            "feature_ref": {"type": ["object", "null"]},
+            "metadata": {"type": ["object", "null"]},
+            "provenance": {"type": ["object", "null"]},
+        },
+    }
+
 
 def build_core_schema_projection() -> dict[str, Any]:
     return {
         "models": _project_models(CORE_MODELS),
         "content_rules": {
-            "feature_node_content": (
-                "Provide at most one of geometry, op_expr, or feature_ref. Providing none is valid "
-                "for a semantic or unresolved node."
-            ),
+            "feature_node_content": build_feature_node_kind_contract()["content_alternatives"],
+            "feature_node_kinds": build_feature_node_kind_contract(),
             "op_expr_operands": "Each operand is a feature id string or a nested OpExpr object.",
             "graph_cycles": "Edges usually form a DAG, but cycles are valid for constraint systems.",
             "edge_references": (

@@ -8,6 +8,10 @@ from typing import Any
 from domains.mapping.deed_to_ir.payloads.published_output_tool_schema import (
     build_publish_deed_to_ir_output_request_json_shape,
 )
+from tooling.mapping.deed_to_ir.feature_graph_contract_projection import (
+    build_compact_feature_node_request_schema,
+    build_feature_node_kind_contract,
+)
 from tooling.mapping.deed_to_ir.input_hydration import MAX_RESOLUTION_UNIT_IDS
 from tooling.mapping.deed_to_ir.resolution_state_projection import (
     MAX_INDEX_ITEMS,
@@ -175,10 +179,10 @@ def build_deed_to_ir_tool_specs() -> tuple[SemanticToolSpec, ...]:
             expected_request_shape=(
                 "feature_graph: required FeatureGraph {graph_id:string, nodes?:FeatureNode[], edges?:FeatureEdge[], "
                 "metadata?:object}; nodes/edges default empty but should be supplied for authored work. "
-                "FeatureNode requires id + kind and permits AT MOST ONE of geometry|op_expr|"
-                "feature_ref; none is valid for unresolved/semantic nodes. FeatureEdge uses exact source_id, target_id, "
-                "and edge_type. OpExpr is {op_name, params?, operands?}. Optional provenance.source_entity_links rows "
-                "are {entity_id, entity_type, source_ref, relation?}. "
+                "FeatureNode requires id + kind (point|curve|region|frame|constraint|annotation|unknown) and permits "
+                "AT MOST ONE of geometry|op_expr|feature_ref; omitting all three is valid only with kind=unknown. "
+                "FeatureEdge uses exact source_id, target_id, and edge_type. OpExpr is {op_name, params?, operands?}. "
+                "Optional provenance.source_entity_links rows are {entity_id, entity_type, source_ref, relation?}. "
                 "artifact_id, source_document_id, created_by: optional strings."
             ),
             expected_request_json_shape={
@@ -187,10 +191,17 @@ def build_deed_to_ir_tool_specs() -> tuple[SemanticToolSpec, ...]:
                 "properties": {
                     "feature_graph": {
                         "type": "object",
-                        "description": (
-                            "Agent-authored FeatureGraph with graph_id, nodes, edges, and optional metadata. "
-                            "Node content is at most one of geometry, op_expr, or feature_ref."
-                        ),
+                        "required": ["graph_id"],
+                        "properties": {
+                            "graph_id": {"type": "string", "minLength": 1},
+                            "nodes": {
+                                "type": "array",
+                                "items": build_compact_feature_node_request_schema(),
+                            },
+                            "edges": {"type": "array"},
+                            "metadata": {"type": ["object", "null"]},
+                        },
+                        "additionalProperties": True,
                     },
                     "artifact_id": {"type": ["string", "null"]},
                     "source_document_id": {"type": ["string", "null"]},
@@ -237,7 +248,8 @@ def build_deed_to_ir_tool_specs() -> tuple[SemanticToolSpec, ...]:
             expected_result_shape=(
                 "On success: artifact_refs include feature_graph:ir:* ref; outputs.ir_artifact_ref, "
                 "graph_id, node_count, edge_count, source_entity_link_count. "
-                "On validation failure: executed=false with outputs.validation_errors."
+                "On validation failure: executed=false, reason_codes=[feature_graph_validation_failed], "
+                "retryable refusal, and bounded outputs.validation_errors (no artifact saved)."
             ),
         ),
         SemanticToolSpec(

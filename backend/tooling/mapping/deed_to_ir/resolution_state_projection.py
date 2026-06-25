@@ -162,7 +162,7 @@ def build_resolution_state_selected_rows(
     """Return selected row projections, not-found ids, and named truncation totals."""
     wanted = [str(uid).strip() for uid in unit_ids if str(uid).strip()]
     wanted_set = set(wanted)
-    found: set[str] = set()
+    item_ids_in_snapshot, unit_ids_in_snapshot = _index_resolution_ids(snapshot)
     rows: list[dict[str, Any]] = []
     units_emitted = 0
     items_emitted = 0
@@ -173,27 +173,34 @@ def build_resolution_state_selected_rows(
         if not isinstance(item, Mapping):
             continue
         item_id = str(item.get("item_id") or "").strip()
-        if item_id and item_id in wanted_set:
+        parent_requested = bool(item_id and item_id in wanted_set)
+        units = item.get("covered_units")
+        unit_list = units if isinstance(units, list) else []
+
+        parent_row_emitted = False
+        if parent_requested:
             if items_emitted >= MAX_SELECTED_ITEM_ROWS:
                 items_omitted += 1
+            else:
+                remaining_units = max(0, MAX_SELECTED_UNITS_TOTAL - units_emitted)
+                row, row_units, row_omitted = _compact_selected_item_for_parent_request(
+                    item,
+                    wanted_set=wanted_set,
+                    max_units=remaining_units,
+                )
+                if row_units <= 0 and unit_list:
+                    items_omitted += 1
+                else:
+                    rows.append(row)
+                    items_emitted += 1
+                    units_emitted += row_units
+                    units_omitted += row_omitted
+                    parent_row_emitted = True
+            if parent_row_emitted:
                 continue
-            remaining_units = max(0, MAX_SELECTED_UNITS_TOTAL - units_emitted)
-            row, row_units = _compact_selected_item_row(item, max_units=remaining_units)
-            if row_units <= 0 and item.get("covered_units"):
-                items_omitted += 1
-                continue
-            rows.append(row)
-            found.add(item_id)
-            items_emitted += 1
-            units_emitted += row_units
-            if row_units < _count_item_units(item):
-                units_omitted += _count_item_units(item) - row_units
-            continue
-        units = item.get("covered_units")
-        if not isinstance(units, list):
-            continue
+
         matched_units: list[dict[str, Any]] = []
-        for unit in units:
+        for unit in unit_list:
             if not isinstance(unit, Mapping):
                 continue
             unit_id = str(unit.get("unit_id") or "").strip()
@@ -208,33 +215,50 @@ def build_resolution_state_selected_rows(
             if len(matched_units) >= MAX_UNITS_PER_SELECTED_ITEM:
                 units_omitted += 1
                 continue
-            row = _compact_selected_unit_row(
-                unit,
-                parent_item_id=item_id,
-                parent_item_title=item.get("title"),
+            matched_units.append(
+                _compact_selected_unit_row(
+                    unit,
+                    parent_item_id=item_id,
+                    parent_item_title=item.get("title"),
+                )
             )
-            matched_units.append(row)
-            found.add(unit_id)
             units_emitted += 1
         if matched_units:
-            rows.append(
-                {
-                    "item_id": item_id,
-                    "title": item.get("title"),
-                    "kind": item.get("kind"),
-                    "structure_kind": item.get("structure_kind"),
-                    "status": item.get("status"),
-                    "units": matched_units,
-                }
-            )
+            rows.append(_compact_item_index_row(item) | {"units": matched_units})
             items_emitted += 1
-    not_found = sorted(wanted_set - found)
+    not_found = sorted(
+        uid
+        for uid in wanted_set
+        if uid not in item_ids_in_snapshot and uid not in unit_ids_in_snapshot
+    )
     truncation: dict[str, int] = {}
     if units_omitted:
         truncation["units_omitted"] = units_omitted
     if items_omitted:
         truncation["items_omitted"] = items_omitted
     return rows, not_found, truncation
+
+
+def _index_resolution_ids(snapshot: Mapping[str, Any]) -> tuple[set[str], set[str]]:
+    item_ids: set[str] = set()
+    unit_ids: set[str] = set()
+    items = snapshot.get("items") if isinstance(snapshot.get("items"), list) else []
+    for item in items:
+        if not isinstance(item, Mapping):
+            continue
+        item_id = str(item.get("item_id") or "").strip()
+        if item_id:
+            item_ids.add(item_id)
+        units = item.get("covered_units")
+        if not isinstance(units, list):
+            continue
+        for unit in units:
+            if not isinstance(unit, Mapping):
+                continue
+            unit_id = str(unit.get("unit_id") or "").strip()
+            if unit_id:
+                unit_ids.add(unit_id)
+    return item_ids, unit_ids
 
 
 def resolution_state_startup_summary(snapshot: Mapping[str, Any] | None) -> list[dict[str, Any]]:
@@ -296,40 +320,65 @@ def _compact_selected_unit_row(
     return row
 
 
-def _compact_selected_item_row(item: Mapping[str, Any], *, max_units: int | None = None) -> tuple[dict[str, Any], int]:
+def _compact_selected_item_for_parent_request(
+    item: Mapping[str, Any],
+    *,
+    wanted_set: set[str],
+    max_units: int,
+) -> tuple[dict[str, Any], int, int]:
+    """Parent row: explicit child ids first; implicit child summary capped per item."""
     row = _compact_item_index_row(item)
     for key in ("determination", "determined_value", "verification_basis", "evidence_refs", "summary"):
         if key in item and item.get(key) is not None:
             row[key] = _copy_value(item.get(key))
     units = item.get("covered_units")
+    if not isinstance(units, list) or not units:
+        return row, 0, 0
+
+    item_id = str(item.get("item_id") or "")
+    ordered: list[Mapping[str, Any]] = []
+    seen: set[str] = set()
+    omitted = 0
+
+    for unit in units:
+        if not isinstance(unit, Mapping):
+            continue
+        unit_id = str(unit.get("unit_id") or "").strip()
+        if unit_id and unit_id in wanted_set and unit_id not in seen:
+            ordered.append(unit)
+            seen.add(unit_id)
+
+    implicit_count = 0
+    for unit in units:
+        if not isinstance(unit, Mapping):
+            continue
+        unit_id = str(unit.get("unit_id") or "").strip()
+        if not unit_id or unit_id in seen:
+            continue
+        if implicit_count >= MAX_UNITS_PER_SELECTED_ITEM:
+            omitted += 1
+            continue
+        ordered.append(unit)
+        seen.add(unit_id)
+        implicit_count += 1
+
+    unit_rows: list[dict[str, Any]] = []
     emitted = 0
-    if isinstance(units, list) and units:
-        cap = max_units if max_units is not None else MAX_UNITS_PER_SELECTED_ITEM
-        cap = min(cap, MAX_UNITS_PER_SELECTED_ITEM)
-        unit_rows: list[dict[str, Any]] = []
-        for unit in units:
-            if emitted >= cap:
-                break
-            if not isinstance(unit, Mapping):
-                continue
-            unit_rows.append(
-                _compact_selected_unit_row(
-                    unit,
-                    parent_item_id=str(item.get("item_id") or ""),
-                    parent_item_title=item.get("title"),
-                )
+    for unit in ordered:
+        if emitted >= max_units:
+            omitted += 1
+            continue
+        unit_rows.append(
+            _compact_selected_unit_row(
+                unit,
+                parent_item_id=item_id,
+                parent_item_title=item.get("title"),
             )
-            emitted += 1
-        if unit_rows:
-            row["units"] = unit_rows
-    return row, emitted
-
-
-def _count_item_units(item: Mapping[str, Any]) -> int:
-    units = item.get("covered_units")
-    if not isinstance(units, list):
-        return 0
-    return sum(1 for unit in units if isinstance(unit, Mapping))
+        )
+        emitted += 1
+    if unit_rows:
+        row["units"] = unit_rows
+    return row, emitted, omitted
 
 
 def _compact_relation_row(relation: Any) -> dict[str, Any]:

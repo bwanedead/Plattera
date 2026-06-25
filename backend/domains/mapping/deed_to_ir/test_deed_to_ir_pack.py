@@ -50,6 +50,9 @@ def test_ir_tool_specs_expose_core_contract_and_capability_filters() -> None:
 
 
 def test_hydrate_tool_spec_exposes_resolution_projection_limits() -> None:
+    from tooling.mapping.deed_to_ir.feature_graph_contract_projection import (
+        build_compact_feature_node_request_schema,
+    )
     from tooling.mapping.deed_to_ir.input_hydration import MAX_RESOLUTION_UNIT_IDS
 
     hydrate = {spec.tool_id: spec for spec in build_deed_to_ir_tool_specs()}["hydrate_deed_to_ir_input"]
@@ -66,6 +69,12 @@ def test_hydrate_tool_spec_exposes_resolution_projection_limits() -> None:
     assert "projection_mode=index" in result
     assert "projection_mode=selected_rows" in result
     assert "truncation" in result
+
+    save = {spec.tool_id: spec for spec in build_deed_to_ir_tool_specs()}["save_ir_artifact"]
+    node_schema = build_compact_feature_node_request_schema()
+    assert save.expected_request_json_shape["properties"]["feature_graph"]["properties"]["nodes"]["items"] == node_schema
+    assert "unknown" in node_schema["properties"]["kind"]["enum"]
+    assert "semantic" not in save.expected_request_shape.lower()
 
 
 def test_publish_tool_spec_exposes_row_contracts_from_models() -> None:

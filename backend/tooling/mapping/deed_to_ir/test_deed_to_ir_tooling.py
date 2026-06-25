@@ -200,8 +200,7 @@ def test_selected_rows_global_unit_cap_reports_truncation_and_not_found():
     emitted = sum(len(item.get("units") or []) for item in rows)
     assert emitted <= 32
     assert truncation.get("units_omitted", 0) >= 8
-    assert len(not_found) >= 8
-    assert "unit_39" in not_found or truncation["units_omitted"] >= 8
+    assert not_found == []
 
 
 def test_selected_rows_item_row_cap_applies_to_unit_matches_across_items():
@@ -228,8 +227,8 @@ def test_selected_rows_item_row_cap_applies_to_unit_matches_across_items():
     wanted = [f"unit_{index}" for index in range(20)]
     rows, not_found, truncation = build_resolution_state_selected_rows(snapshot, wanted)
     assert len(rows) <= 16
-    assert truncation.get("units_omitted", 0) >= 4
-    assert len(not_found) >= 4
+    assert truncation.get("items_omitted", 0) >= 4 or truncation.get("units_omitted", 0) >= 4
+    assert not_found == []
 
 
 def test_hydrate_resolution_state_caps_requested_unit_ids_in_filter():
@@ -364,7 +363,172 @@ def test_save_ir_artifact_returns_validation_errors():
         feature_graph={"graph_id": "bad", "nodes": "not-a-list"},
     )
     assert result["executed"] is False
+    assert result["reason_codes"] == ["feature_graph_validation_failed"]
+    refusal = result["refusal"]
+    assert refusal["reason_code"] == "feature_graph_validation_failed"
+    assert refusal["retryable"] is True
+    assert refusal["blocked_by_invariant"] is False
+    assert refusal["blocked_by_budget"] is False
     assert result["outputs"]["validation_errors"]
+    assert result["outputs"]["ir_artifact_ref"] is None
+
+
+def test_save_ir_artifact_validation_failure_is_retryable_for_invalid_kind():
+    result = save_ir_artifact(
+        dossier_id="d-test",
+        feature_graph={
+            "graph_id": "bad_kind",
+            "nodes": [{"id": "n1", "kind": "semantic"}],
+            "edges": [],
+        },
+    )
+    assert result["executed"] is False
+    assert result["refusal"]["retryable"] is True
+    assert result["reason_codes"] == ["feature_graph_validation_failed"]
+    assert any("kind" in err for err in result["outputs"]["validation_errors"])
+
+
+def test_save_ir_artifact_validation_failure_does_not_persist_artifact():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        from services.feature_graph.feature_graph_persistence_service import (
+            FeatureGraphPersistenceService,
+        )
+
+        service = FeatureGraphPersistenceService(
+            root=Path(tmpdir) / "artifacts",
+            state_dir=Path(tmpdir) / "state",
+        )
+        before = list(service.list_artifacts("d-test", artifact_type="ir"))
+        result = save_ir_artifact(
+            dossier_id="d-test",
+            feature_graph={"graph_id": "bad", "nodes": "not-a-list"},
+            persistence=service,
+        )
+        after = list(service.list_artifacts("d-test", artifact_type="ir"))
+    assert result["executed"] is False
+    assert before == after
+
+
+def test_feature_graph_contract_excludes_semantic_node_kind():
+    from domains.mapping.deed_to_ir.execution.tool_specs import build_deed_to_ir_tool_specs
+    from tooling.mapping.deed_to_ir.feature_graph_capabilities import describe_feature_graph_capabilities
+    from tooling.mapping.deed_to_ir.feature_graph_contract_projection import (
+        ALLOWED_FEATURE_NODE_KINDS,
+        FEATURE_NODE_PLACEHOLDER_KIND,
+        build_core_schema_projection,
+        build_feature_node_kind_contract,
+    )
+
+    kinds = build_feature_node_kind_contract()
+    assert FEATURE_NODE_PLACEHOLDER_KIND == "unknown"
+    assert "semantic" not in ALLOWED_FEATURE_NODE_KINDS
+    assert kinds["placeholder_kind"] == "unknown"
+    assert "unknown" in kinds["allowed_kinds"]
+    core = build_core_schema_projection()
+    assert "semantic" not in json.dumps(core).lower()
+
+    starter = describe_feature_graph_capabilities()["starter_contract"]
+    assert "unknown" in starter["feature_kinds"]
+    assert "semantic" not in starter["feature_kinds"]
+    assert starter["feature_node_kind_contract"]["placeholder_kind"] == "unknown"
+    assert "semantic" not in json.dumps(starter).lower()
+
+    save_spec = next(s for s in build_deed_to_ir_tool_specs() if s.tool_id == "save_ir_artifact")
+    node_kind_enum = (
+        save_spec.expected_request_json_shape["properties"]["feature_graph"]["properties"]["nodes"]["items"]["properties"]["kind"]["enum"]
+    )
+    assert "unknown" in node_kind_enum
+    assert "semantic" not in node_kind_enum
+    assert "semantic" not in save_spec.expected_request_shape.lower()
+    assert "semantic" not in save_spec.purpose.lower()
+
+
+def test_mixed_parent_and_child_resolution_ids_do_not_false_not_found():
+    snapshot = {
+        "items": [
+            {
+                "item_id": "parcel_1_group",
+                "title": "Parcel 1 group",
+                "kind": "group",
+                "status": "partial",
+                "covered_units": [
+                    {
+                        "unit_id": "p1_call1_distance",
+                        "title": "Call 1 distance",
+                        "status": "open",
+                        "value_kind": "distance",
+                    },
+                    {
+                        "unit_id": "p1_call1_bearing",
+                        "title": "Call 1 bearing",
+                        "status": "open",
+                        "value_kind": "bearing",
+                    },
+                    {
+                        "unit_id": "p1_acreage",
+                        "title": "Acreage",
+                        "status": "open",
+                        "value_kind": "area",
+                    },
+                ],
+            }
+        ],
+        "relations": [],
+    }
+    requested = [
+        "parcel_1_group",
+        "p1_call1_distance",
+        "p1_call1_bearing",
+        "p1_acreage",
+    ]
+    rows, not_found, truncation = build_resolution_state_selected_rows(snapshot, requested)
+    assert not_found == []
+    item_ids = {row.get("item_id") for row in rows}
+    assert "parcel_1_group" in item_ids
+    handler = make_hydrate_deed_to_ir_input_handler(
+        handoff_context={
+            "resolution_state_ref": "transcript_edit:resolution_state:test",
+            "resolution_state_snapshot": snapshot,
+        }
+    )
+    result = handler({"sections": ["resolution_state"], "resolution_unit_ids": requested})
+    errors = result["outputs"]["errors"]
+    assert not any(e.get("reason") == "not_found" for e in errors)
+    resolution = result["outputs"]["results"]["resolution_state"]
+    assert resolution["projection_mode"] == "selected_rows"
+    assert resolution["items"]
+
+
+def test_mixed_parent_and_explicit_children_prioritize_children_over_implicit_cap():
+    units = [
+        {
+            "unit_id": f"u{index}",
+            "title": f"Unit {index}",
+            "status": "open",
+            "value_kind": "distance",
+        }
+        for index in range(12)
+    ]
+    snapshot = {
+        "items": [
+            {
+                "item_id": "parcel_1_group",
+                "title": "Parcel 1 group",
+                "kind": "group",
+                "status": "partial",
+                "covered_units": units,
+            }
+        ],
+        "relations": [],
+    }
+    requested = ["parcel_1_group", *[f"u{index}" for index in range(12)]]
+    rows, not_found, truncation = build_resolution_state_selected_rows(snapshot, requested)
+    assert not_found == []
+    assert truncation.get("units_omitted", 0) == 0
+    parent_rows = [row for row in rows if row.get("item_id") == "parcel_1_group"]
+    assert len(parent_rows) == 1
+    emitted_ids = [unit["unit_id"] for unit in parent_rows[0].get("units") or []]
+    assert emitted_ids == [f"u{index}" for index in range(12)]
 
 
 def test_save_ir_artifact_rejects_blank_source_entity_links():

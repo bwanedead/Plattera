@@ -146,9 +146,14 @@ def test_generic_runner_emits_audit_turn_and_timeline_for_frozen_handoff(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
+    from harness.cli import run_layout
+
     run_id = "deed-to-ir-frozen-runner"
+    cli_runs = tmp_path / "cli_runs"
     monkeypatch.setenv("HARNESS_CLI_RUN_ID", run_id)
-    monkeypatch.setattr(cli_run_state, "cli_runs_root", lambda: tmp_path / "cli_runs")
+    monkeypatch.setattr(run_layout, "cli_runs_root", lambda: cli_runs)
+    monkeypatch.setattr(cli_run_state, "cli_runs_root", lambda: cli_runs)
+    run_dir_path = cli_runs / "by_loop_kind" / "deed_to_ir" / run_id
     cli_run_state.write_state(
         cli_run_state.new_run_state(
             run_id=run_id,
@@ -157,6 +162,7 @@ def test_generic_runner_emits_audit_turn_and_timeline_for_frozen_handoff(
             mode="live",
             spawn_argv=["python", "-m", "harness.runtime.runner.entrypoint"],
             status="started",
+            run_dir=run_dir_path,
         )
     )
 

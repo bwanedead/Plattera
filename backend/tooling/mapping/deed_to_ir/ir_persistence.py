@@ -15,6 +15,8 @@ from pydantic import ValidationError
 from services.feature_graph.feature_graph_persistence_service import FeatureGraphPersistenceService
 
 IR_REF_PREFIX = ARTIFACT_REF_PREFIXES["ir"]
+_MAX_VALIDATION_ERRORS = 24
+_VALIDATION_FAILURE_REASON = "feature_graph_validation_failed"
 
 
 def save_ir_artifact(
@@ -95,10 +97,21 @@ def _provenance_link_count(provenance: Any) -> int:
 
 
 def _validation_failure(errors: list[str]) -> dict[str, Any]:
+    bounded = errors[:_MAX_VALIDATION_ERRORS]
+    if len(errors) > _MAX_VALIDATION_ERRORS:
+        bounded.append(f"... and {len(errors) - _MAX_VALIDATION_ERRORS} more validation errors")
     return {
         "executed": False,
+        "reason_codes": [_VALIDATION_FAILURE_REASON],
+        "refusal": {
+            "reason_code": _VALIDATION_FAILURE_REASON,
+            "retryable": True,
+            "blocked_by_budget": False,
+            "blocked_by_invariant": False,
+            "missing_inputs": [],
+        },
         "outputs": {
-            "validation_errors": errors,
+            "validation_errors": bounded,
             "ir_artifact_ref": None,
             "graph_id": None,
             "node_count": 0,

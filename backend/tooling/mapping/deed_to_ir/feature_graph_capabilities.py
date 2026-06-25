@@ -11,6 +11,7 @@ from feature_graph.operations import OPERATION_REGISTRY
 
 from .feature_graph_contract_projection import (
     build_core_schema_projection,
+    build_feature_node_kind_contract,
     build_provenance_schema_projection,
     canonical_feature_graph_json_schema,
 )
@@ -118,6 +119,7 @@ def _build_starter_contract(*, operation_names: list[str] | None) -> dict[str, A
         operations = [_project_operation(OPERATION_REGISTRY[name]) for name in ops]
     return {
         "feature_kinds": [kind.value for kind in FeatureKind],
+        "feature_node_kind_contract": build_feature_node_kind_contract(),
         "node_content_alternatives": core["content_rules"]["feature_node_content"],
         "op_expr_shape": core["models"]["OpExpr"]["fields"],
         "provenance_link_required_fields": provenance["models"]["SourceEntityLink"]["fields"],
