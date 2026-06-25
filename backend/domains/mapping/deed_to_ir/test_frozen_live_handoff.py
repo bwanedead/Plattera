@@ -92,6 +92,7 @@ def test_runtime_adapter_loads_frozen_handoff_via_snapshot_path() -> None:
     assert handoff["resolution_state_counts"]["items"] == 5
     assert handoff["resolution_state_counts"]["relations"] == 4
     assert handoff["resolution_state_counts"]["covered_units"] == 15
+    assert handoff["inherited_handoff_conditions"]["block_id"] == "inherited_handoff_conditions"
     assert "resolution_state_snapshot" not in handoff
 
 
@@ -101,6 +102,10 @@ def test_frozen_handoff_startup_prompt_and_wire_payload_are_path_free() -> None:
 
     prompt_text = "\n".join(block.content for block in surface.blocks)
     wire = json.dumps(surface.payload["deed_to_ir_startup_handoff"])
+    assert "Inherited handoff conditions" in prompt_text
+    assert "Range 74" in prompt_text or "range 74" in prompt_text.lower()
+    assert "Range 75" in prompt_text or "range 75" in prompt_text.lower()
+    assert "parcel_2" in prompt_text
     for forbidden in (
         str(_TRANSCRIPT_OUTPUT),
         str(_RESOLUTION_STATE),

@@ -11,6 +11,7 @@ from domains.mapping.deed_to_ir.payloads import (
     TranscriptEditSourceMetadata,
 )
 
+from .inherited_handoff_projection import build_inherited_handoff_conditions
 from .resolution_state_projection import (
     ResolutionStateHandoffError,
     mechanical_resolution_state_snapshot,
@@ -85,6 +86,17 @@ def startup_handoff_from_loader_dict(
         resolution_state_snapshot=snapshot,
         resolution_state_counts=rs_counts,
         resolution_state_summary=tuple(resolution_state_startup_summary(snapshot)),
+        inherited_handoff_conditions=build_inherited_handoff_conditions(
+            source=source_raw,
+            parcel_metadata=parcel_raw,
+            issues=_list_dicts(loaded.get("issues")),
+            hitl_decisions=_list_dicts(loaded.get("hitl_decisions")),
+            evidence_refs=_str_list(loaded.get("evidence_refs")),
+            resolution_state_ref=ref_text,
+            normalized_or_mapping_transcript=_opt_str(loaded.get("normalized_or_mapping_transcript")),
+            source_transcript_verbatim=_opt_str(loaded.get("source_transcript_verbatim")),
+            excerpts=excerpts_raw,
+        ),
     )
 
 

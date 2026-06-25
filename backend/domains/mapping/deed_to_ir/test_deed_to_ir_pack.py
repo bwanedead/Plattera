@@ -53,9 +53,11 @@ def test_hydrate_tool_spec_exposes_resolution_projection_limits() -> None:
     from tooling.mapping.deed_to_ir.feature_graph_contract_projection import (
         build_compact_feature_node_request_schema,
     )
-    from tooling.mapping.deed_to_ir.input_hydration import MAX_RESOLUTION_UNIT_IDS
+    from tooling.mapping.deed_to_ir.input_hydration import MAX_RESOLUTION_UNIT_IDS, VALID_SECTIONS
 
     hydrate = {spec.tool_id: spec for spec in build_deed_to_ir_tool_specs()}["hydrate_deed_to_ir_input"]
+    assert "inherited_handoff_conditions" in hydrate.purpose
+    assert "inherited_handoff_conditions" in VALID_SECTIONS
     assert "projection_mode=index" in hydrate.purpose
     assert "selected_rows" in hydrate.purpose
     assert "full resolution_state work graph" not in hydrate.purpose.lower()
@@ -191,9 +193,14 @@ def test_branch_and_guidance_mission_markers() -> None:
         for b in build_deed_to_ir_domain_pack().build_semantic_prompt_blocks()
         if b.block_id == "deed_to_ir_procedural_guidance"
     )
-    assert "forwardable vs blocked" in guidance
+    assert "inherited_handoff_conditions" in guidance
+    assert "downstream deed-to-ir responsibilities" in guidance
+    assert "not transcript-edit atoms" in guidance
+    assert "copy inherited covered units into local covered units" in guidance
+    assert "starting inputs" in guidance
+    assert "self-heal" in guidance
+    assert "submit ir for mapping" in guidance
     assert "tool specs" in guidance
-    assert "submit saved ir for mapping" in guidance
     assert "source_entity_links" in guidance
     assert "hydrate_feature_graph_artifact_refs" not in guidance
 

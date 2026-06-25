@@ -7,6 +7,7 @@ from .artifact_hydration import (
     make_hydrate_artifact_refs_handler,
 )
 from .feature_graph_capabilities import describe_feature_graph_capabilities
+from .inherited_handoff_projection import build_inherited_handoff_conditions
 from .input_hydration import make_hydrate_deed_to_ir_input_handler
 from .ir_mapping_submission import submit_ir_for_mapping
 from .output_persistence import publish_deed_to_ir_output
@@ -32,6 +33,7 @@ __all__ = [
     "LOADED_SOURCE_LABEL",
     "TranscriptHandoffLoadError",
     "build_deed_to_ir_startup_handoff",
+    "build_inherited_handoff_conditions",
     "describe_feature_graph_capabilities",
     "hydrate_artifact_refs",
     "hydrate_feature_graph_artifact_refs",

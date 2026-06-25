@@ -12,7 +12,7 @@ from tooling.mapping.deed_to_ir.feature_graph_contract_projection import (
     build_compact_feature_node_request_schema,
     build_feature_node_kind_contract,
 )
-from tooling.mapping.deed_to_ir.input_hydration import MAX_RESOLUTION_UNIT_IDS
+from tooling.mapping.deed_to_ir.input_hydration import MAX_RESOLUTION_UNIT_IDS, VALID_SECTIONS
 from tooling.mapping.deed_to_ir.resolution_state_projection import (
     MAX_INDEX_ITEMS,
     MAX_INDEX_RELATIONS,
@@ -43,7 +43,10 @@ def build_deed_to_ir_tool_specs() -> tuple[SemanticToolSpec, ...]:
             category="read",
             purpose=(
                 "Hydrate bounded upstream deed-to-IR input lanes from the startup handoff context. "
-                "Sections include transcript lanes, parcel metadata, issues, HITL decisions, and evidence refs. "
+                "Every successful call also returns inherited_handoff_conditions — a compact mechanical "
+                "copy of upstream parcel/issue/HITL/evidence/transcript lanes (not agent conclusions). "
+                "Sections include inherited_handoff_conditions, transcript lanes, parcel metadata, issues, "
+                "HITL decisions, and evidence refs. "
                 "resolution_state returns a compact index by default (projection_mode=index: item/unit/relation "
                 "inventory without opaque payloads). When resolution_unit_ids is supplied, returns selected_rows "
                 "projections for the requested ids only. Deterministic code copies fields mechanically — "
@@ -62,15 +65,7 @@ def build_deed_to_ir_tool_specs() -> tuple[SemanticToolSpec, ...]:
                         "type": "array",
                         "items": {
                             "type": "string",
-                            "enum": [
-                                "normalized_transcript",
-                                "verbatim_transcript",
-                                "parcel_metadata",
-                                "issues",
-                                "hitl_decisions",
-                                "evidence_refs",
-                                "resolution_state",
-                            ],
+                            "enum": sorted(VALID_SECTIONS),
                         },
                         "minItems": 1,
                     },
@@ -101,6 +96,8 @@ def build_deed_to_ir_tool_specs() -> tuple[SemanticToolSpec, ...]:
                 "can_run_parallel": True,
             },
             expected_result_shape=(
+                "outputs.inherited_handoff_conditions: always present — bounded mechanical copy of upstream "
+                "parcel forwardability, issues, HITL decisions, evidence refs, and transcript lane excerpts. "
                 "outputs.results: map of section -> bounded payload. "
                 "resolution_state without resolution_unit_ids: projection_mode=index with compact "
                 f"items (max {MAX_INDEX_ITEMS}), units (max {MAX_INDEX_UNITS}), relations (max {MAX_INDEX_RELATIONS}), "

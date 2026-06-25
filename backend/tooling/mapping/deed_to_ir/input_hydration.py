@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from typing import Any
 
+from .inherited_handoff_projection import build_inherited_handoff_conditions
 from .resolution_state_projection import (
     build_resolution_state_index,
     build_resolution_state_selected_rows,
@@ -18,6 +19,7 @@ MAX_EVIDENCE_REFS = 48
 
 VALID_SECTIONS = frozenset(
     {
+        "inherited_handoff_conditions",
         "normalized_transcript",
         "verbatim_transcript",
         "parcel_metadata",
@@ -67,9 +69,11 @@ def make_hydrate_deed_to_ir_input_handler(
             if payload is not None:
                 results[section] = payload
             errors.extend(section_errors)
+        inherited = _inherited_handoff_conditions(handoff_context)
         return {
             "executed": True,
             "outputs": {
+                "inherited_handoff_conditions": inherited,
                 "sections": sections,
                 "results": results,
                 "errors": errors,
@@ -88,6 +92,8 @@ def _hydrate_section(
     unit_ids_omitted: int = 0,
 ) -> tuple[Any | None, list[dict[str, str]]]:
     errors: list[dict[str, str]] = []
+    if section == "inherited_handoff_conditions":
+        return _inherited_handoff_conditions(handoff), errors
     if section == "normalized_transcript":
         text = handoff.get("normalized_or_mapping_transcript")
         if not isinstance(text, str) or not text.strip():
@@ -175,6 +181,37 @@ def _hydrate_resolution_state(
         resolution_state_ref=str(ref) if ref is not None else None,
     )
     return payload, errors
+
+
+def _inherited_handoff_conditions(handoff: Mapping[str, Any]) -> dict[str, Any]:
+    source = handoff.get("source") if isinstance(handoff.get("source"), Mapping) else {}
+    parcel_metadata = handoff.get("parcel_metadata") if isinstance(handoff.get("parcel_metadata"), Mapping) else {}
+    issues = handoff.get("issues") if isinstance(handoff.get("issues"), list) else []
+    hitl = handoff.get("hitl_decisions") if isinstance(handoff.get("hitl_decisions"), list) else []
+    evidence = handoff.get("evidence_refs") if isinstance(handoff.get("evidence_refs"), list) else []
+    excerpts = handoff.get("excerpts") if isinstance(handoff.get("excerpts"), Mapping) else {}
+    prebuilt = handoff.get("inherited_handoff_conditions")
+    if isinstance(prebuilt, Mapping) and prebuilt:
+        return dict(prebuilt)
+    return build_inherited_handoff_conditions(
+        source=source,
+        parcel_metadata=parcel_metadata,
+        issues=[row for row in issues if isinstance(row, Mapping)],
+        hitl_decisions=[row for row in hitl if isinstance(row, Mapping)],
+        evidence_refs=[str(ref) for ref in evidence if isinstance(ref, str)],
+        resolution_state_ref=str(handoff.get("resolution_state_ref") or "") or None,
+        normalized_or_mapping_transcript=(
+            str(handoff.get("normalized_or_mapping_transcript"))
+            if isinstance(handoff.get("normalized_or_mapping_transcript"), str)
+            else None
+        ),
+        source_transcript_verbatim=(
+            str(handoff.get("source_transcript_verbatim"))
+            if isinstance(handoff.get("source_transcript_verbatim"), str)
+            else None
+        ),
+        excerpts=excerpts,
+    )
 
 
 def _bound_text(text: str) -> str:

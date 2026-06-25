@@ -9,15 +9,28 @@ from ..branch import DEED_TO_IR_DOMAIN_ID
 DEED_TO_IR_PROCEDURAL_GUIDANCE_SOURCE_REF = (
     "backend/domains/mapping/deed_to_ir/prompting/surfaces/procedural_guidance.py"
 )
-DEED_TO_IR_PROCEDURAL_GUIDANCE_VERSION = "v5"
+DEED_TO_IR_PROCEDURAL_GUIDANCE_VERSION = "v6"
 
 DEED_TO_IR_PROCEDURAL_GUIDANCE_TEXT = """\
 Use this guidance to orient deed-to-IR work. This is **guidance**, not a hard script.
 
 ## Startup orientation
-- Read the startup handoff: normalized lane, verbatim lane, parcel metadata, issues, HITL decisions, evidence refs, and resolution-state counts/summary.
-- Inventory **forwardable vs blocked scopes** from inherited `parcel_metadata` without re-adjudicating transcript-edit truth in harness code.
-- Full `resolution_state` is available through bounded upstream input hydration — startup shows counts and bounded summary only.
+- Read `inherited_handoff_conditions` first — it is the high-salience mechanical copy of upstream parcel metadata, issues, HITL decisions, evidence refs, and transcript lane excerpts.
+- Treat inherited resolution rows as **input/provenance**, not as local work inventory to recreate.
+- Full `resolution_state` remains available through bounded upstream input hydration when you need exact upstream rows.
+
+## Work inventory means downstream deed-to-IR responsibilities
+- Inventory **deed-to-IR responsibilities**, not transcript-edit atoms or covered units.
+- Do **not** copy inherited covered units into local covered units just to look complete.
+- Local work items should track downstream obligations such as:
+  - author Parcel 1 IR
+  - represent Parcel 2 as blocked/partial scope
+  - encode governing range decision in IR/provenance
+  - submit IR for mapping
+  - inspect map/compile/judge artifacts
+  - repair IR when mapping exposes a real defect
+  - publish final output
+- Inherited upstream values are **starting inputs**, not blind truth. If mapping/compile/judge exposes a real defect, self-heal by correcting IR and provenance — do not silently trust transcript-edit when earned evidence contradicts it.
 
 ## Foundation workflow (bound)
 - Bound tool contracts live in tool specs — treat those as authoritative; this guidance does not duplicate exact tool IDs or request shapes.
@@ -26,6 +39,7 @@ Use this guidance to orient deed-to-IR work. This is **guidance**, not a hard sc
 - Do not guess schema, operation parameters, units, operand shapes, support status, or provenance contracts. Hydrate capability details in the same orientation batch before the first non-trivial IR save when details are not already in context.
 
 ## What not to do
+- Do not rebuild transcript-edit's resolution graph as local deed-to-IR inventory.
 - Do not parse deed text into IR in bulk prose without durable IR artifacts.
 - Do not treat startup handoff or resolution summary as closure or earned geometry truth.
 - Do not expect deterministic code to infer atom-to-feature associations or source-entity links.

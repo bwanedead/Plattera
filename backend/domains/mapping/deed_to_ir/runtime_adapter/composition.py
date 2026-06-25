@@ -241,8 +241,10 @@ def _handoff_tool_context(handoff: DeedToIrStartupHandoff) -> dict[str, Any]:
         "hitl_decisions": list(handoff.hitl_decisions),
         "parcel_metadata": dict(handoff.parcel_metadata),
         "evidence_refs": list(handoff.evidence_refs),
+        "excerpts": dict(handoff.excerpts),
         "resolution_state_ref": handoff.resolution_state_ref,
         "resolution_state_snapshot": handoff.resolution_state_snapshot,
+        "inherited_handoff_conditions": dict(handoff.inherited_handoff_conditions),
     }
 
 
@@ -270,6 +272,7 @@ def _handoff_wire(handoff: DeedToIrStartupHandoff) -> dict[str, Any]:
         "resolution_state_ref": handoff.resolution_state_ref,
         "resolution_state_counts": dict(handoff.resolution_state_counts),
         "resolution_state_summary": list(handoff.resolution_state_summary),
+        "inherited_handoff_conditions": dict(handoff.inherited_handoff_conditions),
     }
 
 
