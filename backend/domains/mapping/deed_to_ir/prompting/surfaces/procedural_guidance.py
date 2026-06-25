@@ -9,7 +9,7 @@ from ..branch import DEED_TO_IR_DOMAIN_ID
 DEED_TO_IR_PROCEDURAL_GUIDANCE_SOURCE_REF = (
     "backend/domains/mapping/deed_to_ir/prompting/surfaces/procedural_guidance.py"
 )
-DEED_TO_IR_PROCEDURAL_GUIDANCE_VERSION = "v6"
+DEED_TO_IR_PROCEDURAL_GUIDANCE_VERSION = "v7"
 
 DEED_TO_IR_PROCEDURAL_GUIDANCE_TEXT = """\
 Use this guidance to orient deed-to-IR work. This is **guidance**, not a hard script.
@@ -18,6 +18,15 @@ Use this guidance to orient deed-to-IR work. This is **guidance**, not a hard sc
 - Read `inherited_handoff_conditions` first — it is the high-salience mechanical copy of upstream parcel metadata, issues, HITL decisions, evidence refs, and transcript lane excerpts.
 - Treat inherited resolution rows as **input/provenance**, not as local work inventory to recreate.
 - Full `resolution_state` remains available through bounded upstream input hydration when you need exact upstream rows.
+
+## Draft IR lifecycle
+- `save_ir_artifact` saves a **draft checkpoint** (`draft_version` such as v0, v1, v2) — not final publication.
+- After initial handoff/capability hydration, prefer saving a first bounded draft IR over rereading upstream lanes.
+- Compile/judge feedback on draft save is expected mechanical feedback — repair the draft and save again.
+- `mechanically_mappable_candidate` means only that no blocking mechanical compile/judge gaps were detected; it is **not** deed-correctness or closure truth.
+- If you cannot save a draft after the needed contract is visible, record the exact missing blocker instead of another broad hydrate.
+- `submit_ir_for_mapping` is the deliberate mapping attempt from a selected draft IR.
+- `publish_deed_to_ir_output` is final scoped handoff only.
 
 ## Work inventory means downstream deed-to-IR responsibilities
 - Inventory **deed-to-IR responsibilities**, not transcript-edit atoms or covered units.

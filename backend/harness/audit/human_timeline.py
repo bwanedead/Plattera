@@ -980,6 +980,9 @@ def _render_tool_result(
                 link_context=link_context,
             )
         )
+        from tooling.mapping.deed_to_ir.draft_ir_lifecycle import render_current_draft_ir_timeline_lines
+
+        lines.extend(render_current_draft_ir_timeline_lines(_coerce_mapping(outputs)))
         source_window_line = render_source_window_timeline_line(
             _coerce_mapping(outputs).get("source_window")
         )

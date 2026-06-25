@@ -351,7 +351,12 @@ def test_save_ir_artifact_validates_and_persists_without_paths():
         )
     assert result["executed"] is True
     assert result["outputs"]["ir_artifact_ref"] == "feature_graph:ir:ir_parcel_1_test"
+    assert result["outputs"]["draft_ir_ref"] == "feature_graph:ir:ir_parcel_1_test"
+    assert result["outputs"]["draft_version"] == "v0"
+    assert result["outputs"]["is_draft"] is True
     assert result["outputs"]["source_entity_link_count"] == 1
+    assert result["outputs"]["compile_artifact_ref"]
+    assert result["outputs"]["current_draft_ir"]["draft_version"] == "v0"
     assert "path" not in result["outputs"]
     dumped = json.dumps(result)
     assert tmpdir not in dumped
@@ -663,8 +668,11 @@ def test_list_and_hydrate_feature_graph_artifacts_path_free():
         )
         listed = list_feature_graph_artifacts(dossier_id="d-list", persistence=service)
         rows = listed["outputs"]["artifacts"]
-        assert rows[0]["artifact_ref"] == "feature_graph:ir:ir_list_test"
-        assert "artifact_path" not in rows[0]
+        ir_rows = [row for row in rows if row.get("artifact_type") == "ir"]
+        assert ir_rows
+        assert ir_rows[0]["artifact_ref"] == "feature_graph:ir:ir_list_test"
+        assert ir_rows[0].get("draft_version") == "v0"
+        assert "artifact_path" not in ir_rows[0]
         hydrated = hydrate_feature_graph_artifact_refs(
             dossier_id="d-list",
             ref_ids=["feature_graph:ir:ir_list_test"],
@@ -771,7 +779,8 @@ def test_submit_ir_for_mapping_repeated_ids_are_distinct() -> None:
         first = submit_ir_for_mapping(dossier_id="d-repeat", ir_artifact_ref=ir_ref, persistence=service)
         second = submit_ir_for_mapping(dossier_id="d-repeat", ir_artifact_ref=ir_ref, persistence=service)
         assert first["outputs"]["mapping_artifact_ref"] != second["outputs"]["mapping_artifact_ref"]
-        assert first["outputs"]["compile_artifact_ref"] != second["outputs"]["compile_artifact_ref"]
+        assert first["outputs"]["compile_artifact_ref"] == second["outputs"]["compile_artifact_ref"]
+        assert first["outputs"]["judge_artifact_ref"] == second["outputs"]["judge_artifact_ref"]
 
 
 def test_submit_ir_for_mapping_partial_compile_still_maps_valid_features() -> None:

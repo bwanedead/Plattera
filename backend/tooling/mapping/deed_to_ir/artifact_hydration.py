@@ -56,7 +56,7 @@ def list_feature_graph_artifacts(
     cap = _clamp(limit, default=DEFAULT_LIST_LIMIT, maximum=MAX_LIST_LIMIT)
     service = persistence or FeatureGraphPersistenceService()
     entries = service.list_artifacts(dossier_id=dossier_id, artifact_type=artifact_type)  # type: ignore[arg-type]
-    rows = [_index_entry_to_row(entry) for entry in entries[:cap]]
+    rows = [_index_entry_to_row(entry, persistence=service, dossier_id=dossier_id) for entry in entries[:cap]]
     return {
         "executed": True,
         "outputs": {
@@ -456,15 +456,32 @@ def _bound_list(value: Any, cap: int) -> tuple[list[Any], dict[str, Any]]:
     return list(value[:cap]), {"truncated": True, "total": len(value)}
 
 
-def _index_entry_to_row(entry: dict[str, Any]) -> dict[str, Any]:
+def _index_entry_to_row(
+    entry: dict[str, Any],
+    *,
+    persistence: FeatureGraphPersistenceService | None = None,
+    dossier_id: str | None = None,
+) -> dict[str, Any]:
     artifact_type = str(entry.get("artifact_type") or "")
     artifact_id = str(entry.get("artifact_id") or "")
-    return {
+    row: dict[str, Any] = {
         "artifact_ref": build_feature_graph_artifact_ref(artifact_type, artifact_id),
         "artifact_id": artifact_id,
         "artifact_type": artifact_type,
         "saved_at": entry.get("saved_at"),
     }
+    if artifact_type == "ir" and persistence is not None and dossier_id:
+        raw = persistence.get_artifact(dossier_id, artifact_id)
+        if isinstance(raw, dict):
+            meta = raw.get("source_metadata")
+            if isinstance(meta, dict):
+                if meta.get("draft_version"):
+                    row["draft_version"] = meta.get("draft_version")
+                if meta.get("draft_sequence_index") is not None:
+                    row["draft_sequence_index"] = meta.get("draft_sequence_index")
+                if meta.get("is_draft") is not None:
+                    row["is_draft"] = meta.get("is_draft")
+    return row
 
 
 def _parse_ref(ref_id: str) -> tuple[str, str] | None:

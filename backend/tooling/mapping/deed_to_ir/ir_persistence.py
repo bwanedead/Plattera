@@ -1,4 +1,4 @@
-"""IR artifact persistence for deed-to-IR (schema validation + save only)."""
+"""IR artifact persistence for deed-to-IR (draft save + compile/judge feedback)."""
 
 from __future__ import annotations
 
@@ -9,10 +9,18 @@ from typing import Any
 from feature_graph.artifact_refs import ARTIFACT_REF_PREFIXES, build_feature_graph_artifact_ref
 from feature_graph.artifacts import create_ir_artifact
 from feature_graph.models import FeatureGraph
-from feature_graph.provenance import ProvenanceAttachment
 from pydantic import ValidationError
 
+from services.feature_graph.feature_graph_evaluation_service import FeatureGraphEvaluationService
 from services.feature_graph.feature_graph_persistence_service import FeatureGraphPersistenceService
+
+from .draft_ir_lifecycle import (
+    build_current_draft_ir,
+    build_draft_source_metadata,
+    build_evaluation_feedback,
+    resolve_draft_sequence_index,
+    run_draft_compile_judge,
+)
 
 IR_REF_PREFIX = ARTIFACT_REF_PREFIXES["ir"]
 _MAX_VALIDATION_ERRORS = 24
@@ -27,8 +35,9 @@ def save_ir_artifact(
     source_document_id: str | None = None,
     created_by: str | None = None,
     persistence: FeatureGraphPersistenceService | None = None,
+    evaluation: FeatureGraphEvaluationService | None = None,
 ) -> dict[str, Any]:
-    """Validate and persist an agent-authored FeatureGraph; no compile/judge/render."""
+    """Validate and persist a draft FeatureGraph IR checkpoint with compile/judge feedback."""
     if not dossier_id:
         raise ValueError("dossier_id_required")
     if not isinstance(feature_graph, dict):
@@ -38,28 +47,80 @@ def save_ir_artifact(
     except ValidationError as exc:
         return _validation_failure(_format_validation_errors(exc))
 
-    resolved_artifact_id = _resolve_artifact_id(artifact_id=artifact_id, graph_id=graph.graph_id)
-    link_count = _count_source_entity_links(graph)
     service = persistence or FeatureGraphPersistenceService()
+    resolved_artifact_id = _resolve_artifact_id(artifact_id=artifact_id, graph_id=graph.graph_id)
+    draft_sequence_index = resolve_draft_sequence_index(
+        persistence=service,
+        dossier_id=dossier_id,
+        graph_id=graph.graph_id,
+        artifact_id=resolved_artifact_id if artifact_id else None,
+    )
+    draft_version = build_draft_source_metadata(
+        graph_id=graph.graph_id,
+        draft_sequence_index=draft_sequence_index,
+    )["draft_version"]
     artifact = create_ir_artifact(
         artifact_id=resolved_artifact_id,
         graph=graph,
         created_by=created_by or "deed_to_ir_agent",
         source_document_id=source_document_id,
     )
+    artifact.source_metadata = build_draft_source_metadata(
+        graph_id=graph.graph_id,
+        draft_sequence_index=draft_sequence_index,
+    )
     service.save_artifact(artifact, dossier_id=dossier_id)
+
+    ir_ref = build_feature_graph_artifact_ref("ir", resolved_artifact_id)
+    eval_service = evaluation or FeatureGraphEvaluationService(service)
+    evaluation_artifacts, evaluation_warning = run_draft_compile_judge(
+        evaluation=eval_service,
+        ir_artifact=artifact,
+        dossier_id=dossier_id,
+    )
+    compile_outcome = evaluation_artifacts.compile_outcome if evaluation_artifacts else None
+    judge_outcome = evaluation_artifacts.judge_outcome if evaluation_artifacts else None
+    evaluation_feedback = build_evaluation_feedback(
+        compile_outcome=compile_outcome,
+        judge_outcome=judge_outcome,
+    )
+    current_draft_ir = build_current_draft_ir(
+        graph=graph,
+        ir_artifact_ref=ir_ref,
+        draft_version=str(draft_version),
+        draft_sequence_index=draft_sequence_index,
+        evaluation_feedback=evaluation_feedback,
+        evaluation_warning=evaluation_warning,
+    )
+
+    artifact_refs = [ir_ref]
+    if evaluation_feedback.get("compile_artifact_ref"):
+        artifact_refs.append(str(evaluation_feedback["compile_artifact_ref"]))
+    if evaluation_feedback.get("judge_artifact_ref"):
+        artifact_refs.append(str(evaluation_feedback["judge_artifact_ref"]))
+
+    outputs: dict[str, Any] = {
+        "ir_artifact_ref": ir_ref,
+        "draft_ir_ref": ir_ref,
+        "draft_version": draft_version,
+        "draft_sequence_index": draft_sequence_index,
+        "is_draft": True,
+        "artifact_id": resolved_artifact_id,
+        "graph_id": graph.graph_id,
+        "node_count": len(graph.nodes),
+        "edge_count": len(graph.edges),
+        "source_entity_link_count": current_draft_ir["source_entity_link_count"],
+        "validation_errors": [],
+        "current_draft_ir": current_draft_ir,
+        **evaluation_feedback,
+    }
+    if evaluation_warning:
+        outputs["evaluation_warning"] = evaluation_warning
+
     return {
         "executed": True,
-        "artifact_refs": [build_feature_graph_artifact_ref("ir", resolved_artifact_id)],
-        "outputs": {
-            "ir_artifact_ref": build_feature_graph_artifact_ref("ir", resolved_artifact_id),
-            "artifact_id": resolved_artifact_id,
-            "graph_id": graph.graph_id,
-            "node_count": len(graph.nodes),
-            "edge_count": len(graph.edges),
-            "source_entity_link_count": link_count,
-            "validation_errors": [],
-        },
+        "artifact_refs": artifact_refs,
+        "outputs": outputs,
     }
 
 
@@ -74,26 +135,6 @@ def _resolve_artifact_id(*, artifact_id: str | None, graph_id: str) -> str:
 def _sanitize_artifact_id(value: str) -> str:
     cleaned = re.sub(r"[^A-Za-z0-9._-]+", "_", value).strip("_")
     return cleaned[:128] or "ir_artifact"
-
-
-def _count_source_entity_links(graph: FeatureGraph) -> int:
-    total = 0
-    for node in graph.nodes:
-        total += _provenance_link_count(node.provenance)
-    for edge in graph.edges:
-        total += _provenance_link_count(edge.provenance)
-    return total
-
-
-def _provenance_link_count(provenance: Any) -> int:
-    if provenance is None:
-        return 0
-    if isinstance(provenance, ProvenanceAttachment):
-        return len(provenance.source_entity_links)
-    if isinstance(provenance, dict):
-        links = provenance.get("source_entity_links")
-        return len(links) if isinstance(links, list) else 0
-    return 0
 
 
 def _validation_failure(errors: list[str]) -> dict[str, Any]:
@@ -113,6 +154,10 @@ def _validation_failure(errors: list[str]) -> dict[str, Any]:
         "outputs": {
             "validation_errors": bounded,
             "ir_artifact_ref": None,
+            "draft_ir_ref": None,
+            "draft_version": None,
+            "draft_sequence_index": None,
+            "is_draft": None,
             "graph_id": None,
             "node_count": 0,
             "edge_count": 0,

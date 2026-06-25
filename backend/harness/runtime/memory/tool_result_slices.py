@@ -472,6 +472,17 @@ def _extract_point_crop_set_summary(outputs: Any) -> dict[str, Any] | None:
     return project_point_crop_set_summary(outputs if isinstance(outputs, Mapping) else None)
 
 
+def _extract_current_draft_ir_summary(outputs: Any) -> dict[str, Any] | None:
+    from tooling.mapping.deed_to_ir.draft_ir_lifecycle import compact_current_draft_ir_for_projection
+
+    if not isinstance(outputs, Mapping):
+        return None
+    current = outputs.get("current_draft_ir")
+    if not isinstance(current, Mapping):
+        return None
+    return compact_current_draft_ir_for_projection(current)
+
+
 def _extract_source_window_summary(outputs: Any) -> dict[str, Any] | None:
     from tooling.mapping.transcript_edit.source_window import compact_source_window_for_projection
 
@@ -938,9 +949,14 @@ def _build_bounded_slice_row(
     text_field_summaries = _cap_text_field_summaries(_extract_text_field_summaries(outputs))
     evidence_artifact_summary = _extract_evidence_artifact_summary(outputs)
     point_crop_set_summary = _extract_point_crop_set_summary(outputs)
+    current_draft_ir_summary = _extract_current_draft_ir_summary(outputs)
     if text_field_summaries:
         excerpt, excerpt_truncated = _bounded_outputs_excerpt(outputs, max_chars=256)
-    elif point_crop_set_summary is not None or evidence_artifact_summary is not None:
+    elif (
+        point_crop_set_summary is not None
+        or evidence_artifact_summary is not None
+        or current_draft_ir_summary is not None
+    ):
         excerpt, excerpt_truncated = _bounded_outputs_excerpt(outputs, max_chars=256)
     else:
         excerpt, excerpt_truncated = _bounded_outputs_excerpt(outputs, max_chars=max_excerpt_chars)
@@ -948,6 +964,7 @@ def _build_bounded_slice_row(
         (excerpt_truncated or bool(row.get("result_truncated", False)))
         and point_crop_set_summary is None
         and evidence_artifact_summary is None
+        and current_draft_ir_summary is None
         and not text_field_summaries
     )
     artifact_refs = row.get("artifact_refs") if isinstance(row.get("artifact_refs"), list) else []
@@ -973,6 +990,8 @@ def _build_bounded_slice_row(
     optional_fields: list[tuple[str, Any]] = []
     if point_crop_set_summary is not None:
         optional_fields.append(("point_crop_set_summary", point_crop_set_summary))
+    if current_draft_ir_summary is not None:
+        optional_fields.append(("current_draft_ir", current_draft_ir_summary))
     if evidence_artifact_summary is not None:
         optional_fields.append(("evidence_artifact_summary", evidence_artifact_summary))
     if source_window_summary is not None:

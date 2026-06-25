@@ -38,10 +38,12 @@ class FeatureGraphMappingSubmissionService:
         *,
         ir_artifact: IRArtifact,
         dossier_id: str,
+        reuse_existing_evaluation: bool = True,
     ) -> MappingSubmissionOutcome:
-        evaluation = self._evaluation.compile_and_judge_ir(
+        evaluation = self._resolve_evaluation(
             ir_artifact=ir_artifact,
             dossier_id=dossier_id,
+            reuse_existing_evaluation=reuse_existing_evaluation,
         )
         mapping = self._mapping.create_mapping_from_artifacts(
             ir_artifact=ir_artifact,
@@ -54,4 +56,23 @@ class FeatureGraphMappingSubmissionService:
             ir_artifact_ref=build_feature_graph_artifact_ref("ir", ir_artifact.artifact_id),
             evaluation=evaluation,
             mapping=mapping,
+        )
+
+    def _resolve_evaluation(
+        self,
+        *,
+        ir_artifact: IRArtifact,
+        dossier_id: str,
+        reuse_existing_evaluation: bool,
+    ) -> FeatureGraphEvaluationArtifacts:
+        if reuse_existing_evaluation:
+            reused = self._evaluation.try_load_existing_ir_evaluation(
+                ir_artifact=ir_artifact,
+                dossier_id=dossier_id,
+            )
+            if reused is not None:
+                return reused
+        return self._evaluation.compile_and_judge_ir(
+            ir_artifact=ir_artifact,
+            dossier_id=dossier_id,
         )

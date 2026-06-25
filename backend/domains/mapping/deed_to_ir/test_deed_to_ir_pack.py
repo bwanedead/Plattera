@@ -195,6 +195,11 @@ def test_branch_and_guidance_mission_markers() -> None:
     )
     assert "inherited_handoff_conditions" in guidance
     assert "downstream deed-to-ir responsibilities" in guidance
+    assert "draft checkpoint" in guidance
+    assert "save_ir_artifact" in guidance or "save a **draft checkpoint**" in guidance
+    assert "submit_ir_for_mapping" in guidance
+    assert "publish_deed_to_ir_output" in guidance
+    assert "mechanically_mappable_candidate" in guidance
     assert "not transcript-edit atoms" in guidance
     assert "copy inherited covered units into local covered units" in guidance
     assert "starting inputs" in guidance

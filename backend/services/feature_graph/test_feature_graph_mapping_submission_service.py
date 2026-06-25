@@ -99,8 +99,8 @@ def test_repeated_submissions_produce_distinct_artifact_ids() -> None:
         second = submitter.submit_ir_artifact(ir_artifact=ir, dossier_id="D_REPEAT")
 
         assert first.mapping.artifact_id != second.mapping.artifact_id
-        assert first.evaluation.compile_outcome.artifact_id != second.evaluation.compile_outcome.artifact_id
-        assert first.evaluation.judge_outcome.artifact_id != second.evaluation.judge_outcome.artifact_id
+        assert first.evaluation.compile_outcome.artifact_id == second.evaluation.compile_outcome.artifact_id
+        assert first.evaluation.judge_outcome.artifact_id == second.evaluation.judge_outcome.artifact_id
 
 
 def test_partial_compile_still_produces_mapping_from_valid_features() -> None:

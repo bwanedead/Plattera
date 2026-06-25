@@ -169,9 +169,10 @@ def build_deed_to_ir_tool_specs() -> tuple[SemanticToolSpec, ...]:
             tool_id="save_ir_artifact",
             category="write",
             purpose=(
-                "Validate and persist an agent-authored FeatureGraph IR artifact. "
-                "Schema validation only — no compile, judge, render, repair, or closure behavior. "
-                "The compact core contract is always visible here; use describe_feature_graph_capabilities for details."
+                "Save a draft IR checkpoint (working, versioned FeatureGraph artifact). "
+                "Schema validation runs first; on success the draft is persisted and deterministic "
+                "compile/judge feedback is returned immediately. This is not final publication and "
+                "does not render maps. Use describe_feature_graph_capabilities for contract details."
             ),
             expected_request_shape=(
                 "feature_graph: required FeatureGraph {graph_id:string, nodes?:FeatureNode[], edges?:FeatureEdge[], "
@@ -243,8 +244,11 @@ def build_deed_to_ir_tool_specs() -> tuple[SemanticToolSpec, ...]:
                 "side_effect_class": "write",
             },
             expected_result_shape=(
-                "On success: artifact_refs include feature_graph:ir:* ref; outputs.ir_artifact_ref, "
-                "graph_id, node_count, edge_count, source_entity_link_count. "
+                "On success: draft checkpoint identity — outputs.draft_ir_ref (alias of ir_artifact_ref), "
+                "draft_version (v0, v1, ...), draft_sequence_index, is_draft=true, graph counts, "
+                "current_draft_ir compact lane, compile_artifact_ref, judge_artifact_ref, "
+                "compile_gap_count, judge_finding_count, bounded compile_gaps/judge_findings, and "
+                "mechanically_mappable_candidate (no blocking mechanical gaps only — not deed-correct). "
                 "On validation failure: executed=false, reason_codes=[feature_graph_validation_failed], "
                 "retryable refusal, and bounded outputs.validation_errors (no artifact saved)."
             ),
