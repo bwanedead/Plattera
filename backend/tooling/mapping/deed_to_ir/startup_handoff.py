@@ -12,6 +12,7 @@ from domains.mapping.deed_to_ir.payloads import (
 )
 
 from .inherited_handoff_projection import build_inherited_handoff_conditions
+from .operand_suite_refs import build_operand_suite_ref
 from .resolution_state_projection import (
     ResolutionStateHandoffError,
     mechanical_resolution_state_snapshot,
@@ -86,6 +87,10 @@ def startup_handoff_from_loader_dict(
         resolution_state_snapshot=snapshot,
         resolution_state_counts=rs_counts,
         resolution_state_summary=tuple(resolution_state_startup_summary(snapshot)),
+        operand_suite_ref=build_operand_suite_ref(
+            run_id=scope.run_id,
+            workspace_id=scope.workspace_id,
+        ),
         inherited_handoff_conditions=build_inherited_handoff_conditions(
             source=source_raw,
             parcel_metadata=parcel_raw,

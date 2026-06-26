@@ -16,6 +16,7 @@ from tooling.mapping.deed_to_ir.artifact_hydration import (
 )
 from tooling.mapping.deed_to_ir.feature_graph_capabilities import describe_feature_graph_capabilities
 from tooling.mapping.deed_to_ir.input_hydration import make_hydrate_deed_to_ir_input_handler
+from tooling.mapping.deed_to_ir.ir_draft_patch import patch_ir_draft
 from tooling.mapping.deed_to_ir.ir_mapping_submission import submit_ir_for_mapping
 from tooling.mapping.deed_to_ir.ir_persistence import save_ir_artifact
 from tooling.mapping.deed_to_ir.output_persistence import publish_deed_to_ir_output
@@ -92,6 +93,10 @@ def _tool_handler_entries(
             _make_save_ir_handler(dossier_id=dossier_id),
         ),
         (
+            "patch_ir_draft",
+            _make_patch_ir_draft_handler(dossier_id=dossier_id),
+        ),
+        (
             "submit_ir_for_mapping",
             _make_submit_ir_handler(dossier_id=dossier_id),
         ),
@@ -106,6 +111,7 @@ def _tool_handler_entries(
                 transcription_id=handoff.scope.transcription_id,
                 workspace_id=handoff.scope.workspace_id,
                 run_id=handoff.scope.run_id,
+                handoff_context=handoff_context,
             ),
         ),
         (
@@ -149,6 +155,32 @@ def _make_save_ir_handler(*, dossier_id: str) -> Callable[[Any], Any]:
                 base_draft_ref=_optional_str(inputs.get("base_draft_ref")),
                 source_document_id=_optional_str(inputs.get("source_document_id")),
                 created_by=_optional_str(inputs.get("created_by")),
+            )
+        except Exception as exc:
+            return _exception_refusal(exc)
+
+    return handler
+
+
+def _make_patch_ir_draft_handler(*, dossier_id: str) -> Callable[[Any], Any]:
+    def handler(request: Any) -> dict[str, Any]:
+        inputs = _extract_inputs(request)
+        base_draft_ref = _optional_str(inputs.get("base_draft_ref"))
+        if not base_draft_ref:
+            return _error_refusal("base_draft_ref_required", "base_draft_ref is required.")
+        node_upserts = inputs.get("node_upserts") if isinstance(inputs.get("node_upserts"), list) else []
+        edge_upserts = inputs.get("edge_upserts") if isinstance(inputs.get("edge_upserts"), list) else []
+        node_removals = inputs.get("node_removals") if isinstance(inputs.get("node_removals"), list) else []
+        edge_removals = inputs.get("edge_removals") if isinstance(inputs.get("edge_removals"), list) else []
+        try:
+            return patch_ir_draft(
+                dossier_id=dossier_id,
+                base_draft_ref=base_draft_ref,
+                node_upserts=node_upserts,
+                edge_upserts=edge_upserts,
+                node_removals=node_removals,
+                edge_removals=edge_removals,
+                graph_id=_optional_str(inputs.get("graph_id")),
             )
         except Exception as exc:
             return _exception_refusal(exc)
@@ -245,6 +277,7 @@ def _handoff_tool_context(handoff: DeedToIrStartupHandoff) -> dict[str, Any]:
         "excerpts": dict(handoff.excerpts),
         "resolution_state_ref": handoff.resolution_state_ref,
         "resolution_state_snapshot": handoff.resolution_state_snapshot,
+        "operand_suite_ref": handoff.operand_suite_ref,
         "inherited_handoff_conditions": dict(handoff.inherited_handoff_conditions),
     }
 
@@ -273,6 +306,7 @@ def _handoff_wire(handoff: DeedToIrStartupHandoff) -> dict[str, Any]:
         "resolution_state_ref": handoff.resolution_state_ref,
         "resolution_state_counts": dict(handoff.resolution_state_counts),
         "resolution_state_summary": list(handoff.resolution_state_summary),
+        "operand_suite_ref": handoff.operand_suite_ref,
         "inherited_handoff_conditions": dict(handoff.inherited_handoff_conditions),
     }
 

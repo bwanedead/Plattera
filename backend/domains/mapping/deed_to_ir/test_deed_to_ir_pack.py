@@ -27,6 +27,7 @@ def test_manifest_tool_ids_match_tool_specs() -> None:
         "hydrate_deed_to_ir_input",
         "describe_feature_graph_capabilities",
         "save_ir_artifact",
+        "patch_ir_draft",
         "submit_ir_for_mapping",
         "publish_deed_to_ir_output",
         "hydrate_artifact_refs",
@@ -150,12 +151,13 @@ def test_domain_pack_builds() -> None:
         "hydrate_deed_to_ir_input",
         "describe_feature_graph_capabilities",
         "save_ir_artifact",
+        "patch_ir_draft",
         "submit_ir_for_mapping",
         "publish_deed_to_ir_output",
         "hydrate_artifact_refs",
         "list_feature_graph_artifacts",
     ]
-    assert len(payload["tool_specs"]) == 7
+    assert len(payload["tool_specs"]) == 8
     assert payload["closure_policy"]["hard_enforced"] is False
     assert payload["closure_policy"]["publish_action_ids"] == ["publish_deed_to_ir_output"]
     assert payload["closure_policy"]["required_output_ref_for_complete"] == "deed_to_ir:output"

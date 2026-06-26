@@ -114,7 +114,8 @@ def build_deed_to_ir_tool_specs() -> tuple[SemanticToolSpec, ...]:
                 f"atoms and scope blockers (max {MAX_MAPPING_OPERANDS} emitted rows; per-row caps on "
                 f"determined_value ({MAX_OPERAND_DETERMINED_VALUE_CHARS} chars), candidate_values "
                 f"(max {MAX_OPERAND_CANDIDATE_VALUES}), evidence_refs (max {MAX_OPERAND_EVIDENCE_REFS}); "
-                "explicit truncation counts). "
+                "explicit truncation counts; operand_suite_ref for pin/hydrate; optional operand_groups when "
+                "operand ids mechanically encode call numbers). "
                 "resolution_state without resolution_unit_ids: projection_mode=index with compact "
                 f"items (max {MAX_INDEX_ITEMS}), units (max {MAX_INDEX_UNITS}), relations (max {MAX_INDEX_RELATIONS}), "
                 "and optional truncation counts. "
@@ -168,8 +169,12 @@ def build_deed_to_ir_tool_specs() -> tuple[SemanticToolSpec, ...]:
                 "can_run_parallel": True,
             },
             expected_result_shape=(
-                "Selected contract sections. Default starter_contract returns compact feature kinds, node-content "
-                "rules, provenance link fields, artifact ref prefixes, and a bounded operation index. "
+                "Selected contract sections. Default starter_contract returns compact feature kinds, "
+                "feature_kind_vs_operation_contract, node-content rules, provenance link fields, artifact ref "
+                "prefixes, and a bounded operation index. "
+                "When operation_names filters are supplied, ignored_operation_names lists invalid entries "
+                "(feature_kind_not_operation for feature kinds like annotation; unknown_operation_name otherwise). "
+                "Refuse only when no valid operation names remain (no_valid_feature_graph_operation_names). "
                 "core_schema includes model_schemas, feature_kinds, content rules, geometry, and edge conventions. "
                 "Operations include exact params, units, operands, support status, and examples. "
                 "Provenance includes source_entity_links. Examples include complete_supported_graph and "
@@ -276,6 +281,73 @@ def build_deed_to_ir_tool_specs() -> tuple[SemanticToolSpec, ...]:
             ),
         ),
         SemanticToolSpec(
+            tool_id="patch_ir_draft",
+            category="write",
+            purpose=(
+                "Surgically patch an existing draft IR checkpoint without resubmitting the whole graph. "
+                "Loads base_draft_ref, applies id-exact node/edge upserts and optional removals, validates "
+                "the full FeatureGraph, saves the next append-only draft version on the same graph_id, and "
+                "returns the same compile/judge feedback lane as save_ir_artifact."
+            ),
+            expected_request_shape=(
+                "base_draft_ref: required feature_graph:ir:* ref for the draft to patch. "
+                "node_upserts: optional array of FeatureNode patches keyed by exact id (shallow merge). "
+                "edge_upserts: optional array of FeatureEdge patches keyed by source_id+target_id+edge_type. "
+                "node_removals / edge_removals: optional exact-id removals (missing ids are no-ops with warnings). "
+                "graph_id: optional; when supplied must match the base draft graph_id."
+            ),
+            expected_request_json_shape={
+                "type": "object",
+                "required": ["base_draft_ref"],
+                "properties": {
+                    "base_draft_ref": {"type": "string", "minLength": 1},
+                    "graph_id": {"type": ["string", "null"]},
+                    "node_upserts": {
+                        "type": ["array", "null"],
+                        "items": build_compact_feature_node_request_schema(),
+                    },
+                    "edge_upserts": {"type": ["array", "null"], "items": {"type": "object"}},
+                    "node_removals": {
+                        "type": ["array", "null"],
+                        "items": {"type": "string", "minLength": 1},
+                    },
+                    "edge_removals": {"type": ["array", "null"], "items": {"type": "object"}},
+                },
+                "additionalProperties": False,
+            },
+            example_request={
+                "base_draft_ref": "feature_graph:ir:right_of_way_deed_ir_v0",
+                "node_upserts": [
+                    {
+                        "id": "parcel_1_traverse",
+                        "kind": "curve",
+                        "op_expr": {
+                            "op_name": "CourseTraverse",
+                            "operands": ["parcel_1_anchor"],
+                            "params": {"courses": []},
+                        },
+                    }
+                ],
+                "edge_upserts": [
+                    {
+                        "source_id": "parcel_1_traverse",
+                        "target_id": "parcel_1_region",
+                        "edge_type": "derived_from",
+                    }
+                ],
+            },
+            batching={
+                "allowed": False,
+                "side_effect_class": "write",
+            },
+            expected_result_shape=(
+                "Same success/failure outputs as save_ir_artifact (working_draft_ref, draft_version, "
+                "current_draft_ir, draft_repair_items, compile/judge refs and gaps). "
+                "Optional outputs.patch_warnings when removals target missing ids. "
+                "Validation failure is retryable and persists nothing."
+            ),
+        ),
+        SemanticToolSpec(
             tool_id="submit_ir_for_mapping",
             category="write",
             purpose=(
@@ -353,13 +425,14 @@ def build_deed_to_ir_tool_specs() -> tuple[SemanticToolSpec, ...]:
             category="read",
             purpose=(
                 "Hydrate feature-graph artifact refs (ir, compile, judge, bundle, mapping), mapping "
-                "sidecar refs (geometry.geojson, clean.png, control.png), and deed-to-IR output refs "
-                "(deed_to_ir:output, deed_to_ir:output:rev:NNNN). Returns bounded payloads "
+                "sidecar refs (geometry.geojson, clean.png, control.png), deed-to-IR operand suite refs "
+                "(deed_to_ir:operands, deed_to_ir:operands:run:*, deed_to_ir:operands:ws:*), and deed-to-IR "
+                "output refs (deed_to_ir:output, deed_to_ir:output:rev:NNNN). Returns bounded payloads "
                 "without filesystem paths. PNG sidecars return top-level image_evidence."
             ),
             expected_request_shape=(
                 "ref_ids: required non-empty array of feature_graph:*, artifact://dossiers/feature_graphs/*, "
-                "or deed_to_ir:output* refs. max_refs: optional cap (default 8, max 32)."
+                "deed_to_ir:operands*, or deed_to_ir:output* refs. max_refs: optional cap (default 8, max 32)."
             ),
             expected_request_json_shape={
                 "type": "object",

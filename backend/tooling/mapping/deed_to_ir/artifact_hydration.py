@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import base64
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -77,6 +77,7 @@ def hydrate_artifact_refs(
     transcription_id: str | None = None,
     workspace_id: str | None = None,
     run_id: str | None = None,
+    handoff_context: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Hydrate feature-graph, mapping sidecar, and deed-to-IR output refs without exposing paths."""
     return hydrate_feature_graph_artifact_refs(
@@ -87,6 +88,7 @@ def hydrate_artifact_refs(
         transcription_id=transcription_id,
         workspace_id=workspace_id,
         run_id=run_id,
+        handoff_context=handoff_context,
     )
 
 
@@ -96,6 +98,7 @@ def make_hydrate_artifact_refs_handler(
     transcription_id: str | None = None,
     workspace_id: str | None = None,
     run_id: str | None = None,
+    handoff_context: Mapping[str, Any] | None = None,
 ) -> Callable[[Any], Any]:
     """Return a handler for the canonical ``hydrate_artifact_refs`` tool ID."""
 
@@ -112,6 +115,7 @@ def make_hydrate_artifact_refs_handler(
                 transcription_id=transcription_id,
                 workspace_id=workspace_id,
                 run_id=run_id,
+                handoff_context=handoff_context,
             )
         except Exception as exc:
             if isinstance(exc, ValueError) and str(exc).strip():
@@ -130,6 +134,7 @@ def hydrate_feature_graph_artifact_refs(
     transcription_id: str | None = None,
     workspace_id: str | None = None,
     run_id: str | None = None,
+    handoff_context: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Hydrate feature-graph artifact refs without exposing filesystem paths."""
     if not dossier_id:
@@ -154,6 +159,18 @@ def hydrate_feature_graph_artifact_refs(
     image_evidence: list[dict[str, Any]] = []
     for ref_id in ref_ids:
         text = str(ref_id or "").strip()
+        if text.startswith("deed_to_ir:operands"):
+            row, error = _hydrate_operand_suite_ref(
+                ref_id=text,
+                handoff_context=handoff_context,
+                run_id=run_id,
+                workspace_id=workspace_id,
+            )
+            if row is not None:
+                results.append(row)
+            else:
+                errors.append({"ref_id": text, "reason": error or "operand_suite_hydration_failed"})
+            continue
         if text.startswith("deed_to_ir:output"):
             row, error = _hydrate_deed_to_ir_output_ref(
                 dossier_id=dossier_id,
@@ -523,6 +540,46 @@ def _clamp(value: Any, *, default: int, maximum: int) -> int:
     if parsed < 1:
         return default
     return min(parsed, maximum)
+
+
+def _hydrate_operand_suite_ref(
+    *,
+    ref_id: str,
+    handoff_context: Mapping[str, Any] | None,
+    run_id: str | None,
+    workspace_id: str | None,
+) -> tuple[dict[str, Any] | None, str | None]:
+    from .operand_suite import build_operand_suite_payload
+    from .operand_suite_refs import (
+        OPERAND_SUITE_REF,
+        build_operand_suite_ref,
+        parse_operand_suite_ref,
+        validate_operand_suite_ref_access,
+    )
+
+    kind, _ = parse_operand_suite_ref(ref_id)
+    if kind == "invalid":
+        return None, "unsupported_operand_suite_ref"
+    scope_error = validate_operand_suite_ref_access(
+        ref_id,
+        run_id=run_id,
+        workspace_id=workspace_id,
+    )
+    if scope_error:
+        return None, scope_error
+    if handoff_context is None:
+        return None, "operand_suite_context_unavailable"
+    canonical_ref = build_operand_suite_ref(run_id=run_id, workspace_id=workspace_id)
+    payload = build_operand_suite_payload(handoff_context, operand_suite_ref=canonical_ref)
+    if payload is None:
+        return None, "operand_suite_unavailable"
+    if ref_id == OPERAND_SUITE_REF and payload.get("operand_suite_ref") != OPERAND_SUITE_REF:
+        payload = {**payload, "operand_suite_ref": canonical_ref}
+    return {
+        "ref_id": ref_id,
+        "artifact_type": "deed_to_ir_operand_suite",
+        **payload,
+    }, None
 
 
 def _hydrate_deed_to_ir_output_ref(

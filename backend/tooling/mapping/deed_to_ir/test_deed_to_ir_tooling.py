@@ -24,7 +24,9 @@ from tooling.mapping.deed_to_ir.input_hydration import make_hydrate_deed_to_ir_i
 from tooling.mapping.deed_to_ir.ir_mapping_submission import submit_ir_for_mapping
 from tooling.mapping.deed_to_ir.ir_persistence import save_ir_artifact
 from tooling.mapping.deed_to_ir.feature_graph_examples import build_deed_to_ir_authoring_example
-from tooling.mapping.deed_to_ir.mapping_operands_projection import build_mapping_operands
+from tooling.mapping.deed_to_ir.ir_draft_patch import patch_ir_draft
+from tooling.mapping.deed_to_ir.mapping_operands_projection import build_mapping_operands, build_operand_groups
+from tooling.mapping.deed_to_ir.operand_suite_refs import OPERAND_SUITE_REF, build_operand_suite_ref
 from tooling.mapping.deed_to_ir.resolution_state_projection import (
     build_resolution_state_index,
     build_resolution_state_selected_rows,
@@ -48,6 +50,12 @@ def _handoff_context() -> dict:
     resolution = json.loads(_RESOLUTION_FIXTURE.read_text(encoding="utf-8"))
     return {
         **loaded,
+        "scope": {
+            "dossier_id": "dossier-fixture",
+            "run_id": "practice-row-live-20260619-76",
+            "workspace_id": "ws-fixture",
+            "transcription_id": "tx-fixture",
+        },
         "resolution_state_ref": "transcript_edit:resolution_state:fixture-001",
         "resolution_state_snapshot": resolution,
     }
@@ -130,11 +138,29 @@ def test_canonical_validation_schema_is_explicit_opt_in():
     assert exact["canonical_feature_graph_json_schema"]["title"] == "FeatureGraph"
 
 
-def test_capability_projection_rejects_unknown_sections_and_operations():
+def test_capability_projection_rejects_unknown_sections_and_all_invalid_operations():
     with pytest.raises(ValueError, match="unknown_feature_graph_capability_sections"):
         describe_feature_graph_capabilities(sections=["mystery"])
-    with pytest.raises(ValueError, match="unknown_feature_graph_operation_names"):
+    with pytest.raises(ValueError, match="no_valid_feature_graph_operation_names"):
         describe_feature_graph_capabilities(operation_names=["MysteryOperation"])
+    with pytest.raises(ValueError, match="no_valid_feature_graph_operation_names"):
+        describe_feature_graph_capabilities(operation_names=["annotation"])
+
+
+def test_capability_operation_names_partial_success_with_feature_kind_warning():
+    caps = describe_feature_graph_capabilities(
+        sections=["operations"],
+        operation_names=["ReferenceFrame", "Close", "annotation"],
+    )
+    assert [row["name"] for row in caps["registered_operations"]] == ["ReferenceFrame", "Close"]
+    assert caps["ignored_operation_names"] == [
+        {"name": "annotation", "reason": "feature_kind_not_operation"}
+    ]
+    starter = describe_feature_graph_capabilities(
+        sections=["starter_contract"],
+        operation_names=["ReferenceFrame", "annotation"],
+    )
+    assert "feature_kind_vs_operation_contract" in starter["starter_contract"]
 
 
 def test_hydrate_deed_to_ir_input_sections_bounded_and_path_free():
@@ -517,7 +543,194 @@ def test_hydrate_mapping_operands_section_returns_compact_operands():
     payload = result["outputs"]["results"]["mapping_operands"]
     assert payload["projection_mode"] == "mapping_operands"
     assert payload["operands"]
+    assert payload["operand_suite_ref"].startswith("deed_to_ir:operands:run:")
     assert all("operand_id" in row for row in payload["operands"])
+
+
+def test_operand_groups_mechanical_from_practice_fixture():
+    raw = json.loads(_PRACTICE_RESOLUTION_FIXTURE.read_text(encoding="utf-8"))
+    payload = build_mapping_operands(raw)
+    groups = build_operand_groups(payload["operands"])
+    parcel_1 = next(group for group in groups if group["group_id"] == "parcel_1_calls")
+    assert parcel_1["group_kind"] == "course_call_candidates"
+    assert len(parcel_1["rows"]) == 3
+    assert parcel_1["rows"][0]["call_index"] == 1
+    assert "bearing_operand_id" in parcel_1["rows"][0]
+    assert "distance_operand_id" in parcel_1["rows"][0]
+    blockers = [group for group in groups if group["group_kind"] == "scope_blocker"]
+    assert blockers
+    assert blockers[0]["rows"][0]["operand_id"] == "parcel_2_continuation_scope"
+
+
+def test_operand_groups_omitted_when_ids_not_parseable():
+    operands = [
+        {
+            "operand_id": "mystery_bearing",
+            "value_kind": "bearing",
+            "determined_value": "N 45 E",
+        }
+    ]
+    assert build_operand_groups(operands) == []
+
+
+def test_hydrate_operand_suite_ref_returns_operand_rows():
+    handoff = _handoff_context()
+    ref = build_operand_suite_ref(run_id=handoff["scope"]["run_id"])
+    hydrated = hydrate_feature_graph_artifact_refs(
+        dossier_id="d-fixture",
+        ref_ids=[ref, OPERAND_SUITE_REF],
+        handoff_context=handoff,
+        run_id=handoff["scope"]["run_id"],
+    )
+    assert hydrated["outputs"]["hydrated_count"] == 2
+    row = hydrated["outputs"]["results"][0]
+    assert row["artifact_type"] == "deed_to_ir_operand_suite"
+    assert row["operands"]
+    assert row["operand_suite_ref"] == ref
+    assert "operand_groups" in row
+    dumped = json.dumps(hydrated)
+    assert "test_fixtures" not in dumped.lower()
+
+
+def test_patch_ir_draft_modifies_target_nodes_and_increments_version():
+    base_graph = FeatureGraph(
+        graph_id="patch_graph",
+        nodes=[
+            FeatureNode(
+                id="parcel_1_anchor",
+                kind=FeatureKind.POINT,
+                geometry={"type": "Point", "coordinates": [0.0, 0.0]},
+                provenance=ProvenanceAttachment(
+                    source_entity_links=[
+                        SourceEntityLink(
+                            entity_id="p1_pob",
+                            entity_type="resolution_unit",
+                            source_ref="transcript_edit:resolution_state:example",
+                        )
+                    ]
+                ),
+            ),
+            FeatureNode(
+                id="parcel_1_traverse",
+                kind=FeatureKind.CURVE,
+                op_expr=OpExpr(op_name="CourseTraverse", operands=["parcel_1_anchor"], params={"courses": []}),
+            ),
+            FeatureNode(
+                id="parcel_1_region",
+                kind=FeatureKind.REGION,
+                op_expr=OpExpr(op_name="Close", operands=["parcel_1_traverse"]),
+            ),
+        ],
+        edges=[],
+        metadata={"note": "keep"},
+    )
+    with tempfile.TemporaryDirectory() as tmpdir:
+        from services.feature_graph.feature_graph_persistence_service import FeatureGraphPersistenceService
+
+        service = FeatureGraphPersistenceService(
+            root=Path(tmpdir) / "artifacts",
+            state_dir=Path(tmpdir) / "state",
+        )
+        saved = save_ir_artifact(
+            dossier_id="d-patch",
+            feature_graph=base_graph.model_dump(mode="json"),
+            persistence=service,
+        )
+        base_ref = saved["outputs"]["working_draft_ref"]
+        patched = patch_ir_draft(
+            dossier_id="d-patch",
+            base_draft_ref=base_ref,
+            node_upserts=[
+                {
+                    "id": "parcel_1_traverse",
+                    "kind": "curve",
+                    "op_expr": {
+                        "op_name": "CourseTraverse",
+                        "operands": ["parcel_1_anchor"],
+                        "params": {
+                            "courses": [{"bearing": 68.5, "distance": 542.0}],
+                        },
+                    },
+                },
+                {
+                    "id": "parcel_1_region",
+                    "kind": "region",
+                    "op_expr": {"op_name": "Close", "operands": ["parcel_1_traverse"]},
+                },
+            ],
+            edge_upserts=[
+                {
+                    "source_id": "parcel_1_traverse",
+                    "target_id": "parcel_1_region",
+                    "edge_type": "derived_from",
+                }
+            ],
+            persistence=service,
+        )
+        assert patched["executed"] is True
+        assert patched["outputs"]["draft_version"] == "v1"
+        assert patched["outputs"]["working_draft_ref"] != base_ref
+        assert patched["outputs"]["current_draft_ir"]
+        assert patched["outputs"].get("draft_repair_items") is not None
+
+        hydrated = hydrate_feature_graph_artifact_refs(
+            dossier_id="d-patch",
+            ref_ids=[patched["outputs"]["working_draft_ref"], base_ref],
+            persistence=service,
+        )
+        by_ref = {row["ref_id"]: row for row in hydrated["outputs"]["results"]}
+        v0 = by_ref[base_ref]["graph"]
+        v1 = by_ref[patched["outputs"]["working_draft_ref"]]["graph"]
+        anchor_v0 = next(node for node in v0["nodes"] if node["id"] == "parcel_1_anchor")
+        anchor_v1 = next(node for node in v1["nodes"] if node["id"] == "parcel_1_anchor")
+        assert anchor_v0["provenance"] == anchor_v1["provenance"]
+        traverse_v1 = next(node for node in v1["nodes"] if node["id"] == "parcel_1_traverse")
+        assert traverse_v1["op_expr"]["params"]["courses"]
+        assert v1["metadata"]["note"] == "keep"
+        assert any(edge["edge_type"] == "derived_from" for edge in v1["edges"])
+
+
+def test_patch_ir_draft_refuses_malformed_base_draft_missing_graph():
+    base_graph = FeatureGraph(
+        graph_id="malformed_patch_graph",
+        nodes=[
+            FeatureNode(
+                id="anchor",
+                kind=FeatureKind.POINT,
+                geometry={"type": "Point", "coordinates": [0.0, 0.0]},
+            ),
+        ],
+        edges=[],
+    )
+    with tempfile.TemporaryDirectory() as tmpdir:
+        from services.feature_graph.feature_graph_persistence_service import FeatureGraphPersistenceService
+
+        service = FeatureGraphPersistenceService(
+            root=Path(tmpdir) / "artifacts",
+            state_dir=Path(tmpdir) / "state",
+        )
+        saved = save_ir_artifact(
+            dossier_id="d-malformed",
+            feature_graph=base_graph.model_dump(mode="json"),
+            persistence=service,
+        )
+        base_ref = saved["outputs"]["working_draft_ref"]
+        artifact_id = saved["outputs"]["artifact_id"]
+        artifact_path = Path(tmpdir) / "artifacts" / "d-malformed" / f"{artifact_id}.json"
+        raw = json.loads(artifact_path.read_text(encoding="utf-8"))
+        del raw["graph"]
+        artifact_path.write_text(json.dumps(raw), encoding="utf-8")
+
+        result = patch_ir_draft(
+            dossier_id="d-malformed",
+            base_draft_ref=base_ref,
+            node_upserts=[{"id": "anchor", "kind": "point"}],
+            persistence=service,
+        )
+        assert result["executed"] is False
+        assert result["refusal"]["reason_code"] == "base_draft_graph_missing"
+        assert result["refusal"]["retryable"] is True
+        assert "graph" in result["outputs"]["message"].lower()
 
 
 def test_deed_to_ir_authoring_example_is_schema_valid_with_provenance():

@@ -41,4 +41,5 @@ class DeedToIrStartupHandoff:
     resolution_state_snapshot: dict[str, Any] | None = None
     resolution_state_counts: dict[str, int] = field(default_factory=dict)
     resolution_state_summary: tuple[dict[str, Any], ...] = ()
+    operand_suite_ref: str | None = None
     inherited_handoff_conditions: dict[str, Any] = field(default_factory=dict)

@@ -18,6 +18,7 @@ _EXPECTED_TOOL_IDS = (
     "hydrate_deed_to_ir_input",
     "describe_feature_graph_capabilities",
     "save_ir_artifact",
+    "patch_ir_draft",
     "submit_ir_for_mapping",
     "publish_deed_to_ir_output",
     "hydrate_artifact_refs",
@@ -39,7 +40,7 @@ def _launch_context(**overrides: object) -> dict:
     return base
 
 
-def test_runtime_adapter_builds_turn_surface_with_seven_tools() -> None:
+def test_runtime_adapter_builds_turn_surface_with_eight_tools() -> None:
     adapter = build_deed_to_ir_runtime_adapter()
     surface = adapter.build_turn_surface(_launch_context())
 
@@ -49,10 +50,11 @@ def test_runtime_adapter_builds_turn_surface_with_seven_tools() -> None:
 
     payload = surface.payload["deed_to_ir"]
     assert payload["tool_ids"] == list(_EXPECTED_TOOL_IDS)
-    assert len(payload["tool_specs"]) == 7
+    assert len(payload["tool_specs"]) == 8
 
     handoff = surface.payload["deed_to_ir_startup_handoff"]
     assert handoff["resolution_state_ref"] == "transcript_edit:resolution_state:fixture-001"
+    assert handoff["operand_suite_ref"].startswith("deed_to_ir:operands:run:")
     assert handoff["resolution_state_counts"]["items"] == 2
     assert "resolution_state_snapshot" not in handoff
     assert handoff["resolution_state_summary"]
@@ -91,13 +93,39 @@ def test_describe_capabilities_handler_supports_focused_contract_packet() -> Non
     assert set(result["outputs"]["examples"]["operation_expressions"]) == {"LineStep"}
 
 
-def test_describe_capabilities_handler_rejects_unknown_operation() -> None:
+def test_describe_capabilities_handler_rejects_all_invalid_operation_names() -> None:
     adapter = build_deed_to_ir_runtime_adapter()
     surface = adapter.build_turn_surface(_launch_context())
     handler = next(b.handler for b in surface.tool_bindings if b.tool_id == "describe_feature_graph_capabilities")
     result = handler({"operation_names": ["MysteryOperation"]})
     assert result["executed"] is False
-    assert result["refusal"]["reason_code"] == "unknown_feature_graph_operation_names"
+    assert result["refusal"]["reason_code"] == "no_valid_feature_graph_operation_names"
+
+
+def test_describe_capabilities_handler_partial_succeeds_with_feature_kind_warning() -> None:
+    adapter = build_deed_to_ir_runtime_adapter()
+    surface = adapter.build_turn_surface(_launch_context())
+    handler = next(b.handler for b in surface.tool_bindings if b.tool_id == "describe_feature_graph_capabilities")
+    result = handler(
+        {
+            "sections": ["operations"],
+            "operation_names": ["ReferenceFrame", "Close", "annotation"],
+        }
+    )
+    assert result["executed"] is True
+    names = [row["name"] for row in result["outputs"]["registered_operations"]]
+    assert names == ["ReferenceFrame", "Close"]
+    ignored = result["outputs"]["ignored_operation_names"]
+    assert ignored == [{"name": "annotation", "reason": "feature_kind_not_operation"}]
+
+
+def test_describe_capabilities_handler_refuses_annotation_only() -> None:
+    adapter = build_deed_to_ir_runtime_adapter()
+    surface = adapter.build_turn_surface(_launch_context())
+    handler = next(b.handler for b in surface.tool_bindings if b.tool_id == "describe_feature_graph_capabilities")
+    result = handler({"operation_names": ["annotation"]})
+    assert result["executed"] is False
+    assert result["refusal"]["reason_code"] == "no_valid_feature_graph_operation_names"
 
 
 def test_hydrate_input_handler_via_bindings() -> None:

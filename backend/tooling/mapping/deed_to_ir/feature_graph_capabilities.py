@@ -44,8 +44,13 @@ def describe_feature_graph_capabilities(
 ) -> dict[str, Any]:
     """Project exact contract facts without recommending deed-specific choices."""
     selected_sections = _normalize_sections(sections)
-    selected_operations = _select_operations(operation_names) if operation_names is not None else None
+    selected_operations: list[str] | None = None
+    ignored_operation_names: list[dict[str, str]] = []
+    if operation_names is not None:
+        selected_operations, ignored_operation_names = _resolve_operation_names(operation_names)
     result: dict[str, Any] = {"sections": selected_sections}
+    if ignored_operation_names:
+        result["ignored_operation_names"] = ignored_operation_names
 
     if "starter_contract" in selected_sections:
         result["starter_contract"] = _build_starter_contract(
@@ -121,6 +126,18 @@ def _build_starter_contract(*, operation_names: list[str] | None) -> dict[str, A
         operations = [_project_operation(OPERATION_REGISTRY[name]) for name in ops]
     return {
         "feature_kinds": [kind.value for kind in FeatureKind],
+        "feature_kind_vs_operation_contract": {
+            "feature_kinds": (
+                "Classify nodes: point, curve, region, frame, constraint, annotation, unknown."
+            ),
+            "operation_names": (
+                "Compute/derive node content: ReferenceFrame, TiedPoint, CourseTraverse, Close, etc."
+            ),
+            "annotation_note": (
+                "annotation is a FeatureKind, not an operation; blocked scope usually uses "
+                "kind=annotation with no op_expr."
+            ),
+        },
         "feature_node_kind_contract": build_feature_node_kind_contract(),
         "node_content_alternatives": core["content_rules"]["feature_node_content"],
         "op_expr_shape": core["models"]["OpExpr"]["fields"],
@@ -156,16 +173,27 @@ def _normalize_sections(sections: Sequence[str] | None) -> list[str]:
     return selected
 
 
-def _select_operations(operation_names: Sequence[str] | None) -> list[str]:
+def _resolve_operation_names(
+    operation_names: Sequence[str] | None,
+) -> tuple[list[str], list[dict[str, str]]]:
     if operation_names is None:
-        return sorted(OPERATION_REGISTRY)
+        return sorted(OPERATION_REGISTRY), []
     selected = _unique_non_empty_strings(operation_names)
     if not selected:
         raise ValueError("feature_graph_operation_names_required")
-    unknown = sorted(set(selected) - set(OPERATION_REGISTRY))
-    if unknown:
-        raise ValueError("unknown_feature_graph_operation_names")
-    return selected
+    feature_kinds = {kind.value for kind in FeatureKind}
+    valid: list[str] = []
+    ignored: list[dict[str, str]] = []
+    for name in selected:
+        if name in OPERATION_REGISTRY:
+            valid.append(name)
+        elif name in feature_kinds:
+            ignored.append({"name": name, "reason": "feature_kind_not_operation"})
+        else:
+            ignored.append({"name": name, "reason": "unknown_operation_name"})
+    if not valid:
+        raise ValueError("no_valid_feature_graph_operation_names")
+    return valid, ignored
 
 
 def _project_operation(operation: Any) -> dict[str, Any]:

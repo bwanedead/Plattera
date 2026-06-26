@@ -6,7 +6,7 @@ from collections.abc import Callable, Mapping
 from typing import Any
 
 from .inherited_handoff_projection import build_inherited_handoff_conditions
-from .mapping_operands_projection import build_mapping_operands
+from .operand_suite import build_operand_suite_payload
 from .resolution_state_projection import (
     build_resolution_state_index,
     build_resolution_state_selected_rows,
@@ -147,18 +147,11 @@ def _hydrate_mapping_operands(
     handoff: Mapping[str, Any],
 ) -> tuple[Any | None, list[dict[str, str]]]:
     errors: list[dict[str, str]] = []
-    ref = handoff.get("resolution_state_ref")
-    snapshot = handoff.get("resolution_state_snapshot")
-    if not isinstance(snapshot, Mapping):
+    payload = build_operand_suite_payload(handoff)
+    if payload is None:
         errors.append(_section_error("mapping_operands", "unavailable"))
         return None, errors
-    return (
-        build_mapping_operands(
-            snapshot,
-            resolution_state_ref=str(ref) if ref is not None else None,
-        ),
-        errors,
-    )
+    return payload, errors
 
 
 def _hydrate_resolution_state(

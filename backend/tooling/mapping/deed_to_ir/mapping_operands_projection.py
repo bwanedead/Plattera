@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping
+from collections import defaultdict
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 MAX_MAPPING_OPERANDS = 64
@@ -14,6 +15,10 @@ MAX_OPERAND_CANDIDATE_VALUE_CHARS = 120
 MAX_OPERAND_EVIDENCE_REFS = 8
 
 _PARCEL_ID_FROM_ITEM = re.compile(r"^parcel_(\d+)(?:_|$)")
+_CALL_OPERAND_ID = re.compile(
+    r"^p(?P<parcel_num>\d+)_call(?P<call_index>\d+)_(?P<value_kind>bearing|distance)$",
+    re.IGNORECASE,
+)
 
 
 def build_mapping_operands(
@@ -73,6 +78,84 @@ def build_mapping_operands(
     if truncation:
         payload["truncation"] = truncation
     return payload
+
+
+def build_operand_groups(operands: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    """Mechanically group call bearing/distance rows when operand ids encode call numbers."""
+    pending: dict[tuple[str, int], dict[str, Any]] = {}
+    blocker_groups: list[dict[str, Any]] = []
+
+    for row in operands:
+        if not isinstance(row, Mapping):
+            continue
+        if row.get("operand_role") == "scope_blocker":
+            operand_id = str(row.get("operand_id") or "").strip()
+            if not operand_id:
+                continue
+            blocker_groups.append(
+                {
+                    "group_id": f"{operand_id}_scope",
+                    "parcel_id": row.get("parcel_id"),
+                    "group_kind": "scope_blocker",
+                    "rows": [
+                        {
+                            "operand_id": operand_id,
+                            "title": row.get("title"),
+                            "status": row.get("status"),
+                            "determined_value": row.get("determined_value"),
+                        }
+                    ],
+                }
+            )
+            continue
+
+        operand_id = str(row.get("operand_id") or "").strip()
+        match = _CALL_OPERAND_ID.match(operand_id)
+        if match is None:
+            continue
+        parcel_id = f"parcel_{match.group('parcel_num')}"
+        call_index = int(match.group("call_index"))
+        key = (parcel_id, call_index)
+        slot = pending.setdefault(
+            key,
+            {"call_index": call_index, "parcel_id": parcel_id},
+        )
+        value_kind = match.group("value_kind").lower()
+        if value_kind == "bearing":
+            slot["bearing_operand_id"] = operand_id
+            slot["bearing_raw"] = row.get("determined_value")
+        else:
+            slot["distance_operand_id"] = operand_id
+            slot["distance_raw"] = row.get("determined_value")
+
+    by_parcel: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for (parcel_id, call_index) in sorted(pending.keys(), key=lambda item: (item[0], item[1])):
+        slot = pending[(parcel_id, call_index)]
+        row: dict[str, Any] = {"call_index": call_index}
+        if "bearing_operand_id" in slot:
+            row["bearing_operand_id"] = slot["bearing_operand_id"]
+            row["bearing_raw"] = slot.get("bearing_raw")
+        if "distance_operand_id" in slot:
+            row["distance_operand_id"] = slot["distance_operand_id"]
+            row["distance_raw"] = slot.get("distance_raw")
+        if len(row) > 1:
+            by_parcel[parcel_id].append(row)
+
+    groups: list[dict[str, Any]] = []
+    for parcel_id in sorted(by_parcel):
+        rows = by_parcel[parcel_id]
+        if not rows:
+            continue
+        groups.append(
+            {
+                "group_id": f"{parcel_id}_calls",
+                "parcel_id": parcel_id,
+                "group_kind": "course_call_candidates",
+                "rows": rows,
+            }
+        )
+    groups.extend(blocker_groups)
+    return groups
 
 
 def _project_atom_operand(

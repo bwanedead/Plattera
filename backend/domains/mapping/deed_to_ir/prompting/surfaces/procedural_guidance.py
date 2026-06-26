@@ -9,7 +9,7 @@ from ..branch import DEED_TO_IR_DOMAIN_ID
 DEED_TO_IR_PROCEDURAL_GUIDANCE_SOURCE_REF = (
     "backend/domains/mapping/deed_to_ir/prompting/surfaces/procedural_guidance.py"
 )
-DEED_TO_IR_PROCEDURAL_GUIDANCE_VERSION = "v10"
+DEED_TO_IR_PROCEDURAL_GUIDANCE_VERSION = "v11"
 
 DEED_TO_IR_PROCEDURAL_GUIDANCE_TEXT = """\
 Use this guidance to orient deed-to-IR work. This is **guidance**, not a hard script.
@@ -17,13 +17,16 @@ Use this guidance to orient deed-to-IR work. This is **guidance**, not a hard sc
 ## Startup orientation
 - Read `inherited_handoff_conditions` first — it is the high-salience mechanical copy of upstream parcel metadata, issues, HITL decisions, evidence refs, and transcript lane excerpts.
 - Treat inherited resolution rows as **input/provenance**, not as local work inventory to recreate.
-- Use `mapping_operands` for compact upstream determined values and scope blockers before rereading nested resolution-state rows.
+- Pin the operand suite via `operand_suite_ref` (startup handoff) — cite that ref in local state instead of recopying every evidence detail.
+- Use `mapping_operands` or hydrate `operand_suite_ref` for compact upstream determined values and scope blockers before rereading nested resolution-state rows.
 
 ## Draft IR lifecycle
 - `graph_id` is the **stable logical graph id** — do not embed draft version numbers in `graph_id` (avoid `right_of_way_v1` as graph_id).
 - To continue a working draft, pass `base_draft_ref` from the prior save; the tool allocates versioned artifact refs (`feature_graph:ir:right_of_way_v0`, `..._v1`, ...).
 - `save_ir_artifact` saves a **draft checkpoint** (`draft_version` such as v0, v1, v2) — not final publication.
+- Use `patch_ir_draft` for surgical repair when `draft_repair_items` are directly actionable and operands are already available; use full `save_ir_artifact` for first draft or major rewrite.
 - After initial handoff/capability hydration, prefer saving a first bounded draft IR over rereading upstream lanes.
+- Keep `operand_suite_ref`, the current draft ref, and repair feedback active while drafting.
 - Use `outputs.working_draft_ref` (alias of `draft_ir_ref` / `ir_artifact_ref`) for `@this.result.working_draft_ref` hydrate-next on the same turn batch.
 - Compile/judge feedback on draft save is expected mechanical feedback — use `current_draft_ir.draft_repair_items` and node-precise `compile_gaps` to repair the **same graph_id** and save v2; do not reread operation contracts unless a new primitive is genuinely needed.
 - `placeholder_only_graph`, `renderable_feature_count`, and `mapping_submission_ready_candidate` distinguish schema-valid scaffolds from map-useful IR.
@@ -44,7 +47,7 @@ Use this guidance to orient deed-to-IR work. This is **guidance**, not a hard sc
 - Inventory **deed-to-IR responsibilities**, not transcript-edit atoms or covered units.
 - Do **not** copy inherited covered units into local covered units just to look complete.
 - Local work items should track downstream obligations such as:
-  - author Parcel 1 IR
+  - author Parcel 1 IR (cite `operand_suite_ref` / `parcel_1_traverse_operands` state — do not recopy every operand row)
   - represent Parcel 2 as blocked/partial scope
   - encode governing range decision in IR/provenance
   - submit IR for mapping
