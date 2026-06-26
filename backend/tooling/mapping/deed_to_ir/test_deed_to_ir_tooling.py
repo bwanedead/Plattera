@@ -23,6 +23,8 @@ from tooling.mapping.deed_to_ir.feature_graph_capabilities import describe_featu
 from tooling.mapping.deed_to_ir.input_hydration import make_hydrate_deed_to_ir_input_handler
 from tooling.mapping.deed_to_ir.ir_mapping_submission import submit_ir_for_mapping
 from tooling.mapping.deed_to_ir.ir_persistence import save_ir_artifact
+from tooling.mapping.deed_to_ir.feature_graph_examples import build_deed_to_ir_authoring_example
+from tooling.mapping.deed_to_ir.mapping_operands_projection import build_mapping_operands
 from tooling.mapping.deed_to_ir.resolution_state_projection import (
     build_resolution_state_index,
     build_resolution_state_selected_rows,
@@ -446,6 +448,160 @@ def test_feature_graph_contract_excludes_semantic_node_kind():
     assert "semantic" not in node_kind_enum
     assert "semantic" not in save_spec.expected_request_shape.lower()
     assert "semantic" not in save_spec.purpose.lower()
+
+
+def test_mapping_operands_bounds_row_fields_and_reports_truncation():
+    long_value = "x" * 500
+    long_candidates = [f"candidate_{index}" for index in range(20)]
+    long_refs = [f"image:derived:{index:04d}" for index in range(20)]
+    snapshot = {
+        "items": [
+            {
+                "item_id": "parcel_1_group",
+                "title": "Parcel 1",
+                "kind": "group",
+                "status": "closed",
+                "covered_units": [
+                    {
+                        "unit_id": "p1_call1_distance",
+                        "title": "Call 1 distance",
+                        "value_kind": "distance",
+                        "status": "closed",
+                        "determination": "earned",
+                        "determined_value": long_value,
+                        "candidate_values": long_candidates,
+                        "evidence_refs": long_refs,
+                    }
+                ],
+            }
+        ],
+        "relations": [],
+    }
+    payload = build_mapping_operands(snapshot)
+    row = payload["operands"][0]
+    assert len(row["determined_value"]) <= 320
+    assert row["determined_value"].endswith("…")
+    assert len(row["candidate_values"]) == 8
+    assert len(row["evidence_refs"]) == 8
+    truncation = payload["truncation"]
+    assert truncation["determined_value_chars_truncated"] == 1
+    assert truncation["candidate_values_omitted"] == 12
+    assert truncation["evidence_refs_omitted"] == 12
+
+
+def test_mapping_operands_projection_from_practice_fixture():
+    raw = json.loads(_PRACTICE_RESOLUTION_FIXTURE.read_text(encoding="utf-8"))
+    payload = build_mapping_operands(raw, resolution_state_ref="transcript_edit:resolution_state:practice")
+    assert payload["projection_mode"] == "mapping_operands"
+    operand_ids = {row["operand_id"] for row in payload["operands"]}
+    assert "p1_call1_distance" in operand_ids
+    assert "p1_pob_corner_bearing" in operand_ids
+    assert "parcel_2_continuation_scope" in operand_ids
+    assert "range_reference_conflict" in operand_ids
+    assert "range_reference_governing_choice" in operand_ids
+    blocker = next(row for row in payload["operands"] if row["operand_id"] == "parcel_2_continuation_scope")
+    assert blocker.get("operand_role") == "scope_blocker"
+    dumped = json.dumps(payload)
+    assert "opaque_payload" not in dumped
+    assert "test_fixtures" not in dumped.lower()
+
+
+def test_hydrate_mapping_operands_section_returns_compact_operands():
+    handler = make_hydrate_deed_to_ir_input_handler(handoff_context=_handoff_context())
+    result = handler({"sections": ["mapping_operands"]})
+    assert result["executed"] is True
+    payload = result["outputs"]["results"]["mapping_operands"]
+    assert payload["projection_mode"] == "mapping_operands"
+    assert payload["operands"]
+    assert all("operand_id" in row for row in payload["operands"])
+
+
+def test_deed_to_ir_authoring_example_is_schema_valid_with_provenance():
+    example = build_deed_to_ir_authoring_example()
+    graph_payload = example["graph"]
+    graph = FeatureGraph.model_validate(graph_payload)
+    assert graph.nodes[0].provenance is not None
+    assert graph.nodes[0].provenance.source_entity_links
+    assert "semantic" not in json.dumps(example).lower()
+    caps = describe_feature_graph_capabilities(sections=["examples"])
+    assert "deed_to_ir_authoring" in caps["examples"]
+    assert FeatureGraph.model_validate(caps["examples"]["deed_to_ir_authoring"]["graph"])
+
+
+def test_save_placeholder_only_graph_reports_structural_readiness_false():
+    graph = FeatureGraph(
+        graph_id="placeholder_scaffold",
+        nodes=[
+            FeatureNode(id="parcel_1_scope", kind=FeatureKind.UNKNOWN, label="Parcel 1 scope"),
+            FeatureNode(id="parcel_2_scope", kind=FeatureKind.UNKNOWN, label="Parcel 2 scope"),
+            FeatureNode(
+                id="parcel_2_blocker",
+                kind=FeatureKind.UNKNOWN,
+                label="Parcel 2 continuation blocked",
+            ),
+        ],
+        edges=[],
+        metadata={"notes": "Deed prose parked in metadata instead of graph entities."},
+    )
+    with tempfile.TemporaryDirectory() as tmpdir:
+        from services.feature_graph.feature_graph_persistence_service import FeatureGraphPersistenceService
+
+        service = FeatureGraphPersistenceService(
+            root=Path(tmpdir) / "artifacts",
+            state_dir=Path(tmpdir) / "state",
+        )
+        result = save_ir_artifact(
+            dossier_id="d-test",
+            feature_graph=graph.model_dump(mode="json"),
+            persistence=service,
+        )
+    outputs = result["outputs"]
+    assert outputs["placeholder_only_graph"] is True
+    assert outputs["renderable_feature_count"] == 0
+    assert outputs["unknown_node_count"] == 3
+    assert outputs["mapping_submission_ready_candidate"] is False
+    assert outputs["working_draft_ref"] == outputs["draft_ir_ref"] == outputs["ir_artifact_ref"]
+
+
+def test_save_renderable_draft_can_report_mapping_submission_ready_candidate():
+    graph = FeatureGraph(
+        graph_id="parcel_1_ir",
+        nodes=[
+            FeatureNode(
+                id="start",
+                kind=FeatureKind.POINT,
+                geometry={"type": "Point", "coordinates": [0.0, 0.0]},
+            ),
+            FeatureNode(
+                id="line1",
+                kind=FeatureKind.CURVE,
+                op_expr=OpExpr(
+                    op_name="LineStep",
+                    operands=["start"],
+                    params={"bearing": 0.0, "distance": 100.0},
+                ),
+            ),
+        ],
+        edges=[],
+    )
+    with tempfile.TemporaryDirectory() as tmpdir:
+        from services.feature_graph.feature_graph_persistence_service import FeatureGraphPersistenceService
+
+        service = FeatureGraphPersistenceService(
+            root=Path(tmpdir) / "artifacts",
+            state_dir=Path(tmpdir) / "state",
+        )
+        result = save_ir_artifact(
+            dossier_id="d-test",
+            feature_graph=graph.model_dump(mode="json"),
+            persistence=service,
+        )
+    outputs = result["outputs"]
+    assert outputs["renderable_feature_count"] == 2
+    assert outputs["placeholder_only_graph"] is False
+    assert "mapping_submission_ready_candidate" in outputs
+    if outputs["mechanically_mappable_candidate"]:
+        assert outputs["mapping_submission_ready_candidate"] is True
 
 
 def test_mixed_parent_and_child_resolution_ids_do_not_false_not_found():

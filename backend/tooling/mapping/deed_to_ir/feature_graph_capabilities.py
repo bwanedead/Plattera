@@ -17,6 +17,7 @@ from .feature_graph_contract_projection import (
 )
 from .feature_graph_examples import (
     build_complete_supported_graph_example,
+    build_deed_to_ir_authoring_example,
     build_direct_geometry_example,
     build_operation_example,
     build_reference_node_example,
@@ -91,6 +92,7 @@ def describe_feature_graph_capabilities(
                 "unless the deed evidence independently supports them."
             ),
             "complete_supported_graph": build_complete_supported_graph_example(),
+            "deed_to_ir_authoring": build_deed_to_ir_authoring_example(),
             "direct_geometry_node": build_direct_geometry_example(),
             "external_feature_reference_node": build_reference_node_example(),
             "operation_expressions": {

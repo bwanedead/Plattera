@@ -46,7 +46,11 @@ def test_ir_tool_specs_expose_core_contract_and_capability_filters() -> None:
     props = describe.expected_request_json_shape["properties"]
     assert "sections" in props
     assert "operation_names" in props
-    assert "validation_schema" in props["sections"]["items"]["enum"]
+    section_enum = props["sections"]["items"]["enum"]
+    assert "starter_contract" in section_enum
+    assert "validation_schema" in section_enum
+    assert "defaults to starter_contract" in describe.expected_request_shape.lower()
+    assert "starter_contract" in describe.expected_result_shape.lower()
 
 
 def test_hydrate_tool_spec_exposes_resolution_projection_limits() -> None:

@@ -90,16 +90,72 @@ def run_draft_compile_judge(
         }
 
 
+def compute_draft_structural_metrics(graph: FeatureGraph) -> dict[str, Any]:
+    """Mechanical draft structure counts — no deed-correctness inference."""
+    geometry_count = 0
+    op_expr_count = 0
+    feature_ref_count = 0
+    renderable_count = 0
+    unknown_count = 0
+
+    for node in graph.nodes:
+        if node.kind == FeatureKind.UNKNOWN:
+            unknown_count += 1
+        has_geometry = node.geometry is not None
+        has_op_expr = node.op_expr is not None
+        has_feature_ref = node.feature_ref is not None
+        if has_geometry:
+            geometry_count += 1
+        if has_op_expr:
+            op_expr_count += 1
+        if has_feature_ref:
+            feature_ref_count += 1
+        if has_geometry or has_op_expr or has_feature_ref:
+            renderable_count += 1
+
+    link_count = _count_source_entity_links(graph)
+    placeholder_only_graph = (
+        len(graph.nodes) > 0
+        and renderable_count == 0
+        and all(node.kind == FeatureKind.UNKNOWN for node in graph.nodes)
+    )
+    return {
+        "node_count": len(graph.nodes),
+        "unknown_node_count": unknown_count,
+        "renderable_feature_count": renderable_count,
+        "geometry_feature_count": geometry_count,
+        "op_expr_feature_count": op_expr_count,
+        "feature_ref_count": feature_ref_count,
+        "edge_count": len(graph.edges),
+        "source_entity_link_count": link_count,
+        "placeholder_only_graph": placeholder_only_graph,
+    }
+
+
 def build_evaluation_feedback(
     *,
     compile_outcome: PersistedCompileOutcome | None,
     judge_outcome: PersistedJudgeOutcome | None,
+    structural_metrics: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     compile_gaps = _bound_compile_gaps(compile_outcome)
     judge_findings = _bound_judge_findings(judge_outcome)
     evaluation_succeeded = compile_outcome is not None and judge_outcome is not None
     compile_gap_count = compile_outcome.gap_count if compile_outcome is not None else None
     judge_finding_count = judge_outcome.gap_count if judge_outcome is not None else None
+    metrics = dict(structural_metrics or {})
+    mechanically_mappable_candidate = (
+        evaluation_succeeded
+        and compile_outcome.gap_count == 0
+        and judge_outcome.gap_count == 0
+    )
+    mapping_submission_ready_candidate = (
+        evaluation_succeeded
+        and compile_outcome.gap_count == 0
+        and judge_outcome.gap_count == 0
+        and not metrics.get("placeholder_only_graph", True)
+        and int(metrics.get("renderable_feature_count") or 0) > 0
+    )
     return {
         "compile_artifact_ref": compile_outcome.artifact_ref if compile_outcome else None,
         "judge_artifact_ref": judge_outcome.artifact_ref if judge_outcome else None,
@@ -107,11 +163,9 @@ def build_evaluation_feedback(
         "judge_finding_count": judge_finding_count,
         "compile_gaps": compile_gaps,
         "judge_findings": judge_findings,
-        "mechanically_mappable_candidate": (
-            evaluation_succeeded
-            and compile_outcome.gap_count == 0
-            and judge_outcome.gap_count == 0
-        ),
+        "mechanically_mappable_candidate": mechanically_mappable_candidate,
+        "mapping_submission_ready_candidate": mapping_submission_ready_candidate,
+        **metrics,
     }
 
 
@@ -124,19 +178,15 @@ def build_current_draft_ir(
     evaluation_feedback: Mapping[str, Any],
     evaluation_warning: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    unknown_count = sum(1 for node in graph.nodes if node.kind == FeatureKind.UNKNOWN)
-    link_count = _count_source_entity_links(graph)
+    structural_metrics = compute_draft_structural_metrics(graph)
     payload: dict[str, Any] = {
         "draft_ir_ref": ir_artifact_ref,
         "ir_artifact_ref": ir_artifact_ref,
+        "working_draft_ref": ir_artifact_ref,
         "draft_version": draft_version,
         "draft_sequence_index": draft_sequence_index,
         "is_draft": True,
         "graph_id": graph.graph_id,
-        "node_count": len(graph.nodes),
-        "edge_count": len(graph.edges),
-        "unknown_node_count": unknown_count,
-        "source_entity_link_count": link_count,
         "nodes": _summarize_nodes(graph),
         "edges": _summarize_edges(graph),
         "compile_artifact_ref": evaluation_feedback.get("compile_artifact_ref"),
@@ -144,8 +194,12 @@ def build_current_draft_ir(
         "compile_gap_count": evaluation_feedback.get("compile_gap_count", 0),
         "judge_finding_count": evaluation_feedback.get("judge_finding_count", 0),
         "mechanically_mappable_candidate": evaluation_feedback.get("mechanically_mappable_candidate"),
+        "mapping_submission_ready_candidate": evaluation_feedback.get(
+            "mapping_submission_ready_candidate"
+        ),
         "compile_gaps": evaluation_feedback.get("compile_gaps") or [],
         "judge_findings": evaluation_feedback.get("judge_findings") or [],
+        **structural_metrics,
     }
     if evaluation_warning:
         payload["evaluation_warning"] = dict(evaluation_warning)
@@ -164,17 +218,27 @@ def compact_current_draft_ir_for_projection(
     judge_findings = current_draft_ir.get("judge_findings")
     summary: dict[str, Any] = {
         "draft_ir_ref": current_draft_ir.get("draft_ir_ref"),
+        "working_draft_ref": current_draft_ir.get("working_draft_ref")
+        or current_draft_ir.get("draft_ir_ref"),
         "draft_version": current_draft_ir.get("draft_version"),
         "graph_id": current_draft_ir.get("graph_id"),
         "node_count": current_draft_ir.get("node_count"),
         "edge_count": current_draft_ir.get("edge_count"),
         "unknown_node_count": current_draft_ir.get("unknown_node_count"),
+        "renderable_feature_count": current_draft_ir.get("renderable_feature_count"),
+        "geometry_feature_count": current_draft_ir.get("geometry_feature_count"),
+        "op_expr_feature_count": current_draft_ir.get("op_expr_feature_count"),
+        "feature_ref_count": current_draft_ir.get("feature_ref_count"),
         "source_entity_link_count": current_draft_ir.get("source_entity_link_count"),
+        "placeholder_only_graph": current_draft_ir.get("placeholder_only_graph"),
         "compile_artifact_ref": current_draft_ir.get("compile_artifact_ref"),
         "judge_artifact_ref": current_draft_ir.get("judge_artifact_ref"),
         "compile_gap_count": current_draft_ir.get("compile_gap_count"),
         "judge_finding_count": current_draft_ir.get("judge_finding_count"),
         "mechanically_mappable_candidate": current_draft_ir.get("mechanically_mappable_candidate"),
+        "mapping_submission_ready_candidate": current_draft_ir.get(
+            "mapping_submission_ready_candidate"
+        ),
     }
     if isinstance(nodes, list):
         summary["nodes"] = nodes[:MAX_DRAFT_NODE_SUMMARY]
@@ -217,6 +281,9 @@ def render_current_draft_ir_timeline_lines(
         "node_count",
         "edge_count",
         "unknown_node_count",
+        "renderable_feature_count",
+        "placeholder_only_graph",
+        "mapping_submission_ready_candidate",
         "compile_gap_count",
         "judge_finding_count",
         "mechanically_mappable_candidate",
@@ -225,6 +292,8 @@ def render_current_draft_ir_timeline_lines(
             lines.append(f"{indent}  {key}: {summary.get(key)}")
     if summary.get("draft_ir_ref"):
         lines.append(f"{indent}  draft_ir_ref: {summary.get('draft_ir_ref')}")
+    if summary.get("working_draft_ref"):
+        lines.append(f"{indent}  working_draft_ref: {summary.get('working_draft_ref')}")
     return lines
 
 

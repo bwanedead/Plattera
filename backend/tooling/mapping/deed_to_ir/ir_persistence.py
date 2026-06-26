@@ -18,6 +18,7 @@ from .draft_ir_lifecycle import (
     build_current_draft_ir,
     build_draft_source_metadata,
     build_evaluation_feedback,
+    compute_draft_structural_metrics,
     resolve_draft_sequence_index,
     run_draft_compile_judge,
 )
@@ -55,20 +56,18 @@ def save_ir_artifact(
         graph_id=graph.graph_id,
         artifact_id=resolved_artifact_id if artifact_id else None,
     )
-    draft_version = build_draft_source_metadata(
+    source_metadata = build_draft_source_metadata(
         graph_id=graph.graph_id,
         draft_sequence_index=draft_sequence_index,
-    )["draft_version"]
+    )
+    draft_version = source_metadata["draft_version"]
     artifact = create_ir_artifact(
         artifact_id=resolved_artifact_id,
         graph=graph,
         created_by=created_by or "deed_to_ir_agent",
         source_document_id=source_document_id,
     )
-    artifact.source_metadata = build_draft_source_metadata(
-        graph_id=graph.graph_id,
-        draft_sequence_index=draft_sequence_index,
-    )
+    artifact.source_metadata = source_metadata
     service.save_artifact(artifact, dossier_id=dossier_id)
 
     ir_ref = build_feature_graph_artifact_ref("ir", resolved_artifact_id)
@@ -80,9 +79,11 @@ def save_ir_artifact(
     )
     compile_outcome = evaluation_artifacts.compile_outcome if evaluation_artifacts else None
     judge_outcome = evaluation_artifacts.judge_outcome if evaluation_artifacts else None
+    structural_metrics = compute_draft_structural_metrics(graph)
     evaluation_feedback = build_evaluation_feedback(
         compile_outcome=compile_outcome,
         judge_outcome=judge_outcome,
+        structural_metrics=structural_metrics,
     )
     current_draft_ir = build_current_draft_ir(
         graph=graph,
@@ -102,14 +103,12 @@ def save_ir_artifact(
     outputs: dict[str, Any] = {
         "ir_artifact_ref": ir_ref,
         "draft_ir_ref": ir_ref,
+        "working_draft_ref": ir_ref,
         "draft_version": draft_version,
         "draft_sequence_index": draft_sequence_index,
         "is_draft": True,
         "artifact_id": resolved_artifact_id,
         "graph_id": graph.graph_id,
-        "node_count": len(graph.nodes),
-        "edge_count": len(graph.edges),
-        "source_entity_link_count": current_draft_ir["source_entity_link_count"],
         "validation_errors": [],
         "current_draft_ir": current_draft_ir,
         **evaluation_feedback,

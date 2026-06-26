@@ -6,6 +6,7 @@ from collections.abc import Callable, Mapping
 from typing import Any
 
 from .inherited_handoff_projection import build_inherited_handoff_conditions
+from .mapping_operands_projection import build_mapping_operands
 from .resolution_state_projection import (
     build_resolution_state_index,
     build_resolution_state_selected_rows,
@@ -27,6 +28,7 @@ VALID_SECTIONS = frozenset(
         "hitl_decisions",
         "evidence_refs",
         "resolution_state",
+        "mapping_operands",
     }
 )
 
@@ -136,7 +138,27 @@ def _hydrate_section(
             resolution_unit_ids,
             unit_ids_omitted=unit_ids_omitted,
         )
+    if section == "mapping_operands":
+        return _hydrate_mapping_operands(handoff)
     return None, [_section_error(section, "unsupported")]
+
+
+def _hydrate_mapping_operands(
+    handoff: Mapping[str, Any],
+) -> tuple[Any | None, list[dict[str, str]]]:
+    errors: list[dict[str, str]] = []
+    ref = handoff.get("resolution_state_ref")
+    snapshot = handoff.get("resolution_state_snapshot")
+    if not isinstance(snapshot, Mapping):
+        errors.append(_section_error("mapping_operands", "unavailable"))
+        return None, errors
+    return (
+        build_mapping_operands(
+            snapshot,
+            resolution_state_ref=str(ref) if ref is not None else None,
+        ),
+        errors,
+    )
 
 
 def _hydrate_resolution_state(

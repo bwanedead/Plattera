@@ -170,6 +170,9 @@ def test_timeline_renders_draft_version_and_counts():
                     "compile_gap_count": 0,
                     "judge_finding_count": 1,
                     "mechanically_mappable_candidate": False,
+                    "mapping_submission_ready_candidate": False,
+                    "placeholder_only_graph": False,
+                    "renderable_feature_count": 2,
                 },
                 "compile_gap_count": 0,
                 "judge_finding_count": 1,
@@ -180,6 +183,7 @@ def test_timeline_renders_draft_version_and_counts():
     assert "draft_version: v1" in body
     assert "compile_gap_count: 0" in body
     assert "judge_finding_count: 1" in body
+    assert "mapping_submission_ready_candidate" in body
 
 
 def test_draft_metadata_helpers():
@@ -207,6 +211,7 @@ def test_build_evaluation_feedback_without_outcomes_is_not_mappable():
     assert feedback["compile_gap_count"] is None
     assert feedback["judge_finding_count"] is None
     assert feedback["mechanically_mappable_candidate"] is False
+    assert feedback["mapping_submission_ready_candidate"] is False
 
 
 def test_evaluation_failure_still_saves_draft_but_not_mappable_candidate():

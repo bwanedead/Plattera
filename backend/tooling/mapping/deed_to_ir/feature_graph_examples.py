@@ -75,6 +75,92 @@ def build_complete_supported_graph_example() -> dict[str, Any]:
     }
 
 
+def build_deed_to_ir_authoring_example() -> dict[str, Any]:
+    """Compact deed-to-IR authoring pattern with operand provenance and blocked scope."""
+    graph = {
+        "graph_id": "parcel_1_deed_to_ir_example",
+        "nodes": [
+            {
+                "id": "parcel_1_origin",
+                "kind": "point",
+                "label": "Parcel 1 beginning point",
+                "op_expr": {
+                    "op_name": "TiedPoint",
+                    "params": {},
+                    "operands": [],
+                },
+                "provenance": {
+                    "source_entity_links": [
+                        _resolution_unit_link("p1_pob_canal_offset"),
+                    ]
+                },
+            },
+            {
+                "id": "parcel_1_call_1",
+                "kind": "curve",
+                "label": "Parcel 1 first course",
+                "op_expr": {
+                    "op_name": "LineStep",
+                    "params": {
+                        "bearing": 68.5,
+                        "distance": 542.0,
+                        "bearing_raw": "N. 68° 30' East",
+                        "distance_raw": "542 feet, more or less",
+                    },
+                    "operands": ["parcel_1_origin"],
+                },
+                "provenance": {
+                    "source_entity_links": [
+                        _resolution_unit_link("p1_call1_bearing"),
+                        _resolution_unit_link("p1_call1_distance"),
+                    ]
+                },
+            },
+            {
+                "id": "parcel_2_blocked_scope",
+                "kind": "annotation",
+                "label": "Parcel 2 visible opening only — continuation unavailable",
+                "provenance": {
+                    "source_entity_links": [
+                        _resolution_unit_link("parcel_2_continuation_scope"),
+                    ]
+                },
+            },
+        ],
+        "edges": [
+            {
+                "source_id": "parcel_1_origin",
+                "target_id": "parcel_1_call_1",
+                "edge_type": "next_step",
+            }
+        ],
+        "metadata": {
+            "notes": (
+                "Bounded metadata only. Determined deed values belong on op-backed nodes with "
+                "provenance.source_entity_links — not as a metadata substitute for IR structure."
+            ),
+        },
+    }
+    return {
+        "intent": (
+            "Show how mapping_operands rows become op-backed nodes with provenance, and how blocked "
+            "scope is represented without invented geometry."
+        ),
+        "operand_source": "hydrate_deed_to_ir_input sections=[mapping_operands]",
+        "graph": graph,
+        "blocked_scope_pattern": {
+            "operand_role": "scope_blocker",
+            "supported_representation": (
+                "Use annotation or unknown without geometry/op_expr/feature_ref when continuation "
+                "is unavailable."
+            ),
+            "do_not": (
+                "Do not park deed meaning only in graph.metadata or fabricate unavailable calls."
+            ),
+        },
+    }
+
+
 def build_operation_example(operation: OperationDef) -> dict[str, Any]:
     params = {
         parameter.name: _parameter_example(parameter)

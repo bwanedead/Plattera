@@ -12,7 +12,17 @@ from tooling.mapping.deed_to_ir.feature_graph_contract_projection import (
     build_compact_feature_node_request_schema,
     build_feature_node_kind_contract,
 )
+from tooling.mapping.deed_to_ir.feature_graph_capabilities import (
+    DEFAULT_CAPABILITY_SECTIONS,
+    VALID_CAPABILITY_SECTIONS,
+)
 from tooling.mapping.deed_to_ir.input_hydration import MAX_RESOLUTION_UNIT_IDS, VALID_SECTIONS
+from tooling.mapping.deed_to_ir.mapping_operands_projection import (
+    MAX_MAPPING_OPERANDS,
+    MAX_OPERAND_CANDIDATE_VALUES,
+    MAX_OPERAND_DETERMINED_VALUE_CHARS,
+    MAX_OPERAND_EVIDENCE_REFS,
+)
 from tooling.mapping.deed_to_ir.resolution_state_projection import (
     MAX_INDEX_ITEMS,
     MAX_INDEX_RELATIONS,
@@ -46,7 +56,9 @@ def build_deed_to_ir_tool_specs() -> tuple[SemanticToolSpec, ...]:
                 "Every successful call also returns inherited_handoff_conditions — a compact mechanical "
                 "copy of upstream parcel/issue/HITL/evidence/transcript lanes (not agent conclusions). "
                 "Sections include inherited_handoff_conditions, transcript lanes, parcel metadata, issues, "
-                "HITL decisions, and evidence refs. "
+                "HITL decisions, evidence refs, mapping_operands, and resolution_state. "
+                "mapping_operands returns a compact table of upstream determined values and scope blockers "
+                "for IR authoring without nested resolution-state rereads. "
                 "resolution_state returns a compact index by default (projection_mode=index: item/unit/relation "
                 "inventory without opaque payloads). When resolution_unit_ids is supplied, returns selected_rows "
                 "projections for the requested ids only. Deterministic code copies fields mechanically — "
@@ -86,8 +98,7 @@ def build_deed_to_ir_tool_specs() -> tuple[SemanticToolSpec, ...]:
                 "additionalProperties": False,
             },
             example_request={
-                "sections": ["normalized_transcript", "resolution_state"],
-                "resolution_unit_ids": ["p1_call1_distance"],
+                "sections": ["mapping_operands", "normalized_transcript"],
             },
             batching={
                 "allowed": True,
@@ -99,6 +110,11 @@ def build_deed_to_ir_tool_specs() -> tuple[SemanticToolSpec, ...]:
                 "outputs.inherited_handoff_conditions: always present — bounded mechanical copy of upstream "
                 "parcel forwardability, issues, HITL decisions, evidence refs, and transcript lane excerpts. "
                 "outputs.results: map of section -> bounded payload. "
+                "mapping_operands: projection_mode=mapping_operands with compact operand rows for closed/earned "
+                f"atoms and scope blockers (max {MAX_MAPPING_OPERANDS} emitted rows; per-row caps on "
+                f"determined_value ({MAX_OPERAND_DETERMINED_VALUE_CHARS} chars), candidate_values "
+                f"(max {MAX_OPERAND_CANDIDATE_VALUES}), evidence_refs (max {MAX_OPERAND_EVIDENCE_REFS}); "
+                "explicit truncation counts). "
                 "resolution_state without resolution_unit_ids: projection_mode=index with compact "
                 f"items (max {MAX_INDEX_ITEMS}), units (max {MAX_INDEX_UNITS}), relations (max {MAX_INDEX_RELATIONS}), "
                 "and optional truncation counts. "
@@ -119,8 +135,8 @@ def build_deed_to_ir_tool_specs() -> tuple[SemanticToolSpec, ...]:
                 "canonical Pydantic schema is needed. Does not recommend which operation the deed should use."
             ),
             expected_request_shape=(
-                "sections: optional non-empty subset of core_schema|provenance|operations|examples|artifact_refs|"
-                "validation_schema; defaults to all ergonomic sections except validation_schema. "
+                "sections: optional non-empty subset of starter_contract|core_schema|provenance|operations|"
+                "examples|artifact_refs|validation_schema; defaults to starter_contract when omitted. "
                 "operation_names: optional exact registered operation names filtering operations/examples."
             ),
             expected_request_json_shape={
@@ -130,14 +146,7 @@ def build_deed_to_ir_tool_specs() -> tuple[SemanticToolSpec, ...]:
                         "type": ["array", "null"],
                         "items": {
                             "type": "string",
-                            "enum": [
-                                "core_schema",
-                                "provenance",
-                                "operations",
-                                "examples",
-                                "artifact_refs",
-                                "validation_schema",
-                            ],
+                            "enum": sorted(VALID_CAPABILITY_SECTIONS),
                         },
                         "minItems": 1,
                     },
@@ -150,8 +159,7 @@ def build_deed_to_ir_tool_specs() -> tuple[SemanticToolSpec, ...]:
                 "additionalProperties": False,
             },
             example_request={
-                "sections": ["core_schema", "provenance", "operations", "examples"],
-                "operation_names": ["TiedPoint", "CourseTraverse", "Close"],
+                "sections": list(DEFAULT_CAPABILITY_SECTIONS),
             },
             batching={
                 "allowed": True,
@@ -160,9 +168,12 @@ def build_deed_to_ir_tool_specs() -> tuple[SemanticToolSpec, ...]:
                 "can_run_parallel": True,
             },
             expected_result_shape=(
-                "Selected contract sections. Core includes model_schemas, feature_kinds, content rules, geometry, "
-                "and edge conventions. Operations include exact params, units, operands, support status, and examples. "
-                "Provenance includes source_entity_links. Examples include one complete supported graph."
+                "Selected contract sections. Default starter_contract returns compact feature kinds, node-content "
+                "rules, provenance link fields, artifact ref prefixes, and a bounded operation index. "
+                "core_schema includes model_schemas, feature_kinds, content rules, geometry, and edge conventions. "
+                "Operations include exact params, units, operands, support status, and examples. "
+                "Provenance includes source_entity_links. Examples include complete_supported_graph and "
+                "deed_to_ir_authoring patterns."
             ),
         ),
         SemanticToolSpec(
@@ -244,11 +255,14 @@ def build_deed_to_ir_tool_specs() -> tuple[SemanticToolSpec, ...]:
                 "side_effect_class": "write",
             },
             expected_result_shape=(
-                "On success: draft checkpoint identity — outputs.draft_ir_ref (alias of ir_artifact_ref), "
-                "draft_version (v0, v1, ...), draft_sequence_index, is_draft=true, graph counts, "
-                "current_draft_ir compact lane, compile_artifact_ref, judge_artifact_ref, "
-                "compile_gap_count, judge_finding_count, bounded compile_gaps/judge_findings, and "
-                "mechanically_mappable_candidate (no blocking mechanical gaps only — not deed-correct). "
+                "On success: draft checkpoint identity — outputs.ir_artifact_ref (canonical), "
+                "outputs.draft_ir_ref and outputs.working_draft_ref (ergonomic aliases of the same ref), "
+                "draft_version (v0, v1, ...), draft_sequence_index, is_draft=true, structural draft metrics "
+                "(node/edge counts, unknown/renderable/geometry/op_expr/feature_ref counts, "
+                "source_entity_link_count, placeholder_only_graph), current_draft_ir compact lane, "
+                "compile_artifact_ref, judge_artifact_ref, compile_gap_count, judge_finding_count, "
+                "bounded compile_gaps/judge_findings, mechanically_mappable_candidate (compile/judge-only), "
+                "and mapping_submission_ready_candidate (structural + compile/judge readiness — not deed-correct). "
                 "On validation failure: executed=false, reason_codes=[feature_graph_validation_failed], "
                 "retryable refusal, and bounded outputs.validation_errors (no artifact saved)."
             ),
