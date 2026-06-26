@@ -31,6 +31,7 @@ class OperationCategory(str, Enum):
     """
     TRAVERSE = "traverse"        # Build curves from measurements (LineStep, CurveStep, etc)
     DERIVE = "derive"            # Transform features (Close, Buffer, Offset, etc)
+    FRAME = "frame"              # Non-rendered survey/frame descriptors (ReferenceFrame)
     CONSTRAINT = "constraint"    # Geometric constraints (Distance, Angle, etc)
     BOOLEAN = "boolean"          # Region boolean operations (Union, Intersection, etc)
     UNKNOWN = "unknown"          # Unsupported or not yet categorized
@@ -238,6 +239,35 @@ TRAVERSE_TIED_POINT = OperationDef(
     supported=True,
 )
 
+FRAME_REFERENCE_FRAME = OperationDef(
+    name="ReferenceFrame",
+    category=OperationCategory.FRAME,
+    description="Non-rendered PLSS/survey frame descriptor (no geometry required)",
+    parameters=[
+        ParameterSpec(
+            name="frame_type",
+            param_type="string",
+            required=False,
+            description="Frame family (e.g. plss)",
+        ),
+        ParameterSpec(name="section", param_type="string", required=False),
+        ParameterSpec(name="township", param_type="string", required=False),
+        ParameterSpec(name="range", param_type="string", required=False),
+        ParameterSpec(name="meridian", param_type="string", required=False),
+        ParameterSpec(name="aliquot", param_type="string", required=False),
+        ParameterSpec(name="raw_text", param_type="string", required=False),
+        ParameterSpec(
+            name="normalized_from",
+            param_type="string",
+            required=False,
+            description="Optional upstream normalization source ref",
+        ),
+    ],
+    min_operands=0,
+    max_operands=0,
+    supported=True,
+)
+
 # ============================================================================
 # DERIVE OPERATIONS
 # ============================================================================
@@ -245,8 +275,23 @@ TRAVERSE_TIED_POINT = OperationDef(
 DERIVE_CLOSE = OperationDef(
     name="Close",
     category=OperationCategory.DERIVE,
-    description="Close a curve to produce a region (only if curve endpoints meet)",
-    parameters=[],
+    description="Close a curve to produce a region (strict or snap-to-start within tolerance)",
+    parameters=[
+        ParameterSpec(
+            name="closure_tolerance",
+            param_type="number",
+            required=False,
+            unit="feet",
+            description="Maximum endpoint gap allowed for closure (feet)",
+        ),
+        ParameterSpec(
+            name="closure_mode",
+            param_type="string",
+            required=False,
+            default="require_exact",
+            description="require_exact (default) or snap_to_start",
+        ),
+    ],
     min_operands=1,
     max_operands=1,  # Takes exactly one curve operand
     supported=True
@@ -428,6 +473,7 @@ OPERATION_REGISTRY: Dict[str, OperationDef] = {
     "ConstraintStep": TRAVERSE_CONSTRAINT_STEP,
     "CourseTraverse": TRAVERSE_COURSE_TRAVERSE,
     "TiedPoint": TRAVERSE_TIED_POINT,
+    "ReferenceFrame": FRAME_REFERENCE_FRAME,
 
     # Derive operations
     "Close": DERIVE_CLOSE,

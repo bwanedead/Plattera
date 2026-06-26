@@ -9,7 +9,7 @@ from ..branch import DEED_TO_IR_DOMAIN_ID
 DEED_TO_IR_PROCEDURAL_GUIDANCE_SOURCE_REF = (
     "backend/domains/mapping/deed_to_ir/prompting/surfaces/procedural_guidance.py"
 )
-DEED_TO_IR_PROCEDURAL_GUIDANCE_VERSION = "v8"
+DEED_TO_IR_PROCEDURAL_GUIDANCE_VERSION = "v9"
 
 DEED_TO_IR_PROCEDURAL_GUIDANCE_TEXT = """\
 Use this guidance to orient deed-to-IR work. This is **guidance**, not a hard script.
@@ -20,15 +20,25 @@ Use this guidance to orient deed-to-IR work. This is **guidance**, not a hard sc
 - Use `mapping_operands` for compact upstream determined values and scope blockers before rereading nested resolution-state rows.
 
 ## Draft IR lifecycle
+- `graph_id` is the **stable logical graph id** — do not embed draft version numbers in `graph_id` (avoid `right_of_way_v1` as graph_id).
+- To continue a working draft, pass `base_draft_ref` from the prior save; the tool allocates versioned artifact refs (`feature_graph:ir:right_of_way_v0`, `..._v1`, ...).
 - `save_ir_artifact` saves a **draft checkpoint** (`draft_version` such as v0, v1, v2) — not final publication.
 - After initial handoff/capability hydration, prefer saving a first bounded draft IR over rereading upstream lanes.
 - Use `outputs.working_draft_ref` (alias of `draft_ir_ref` / `ir_artifact_ref`) for `@this.result.working_draft_ref` hydrate-next on the same turn batch.
-- Compile/judge feedback on draft save is expected mechanical feedback — repair the draft and save again.
+- Compile/judge feedback on draft save is expected mechanical feedback — use `current_draft_ir.draft_repair_items` and node-precise `compile_gaps` to repair the **same graph_id** and save v2; do not reread operation contracts unless a new primitive is genuinely needed.
 - `placeholder_only_graph`, `renderable_feature_count`, and `mapping_submission_ready_candidate` distinguish schema-valid scaffolds from map-useful IR.
 - `mechanically_mappable_candidate` means only that no blocking mechanical compile/judge gaps were detected; it is **not** deed-correctness, closure truth, or submission readiness by itself.
 - Do not treat `unknown` nodes with deed prose parked in `graph.metadata` as sufficient map IR.
 - `submit_ir_for_mapping` is the deliberate mapping attempt once structural readiness is honest enough for inspection.
 - `publish_deed_to_ir_output` is final scoped handoff only.
+
+## Supported deed-to-IR authoring pattern
+- **ReferenceFrame** — PLSS / survey frame context (non-rendered descriptor; not invented ops like `public_land_survey_frame`).
+- **TiedPoint** — POB or tied descriptive anchor.
+- **CourseTraverse** — canonical ordered deed call sequence (not invented `deed_call_sequence` ops).
+- **Close** — parcel region from a traverse; when calls are "more or less" and endpoints nearly meet, author explicit `closure_mode: snap_to_start` and `closure_tolerance` (feet) — deterministic code does not choose this policy.
+- **annotation** — blocked/incomplete scopes (e.g. Parcel 2 continuation unavailable) without fake geometry.
+- Unsupported invented ops may preserve meaning in prose but are **not mapping-ready** for a scope you intend to map.
 
 ## Work inventory means downstream deed-to-IR responsibilities
 - Inventory **deed-to-IR responsibilities**, not transcript-edit atoms or covered units.

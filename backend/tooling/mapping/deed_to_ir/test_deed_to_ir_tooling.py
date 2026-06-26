@@ -88,16 +88,20 @@ def test_capability_operation_filter_and_examples_are_valid():
     assert [row["name"] for row in caps["registered_operations"]] == selected
     assert set(caps["examples"]["operation_expressions"]) == set(selected)
     assert "never copy example values" in caps["examples"]["warning"].lower()
-    assert caps["examples"]["complete_supported_graph"]["nodes"][0]["op_expr"]["params"] == {}
     graph_payload = caps["examples"]["complete_supported_graph"]
-    boundary_links = graph_payload["nodes"][1]["provenance"]["source_entity_links"]
+    assert graph_payload["nodes"][0]["op_expr"]["op_name"] == "ReferenceFrame"
+    assert graph_payload["nodes"][0]["op_expr"]["params"]["frame_type"] == "plss"
+    boundary_links = graph_payload["nodes"][2]["provenance"]["source_entity_links"]
     assert len(boundary_links) == 8
     assert all(link["entity_type"] == "resolution_unit" for link in boundary_links)
     graph = FeatureGraph.model_validate(graph_payload)
     compiled = compile_graph(graph)
-    assert {"parcel_1_origin", "parcel_1_boundary", "parcel_1_region"}.issubset(
-        compiled.compiled_features
-    )
+    assert {
+        "parcel_1_frame",
+        "parcel_1_origin",
+        "parcel_1_boundary",
+        "parcel_1_region",
+    }.issubset(compiled.compiled_features)
 
 
 def test_capability_registry_projection_matches_registered_vocabulary():
@@ -520,8 +524,12 @@ def test_deed_to_ir_authoring_example_is_schema_valid_with_provenance():
     example = build_deed_to_ir_authoring_example()
     graph_payload = example["graph"]
     graph = FeatureGraph.model_validate(graph_payload)
-    assert graph.nodes[0].provenance is not None
-    assert graph.nodes[0].provenance.source_entity_links
+    origin = next(node for node in graph.nodes if node.id == "parcel_1_origin")
+    assert origin.provenance is not None
+    assert origin.provenance.source_entity_links
+    blocked = next(node for node in graph.nodes if node.id == "parcel_2_blocked_scope")
+    assert blocked.kind.value == "annotation"
+    assert blocked.provenance is not None
     assert "semantic" not in json.dumps(example).lower()
     caps = describe_feature_graph_capabilities(sections=["examples"])
     assert "deed_to_ir_authoring" in caps["examples"]

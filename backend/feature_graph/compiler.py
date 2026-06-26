@@ -345,8 +345,47 @@ def compile_close(
     # Check if curve is closed (first and last points are equal within tolerance)
     first_point = tuple(coords[0])
     last_point = tuple(coords[-1])
+    params = op_expr.params or {}
+    closure_mode = str(params.get("closure_mode") or "require_exact").strip().lower()
+    strict_tolerance = 0.01
+    if closure_mode == "snap_to_start":
+        raw_tolerance = params.get("closure_tolerance")
+        if raw_tolerance is None:
+            result.add_gap(missing_parameter_gap(
+                feature_id=node.id,
+                operation="Close",
+                parameter_name="closure_tolerance",
+                metadata={"closure_mode": closure_mode},
+            ))
+            return None
+        try:
+            closure_tolerance = float(raw_tolerance)
+        except (TypeError, ValueError):
+            result.add_gap(missing_parameter_gap(
+                feature_id=node.id,
+                operation="Close",
+                parameter_name="closure_tolerance",
+                metadata={"closure_mode": closure_mode, "reason": "closure_tolerance must be numeric"},
+            ))
+            return None
+    else:
+        closure_tolerance = strict_tolerance
 
-    if not points_equal(first_point, last_point):
+    endpoint_distance = math.sqrt(
+        (first_point[0] - last_point[0]) ** 2 + (first_point[1] - last_point[1]) ** 2
+    )
+
+    if points_equal(first_point, last_point, tolerance=closure_tolerance):
+        polygon_coords = coords
+    elif closure_mode == "snap_to_start" and endpoint_distance <= closure_tolerance:
+        snapped_last = list(first_point)
+        polygon_coords = coords[:-1] + [snapped_last]
+        if not points_equal(tuple(polygon_coords[0]), tuple(polygon_coords[-1]), tolerance=closure_tolerance):
+            polygon_coords = polygon_coords + [polygon_coords[0]]
+        result.add_warning(
+            f"Close '{node.id}' snapped final point to start (closure_error_distance={endpoint_distance:.4f} ft)"
+        )
+    else:
         result.add_gap(precondition_failed_gap(
             feature_id=node.id,
             operation="Close",
@@ -355,25 +394,29 @@ def compile_close(
             metadata={
                 "start_point": list(first_point),
                 "end_point": list(last_point),
-                "distance": math.sqrt((first_point[0]-last_point[0])**2 + (first_point[1]-last_point[1])**2)
+                "distance": endpoint_distance,
+                "closure_mode": closure_mode,
+                "closure_tolerance": closure_tolerance,
             }
         ))
         return None
-
-    # Curve is closed - convert to polygon
-    # Polygon coordinates must be closed (first == last), so ensure that
-    polygon_coords = coords if points_equal(tuple(coords[0]), tuple(coords[-1])) else coords + [coords[0]]
 
     polygon_geometry = {
         "type": "Polygon",
         "coordinates": [polygon_coords]  # Outer ring
     }
 
-    return {
+    compiled: Dict[str, Any] = {
         "geometry": polygon_geometry,
         "is_closed": True,
-        "source_curve_id": operand
+        "source_curve_id": operand,
     }
+    if closure_mode == "snap_to_start" and endpoint_distance > strict_tolerance:
+        compiled["closure_snapped"] = True
+        compiled["closure_error_distance"] = endpoint_distance
+        compiled["closure_mode"] = closure_mode
+        compiled["closure_tolerance"] = closure_tolerance
+    return compiled
 
 
 def _compiled_point_from_operand(
@@ -400,6 +443,29 @@ def _compiled_point_from_operand(
         except (TypeError, ValueError):
             return None
     return None
+
+
+def compile_reference_frame(
+    node: FeatureNode,
+    op_expr: OpExpr,
+    result: CompileResult,
+) -> Dict[str, Any]:
+    """Compile ReferenceFrame as a non-rendered frame descriptor (no geometry)."""
+    params = dict(op_expr.params or {})
+    return {
+        "source": "reference_frame",
+        "non_rendered": True,
+        "frame_descriptor": {
+            "frame_type": params.get("frame_type"),
+            "section": params.get("section"),
+            "township": params.get("township"),
+            "range": params.get("range"),
+            "meridian": params.get("meridian"),
+            "aliquot": params.get("aliquot"),
+            "raw_text": params.get("raw_text"),
+            "normalized_from": params.get("normalized_from"),
+        },
+    }
 
 
 def compile_tied_point(
@@ -596,6 +662,8 @@ def compile_node(
         return compile_course_traverse(node, op_expr, compiled_features, previous_point, result)
     elif op_name == "TiedPoint":
         return compile_tied_point(node, op_expr, compiled_features, result)
+    elif op_name == "ReferenceFrame":
+        return compile_reference_frame(node, op_expr, result)
     elif op_name == "Close":
         return compile_close(node, op_expr, graph, compiled_features, result)
     elif op_name == "Collection":

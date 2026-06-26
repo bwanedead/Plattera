@@ -13,6 +13,23 @@ def build_complete_supported_graph_example() -> dict[str, Any]:
         "graph_id": "parcel_1_ir",
         "nodes": [
             {
+                "id": "parcel_1_frame",
+                "kind": "frame",
+                "label": "PLSS section context",
+                "op_expr": {
+                    "op_name": "ReferenceFrame",
+                    "params": {
+                        "frame_type": "plss",
+                        "section": "12",
+                        "township": "3N",
+                        "range": "2W",
+                        "meridian": "Principal Meridian",
+                        "raw_text": "Section 12, Township 3 North, Range 2 West",
+                    },
+                    "operands": [],
+                },
+            },
+            {
                 "id": "parcel_1_origin",
                 "kind": "point",
                 "label": "Local beginning point",
@@ -81,6 +98,23 @@ def build_deed_to_ir_authoring_example() -> dict[str, Any]:
         "graph_id": "parcel_1_deed_to_ir_example",
         "nodes": [
             {
+                "id": "parcel_1_frame",
+                "kind": "frame",
+                "label": "PLSS section context",
+                "op_expr": {
+                    "op_name": "ReferenceFrame",
+                    "params": {
+                        "frame_type": "plss",
+                        "section": "12",
+                        "township": "3N",
+                        "range": "2W",
+                        "meridian": "Principal Meridian",
+                        "raw_text": "Section 12, Township 3 North, Range 2 West",
+                    },
+                    "operands": [],
+                },
+            },
+            {
                 "id": "parcel_1_origin",
                 "kind": "point",
                 "label": "Parcel 1 beginning point",
@@ -96,16 +130,26 @@ def build_deed_to_ir_authoring_example() -> dict[str, Any]:
                 },
             },
             {
-                "id": "parcel_1_call_1",
+                "id": "parcel_1_boundary",
                 "kind": "curve",
-                "label": "Parcel 1 first course",
+                "label": "Parcel 1 deed call sequence",
                 "op_expr": {
-                    "op_name": "LineStep",
+                    "op_name": "CourseTraverse",
                     "params": {
-                        "bearing": 68.5,
-                        "distance": 542.0,
-                        "bearing_raw": "N. 68° 30' East",
-                        "distance_raw": "542 feet, more or less",
+                        "courses": [
+                            {
+                                "bearing": 68.5,
+                                "distance": 542.0,
+                                "bearing_raw": "N. 68° 30' East",
+                                "distance_raw": "542 feet, more or less",
+                            },
+                            {
+                                "bearing": 158.5,
+                                "distance": 200.0,
+                                "bearing_raw": "S. 68° 30' East",
+                                "distance_raw": "200 feet",
+                            },
+                        ]
                     },
                     "operands": ["parcel_1_origin"],
                 },
@@ -114,6 +158,19 @@ def build_deed_to_ir_authoring_example() -> dict[str, Any]:
                         _resolution_unit_link("p1_call1_bearing"),
                         _resolution_unit_link("p1_call1_distance"),
                     ]
+                },
+            },
+            {
+                "id": "parcel_1_region",
+                "kind": "region",
+                "label": "Parcel 1 region (explicit closure policy when needed)",
+                "op_expr": {
+                    "op_name": "Close",
+                    "params": {
+                        "closure_mode": "snap_to_start",
+                        "closure_tolerance": 5.0,
+                    },
+                    "operands": ["parcel_1_boundary"],
                 },
             },
             {
@@ -130,9 +187,14 @@ def build_deed_to_ir_authoring_example() -> dict[str, Any]:
         "edges": [
             {
                 "source_id": "parcel_1_origin",
-                "target_id": "parcel_1_call_1",
+                "target_id": "parcel_1_boundary",
                 "edge_type": "next_step",
-            }
+            },
+            {
+                "source_id": "parcel_1_boundary",
+                "target_id": "parcel_1_region",
+                "edge_type": "derived_from",
+            },
         ],
         "metadata": {
             "notes": (
@@ -143,10 +205,24 @@ def build_deed_to_ir_authoring_example() -> dict[str, Any]:
     }
     return {
         "intent": (
-            "Show how mapping_operands rows become op-backed nodes with provenance, and how blocked "
-            "scope is represented without invented geometry."
+            "Show compiler-supported deed authoring: ReferenceFrame for PLSS context, TiedPoint for "
+            "POB, CourseTraverse as the canonical deed call sequence, Close with explicit closure "
+            "policy when endpoints do not meet exactly, and annotation for blocked scope without "
+            "invented geometry."
         ),
         "operand_source": "hydrate_deed_to_ir_input sections=[mapping_operands]",
+        "supported_authoring_pattern": [
+            "ReferenceFrame — PLSS/frame context (non-rendered descriptor)",
+            "TiedPoint — POB / tied descriptive anchor",
+            "CourseTraverse — ordered deed calls (canonical deed call sequence primitive)",
+            "Close — parcel region; set closure_mode/closure_tolerance when more-or-less calls leave a small gap",
+            "annotation — blocked/incomplete scopes (e.g. Parcel 2 continuation unavailable)",
+        ],
+        "unsupported_ops_note": (
+            "Invented operation names may preserve meaning in prose but are not mapping-ready. "
+            "For a mapped scope, use compiler-supported primitives unless deliberately recording "
+            "an unresolved representability gap."
+        ),
         "graph": graph,
         "blocked_scope_pattern": {
             "operand_role": "scope_blocker",

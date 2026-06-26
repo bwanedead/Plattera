@@ -187,11 +187,14 @@ def build_deed_to_ir_tool_specs() -> tuple[SemanticToolSpec, ...]:
             ),
             expected_request_shape=(
                 "feature_graph: required FeatureGraph {graph_id:string, nodes?:FeatureNode[], edges?:FeatureEdge[], "
-                "metadata?:object}; nodes/edges default empty but should be supplied for authored work. "
+                "metadata?:object}; graph_id is the stable logical graph id — do not embed draft version numbers "
+                "(use base_draft_ref to continue a working draft). "
+                "nodes/edges default empty but should be supplied for authored work. "
                 "FeatureNode requires id + kind (point|curve|region|frame|constraint|annotation|unknown) and permits "
                 "AT MOST ONE of geometry|op_expr|feature_ref; omitting all three is valid only with kind=unknown. "
                 "FeatureEdge uses exact source_id, target_id, and edge_type. OpExpr is {op_name, params?, operands?}. "
                 "Optional provenance.source_entity_links rows are {entity_id, entity_type, source_ref, relation?}. "
+                "base_draft_ref: optional feature_graph:ir:* ref to continue a working draft on the same graph_id. "
                 "artifact_id, source_document_id, created_by: optional strings."
             ),
             expected_request_json_shape={
@@ -213,6 +216,7 @@ def build_deed_to_ir_tool_specs() -> tuple[SemanticToolSpec, ...]:
                         "additionalProperties": True,
                     },
                     "artifact_id": {"type": ["string", "null"]},
+                    "base_draft_ref": {"type": ["string", "null"]},
                     "source_document_id": {"type": ["string", "null"]},
                     "created_by": {"type": ["string", "null"]},
                 },
@@ -259,12 +263,16 @@ def build_deed_to_ir_tool_specs() -> tuple[SemanticToolSpec, ...]:
                 "outputs.draft_ir_ref and outputs.working_draft_ref (ergonomic aliases of the same ref), "
                 "draft_version (v0, v1, ...), draft_sequence_index, is_draft=true, structural draft metrics "
                 "(node/edge counts, unknown/renderable/geometry/op_expr/feature_ref counts, "
-                "source_entity_link_count, placeholder_only_graph), current_draft_ir compact lane, "
+                "source_entity_link_count, placeholder_only_graph), current_draft_ir compact lane with "
+                "bounded draft_repair_items (node_id, node_kind, current_operation, issue, reason), "
                 "compile_artifact_ref, judge_artifact_ref, compile_gap_count, judge_finding_count, "
-                "bounded compile_gaps/judge_findings, mechanically_mappable_candidate (compile/judge-only), "
+                "bounded compile_gaps/judge_findings (node-precise feature_id/node_id, gap_kind, operation, reason), "
+                "mechanically_mappable_candidate (compile/judge-only), "
                 "and mapping_submission_ready_candidate (structural + compile/judge readiness — not deed-correct). "
                 "On validation failure: executed=false, reason_codes=[feature_graph_validation_failed], "
-                "retryable refusal, and bounded outputs.validation_errors (no artifact saved)."
+                "retryable refusal, and bounded outputs.validation_errors (no artifact saved). "
+                "On graph_id mismatch with base_draft_ref: executed=false, reason_code=draft_graph_id_mismatch, "
+                "expected_graph_id and actual_graph_id (no artifact saved)."
             ),
         ),
         SemanticToolSpec(

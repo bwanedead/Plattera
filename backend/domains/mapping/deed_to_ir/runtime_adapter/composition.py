@@ -146,6 +146,7 @@ def _make_save_ir_handler(*, dossier_id: str) -> Callable[[Any], Any]:
                 dossier_id=dossier_id,
                 feature_graph=graph if isinstance(graph, dict) else {},
                 artifact_id=_optional_str(inputs.get("artifact_id")),
+                base_draft_ref=_optional_str(inputs.get("base_draft_ref")),
                 source_document_id=_optional_str(inputs.get("source_document_id")),
                 created_by=_optional_str(inputs.get("created_by")),
             )

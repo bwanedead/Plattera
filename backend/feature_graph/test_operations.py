@@ -148,7 +148,18 @@ def test_close_operation_def():
     assert op_def.supported is True
     assert op_def.min_operands == 1
     assert op_def.max_operands == 1
-    assert len(op_def.parameters) == 0  # No parameters needed
+    assert len(op_def.parameters) == 2
+    param_names = {p.name for p in op_def.parameters}
+    assert param_names == {"closure_tolerance", "closure_mode"}
+
+
+def test_reference_frame_operation_def():
+    """ReferenceFrame operation is supported with frame descriptor params."""
+    op_def = get_operation_def("ReferenceFrame")
+    assert op_def is not None
+    assert op_def.category == OperationCategory.FRAME
+    assert op_def.supported is True
+    assert is_supported_operation("ReferenceFrame") is True
 
 
 def test_buffer_operation_def():

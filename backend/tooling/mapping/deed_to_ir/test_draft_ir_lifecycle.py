@@ -12,6 +12,7 @@ from harness.audit.human_timeline import _render_tool_result
 from harness.runtime.memory.tool_result_slices import build_recent_tool_result_slices
 from services.feature_graph.feature_graph_persistence_service import FeatureGraphPersistenceService
 from tooling.mapping.deed_to_ir.draft_ir_lifecycle import (
+    build_draft_repair_items,
     build_draft_source_metadata,
     build_evaluation_feedback,
     compact_current_draft_ir_for_projection,
@@ -240,3 +241,187 @@ def test_evaluation_failure_still_saves_draft_but_not_mappable_candidate():
     assert outputs["mechanically_mappable_candidate"] is False
     assert outputs["current_draft_ir"]["mechanically_mappable_candidate"] is False
     assert outputs["current_draft_ir"]["evaluation_warning"]["reason_code"] == "compile_judge_evaluation_failed"
+
+
+def test_build_draft_repair_items_dedupes_compile_and_judge():
+    graph = FeatureGraph(
+        graph_id="g1",
+        nodes=[
+            FeatureNode(
+                id="parcel_1_boundary",
+                kind=FeatureKind.CURVE,
+                op_expr=OpExpr(op_name="deed_call_sequence", params={}, operands=[]),
+            )
+        ],
+        edges=[],
+    )
+    gap_row = {
+        "node_id": "parcel_1_boundary",
+        "feature_id": "parcel_1_boundary",
+        "gap_kind": "unsupported_operation",
+        "operation": "deed_call_sequence",
+        "reason": "Operation not in registry",
+    }
+    items = build_draft_repair_items(
+        graph=graph,
+        compile_gaps=[gap_row],
+        judge_findings=[dict(gap_row)],
+    )
+    assert len(items) == 1
+    assert items[0]["sources"] == ["compile", "judge"]
+
+
+def test_unsupported_operation_gap_includes_node_precise_repair_items():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        result = save_ir_artifact(
+            dossier_id="d-test",
+            feature_graph={
+                "graph_id": "parcel_1_ir",
+                "nodes": [
+                    {
+                        "id": "parcel_1_boundary",
+                        "kind": "curve",
+                        "op_expr": {
+                            "op_name": "deed_call_sequence",
+                            "params": {},
+                            "operands": [],
+                        },
+                    }
+                ],
+                "edges": [],
+            },
+            persistence=_service(tmpdir),
+        )
+    outputs = result["outputs"]
+    assert outputs["compile_gap_count"] >= 1
+    gap = outputs["compile_gaps"][0]
+    assert gap["node_id"] == "parcel_1_boundary"
+    assert gap["feature_id"] == "parcel_1_boundary"
+    assert gap["gap_kind"] == "unsupported_operation"
+    assert gap["operation"] == "deed_call_sequence"
+    repair = outputs["draft_repair_items"]
+    assert len(repair) == 1
+    assert repair[0]["node_id"] == "parcel_1_boundary"
+    assert repair[0]["current_operation"] == "deed_call_sequence"
+    assert repair[0]["issue"] == "unsupported_operation"
+    assert set(repair[0]["sources"]) == {"compile", "judge"}
+    assert outputs["current_draft_ir"]["draft_repair_items"] == repair
+
+
+def test_stable_draft_artifact_ids_and_base_draft_ref_continuation():
+    graph = _linestep_graph("right_of_way")
+    with tempfile.TemporaryDirectory() as tmpdir:
+        service = _service(tmpdir)
+        first = save_ir_artifact(
+            dossier_id="d-test",
+            feature_graph=graph,
+            persistence=service,
+        )
+        second = save_ir_artifact(
+            dossier_id="d-test",
+            feature_graph=graph,
+            base_draft_ref=first["outputs"]["draft_ir_ref"],
+            persistence=service,
+        )
+    assert first["outputs"]["ir_artifact_ref"] == "feature_graph:ir:right_of_way_v0"
+    assert first["outputs"]["draft_version"] == "v0"
+    assert second["outputs"]["ir_artifact_ref"] == "feature_graph:ir:right_of_way_v1"
+    assert second["outputs"]["draft_version"] == "v1"
+
+
+def test_stale_base_draft_ref_allocates_next_free_without_overwrite():
+    graph = _linestep_graph("right_of_way")
+    with tempfile.TemporaryDirectory() as tmpdir:
+        service = _service(tmpdir)
+        v0 = save_ir_artifact(dossier_id="d-test", feature_graph=graph, persistence=service)
+        v1 = save_ir_artifact(
+            dossier_id="d-test",
+            feature_graph=graph,
+            base_draft_ref=v0["outputs"]["draft_ir_ref"],
+            persistence=service,
+        )
+        v1_id = v1["outputs"]["artifact_id"]
+        v1_before = service.get_artifact("d-test", v1_id)
+        stale = save_ir_artifact(
+            dossier_id="d-test",
+            feature_graph=graph,
+            base_draft_ref=v0["outputs"]["draft_ir_ref"],
+            persistence=service,
+        )
+        v1_after = service.get_artifact("d-test", v1_id)
+        artifact_count = len(list(service.list_artifacts("d-test", artifact_type="ir")))
+    assert stale["executed"] is True
+    assert stale["outputs"]["ir_artifact_ref"] == "feature_graph:ir:right_of_way_v2"
+    assert stale["outputs"]["draft_version"] == "v2"
+    assert v1_before == v1_after
+    assert artifact_count == 3
+
+
+def test_base_draft_ref_graph_id_mismatch_is_retryable_and_persists_nothing():
+    graph = _linestep_graph("right_of_way")
+    with tempfile.TemporaryDirectory() as tmpdir:
+        service = _service(tmpdir)
+        first = save_ir_artifact(
+            dossier_id="d-test",
+            feature_graph=graph,
+            persistence=service,
+        )
+        before = list(service.list_artifacts("d-test", artifact_type="ir"))
+        mismatch = save_ir_artifact(
+            dossier_id="d-test",
+            feature_graph=_linestep_graph("right_of_way_v1"),
+            base_draft_ref=first["outputs"]["draft_ir_ref"],
+            persistence=service,
+        )
+        after = list(service.list_artifacts("d-test", artifact_type="ir"))
+    assert mismatch["executed"] is False
+    assert mismatch["refusal"]["reason_code"] == "draft_graph_id_mismatch"
+    assert mismatch["refusal"]["retryable"] is True
+    assert mismatch["outputs"]["expected_graph_id"] == "right_of_way"
+    assert mismatch["outputs"]["actual_graph_id"] == "right_of_way_v1"
+    assert len(after) == len(before)
+
+
+def test_draft_repair_items_in_tool_slices_and_timeline():
+    outputs = {
+        "draft_version": "v0",
+        "current_draft_ir": {
+            "draft_ir_ref": "feature_graph:ir:parcel_1_ir_v0",
+            "draft_version": "v0",
+            "graph_id": "parcel_1_ir",
+            "node_count": 1,
+            "edge_count": 0,
+            "compile_gap_count": 1,
+            "judge_finding_count": 0,
+            "draft_repair_items": [
+                {
+                    "node_id": "parcel_1_boundary",
+                    "node_kind": "curve",
+                    "current_operation": "deed_call_sequence",
+                    "issue": "unsupported_operation",
+                    "reason": "Operation not in registry",
+                }
+            ],
+        },
+    }
+    slices = build_recent_tool_result_slices(
+        [
+            {
+                "kernel_turn_index": 1,
+                "action_type": "save_ir_artifact",
+                "execution_state": "executed",
+                "artifact_refs": ["feature_graph:ir:parcel_1_ir_v0"],
+                "outputs_for_continuity": outputs,
+            }
+        ]
+    )
+    assert slices[0]["current_draft_ir"]["draft_repair_items"][0]["node_id"] == "parcel_1_boundary"
+    turn = {
+        "tool_result_raw": {
+            "execution_state": "executed",
+            "outputs": outputs,
+        }
+    }
+    body = "\n".join(_render_tool_result(turn))
+    assert "draft_repair_items: 1" in body
+    assert "parcel_1_boundary (unsupported_operation" in body
