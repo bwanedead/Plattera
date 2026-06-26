@@ -9,7 +9,7 @@ from ..branch import DEED_TO_IR_DOMAIN_ID
 DEED_TO_IR_PROCEDURAL_GUIDANCE_SOURCE_REF = (
     "backend/domains/mapping/deed_to_ir/prompting/surfaces/procedural_guidance.py"
 )
-DEED_TO_IR_PROCEDURAL_GUIDANCE_VERSION = "v9"
+DEED_TO_IR_PROCEDURAL_GUIDANCE_VERSION = "v10"
 
 DEED_TO_IR_PROCEDURAL_GUIDANCE_TEXT = """\
 Use this guidance to orient deed-to-IR work. This is **guidance**, not a hard script.
@@ -33,11 +33,11 @@ Use this guidance to orient deed-to-IR work. This is **guidance**, not a hard sc
 - `publish_deed_to_ir_output` is final scoped handoff only.
 
 ## Supported deed-to-IR authoring pattern
-- **ReferenceFrame** — PLSS / survey frame context (non-rendered descriptor; not invented ops like `public_land_survey_frame`).
-- **TiedPoint** — POB or tied descriptive anchor.
+- **ReferenceFrame** — survey/frame context such as PLSS, local stationing, plat grid, or other external coordinate basis (non-rendered descriptor; not invented ops like `public_land_survey_frame`).
+- **TiedPoint** — local anchor / beginning point.
 - **CourseTraverse** — canonical ordered deed call sequence (not invented `deed_call_sequence` ops).
-- **Close** — parcel region from a traverse; when calls are "more or less" and endpoints nearly meet, author explicit `closure_mode: snap_to_start` and `closure_tolerance` (feet) — deterministic code does not choose this policy.
-- **annotation** — blocked/incomplete scopes (e.g. Parcel 2 continuation unavailable) without fake geometry.
+- **Close** — region from a traverse; when calls are "more or less" and endpoints nearly meet, author explicit `closure_mode: snap_to_start` and `closure_tolerance` (feet) — deterministic code does not choose this policy.
+- **annotation** — blocked/incomplete scopes without fake geometry.
 - Unsupported invented ops may preserve meaning in prose but are **not mapping-ready** for a scope you intend to map.
 
 ## Work inventory means downstream deed-to-IR responsibilities

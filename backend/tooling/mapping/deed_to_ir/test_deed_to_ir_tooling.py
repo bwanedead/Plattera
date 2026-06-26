@@ -90,17 +90,17 @@ def test_capability_operation_filter_and_examples_are_valid():
     assert "never copy example values" in caps["examples"]["warning"].lower()
     graph_payload = caps["examples"]["complete_supported_graph"]
     assert graph_payload["nodes"][0]["op_expr"]["op_name"] == "ReferenceFrame"
-    assert graph_payload["nodes"][0]["op_expr"]["params"]["frame_type"] == "plss"
+    assert graph_payload["nodes"][0]["op_expr"]["params"]["frame_type"] == "plss_example"
     boundary_links = graph_payload["nodes"][2]["provenance"]["source_entity_links"]
     assert len(boundary_links) == 8
     assert all(link["entity_type"] == "resolution_unit" for link in boundary_links)
     graph = FeatureGraph.model_validate(graph_payload)
     compiled = compile_graph(graph)
     assert {
-        "parcel_1_frame",
-        "parcel_1_origin",
-        "parcel_1_boundary",
-        "parcel_1_region",
+        "example_frame",
+        "example_start_anchor",
+        "example_traverse",
+        "example_region",
     }.issubset(compiled.compiled_features)
 
 
@@ -524,16 +524,55 @@ def test_deed_to_ir_authoring_example_is_schema_valid_with_provenance():
     example = build_deed_to_ir_authoring_example()
     graph_payload = example["graph"]
     graph = FeatureGraph.model_validate(graph_payload)
-    origin = next(node for node in graph.nodes if node.id == "parcel_1_origin")
+    origin = next(node for node in graph.nodes if node.id == "example_start_anchor")
     assert origin.provenance is not None
     assert origin.provenance.source_entity_links
-    blocked = next(node for node in graph.nodes if node.id == "parcel_2_blocked_scope")
+    blocked = next(node for node in graph.nodes if node.id == "example_blocked_scope")
     assert blocked.kind.value == "annotation"
     assert blocked.provenance is not None
     assert "semantic" not in json.dumps(example).lower()
     caps = describe_feature_graph_capabilities(sections=["examples"])
     assert "deed_to_ir_authoring" in caps["examples"]
     assert FeatureGraph.model_validate(caps["examples"]["deed_to_ir_authoring"]["graph"])
+
+
+def test_feature_graph_examples_use_generic_authoring_pattern_without_practice_tokens():
+    from tooling.mapping.deed_to_ir.feature_graph_examples import (
+        build_complete_supported_graph_example,
+        build_deed_to_ir_authoring_example,
+        example_forbidden_tokens,
+    )
+
+    payloads = [
+        build_complete_supported_graph_example(),
+        build_deed_to_ir_authoring_example(),
+        build_deed_to_ir_authoring_example()["graph"],
+    ]
+    caps = describe_feature_graph_capabilities(sections=["examples"])
+    payloads.append(caps["examples"]["complete_supported_graph"])
+    payloads.append(caps["examples"]["deed_to_ir_authoring"]["graph"])
+
+    combined = json.dumps(payloads).lower()
+    op_names = {
+        node.get("op_expr", {}).get("op_name")
+        for payload in payloads
+        if isinstance(payload, dict)
+        for node in payload.get("nodes", [])
+        if isinstance(node, dict) and isinstance(node.get("op_expr"), dict)
+    }
+    node_kinds = {
+        node.get("kind")
+        for payload in payloads
+        if isinstance(payload, dict)
+        for node in payload.get("nodes", [])
+        if isinstance(node, dict)
+    }
+    assert op_names >= {"ReferenceFrame", "TiedPoint", "CourseTraverse", "Close"}
+    assert "annotation" in node_kinds
+    for token in example_forbidden_tokens():
+        assert token not in combined
+    assert "deed_call_sequence" not in combined
+    assert "public_land_survey_frame" not in combined
 
 
 def test_save_placeholder_only_graph_reports_structural_readiness_false():

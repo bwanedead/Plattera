@@ -212,6 +212,30 @@ def test_branch_and_guidance_mission_markers() -> None:
     assert "tool specs" in guidance
     assert "source_entity_links" in guidance
     assert "hydrate_feature_graph_artifact_refs" not in guidance
+    assert "local stationing" in guidance or "plat grid" in guidance
+    assert "referenceframe" in guidance.replace("_", "").replace("-", "")
+
+
+def test_tool_and_capability_examples_expose_generic_authoring_pattern() -> None:
+    import json
+
+    from tooling.mapping.deed_to_ir.feature_graph_capabilities import describe_feature_graph_capabilities
+    from tooling.mapping.deed_to_ir.feature_graph_examples import example_forbidden_tokens
+
+    save = {spec.tool_id: spec for spec in build_deed_to_ir_tool_specs()}["save_ir_artifact"]
+    caps = describe_feature_graph_capabilities(sections=["examples"])
+    combined = json.dumps(
+        {
+            "save_example_request": save.example_request,
+            "capability_examples": caps["examples"],
+        }
+    ).lower()
+    for token in example_forbidden_tokens():
+        assert token not in combined
+    assert "deed_call_sequence" not in combined
+    assert "referenceframe" in combined.replace("_", "")
+    assert "coursetraverse" in combined.replace("_", "")
+    assert "annotation" in combined
 
 
 def test_mapping_registry_resolves_deed_to_ir() -> None:

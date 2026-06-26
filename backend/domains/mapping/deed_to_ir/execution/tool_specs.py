@@ -224,17 +224,17 @@ def build_deed_to_ir_tool_specs() -> tuple[SemanticToolSpec, ...]:
             },
             example_request={
                 "feature_graph": {
-                    "graph_id": "parcel_1_ir",
+                    "graph_id": "schematic_graph_example",
                     "nodes": [
                         {
-                            "id": "parcel_1_call_1",
+                            "id": "example_call_1",
                             "kind": "curve",
                             "op_expr": {
                                 "op_name": "LineStep",
                                 "params": {
                                     "bearing": 45.0,
                                     "distance": 100.0,
-                                    "bearing_raw": "N 45 degrees E",
+                                    "bearing_raw": "N. 45° E.",
                                     "distance_raw": "100 feet",
                                 },
                                 "operands": [],
@@ -242,7 +242,7 @@ def build_deed_to_ir_tool_specs() -> tuple[SemanticToolSpec, ...]:
                             "provenance": {
                                 "source_entity_links": [
                                     {
-                                        "entity_id": "parcel_1_call_1",
+                                        "entity_id": "call_1_distance",
                                         "entity_type": "resolution_unit",
                                         "source_ref": "transcript_edit:resolution_state:example",
                                         "relation": "derived_from",

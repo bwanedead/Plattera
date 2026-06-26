@@ -6,33 +6,49 @@ from typing import Any
 
 from feature_graph.operations import OperationDef, ParameterSpec
 
+# Tokens that must not appear in example payloads (practice-deed overfit guard).
+_FORBIDDEN_EXAMPLE_TOKENS = (
+    "parcel_1",
+    "parcel_2",
+    "p1_",
+    "p2_",
+    "canal",
+    "range seventy",
+    "542",
+    "68",
+    "68°",
+    "68.5",
+    "158.5",
+    "row",
+)
+
 
 def build_complete_supported_graph_example() -> dict[str, Any]:
-    """A schema-valid, compiler-supported local parcel example with provenance."""
+    """A schema-valid, compiler-supported schematic graph with provenance."""
     return {
-        "graph_id": "parcel_1_ir",
+        "graph_id": "supported_graph_example",
         "nodes": [
             {
-                "id": "parcel_1_frame",
+                "id": "example_frame",
                 "kind": "frame",
-                "label": "PLSS section context",
+                "label": "Example survey frame context",
                 "op_expr": {
                     "op_name": "ReferenceFrame",
                     "params": {
-                        "frame_type": "plss",
-                        "section": "12",
-                        "township": "3N",
-                        "range": "2W",
-                        "meridian": "Principal Meridian",
-                        "raw_text": "Section 12, Township 3 North, Range 2 West",
+                        "frame_type": "plss_example",
+                        "section": "1",
+                        "township": "1N",
+                        "range": "1E",
+                        "meridian": "Example Meridian",
+                        "raw_text": "Example survey frame text",
                     },
                     "operands": [],
                 },
             },
             {
-                "id": "parcel_1_origin",
+                "id": "example_start_anchor",
                 "kind": "point",
-                "label": "Local beginning point",
+                "label": "Example local beginning anchor",
                 "op_expr": {
                     "op_name": "TiedPoint",
                     "params": {},
@@ -41,7 +57,7 @@ def build_complete_supported_graph_example() -> dict[str, Any]:
                 "provenance": {
                     "source_entity_links": [
                         {
-                            "entity_id": "parcel_1_beginning_point",
+                            "entity_id": "start_anchor_tie",
                             "entity_type": "resolution_unit",
                             "source_ref": "transcript_edit:resolution_state:example",
                             "relation": "derived_from",
@@ -50,43 +66,71 @@ def build_complete_supported_graph_example() -> dict[str, Any]:
                 },
             },
             {
-                "id": "parcel_1_boundary",
+                "id": "example_traverse",
                 "kind": "curve",
-                "label": "Parcel boundary traverse",
+                "label": "Example boundary traverse",
                 "op_expr": {
                     "op_name": "CourseTraverse",
                     "params": {
                         "courses": [
-                            {"bearing": 90.0, "distance": 100.0, "bearing_raw": "East", "distance_raw": "100 feet"},
-                            {"bearing": 180.0, "distance": 100.0, "bearing_raw": "South", "distance_raw": "100 feet"},
-                            {"bearing": 270.0, "distance": 100.0, "bearing_raw": "West", "distance_raw": "100 feet"},
-                            {"bearing": 0.0, "distance": 100.0, "bearing_raw": "North", "distance_raw": "100 feet"},
+                            {
+                                "bearing": 90.0,
+                                "distance": 100.0,
+                                "bearing_raw": "East",
+                                "distance_raw": "100 feet",
+                            },
+                            {
+                                "bearing": 180.0,
+                                "distance": 100.0,
+                                "bearing_raw": "South",
+                                "distance_raw": "100 feet",
+                            },
+                            {
+                                "bearing": 270.0,
+                                "distance": 100.0,
+                                "bearing_raw": "West",
+                                "distance_raw": "100 feet",
+                            },
+                            {
+                                "bearing": 0.0,
+                                "distance": 100.0,
+                                "bearing_raw": "North",
+                                "distance_raw": "100 feet",
+                            },
                         ]
                     },
-                    "operands": ["parcel_1_origin"],
+                    "operands": ["example_start_anchor"],
                 },
                 "provenance": {
                     "source_entity_links": [
-                        _resolution_unit_link(f"parcel_1_call_{call_index}_{value_kind}")
+                        _resolution_unit_link(f"call_{call_index}_{value_kind}")
                         for call_index in range(1, 5)
                         for value_kind in ("bearing", "distance")
                     ]
                 },
             },
             {
-                "id": "parcel_1_region",
+                "id": "example_region",
                 "kind": "region",
-                "label": "Parcel region",
+                "label": "Example closed region",
                 "op_expr": {
                     "op_name": "Close",
                     "params": {},
-                    "operands": ["parcel_1_boundary"],
+                    "operands": ["example_traverse"],
                 },
             },
         ],
         "edges": [
-            {"source_id": "parcel_1_origin", "target_id": "parcel_1_boundary", "edge_type": "next_step"},
-            {"source_id": "parcel_1_boundary", "target_id": "parcel_1_region", "edge_type": "derived_from"},
+            {
+                "source_id": "example_start_anchor",
+                "target_id": "example_traverse",
+                "edge_type": "next_step",
+            },
+            {
+                "source_id": "example_traverse",
+                "target_id": "example_region",
+                "edge_type": "derived_from",
+            },
         ],
         "metadata": {"coordinate_posture": "local_schematic"},
     }
@@ -95,29 +139,29 @@ def build_complete_supported_graph_example() -> dict[str, Any]:
 def build_deed_to_ir_authoring_example() -> dict[str, Any]:
     """Compact deed-to-IR authoring pattern with operand provenance and blocked scope."""
     graph = {
-        "graph_id": "parcel_1_deed_to_ir_example",
+        "graph_id": "deed_to_ir_authoring_example",
         "nodes": [
             {
-                "id": "parcel_1_frame",
+                "id": "example_frame",
                 "kind": "frame",
-                "label": "PLSS section context",
+                "label": "Example survey frame context",
                 "op_expr": {
                     "op_name": "ReferenceFrame",
                     "params": {
-                        "frame_type": "plss",
-                        "section": "12",
-                        "township": "3N",
-                        "range": "2W",
-                        "meridian": "Principal Meridian",
-                        "raw_text": "Section 12, Township 3 North, Range 2 West",
+                        "frame_type": "survey_frame_example",
+                        "section": "1",
+                        "township": "1N",
+                        "range": "1E",
+                        "meridian": "Example Meridian",
+                        "raw_text": "Example survey frame text",
                     },
                     "operands": [],
                 },
             },
             {
-                "id": "parcel_1_origin",
+                "id": "example_start_anchor",
                 "kind": "point",
-                "label": "Parcel 1 beginning point",
+                "label": "Example local beginning anchor",
                 "op_expr": {
                     "op_name": "TiedPoint",
                     "params": {},
@@ -125,74 +169,74 @@ def build_deed_to_ir_authoring_example() -> dict[str, Any]:
                 },
                 "provenance": {
                     "source_entity_links": [
-                        _resolution_unit_link("p1_pob_canal_offset"),
+                        _resolution_unit_link("start_anchor_tie"),
                     ]
                 },
             },
             {
-                "id": "parcel_1_boundary",
+                "id": "example_traverse",
                 "kind": "curve",
-                "label": "Parcel 1 deed call sequence",
+                "label": "Example ordered course traverse",
                 "op_expr": {
                     "op_name": "CourseTraverse",
                     "params": {
                         "courses": [
                             {
-                                "bearing": 68.5,
-                                "distance": 542.0,
-                                "bearing_raw": "N. 68° 30' East",
-                                "distance_raw": "542 feet, more or less",
+                                "bearing": 45.0,
+                                "distance": 100.0,
+                                "bearing_raw": "N. 45° E.",
+                                "distance_raw": "100 feet",
                             },
                             {
-                                "bearing": 158.5,
-                                "distance": 200.0,
-                                "bearing_raw": "S. 68° 30' East",
-                                "distance_raw": "200 feet",
+                                "bearing": 135.0,
+                                "distance": 100.0,
+                                "bearing_raw": "S. 45° E.",
+                                "distance_raw": "100 feet",
                             },
                         ]
                     },
-                    "operands": ["parcel_1_origin"],
+                    "operands": ["example_start_anchor"],
                 },
                 "provenance": {
                     "source_entity_links": [
-                        _resolution_unit_link("p1_call1_bearing"),
-                        _resolution_unit_link("p1_call1_distance"),
+                        _resolution_unit_link("call_1_bearing"),
+                        _resolution_unit_link("call_1_distance"),
                     ]
                 },
             },
             {
-                "id": "parcel_1_region",
+                "id": "example_region",
                 "kind": "region",
-                "label": "Parcel 1 region (explicit closure policy when needed)",
+                "label": "Example region (explicit closure policy when needed)",
                 "op_expr": {
                     "op_name": "Close",
                     "params": {
                         "closure_mode": "snap_to_start",
                         "closure_tolerance": 5.0,
                     },
-                    "operands": ["parcel_1_boundary"],
+                    "operands": ["example_traverse"],
                 },
             },
             {
-                "id": "parcel_2_blocked_scope",
+                "id": "example_blocked_scope",
                 "kind": "annotation",
-                "label": "Parcel 2 visible opening only — continuation unavailable",
+                "label": "Example blocked scope — continuation unavailable",
                 "provenance": {
                     "source_entity_links": [
-                        _resolution_unit_link("parcel_2_continuation_scope"),
+                        _resolution_unit_link("blocked_scope_continuation"),
                     ]
                 },
             },
         ],
         "edges": [
             {
-                "source_id": "parcel_1_origin",
-                "target_id": "parcel_1_boundary",
+                "source_id": "example_start_anchor",
+                "target_id": "example_traverse",
                 "edge_type": "next_step",
             },
             {
-                "source_id": "parcel_1_boundary",
-                "target_id": "parcel_1_region",
+                "source_id": "example_traverse",
+                "target_id": "example_region",
                 "edge_type": "derived_from",
             },
         ],
@@ -205,18 +249,18 @@ def build_deed_to_ir_authoring_example() -> dict[str, Any]:
     }
     return {
         "intent": (
-            "Show compiler-supported deed authoring: ReferenceFrame for PLSS context, TiedPoint for "
-            "POB, CourseTraverse as the canonical deed call sequence, Close with explicit closure "
-            "policy when endpoints do not meet exactly, and annotation for blocked scope without "
-            "invented geometry."
+            "Show compiler-supported deed authoring: ReferenceFrame for survey/frame context, "
+            "TiedPoint for a local anchor, CourseTraverse as the canonical ordered call sequence, "
+            "Close with explicit closure policy when endpoints do not meet exactly, and annotation "
+            "for blocked scope without invented geometry."
         ),
         "operand_source": "hydrate_deed_to_ir_input sections=[mapping_operands]",
         "supported_authoring_pattern": [
-            "ReferenceFrame — PLSS/frame context (non-rendered descriptor)",
-            "TiedPoint — POB / tied descriptive anchor",
-            "CourseTraverse — ordered deed calls (canonical deed call sequence primitive)",
-            "Close — parcel region; set closure_mode/closure_tolerance when more-or-less calls leave a small gap",
-            "annotation — blocked/incomplete scopes (e.g. Parcel 2 continuation unavailable)",
+            "ReferenceFrame — survey/frame context such as PLSS, local stationing, plat grid, or other external basis (non-rendered descriptor)",
+            "TiedPoint — local anchor / beginning point",
+            "CourseTraverse — ordered calls (canonical deed call sequence primitive)",
+            "Close — region from a traverse; set closure_mode/closure_tolerance when calls leave a small endpoint gap",
+            "annotation — blocked/incomplete scopes without fake geometry",
         ],
         "unsupported_ops_note": (
             "Invented operation names may preserve meaning in prose but are not mapping-ready. "
@@ -235,6 +279,11 @@ def build_deed_to_ir_authoring_example() -> dict[str, Any]:
             ),
         },
     }
+
+
+def example_forbidden_tokens() -> tuple[str, ...]:
+    """Practice-deed tokens that must not appear in canonical example payloads."""
+    return _FORBIDDEN_EXAMPLE_TOKENS
 
 
 def build_operation_example(operation: OperationDef) -> dict[str, Any]:
@@ -279,7 +328,7 @@ def _parameter_example(parameter: ParameterSpec) -> Any:
             {
                 "bearing": 45.0,
                 "distance": 100.0,
-                "bearing_raw": "N 45 degrees E",
+                "bearing_raw": "N. 45° E.",
                 "distance_raw": "100 feet",
             }
         ]
