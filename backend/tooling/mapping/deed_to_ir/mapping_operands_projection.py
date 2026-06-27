@@ -7,6 +7,12 @@ from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from .operand_value_parsing import (
+    build_course_compile_fields,
+    parse_bearing_operand,
+    parse_distance_operand,
+)
+
 MAX_MAPPING_OPERANDS = 64
 MAX_OPERAND_TITLE_CHARS = 160
 MAX_OPERAND_DETERMINED_VALUE_CHARS = 320
@@ -124,9 +130,13 @@ def build_operand_groups(operands: Sequence[Mapping[str, Any]]) -> list[dict[str
         if value_kind == "bearing":
             slot["bearing_operand_id"] = operand_id
             slot["bearing_raw"] = row.get("determined_value")
+            if row.get("bearing_degrees") is not None:
+                slot["bearing_degrees"] = row.get("bearing_degrees")
         else:
             slot["distance_operand_id"] = operand_id
             slot["distance_raw"] = row.get("determined_value")
+            if row.get("distance_feet") is not None:
+                slot["distance_feet"] = row.get("distance_feet")
 
     by_parcel: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for (parcel_id, call_index) in sorted(pending.keys(), key=lambda item: (item[0], item[1])):
@@ -139,6 +149,14 @@ def build_operand_groups(operands: Sequence[Mapping[str, Any]]) -> list[dict[str
             row["distance_operand_id"] = slot["distance_operand_id"]
             row["distance_raw"] = slot.get("distance_raw")
         if len(row) > 1:
+            row.update(
+                build_course_compile_fields(
+                    bearing_raw=slot.get("bearing_raw"),
+                    distance_raw=slot.get("distance_raw"),
+                    bearing_degrees=slot.get("bearing_degrees"),
+                    distance_feet=slot.get("distance_feet"),
+                )
+            )
             by_parcel[parcel_id].append(row)
 
     groups: list[dict[str, Any]] = []
@@ -156,6 +174,16 @@ def build_operand_groups(operands: Sequence[Mapping[str, Any]]) -> list[dict[str
         )
     groups.extend(blocker_groups)
     return groups
+
+
+def _attach_parsed_numeric_fields(row: dict[str, Any]) -> dict[str, Any]:
+    value_kind = str(row.get("value_kind") or "").lower()
+    determined_value = row.get("determined_value")
+    if value_kind == "bearing":
+        row.update(parse_bearing_operand(determined_value))
+    elif value_kind == "distance":
+        row.update(parse_distance_operand(determined_value))
+    return row
 
 
 def _project_atom_operand(
@@ -181,6 +209,7 @@ def _project_atom_operand(
             "evidence_locator_count": _evidence_locator_count(unit),
         }
     )
+    row = _attach_parsed_numeric_fields(row)
     return _compact_row(row), truncation
 
 

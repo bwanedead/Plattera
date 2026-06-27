@@ -78,6 +78,7 @@ def hydrate_artifact_refs(
     workspace_id: str | None = None,
     run_id: str | None = None,
     handoff_context: Mapping[str, Any] | None = None,
+    working_draft_ref: str | None = None,
 ) -> dict[str, Any]:
     """Hydrate feature-graph, mapping sidecar, and deed-to-IR output refs without exposing paths."""
     return hydrate_feature_graph_artifact_refs(
@@ -89,6 +90,7 @@ def hydrate_artifact_refs(
         workspace_id=workspace_id,
         run_id=run_id,
         handoff_context=handoff_context,
+        working_draft_ref=working_draft_ref,
     )
 
 
@@ -116,6 +118,7 @@ def make_hydrate_artifact_refs_handler(
                 workspace_id=workspace_id,
                 run_id=run_id,
                 handoff_context=handoff_context,
+                working_draft_ref=_optional_str(inputs.get("working_draft_ref")),
             )
         except Exception as exc:
             if isinstance(exc, ValueError) and str(exc).strip():
@@ -135,6 +138,7 @@ def hydrate_feature_graph_artifact_refs(
     workspace_id: str | None = None,
     run_id: str | None = None,
     handoff_context: Mapping[str, Any] | None = None,
+    working_draft_ref: str | None = None,
 ) -> dict[str, Any]:
     """Hydrate feature-graph artifact refs without exposing filesystem paths."""
     if not dossier_id:
@@ -209,7 +213,15 @@ def hydrate_feature_graph_artifact_refs(
         if str(artifact.get("artifact_type") or "") != artifact_type:
             errors.append({"ref_id": text, "reason": "artifact_type_mismatch"})
             continue
-        results.append(_hydrated_row(ref_id=text, artifact=artifact))
+        results.append(
+            _hydrated_row(
+                ref_id=text,
+                artifact=artifact,
+                dossier_id=dossier_id,
+                persistence=service,
+                working_draft_ref=working_draft_ref,
+            )
+        )
     payload: dict[str, Any] = {
         "executed": True,
         "outputs": {
@@ -224,7 +236,14 @@ def hydrate_feature_graph_artifact_refs(
     return payload
 
 
-def _hydrated_row(*, ref_id: str, artifact: dict[str, Any]) -> dict[str, Any]:
+def _hydrated_row(
+    *,
+    ref_id: str,
+    artifact: dict[str, Any],
+    dossier_id: str | None = None,
+    persistence: FeatureGraphPersistenceService | None = None,
+    working_draft_ref: str | None = None,
+) -> dict[str, Any]:
     artifact_type = str(artifact.get("artifact_type") or "")
     row: dict[str, Any] = {
         "ref_id": ref_id,
@@ -253,6 +272,16 @@ def _hydrated_row(*, ref_id: str, artifact: dict[str, Any]) -> dict[str, Any]:
         trunc = {k: v for k, v in (cf_meta | gaps_meta | warnings_meta).items() if v}
         if trunc:
             row["truncated"] = trunc
+        row.update(
+            _evaluation_artifact_labels(
+                persistence=persistence,
+                dossier_id=dossier_id,
+                artifact=artifact,
+                artifact_type=artifact_type,
+                artifact_ref=ref_id,
+                working_draft_ref=working_draft_ref,
+            )
+        )
     elif artifact_type == "judge":
         row["graph_id"] = artifact.get("graph_id")
         report = artifact.get("report") if isinstance(artifact.get("report"), dict) else {}
@@ -260,6 +289,16 @@ def _hydrated_row(*, ref_id: str, artifact: dict[str, Any]) -> dict[str, Any]:
         row["report"] = bounded_report
         if report_meta:
             row["truncated"] = report_meta
+        row.update(
+            _evaluation_artifact_labels(
+                persistence=persistence,
+                dossier_id=dossier_id,
+                artifact=artifact,
+                artifact_type=artifact_type,
+                artifact_ref=ref_id,
+                working_draft_ref=working_draft_ref,
+            )
+        )
     elif artifact_type == "bundle":
         row["target_graph_id"] = artifact.get("target_graph_id")
         target = artifact.get("target_graph") if isinstance(artifact.get("target_graph"), dict) else {}
@@ -662,6 +701,36 @@ def _hydrate_deed_to_ir_output_ref(
     if trunc:
         row["truncated"] = trunc
     return _strip_paths(row), None
+
+
+def _evaluation_artifact_labels(
+    *,
+    persistence: FeatureGraphPersistenceService | None,
+    dossier_id: str | None,
+    artifact: dict[str, Any],
+    artifact_type: str,
+    artifact_ref: str,
+    working_draft_ref: str | None,
+) -> dict[str, Any]:
+    if persistence is None or not dossier_id:
+        return {"artifact_ref": artifact_ref}
+    from .draft_artifact_lineage import build_evaluation_artifact_labels
+
+    return build_evaluation_artifact_labels(
+        persistence=persistence,
+        dossier_id=dossier_id,
+        artifact=artifact,
+        artifact_type=artifact_type,
+        artifact_ref=artifact_ref,
+        working_draft_ref=working_draft_ref,
+    )
+
+
+def _optional_str(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    return text or None
 
 
 def _refusal(code: str, message: str) -> dict[str, Any]:

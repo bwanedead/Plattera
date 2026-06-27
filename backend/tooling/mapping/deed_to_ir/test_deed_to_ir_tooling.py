@@ -557,6 +557,12 @@ def test_operand_groups_mechanical_from_practice_fixture():
     assert parcel_1["rows"][0]["call_index"] == 1
     assert "bearing_operand_id" in parcel_1["rows"][0]
     assert "distance_operand_id" in parcel_1["rows"][0]
+    assert parcel_1["rows"][0]["course_compile_ready"] is True
+    assert parcel_1["rows"][0]["bearing"] == pytest.approx(68.5, rel=1e-4)
+    assert parcel_1["rows"][0]["distance"] == pytest.approx(542.0, rel=1e-4)
+    bearing_row = next(row for row in payload["operands"] if row["operand_id"] == "p1_call1_bearing")
+    assert bearing_row["parse_status"] == "parsed"
+    assert bearing_row["bearing_degrees"] == pytest.approx(68.5, rel=1e-4)
     blockers = [group for group in groups if group["group_kind"] == "scope_blocker"]
     assert blockers
     assert blockers[0]["rows"][0]["operand_id"] == "parcel_2_continuation_scope"
@@ -688,6 +694,156 @@ def test_patch_ir_draft_modifies_target_nodes_and_increments_version():
         assert traverse_v1["op_expr"]["params"]["courses"]
         assert v1["metadata"]["note"] == "keep"
         assert any(edge["edge_type"] == "derived_from" for edge in v1["edges"])
+
+
+def test_patch_ir_draft_deep_merges_nested_op_expr_params():
+    base_graph = FeatureGraph(
+        graph_id="deep_merge_graph",
+        nodes=[
+            FeatureNode(
+                id="parcel_1_pob",
+                kind=FeatureKind.POINT,
+                geometry={"type": "Point", "coordinates": [0.0, 0.0]},
+            ),
+            FeatureNode(
+                id="parcel_1_traverse",
+                kind=FeatureKind.CURVE,
+                op_expr=OpExpr(
+                    op_name="CourseTraverse",
+                    operands=["parcel_1_pob"],
+                    params={"courses": []},
+                ),
+            ),
+        ],
+        edges=[],
+    )
+    with tempfile.TemporaryDirectory() as tmpdir:
+        from services.feature_graph.feature_graph_persistence_service import FeatureGraphPersistenceService
+
+        service = FeatureGraphPersistenceService(
+            root=Path(tmpdir) / "artifacts",
+            state_dir=Path(tmpdir) / "state",
+        )
+        saved = save_ir_artifact(
+            dossier_id="d-deep",
+            feature_graph=base_graph.model_dump(mode="json"),
+            persistence=service,
+        )
+        base_ref = saved["outputs"]["working_draft_ref"]
+        patched = patch_ir_draft(
+            dossier_id="d-deep",
+            base_draft_ref=base_ref,
+            node_upserts=[
+                {
+                    "id": "parcel_1_traverse",
+                    "op_expr": {
+                        "params": {
+                            "courses": [{"bearing": 68.5, "distance": 542.0}],
+                        }
+                    },
+                }
+            ],
+            persistence=service,
+        )
+        assert patched["executed"] is True
+        hydrated = hydrate_feature_graph_artifact_refs(
+            dossier_id="d-deep",
+            ref_ids=[patched["outputs"]["working_draft_ref"]],
+            persistence=service,
+        )
+        graph = hydrated["outputs"]["results"][0]["graph"]
+        traverse = next(node for node in graph["nodes"] if node["id"] == "parcel_1_traverse")
+        assert traverse["op_expr"]["op_name"] == "CourseTraverse"
+        assert traverse["op_expr"]["operands"] == ["parcel_1_pob"]
+        assert traverse["op_expr"]["params"]["courses"] == [{"bearing": 68.5, "distance": 542.0}]
+
+
+def test_hydrated_compile_artifact_labels_parent_draft_version():
+    base_graph = FeatureGraph(
+        graph_id="lineage_graph",
+        nodes=[
+            FeatureNode(
+                id="pob",
+                kind=FeatureKind.POINT,
+                geometry={"type": "Point", "coordinates": [0.0, 0.0]},
+            ),
+        ],
+        edges=[],
+    )
+    with tempfile.TemporaryDirectory() as tmpdir:
+        from services.feature_graph.feature_graph_persistence_service import FeatureGraphPersistenceService
+
+        service = FeatureGraphPersistenceService(
+            root=Path(tmpdir) / "artifacts",
+            state_dir=Path(tmpdir) / "state",
+        )
+        saved = save_ir_artifact(
+            dossier_id="d-lineage",
+            feature_graph=base_graph.model_dump(mode="json"),
+            persistence=service,
+        )
+        working_ref = saved["outputs"]["working_draft_ref"]
+        compile_ref = saved["outputs"]["working_compile_ref"]
+        assert compile_ref
+        hydrated = hydrate_feature_graph_artifact_refs(
+            dossier_id="d-lineage",
+            ref_ids=[compile_ref],
+            persistence=service,
+            working_draft_ref=working_ref,
+        )
+        row = hydrated["outputs"]["results"][0]
+        assert row["parent_ir_ref"] == working_ref
+        assert row["parent_draft_version"] == "v0"
+        assert row["parent_graph_id"] == "lineage_graph"
+        assert row["is_current_for_working_draft"] is True
+
+
+def test_course_traverse_contract_excludes_numeric_or_raw_wording():
+    from feature_graph.operations import OPERATION_REGISTRY
+
+    courses_param = next(
+        parameter for parameter in OPERATION_REGISTRY["CourseTraverse"].parameters if parameter.name == "courses"
+    )
+    assert "numeric or raw" not in courses_param.description.lower()
+    assert "bearing_raw" in courses_param.description
+    caps = describe_feature_graph_capabilities(
+        sections=["operations"],
+        operation_names=["CourseTraverse"],
+    )
+    op = caps["registered_operations"][0]
+    assert "compile_note" in op
+    assert "numeric bearing" in op["compile_note"].lower()
+    dumped = json.dumps(caps)
+    assert "numeric or raw" not in dumped.lower()
+
+
+def test_save_ir_outputs_surface_working_compile_and_judge_refs():
+    graph = FeatureGraph(
+        graph_id="working_refs_graph",
+        nodes=[
+            FeatureNode(
+                id="pob",
+                kind=FeatureKind.POINT,
+                geometry={"type": "Point", "coordinates": [0.0, 0.0]},
+            ),
+        ],
+        edges=[],
+    )
+    with tempfile.TemporaryDirectory() as tmpdir:
+        from services.feature_graph.feature_graph_persistence_service import FeatureGraphPersistenceService
+
+        service = FeatureGraphPersistenceService(
+            root=Path(tmpdir) / "artifacts",
+            state_dir=Path(tmpdir) / "state",
+        )
+        saved = save_ir_artifact(
+            dossier_id="d-working-refs",
+            feature_graph=graph.model_dump(mode="json"),
+            persistence=service,
+        )
+        outputs = saved["outputs"]
+        assert outputs["working_compile_ref"] == outputs["compile_artifact_ref"]
+        assert outputs["working_judge_ref"] == outputs["judge_artifact_ref"]
 
 
 def test_patch_ir_draft_refuses_malformed_base_draft_missing_graph():

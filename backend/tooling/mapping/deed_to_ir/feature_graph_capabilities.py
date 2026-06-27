@@ -9,6 +9,17 @@ from feature_graph.artifact_refs import ARTIFACT_REF_PREFIXES
 from feature_graph.models import FeatureKind
 from feature_graph.operations import OPERATION_REGISTRY
 
+OPERATION_COMPILE_NOTES: dict[str, str] = {
+    "CourseTraverse": (
+        "CourseTraverse.courses[] requires numeric bearing and numeric distance. "
+        "Raw fields preserve source text but do not compile by themselves."
+    ),
+    "LineStep": (
+        "LineStep requires numeric bearing (degrees) and numeric distance (feet). "
+        "bearing_raw/distance_raw are provenance-only."
+    ),
+}
+
 from .feature_graph_contract_projection import (
     build_core_schema_projection,
     build_feature_node_kind_contract,
@@ -156,6 +167,11 @@ def _compact_operation_index(operation_names: list[str]) -> list[dict[str, Any]]
                 "name": operation.name,
                 "category": operation.category.value,
                 "compiler_support": "supported" if operation.supported else "unsupported",
+                **(
+                    {"compile_note": note}
+                    if (note := OPERATION_COMPILE_NOTES.get(operation.name))
+                    else {}
+                ),
             }
         )
     return rows
@@ -197,7 +213,7 @@ def _resolve_operation_names(
 
 
 def _project_operation(operation: Any) -> dict[str, Any]:
-    return {
+    payload = {
         "name": operation.name,
         "category": operation.category.value,
         "description": operation.description,
@@ -218,6 +234,10 @@ def _project_operation(operation: Any) -> dict[str, Any]:
         "max_operands": operation.max_operands,
         "compiler_support": "supported" if operation.supported else "unsupported",
     }
+    compile_note = OPERATION_COMPILE_NOTES.get(operation.name)
+    if compile_note:
+        payload["compile_note"] = compile_note
+    return payload
 
 
 def _unique_non_empty_strings(values: Sequence[str]) -> list[str]:

@@ -285,6 +285,8 @@ def build_evaluation_feedback(
     return {
         "compile_artifact_ref": compile_outcome.artifact_ref if compile_outcome else None,
         "judge_artifact_ref": judge_outcome.artifact_ref if judge_outcome else None,
+        "working_compile_ref": compile_outcome.artifact_ref if compile_outcome else None,
+        "working_judge_ref": judge_outcome.artifact_ref if judge_outcome else None,
         "compile_gap_count": compile_gap_count,
         "judge_finding_count": judge_finding_count,
         "compile_gaps": compile_gaps,

@@ -10,6 +10,7 @@ from services.feature_graph.feature_graph_persistence_service import FeatureGrap
 
 from .draft_ir_lifecycle import load_base_draft_artifact, prior_graph_id_from_artifact
 from .ir_persistence import _base_draft_refusal, _graph_id_mismatch_refusal, save_ir_artifact
+from .patch_deep_merge import deep_merge_patch
 
 
 def patch_ir_draft(
@@ -116,7 +117,7 @@ def _apply_patch(
         node_id = str(upsert.get("id") or "").strip()
         if not node_id:
             continue
-        merged = {**nodes_by_id.get(node_id, {}), **dict(upsert)}
+        merged = deep_merge_patch(nodes_by_id.get(node_id, {}), dict(upsert))
         merged["id"] = node_id
         if node_id not in nodes_by_id and node_id not in node_order:
             node_order.append(node_id)

@@ -221,7 +221,10 @@ TRAVERSE_COURSE_TRAVERSE = OperationDef(
             name="courses",
             param_type="array",
             required=True,
-            description="Ordered list of course objects with bearing/distance (numeric or raw)"
+            description=(
+                "Ordered list of course objects. Each course must include numeric bearing degrees "
+                "and numeric distance feet. bearing_raw/distance_raw are optional provenance fields only."
+            )
         )
     ],
     min_operands=0,

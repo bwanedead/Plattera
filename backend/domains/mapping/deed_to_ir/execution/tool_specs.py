@@ -270,10 +270,12 @@ def build_deed_to_ir_tool_specs() -> tuple[SemanticToolSpec, ...]:
                 "(node/edge counts, unknown/renderable/geometry/op_expr/feature_ref counts, "
                 "source_entity_link_count, placeholder_only_graph), current_draft_ir compact lane with "
                 "bounded draft_repair_items (node_id, node_kind, current_operation, issue, reason), "
-                "compile_artifact_ref, judge_artifact_ref, compile_gap_count, judge_finding_count, "
+                "compile_artifact_ref, judge_artifact_ref, working_compile_ref, working_judge_ref, compile_gap_count, judge_finding_count, "
                 "bounded compile_gaps/judge_findings (node-precise feature_id/node_id, gap_kind, operation, reason), "
                 "mechanically_mappable_candidate (compile/judge-only), "
                 "and mapping_submission_ready_candidate (structural + compile/judge readiness — not deed-correct). "
+                "CourseTraverse courses require numeric bearing/distance; use operand-suite parsed fields "
+                "(bearing, distance, bearing_degrees, distance_feet) — raw-only rows do not compile. "
                 "On validation failure: executed=false, reason_codes=[feature_graph_validation_failed], "
                 "retryable refusal, and bounded outputs.validation_errors (no artifact saved). "
                 "On graph_id mismatch with base_draft_ref: executed=false, reason_code=draft_graph_id_mismatch, "
@@ -291,7 +293,8 @@ def build_deed_to_ir_tool_specs() -> tuple[SemanticToolSpec, ...]:
             ),
             expected_request_shape=(
                 "base_draft_ref: required feature_graph:ir:* ref for the draft to patch. "
-                "node_upserts: optional array of FeatureNode patches keyed by exact id (shallow merge). "
+                "node_upserts: optional array of FeatureNode patches keyed by exact id (deep-merge dictionaries; "
+                "arrays/scalars replace; null clears a field). "
                 "edge_upserts: optional array of FeatureEdge patches keyed by source_id+target_id+edge_type. "
                 "node_removals / edge_removals: optional exact-id removals (missing ids are no-ops with warnings). "
                 "graph_id: optional; when supplied must match the base draft graph_id."
@@ -341,8 +344,10 @@ def build_deed_to_ir_tool_specs() -> tuple[SemanticToolSpec, ...]:
                 "side_effect_class": "write",
             },
             expected_result_shape=(
-                "Same success/failure outputs as save_ir_artifact (working_draft_ref, draft_version, "
-                "current_draft_ir, draft_repair_items, compile/judge refs and gaps). "
+                "Same success/failure outputs as save_ir_artifact (working_draft_ref, working_compile_ref, "
+                "working_judge_ref, draft_version, current_draft_ir, draft_repair_items, compile/judge refs and gaps). "
+                "Nested op_expr.params patches preserve existing op_name/operands when omitted. "
+                "CourseTraverse course rows need numeric bearing/distance from operand-suite parsed fields. "
                 "Optional outputs.patch_warnings when removals target missing ids. "
                 "Validation failure is retryable and persists nothing."
             ),
@@ -432,7 +437,9 @@ def build_deed_to_ir_tool_specs() -> tuple[SemanticToolSpec, ...]:
             ),
             expected_request_shape=(
                 "ref_ids: required non-empty array of feature_graph:*, artifact://dossiers/feature_graphs/*, "
-                "deed_to_ir:operands*, or deed_to_ir:output* refs. max_refs: optional cap (default 8, max 32)."
+                "deed_to_ir:operands*, or deed_to_ir:output* refs. max_refs: optional cap (default 8, max 32). "
+                "working_draft_ref: optional feature_graph:ir:* ref used to label compile/judge hydration rows "
+                "with is_current_for_working_draft."
             ),
             expected_request_json_shape={
                 "type": "object",
@@ -444,6 +451,7 @@ def build_deed_to_ir_tool_specs() -> tuple[SemanticToolSpec, ...]:
                         "minItems": 1,
                     },
                     "max_refs": {"type": ["integer", "null"]},
+                    "working_draft_ref": {"type": ["string", "null"]},
                 },
                 "additionalProperties": False,
             },
@@ -459,6 +467,8 @@ def build_deed_to_ir_tool_specs() -> tuple[SemanticToolSpec, ...]:
             },
             expected_result_shape=(
                 "outputs.results: hydrated artifacts or sidecars keyed by ref with bounded payloads. "
+                "Compile/judge rows include artifact_ref, parent_ir_ref, parent_graph_id, parent_draft_version, "
+                "and optional is_current_for_working_draft when working_draft_ref is supplied. "
                 "outputs.errors: per-ref not_found, prefix, or scope errors. "
                 "image_evidence: present for PNG sidecar refs only."
             ),
