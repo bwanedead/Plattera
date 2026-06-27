@@ -167,7 +167,7 @@ def test_domain_pack_builds() -> None:
         "layer_3_external_dependency_representability_completeness",
         "layer_4_map_handoffability_scoped_completion",
     ]
-    assert len(pack.build_semantic_prompt_blocks()) == 3
+    assert len(pack.build_semantic_prompt_blocks()) == 4
 
 
 def test_branch_and_guidance_mission_markers() -> None:
@@ -216,6 +216,37 @@ def test_branch_and_guidance_mission_markers() -> None:
     assert "hydrate_feature_graph_artifact_refs" not in guidance
     assert "local stationing" in guidance or "plat grid" in guidance
     assert "referenceframe" in guidance.replace("_", "").replace("-", "")
+
+    authoring = next(
+        b.text.lower()
+        for b in build_deed_to_ir_domain_pack().build_semantic_prompt_blocks()
+        if b.block_id == "deed_to_ir_feature_graph_authoring_guide"
+    )
+    assert "deed meaning" in authoring
+    assert "featuregraph node kind" in authoring
+    assert "compiler operation" in authoring
+    assert "operation params" in authoring
+    assert "rendered geometry" in authoring
+    assert "kind=curve" in authoring
+    assert "op_name=coursetraverse" in authoring
+    assert "params.courses" in authoring
+    assert "do not use `params.calls`" in authoring
+    assert "raw-only rows do not compile" in authoring
+    assert "close` requires exactly one operand" in authoring
+    assert "annotation` is a featurekind" in authoring
+    assert "deed_call_sequence" in authoring
+    assert "example_boundary_chain" in authoring
+    assert "123.25" in authoring
+    for practice_token in (
+        "parcel1_",
+        "parcel_1",
+        "p1_",
+        "542",
+        "68.5",
+        "right_of_way",
+        "canal",
+    ):
+        assert practice_token not in authoring
 
 
 def test_tool_and_capability_examples_expose_generic_authoring_pattern() -> None:

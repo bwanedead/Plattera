@@ -12,6 +12,7 @@ from .payloads import DeedToIrStartupHandoff
 from .prompting import (
     PromptBlock,
     build_deed_to_ir_branch_blocks,
+    build_deed_to_ir_feature_graph_authoring_guide_blocks,
     build_deed_to_ir_procedural_guidance_blocks,
 )
 from .prompting.surfaces.startup_context import build_startup_context_block
@@ -27,6 +28,7 @@ class DeedToIrDomainPack:
         return (
             *build_mapping_family_branch_blocks(),
             *build_deed_to_ir_branch_blocks(),
+            *build_deed_to_ir_feature_graph_authoring_guide_blocks(),
             *build_deed_to_ir_procedural_guidance_blocks(),
         )
 
