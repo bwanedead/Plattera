@@ -22,6 +22,8 @@ def patch_ir_draft(
     node_removals: Sequence[str] | None = None,
     edge_removals: Sequence[Mapping[str, Any]] | None = None,
     graph_id: str | None = None,
+    draft_workspace_id: str | None = None,
+    draft_run_id: str | None = None,
     persistence: FeatureGraphPersistenceService | None = None,
     evaluation: FeatureGraphEvaluationService | None = None,
 ) -> dict[str, Any]:
@@ -37,6 +39,8 @@ def patch_ir_draft(
         persistence=service,
         dossier_id=dossier_id,
         base_draft_ref=base_ref,
+        draft_workspace_id=draft_workspace_id,
+        draft_run_id=draft_run_id,
     )
     if base_error:
         return _base_draft_refusal(
@@ -72,6 +76,8 @@ def patch_ir_draft(
         dossier_id=dossier_id,
         feature_graph=patched_graph,
         base_draft_ref=base_ref,
+        draft_workspace_id=draft_workspace_id,
+        draft_run_id=draft_run_id,
         persistence=service,
         evaluation=evaluation,
     )

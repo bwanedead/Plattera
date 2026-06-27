@@ -89,10 +89,10 @@ def test_publish_tool_spec_exposes_row_contracts_from_models() -> None:
         ALLOWED_CLOSURE_DIMENSION_IDS,
         MAX_CLOSURE_DIMENSIONS,
         MAX_EXTERNAL_DEPENDENCIES,
-        MAX_NOTE_LENGTH,
         MAX_REF_LENGTH,
         MAX_ROW_REFS,
         MAX_SCOPE_RESULTS,
+        MAX_SUMMARY_LENGTH,
     )
 
     publish = {spec.tool_id: spec for spec in build_deed_to_ir_tool_specs()}["publish_deed_to_ir_output"]
@@ -140,8 +140,17 @@ def test_publish_tool_spec_exposes_row_contracts_from_models() -> None:
     assert closure_item["properties"]["basis_refs"]["items"]["minLength"] == 1
 
     notes = shape["properties"]["notes"]
-    assert notes["items"]["maxLength"] == MAX_NOTE_LENGTH
-    assert notes["items"]["minLength"] == 1
+    note_item = notes["items"]
+    assert note_item["additionalProperties"] is False
+    assert note_item["required"] == ["note_id", "summary"]
+    assert set(note_item["properties"]) == {"note_id", "summary", "basis_refs"}
+    assert note_item["properties"]["summary"]["maxLength"] == MAX_SUMMARY_LENGTH
+
+    example = publish.example_request
+    assert example["external_dependencies"][0]["description"]
+    assert "summary" not in example["external_dependencies"][0]
+    assert isinstance(example["notes"][0], dict)
+    assert "note_id" in example["notes"][0]
 
 
 def test_domain_pack_builds() -> None:

@@ -11,8 +11,8 @@ from .published_output import (
     ClosureDimensionRow,
     DeedToIrPublishedOutput,
     ExternalDependencyRow,
-    MAX_NOTE_LENGTH,
     MAX_REF_LENGTH,
+    OutputNoteRow,
     ScopeResultRow,
 )
 
@@ -53,15 +53,11 @@ def build_publish_deed_to_ir_output_request_json_shape() -> dict[str, Any]:
                     }
                 },
             ),
-            "notes": {
-                "type": "array",
-                "maxItems": _list_max_items(DeedToIrPublishedOutput, "notes"),
-                "items": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": MAX_NOTE_LENGTH,
-                },
-            },
+            "notes": _list_property_schema(
+                parent_model=DeedToIrPublishedOutput,
+                field_name="notes",
+                item_model=OutputNoteRow,
+            ),
         },
         "additionalProperties": False,
     }

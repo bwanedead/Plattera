@@ -22,6 +22,8 @@ from .draft_ir_lifecycle import (
     build_draft_source_metadata,
     build_evaluation_feedback,
     compute_draft_structural_metrics,
+    draft_scope_key,
+    draft_scope_output_fields,
     load_base_draft_artifact,
     prior_draft_sequence_index_from_artifact,
     prior_graph_id_from_artifact,
@@ -45,6 +47,8 @@ def save_ir_artifact(
     base_draft_ref: str | None = None,
     source_document_id: str | None = None,
     created_by: str | None = None,
+    draft_workspace_id: str | None = None,
+    draft_run_id: str | None = None,
     persistence: FeatureGraphPersistenceService | None = None,
     evaluation: FeatureGraphEvaluationService | None = None,
 ) -> dict[str, Any]:
@@ -59,12 +63,15 @@ def save_ir_artifact(
         return _validation_failure(_format_validation_errors(exc))
 
     service = persistence or FeatureGraphPersistenceService()
+    scoped_key = draft_scope_key(workspace_id=draft_workspace_id, run_id=draft_run_id)
 
     if isinstance(base_draft_ref, str) and base_draft_ref.strip():
         prior_artifact, base_error = load_base_draft_artifact(
             persistence=service,
             dossier_id=dossier_id,
             base_draft_ref=base_draft_ref.strip(),
+            draft_workspace_id=draft_workspace_id,
+            draft_run_id=draft_run_id,
         )
         if base_error:
             return _base_draft_refusal(
@@ -82,12 +89,14 @@ def save_ir_artifact(
             dossier_id=dossier_id,
             graph_id=graph.graph_id,
             base_prior_index=prior_draft_sequence_index_from_artifact(prior_artifact),  # type: ignore[arg-type]
+            draft_scope_key=scoped_key,
         )
     else:
         draft_sequence_index = resolve_next_draft_sequence_index(
             persistence=service,
             dossier_id=dossier_id,
             graph_id=graph.graph_id,
+            draft_scope_key=scoped_key,
         )
         if isinstance(artifact_id, str) and artifact_id.strip():
             explicit_index = resolve_draft_sequence_index(
@@ -101,7 +110,11 @@ def save_ir_artifact(
     if isinstance(artifact_id, str) and artifact_id.strip():
         resolved_artifact_id = _sanitize_artifact_id(artifact_id.strip())
     else:
-        resolved_artifact_id = stable_draft_artifact_id(graph.graph_id, draft_sequence_index)
+        resolved_artifact_id = stable_draft_artifact_id(
+            graph.graph_id,
+            draft_sequence_index,
+            draft_scope_key=scoped_key,
+        )
         existing = service.get_artifact(dossier_id, resolved_artifact_id)
         if isinstance(existing, Mapping):
             return _draft_artifact_exists_refusal(
@@ -111,12 +124,15 @@ def save_ir_artifact(
                     service,
                     dossier_id=dossier_id,
                     graph_id=graph.graph_id,
+                    draft_scope_key=scoped_key,
                 ),
             )
 
     source_metadata = build_draft_source_metadata(
         graph_id=graph.graph_id,
         draft_sequence_index=draft_sequence_index,
+        draft_workspace_id=draft_workspace_id,
+        draft_run_id=draft_run_id,
     )
     draft_version = source_metadata["draft_version"]
     artifact = create_ir_artifact(
@@ -171,6 +187,10 @@ def save_ir_artifact(
         "graph_id": graph.graph_id,
         "validation_errors": [],
         "current_draft_ir": current_draft_ir,
+        **draft_scope_output_fields(
+            draft_workspace_id=draft_workspace_id,
+            draft_run_id=draft_run_id,
+        ),
         **evaluation_feedback,
     }
     if evaluation_warning:
@@ -304,6 +324,7 @@ def _latest_draft_ref_for_graph(
     *,
     dossier_id: str,
     graph_id: str,
+    draft_scope_key: str | None = None,
 ) -> str | None:
     from .draft_ir_lifecycle import max_draft_sequence_index_for_graph, stable_draft_artifact_id
 
@@ -311,10 +332,15 @@ def _latest_draft_ref_for_graph(
         persistence=persistence,
         dossier_id=dossier_id,
         graph_id=graph_id,
+        draft_scope_key=draft_scope_key,
     )
     if highest < 0:
         return None
-    artifact_id = stable_draft_artifact_id(graph_id, highest)
+    artifact_id = stable_draft_artifact_id(
+        graph_id,
+        highest,
+        draft_scope_key=draft_scope_key,
+    )
     return build_feature_graph_artifact_ref("ir", artifact_id)
 
 

@@ -100,6 +100,13 @@ def test_valid_package_publishes_and_hydrates(monkeypatch) -> None:
             dossier_id="d-pub",
             mapping_artifact_ref=mapping_ref,
             scope_results=[{"scope_id": "parcel_1", "status": "mapped"}],
+            notes=[
+                {
+                    "note_id": "handoff_note",
+                    "summary": "Example structured publish note.",
+                    "basis_refs": [],
+                }
+            ],
             closure_dimensions=[
                 {
                     "dimension_id": "layer_4_map_handoffability_scoped_completion",
@@ -111,6 +118,7 @@ def test_valid_package_publishes_and_hydrates(monkeypatch) -> None:
             persistence=persistence,
         )
         assert result["executed"] is True
+        assert result["outputs"]["note_count"] == 1
         assert result["outputs"]["output_ref"] == "deed_to_ir:output"
         assert result["artifact_refs"][0] == "deed_to_ir:output"
 
@@ -273,7 +281,141 @@ def test_publish_refuses_unknown_scope_fields(monkeypatch) -> None:
             persistence=persistence,
         )
         assert result["executed"] is False
-        assert result["refusal"]["reason_code"] == "scope_results_extra_field"
+        assert result["refusal"]["reason_code"] == "publish_payload_validation_failed"
+        assert result["refusal"]["retryable"] is True
+        assert result["refusal"]["blocked_by_invariant"] is False
+        errors = result["outputs"]["validation_errors"]
+        assert any(err["path"] == "scope_results[0].unexpected" for err in errors)
+        assert any(err["code"] == "extra_forbidden" for err in errors)
+
+
+def test_publish_refuses_external_dependency_shape_errors(monkeypatch) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        persistence, mapping_ref = _prepare_mapping(tmp)
+        ctx = _publish_context()
+        _patch_deed_root(monkeypatch, tmp)
+
+        result = publish_deed_to_ir_output(
+            dossier_id="d-pub",
+            mapping_artifact_ref=mapping_ref,
+            external_dependencies=[
+                {
+                    "dependency_id": "missing_continuation_source",
+                    "status": "missing",
+                    "summary": "Wrong field used instead of description.",
+                }
+            ],
+            **ctx,
+            persistence=persistence,
+        )
+        assert result["executed"] is False
+        assert result["refusal"]["retryable"] is True
+        errors = result["outputs"]["validation_errors"]
+        paths = {err["path"] for err in errors}
+        assert "external_dependencies[0].affected_scope" in paths
+        assert "external_dependencies[0].description" in paths
+        assert "external_dependencies[0].summary" in paths
+
+
+def test_publish_refuses_string_notes(monkeypatch) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        persistence, mapping_ref = _prepare_mapping(tmp)
+        ctx = _publish_context()
+        _patch_deed_root(monkeypatch, tmp)
+
+        result = publish_deed_to_ir_output(
+            dossier_id="d-pub",
+            mapping_artifact_ref=mapping_ref,
+            notes=["plain string note"],
+            **ctx,
+            persistence=persistence,
+        )
+        assert result["executed"] is False
+        assert result["refusal"]["retryable"] is True
+        assert result["outputs"]["validation_errors"]
+        assert result["outputs"]["validation_errors"][0]["path"] == "notes[0]"
+
+
+def test_publish_refuses_object_notes(monkeypatch) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        persistence, mapping_ref = _prepare_mapping(tmp)
+        ctx = _publish_context()
+        _patch_deed_root(monkeypatch, tmp)
+
+        result = publish_deed_to_ir_output(
+            dossier_id="d-pub",
+            mapping_artifact_ref=mapping_ref,
+            notes={"note_id": "handoff_note", "summary": "Structured note sent as object, not array."},
+            **ctx,
+            persistence=persistence,
+        )
+        assert result["executed"] is False
+        assert result["refusal"]["retryable"] is True
+        errors = result["outputs"]["validation_errors"]
+        assert any(err["path"] == "notes" and err["code"] == "invalid" for err in errors)
+
+
+def test_publish_refuses_object_external_dependencies(monkeypatch) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        persistence, mapping_ref = _prepare_mapping(tmp)
+        ctx = _publish_context()
+        _patch_deed_root(monkeypatch, tmp)
+
+        result = publish_deed_to_ir_output(
+            dossier_id="d-pub",
+            mapping_artifact_ref=mapping_ref,
+            external_dependencies={
+                "dependency_id": "missing_continuation_source",
+                "affected_scope": "example_scope",
+                "description": "Sent as object instead of array.",
+                "status": "missing",
+            },
+            **ctx,
+            persistence=persistence,
+        )
+        assert result["executed"] is False
+        assert result["refusal"]["retryable"] is True
+        errors = result["outputs"]["validation_errors"]
+        assert any(
+            err["path"] == "external_dependencies" and err["code"] == "invalid"
+            for err in errors
+        )
+
+
+def test_publish_validation_errors_are_capped_at_24(monkeypatch) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        persistence, mapping_ref = _prepare_mapping(tmp)
+        ctx = _publish_context()
+        _patch_deed_root(monkeypatch, tmp)
+
+        result = publish_deed_to_ir_output(
+            dossier_id="d-pub",
+            mapping_artifact_ref=mapping_ref,
+            scope_results=[{"scope_id": f"scope_{index}"} for index in range(30)],
+            **ctx,
+            persistence=persistence,
+        )
+        assert result["executed"] is False
+        errors = result["outputs"]["validation_errors"]
+        assert len(errors) == 24
+        assert errors[-1]["code"] == "validation_errors_truncated"
+
+
+def test_publish_validation_failure_does_not_persist_output(monkeypatch) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        persistence, mapping_ref = _prepare_mapping(tmp)
+        ctx = _publish_context()
+        _patch_deed_root(monkeypatch, tmp)
+
+        publish_deed_to_ir_output(
+            dossier_id="d-pub",
+            mapping_artifact_ref=mapping_ref,
+            external_dependencies=[{"dependency_id": "dep_only"}],
+            **ctx,
+            persistence=persistence,
+        )
+        output_dir = Path(tmp) / "artifacts" / "deed_to_ir" / "d-pub" / "tx_publish" / "ws_publish"
+        assert not any(output_dir.glob("rev_*.json")) if output_dir.is_dir() else True
 
 
 def test_publish_refuses_scope_results_cap_exceeded(monkeypatch) -> None:
@@ -293,7 +435,9 @@ def test_publish_refuses_scope_results_cap_exceeded(monkeypatch) -> None:
             persistence=persistence,
         )
         assert result["executed"] is False
-        assert result["refusal"]["reason_code"] == "scope_results_cap_exceeded"
+        assert result["refusal"]["reason_code"] == "publish_payload_validation_failed"
+        assert result["refusal"]["retryable"] is True
+        assert any(err["path"] == "scope_results" and err["code"] == "cap_exceeded" for err in result["outputs"]["validation_errors"])
 
 
 def test_publish_returns_closure_dimension_statuses_in_outputs(monkeypatch) -> None:

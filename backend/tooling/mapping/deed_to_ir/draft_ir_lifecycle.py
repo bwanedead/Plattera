@@ -24,12 +24,60 @@ MAX_DRAFT_EDGE_SUMMARY = 24
 MAX_EVALUATION_WARNING_MESSAGE_CHARS = 240
 
 
-def stable_draft_artifact_id(graph_id: str, draft_sequence_index: int) -> str:
+def stable_draft_artifact_id(
+    graph_id: str,
+    draft_sequence_index: int,
+    *,
+    draft_scope_key: str | None = None,
+) -> str:
     """Allocate a versioned draft artifact id from stable logical graph_id."""
     base = _sanitize_graph_id_for_artifact(graph_id)
+    if draft_scope_key:
+        scope_part = _sanitize_scope_key_for_artifact(draft_scope_key)
+        base = f"{base}__{scope_part}"
     if draft_sequence_index < 0:
         draft_sequence_index = 0
     return f"{base}_v{draft_sequence_index}"
+
+
+def draft_scope_key(*, workspace_id: str | None, run_id: str | None) -> str | None:
+    """Mechanical draft isolation key; prefers workspace_id over run_id."""
+    workspace = str(workspace_id or "").strip()
+    if workspace:
+        return f"ws:{workspace}"
+    run = str(run_id or "").strip()
+    if run:
+        return f"run:{run}"
+    return None
+
+
+def _sanitize_scope_key_for_artifact(scope_key: str) -> str:
+    cleaned = re.sub(r"[^A-Za-z0-9._-]+", "_", str(scope_key or "")).strip("_")
+    return (cleaned[:80] or "scope")
+
+
+def _artifact_draft_scope_key(raw: Mapping[str, Any]) -> str | None:
+    source_meta = raw.get("source_metadata")
+    if not isinstance(source_meta, Mapping):
+        return None
+    workspace = str(source_meta.get("draft_workspace_id") or "").strip()
+    if workspace:
+        return f"ws:{workspace}"
+    run = str(source_meta.get("draft_run_id") or "").strip()
+    if run:
+        return f"run:{run}"
+    return None
+
+
+def _draft_scope_matches(
+    raw: Mapping[str, Any],
+    *,
+    draft_scope_key: str | None,
+) -> bool:
+    artifact_scope = _artifact_draft_scope_key(raw)
+    if draft_scope_key is None:
+        return artifact_scope is None
+    return artifact_scope == draft_scope_key
 
 
 def _sanitize_graph_id_for_artifact(graph_id: str) -> str:
@@ -42,6 +90,8 @@ def load_base_draft_artifact(
     persistence: FeatureGraphPersistenceService,
     dossier_id: str,
     base_draft_ref: str,
+    draft_workspace_id: str | None = None,
+    draft_run_id: str | None = None,
 ) -> tuple[Mapping[str, Any] | None, str | None]:
     """Load prior draft IR artifact from base_draft_ref; return (artifact, error_code)."""
     try:
@@ -53,7 +103,27 @@ def load_base_draft_artifact(
     raw = persistence.get_artifact(dossier_id, artifact_id)
     if not isinstance(raw, Mapping):
         return None, "base_draft_ref_not_found"
+    scope_error = base_draft_scope_mismatch_code(
+        raw,
+        draft_workspace_id=draft_workspace_id,
+        draft_run_id=draft_run_id,
+    )
+    if scope_error:
+        return None, scope_error
     return raw, None
+
+
+def base_draft_scope_mismatch_code(
+    prior_artifact: Mapping[str, Any],
+    *,
+    draft_workspace_id: str | None,
+    draft_run_id: str | None,
+) -> str | None:
+    expected = draft_scope_key(workspace_id=draft_workspace_id, run_id=draft_run_id)
+    actual = _artifact_draft_scope_key(prior_artifact)
+    if expected != actual:
+        return "base_draft_scope_mismatch"
+    return None
 
 
 def prior_graph_id_from_artifact(raw: Mapping[str, Any]) -> str:
@@ -91,14 +161,17 @@ def max_draft_sequence_index_for_graph(
     persistence: FeatureGraphPersistenceService,
     dossier_id: str,
     graph_id: str,
+    draft_scope_key: str | None = None,
 ) -> int:
-    """Highest draft_sequence_index persisted for graph_id, or -1 when none."""
+    """Highest draft_sequence_index persisted for graph_id (and optional draft scope), or -1 when none."""
     highest = -1
     for entry in persistence.list_artifacts(dossier_id=dossier_id, artifact_type="ir"):
         raw = persistence.get_artifact(dossier_id, str(entry.get("artifact_id") or ""))
         if not isinstance(raw, Mapping):
             continue
         if _artifact_graph_id(raw) != graph_id:
+            continue
+        if not _draft_scope_matches(raw, draft_scope_key=draft_scope_key):
             continue
         source_meta = raw.get("source_metadata")
         if isinstance(source_meta, Mapping):
@@ -107,7 +180,11 @@ def max_draft_sequence_index_for_graph(
                 highest = max(highest, prior)
                 continue
         artifact_id = str(raw.get("artifact_id") or entry.get("artifact_id") or "")
-        parsed = _parse_draft_sequence_index_from_artifact_id(artifact_id, graph_id)
+        parsed = _parse_draft_sequence_index_from_artifact_id(
+            artifact_id,
+            graph_id,
+            draft_scope_key=draft_scope_key,
+        )
         if parsed is not None:
             highest = max(highest, parsed)
     return highest
@@ -119,20 +196,30 @@ def resolve_next_draft_sequence_index(
     dossier_id: str,
     graph_id: str,
     base_prior_index: int | None = None,
+    draft_scope_key: str | None = None,
 ) -> int:
     """Allocate the next append-only draft index, never reusing an existing sequence slot."""
     existing_max = max_draft_sequence_index_for_graph(
         persistence=persistence,
         dossier_id=dossier_id,
         graph_id=graph_id,
+        draft_scope_key=draft_scope_key,
     )
     if base_prior_index is not None:
         return max(base_prior_index + 1, existing_max + 1)
     return existing_max + 1
 
 
-def _parse_draft_sequence_index_from_artifact_id(artifact_id: str, graph_id: str) -> int | None:
-    prefix = f"{_sanitize_graph_id_for_artifact(graph_id)}_v"
+def _parse_draft_sequence_index_from_artifact_id(
+    artifact_id: str,
+    graph_id: str,
+    *,
+    draft_scope_key: str | None = None,
+) -> int | None:
+    prefix = f"{_sanitize_graph_id_for_artifact(graph_id)}"
+    if draft_scope_key:
+        prefix = f"{prefix}__{_sanitize_scope_key_for_artifact(draft_scope_key)}"
+    prefix = f"{prefix}_v"
     if not artifact_id.startswith(prefix):
         return None
     suffix = artifact_id[len(prefix) :]
@@ -171,6 +258,22 @@ def resolve_draft_sequence_index(
     return count
 
 
+def draft_scope_output_fields(
+    *,
+    draft_workspace_id: str | None = None,
+    draft_run_id: str | None = None,
+) -> dict[str, str]:
+    """Expose draft scope metadata in tool outputs when present."""
+    fields: dict[str, str] = {}
+    workspace = str(draft_workspace_id or "").strip()
+    run = str(draft_run_id or "").strip()
+    if workspace:
+        fields["draft_workspace_id"] = workspace
+    elif run:
+        fields["draft_run_id"] = run
+    return fields
+
+
 def draft_version_label(sequence_index: int) -> str:
     if sequence_index < 0:
         sequence_index = 0
@@ -181,13 +284,22 @@ def build_draft_source_metadata(
     *,
     graph_id: str,
     draft_sequence_index: int,
+    draft_workspace_id: str | None = None,
+    draft_run_id: str | None = None,
 ) -> dict[str, Any]:
-    return {
+    metadata: dict[str, Any] = {
         "graph_id": graph_id,
         "draft_sequence_index": draft_sequence_index,
         "draft_version": draft_version_label(draft_sequence_index),
         "is_draft": True,
     }
+    workspace = str(draft_workspace_id or "").strip()
+    run = str(draft_run_id or "").strip()
+    if workspace:
+        metadata["draft_workspace_id"] = workspace
+    elif run:
+        metadata["draft_run_id"] = run
+    return metadata
 
 
 def run_draft_compile_judge(

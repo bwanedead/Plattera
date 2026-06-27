@@ -18,7 +18,12 @@ from domains.mapping.deed_to_ir.payloads.published_output import (
 from services.feature_graph.feature_graph_mapping_sidecar_service import FeatureGraphMappingSidecarService
 from services.feature_graph.feature_graph_persistence_service import FeatureGraphPersistenceService
 
-from .output_package_validation import resolve_mapping_publish_package, validate_agent_output_rows
+from .output_package_validation import (
+    PublishPayloadValidationError,
+    PUBLISH_PAYLOAD_VALIDATION_FAILED,
+    resolve_mapping_publish_package,
+    validate_agent_output_rows,
+)
 from .output_refs import OUTPUT_REF, build_output_revision_ref
 from .paths import (
     UnsafeDeedToIrPathSegmentError,
@@ -45,10 +50,10 @@ def publish_deed_to_ir_output(
     transcript_edit_source_revision_ref: str | None,
     resolution_state_ref: str | None,
     mapping_artifact_ref: str,
-    scope_results: list[Any] | None = None,
-    external_dependencies: list[Any] | None = None,
-    closure_dimensions: list[Any] | None = None,
-    notes: list[Any] | None = None,
+    scope_results: Any | None = None,
+    external_dependencies: Any | None = None,
+    closure_dimensions: Any | None = None,
+    notes: Any | None = None,
     persistence: FeatureGraphPersistenceService | None = None,
 ) -> dict[str, Any]:
     if not dossier_id:
@@ -78,13 +83,13 @@ def publish_deed_to_ir_output(
 
     try:
         scopes, deps, closure, note_rows = validate_agent_output_rows(
-            scope_results=list(scope_results or []),
-            external_dependencies=list(external_dependencies or []),
-            closure_dimensions=list(closure_dimensions or []),
-            notes=list(notes or []),
+            scope_results=scope_results,
+            external_dependencies=external_dependencies,
+            closure_dimensions=closure_dimensions,
+            notes=notes,
         )
-    except ValueError as exc:
-        return _refusal(str(exc).strip(), str(exc).strip())
+    except PublishPayloadValidationError as exc:
+        return _validation_failure_refusal(exc)
 
     source_ref = str(transcript_edit_source_revision_ref or "").strip()
     if not source_ref:
@@ -327,4 +332,27 @@ def _refusal(code: str, message: str) -> dict[str, Any]:
             "missing_inputs": [],
         },
         "outputs": {"error": {"code": code, "message": message}},
+    }
+
+
+def _validation_failure_refusal(exc: PublishPayloadValidationError) -> dict[str, Any]:
+    reason_code = exc.reason_code or PUBLISH_PAYLOAD_VALIDATION_FAILED
+    validation_errors = list(exc.validation_errors)
+    return {
+        "executed": False,
+        "reason_codes": [reason_code],
+        "refusal": {
+            "reason_code": reason_code,
+            "retryable": True,
+            "blocked_by_invariant": False,
+            "blocked_by_budget": False,
+            "missing_inputs": [],
+        },
+        "outputs": {
+            "error": {
+                "code": PUBLISH_PAYLOAD_VALIDATION_FAILED,
+                "message": "publish payload validation failed",
+            },
+            "validation_errors": validation_errors,
+        },
     }

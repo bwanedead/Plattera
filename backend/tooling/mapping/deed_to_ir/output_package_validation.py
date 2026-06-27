@@ -14,6 +14,7 @@ from domains.mapping.deed_to_ir.payloads.published_output import (
     ClosureDimensionRow,
     DeedToIrSelectedArtifacts,
     ExternalDependencyRow,
+    OutputNoteRow,
     ScopeResultRow,
 )
 from feature_graph.artifact_refs import parse_feature_graph_artifact_ref
@@ -23,6 +24,23 @@ from pydantic import ValidationError
 from services.feature_graph.feature_graph_mapping_service import require_exact_ir_parent
 from services.feature_graph.feature_graph_mapping_sidecar_service import FeatureGraphMappingSidecarService
 from services.feature_graph.feature_graph_persistence_service import FeatureGraphPersistenceService
+
+MAX_PUBLISH_VALIDATION_ERRORS = 24
+PUBLISH_PAYLOAD_VALIDATION_FAILED = "publish_payload_validation_failed"
+
+
+class PublishPayloadValidationError(Exception):
+    """Retryable publish payload validation failure with bounded field feedback."""
+
+    def __init__(
+        self,
+        validation_errors: tuple[dict[str, str], ...] | list[dict[str, str]],
+        *,
+        reason_code: str = PUBLISH_PAYLOAD_VALIDATION_FAILED,
+    ) -> None:
+        self.validation_errors = tuple(validation_errors)
+        self.reason_code = reason_code
+        super().__init__(reason_code)
 
 
 @dataclass(frozen=True)
@@ -174,107 +192,273 @@ def _verify_sidecar(
 
 def validate_agent_output_rows(
     *,
-    scope_results: list[Any],
-    external_dependencies: list[Any],
-    closure_dimensions: list[Any],
-    notes: list[Any],
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]], list[str]]:
-    if len(scope_results) > MAX_SCOPE_RESULTS:
-        raise ValueError("scope_results_cap_exceeded")
-    if len(external_dependencies) > MAX_EXTERNAL_DEPENDENCIES:
-        raise ValueError("external_dependencies_cap_exceeded")
-    if len(closure_dimensions) > MAX_CLOSURE_DIMENSIONS:
-        raise ValueError("closure_dimensions_cap_exceeded")
-    if len(notes) > MAX_NOTES:
-        raise ValueError("notes_cap_exceeded")
+    scope_results: Any = None,
+    external_dependencies: Any = None,
+    closure_dimensions: Any = None,
+    notes: Any = None,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+    errors: list[dict[str, str]] = []
 
-    validated_scopes = [
-        _validate_row(ScopeResultRow, row, code_prefix="scope_results").model_dump(mode="json")
-        for row in scope_results
-    ]
-    validated_deps = [
-        _validate_row(ExternalDependencyRow, row, code_prefix="external_dependencies").model_dump(mode="json")
-        for row in external_dependencies
-    ]
-    validated_closure = [
-        _validate_row(ClosureDimensionRow, row, code_prefix="closure_dimensions").model_dump(mode="json")
-        for row in closure_dimensions
-    ]
-    validated_notes = [_validate_note(note) for note in notes]
+    scope_list, scope_type_errors = _require_row_list(scope_results, field_name="scope_results")
+    errors.extend(scope_type_errors)
+    dep_list, dep_type_errors = _require_row_list(external_dependencies, field_name="external_dependencies")
+    errors.extend(dep_type_errors)
+    closure_list, closure_type_errors = _require_row_list(closure_dimensions, field_name="closure_dimensions")
+    errors.extend(closure_type_errors)
+    note_list, note_type_errors = _require_row_list(notes, field_name="notes")
+    errors.extend(note_type_errors)
 
-    _assert_unique([row["scope_id"] for row in validated_scopes], code="scope_id_not_unique")
-    _assert_unique([row["dependency_id"] for row in validated_deps], code="dependency_id_not_unique")
-    closure_ids = [row["dimension_id"] for row in validated_closure]
-    _assert_unique(closure_ids, code="closure_dimension_id_not_unique")
-    for dimension_id in closure_ids:
+    if len(scope_list) > MAX_SCOPE_RESULTS:
+        errors.append(
+            _cap_error(
+                path="scope_results",
+                code="cap_exceeded",
+                message=f"scope_results exceeds maximum of {MAX_SCOPE_RESULTS} items",
+            )
+        )
+    if len(dep_list) > MAX_EXTERNAL_DEPENDENCIES:
+        errors.append(
+            _cap_error(
+                path="external_dependencies",
+                code="cap_exceeded",
+                message=f"external_dependencies exceeds maximum of {MAX_EXTERNAL_DEPENDENCIES} items",
+            )
+        )
+    if len(closure_list) > MAX_CLOSURE_DIMENSIONS:
+        errors.append(
+            _cap_error(
+                path="closure_dimensions",
+                code="cap_exceeded",
+                message=f"closure_dimensions exceeds maximum of {MAX_CLOSURE_DIMENSIONS} items",
+            )
+        )
+    if len(note_list) > MAX_NOTES:
+        errors.append(
+            _cap_error(
+                path="notes",
+                code="cap_exceeded",
+                message=f"notes exceeds maximum of {MAX_NOTES} items",
+            )
+        )
+
+    validated_scopes: list[dict[str, Any]] = []
+    for index, row in enumerate(scope_list):
+        validated, row_errors = _validate_row_at(
+            ScopeResultRow,
+            row,
+            path_prefix=f"scope_results[{index}]",
+        )
+        if validated is not None:
+            validated_scopes.append(validated)
+        errors.extend(row_errors)
+
+    validated_deps: list[dict[str, Any]] = []
+    for index, row in enumerate(dep_list):
+        validated, row_errors = _validate_row_at(
+            ExternalDependencyRow,
+            row,
+            path_prefix=f"external_dependencies[{index}]",
+        )
+        if validated is not None:
+            validated_deps.append(validated)
+        errors.extend(row_errors)
+
+    validated_closure: list[dict[str, Any]] = []
+    for index, row in enumerate(closure_list):
+        validated, row_errors = _validate_row_at(
+            ClosureDimensionRow,
+            row,
+            path_prefix=f"closure_dimensions[{index}]",
+        )
+        if validated is not None:
+            validated_closure.append(validated)
+        errors.extend(row_errors)
+
+    validated_notes: list[dict[str, Any]] = []
+    for index, row in enumerate(note_list):
+        validated, row_errors = _validate_row_at(
+            OutputNoteRow,
+            row,
+            path_prefix=f"notes[{index}]",
+        )
+        if validated is not None:
+            validated_notes.append(validated)
+        errors.extend(row_errors)
+
+    _collect_uniqueness_errors(
+        [row["scope_id"] for row in validated_scopes],
+        path="scope_results",
+        code="scope_id_not_unique",
+        errors=errors,
+    )
+    _collect_uniqueness_errors(
+        [row["dependency_id"] for row in validated_deps],
+        path="external_dependencies",
+        code="dependency_id_not_unique",
+        errors=errors,
+    )
+    _collect_uniqueness_errors(
+        [row["dimension_id"] for row in validated_closure],
+        path="closure_dimensions",
+        code="closure_dimension_id_not_unique",
+        errors=errors,
+    )
+    _collect_uniqueness_errors(
+        [row["note_id"] for row in validated_notes],
+        path="notes",
+        code="note_id_not_unique",
+        errors=errors,
+    )
+    for index, row in enumerate(validated_closure):
+        dimension_id = row["dimension_id"]
         if dimension_id not in ALLOWED_CLOSURE_DIMENSION_IDS:
-            raise ValueError("closure_dimension_id_invalid")
+            errors.append(
+                _cap_error(
+                    path=f"closure_dimensions[{index}].dimension_id",
+                    code="invalid",
+                    message="dimension_id is not an allowed closure dimension",
+                )
+            )
+
+    if errors:
+        raise PublishPayloadValidationError(tuple(_bound_errors(errors)))
 
     return validated_scopes, validated_deps, validated_closure, validated_notes
 
 
-def _validate_row(model_cls: type, row: Any, *, code_prefix: str):
+def _require_row_list(value: Any, *, field_name: str) -> tuple[list[Any], list[dict[str, str]]]:
+    if value is None:
+        return [], []
+    if isinstance(value, list):
+        return value, []
+    return [], [
+        _cap_error(
+            path=field_name,
+            code="invalid",
+            message=f"{field_name} must be an array of row objects",
+        )
+    ]
+
+
+def _validate_row_at(
+    model_cls: type,
+    row: Any,
+    *,
+    path_prefix: str,
+) -> tuple[dict[str, Any] | None, list[dict[str, str]]]:
     if not isinstance(row, dict):
-        raise ValueError(f"{code_prefix}_invalid")
+        return None, [
+            _cap_error(
+                path=path_prefix,
+                code="invalid",
+                message="Row must be an object",
+            )
+        ]
     try:
-        return model_cls.model_validate(row)
+        return model_cls.model_validate(row).model_dump(mode="json"), []
     except ValidationError as exc:
-        raise ValueError(_validation_reason_code(exc, code_prefix)) from exc
+        return None, _format_validation_errors(exc, path_prefix=path_prefix)
 
 
-def _validate_note(note: Any) -> str:
-    if not isinstance(note, str):
-        raise ValueError("notes_invalid")
-    text = note.strip()
-    if not text:
-        raise ValueError("notes_invalid")
-    try:
-        from domains.mapping.deed_to_ir.payloads.published_output import MAX_NOTE_LENGTH
-
-        if len(text) > MAX_NOTE_LENGTH:
-            raise ValueError("note_too_long")
-    except ValueError:
-        raise
-    return text
-
-
-def _assert_unique(values: list[str], *, code: str) -> None:
+def _collect_uniqueness_errors(
+    values: list[str],
+    *,
+    path: str,
+    code: str,
+    errors: list[dict[str, str]],
+) -> None:
     if len(values) != len(set(values)):
-        raise ValueError(code)
+        errors.append(
+            _cap_error(
+                path=path,
+                code=code,
+                message=f"{code.replace('_', ' ')}",
+            )
+        )
 
 
-def _validation_reason_code(exc: ValidationError, prefix: str) -> str:
+def _format_validation_errors(exc: ValidationError, *, path_prefix: str) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
     for err in exc.errors():
-        err_type = str(err.get("type") or "")
         loc = err.get("loc") or ()
-        if err_type == "extra_forbidden":
-            return f"{prefix}_extra_field"
-        if err_type in {"too_long", "string_too_long"}:
-            return f"{prefix}_too_long"
-        if err_type in {"too_short", "string_too_short", "missing"}:
-            return f"{prefix}_invalid"
-        if err_type == "value_error":
-            ctx = err.get("ctx") or {}
-            if isinstance(ctx.get("error"), Exception):
-                message = str(ctx["error"])
+        suffix = _format_loc(loc)
+        path = f"{path_prefix}.{suffix}" if suffix else path_prefix
+        rows.append(
+            _cap_error(
+                path=path,
+                code=_error_code_from_pydantic(err),
+                message=_error_message_from_pydantic(err),
+            )
+        )
+    return rows
+
+
+def _format_loc(loc: tuple[Any, ...]) -> str:
+    parts: list[str] = []
+    for part in loc:
+        if isinstance(part, int):
+            if parts:
+                parts[-1] = f"{parts[-1]}[{part}]"
             else:
-                message = str(err.get("msg") or "")
-            if "blank" in message:
-                return f"{prefix}_blank_field"
-            if "ref_too_long" in message:
-                return f"{prefix}_ref_too_long"
-            if "not_unique" in message or "invalid" in message:
-                mapped = message.replace("Value error, ", "").strip()
-                if mapped in {
-                    "scope_id_not_unique",
-                    "dependency_id_not_unique",
-                    "closure_dimension_id_not_unique",
-                    "closure_dimension_id_invalid",
-                    "blank_note",
-                    "note_too_long",
-                }:
-                    return mapped
-            return f"{prefix}_invalid"
-        if loc:
-            return f"{prefix}_invalid"
-    return f"{prefix}_invalid"
+                parts.append(f"[{part}]")
+        else:
+            parts.append(str(part))
+    return ".".join(parts).lstrip(".")
+
+
+def _error_code_from_pydantic(err: dict[str, Any]) -> str:
+    err_type = str(err.get("type") or "invalid")
+    if err_type == "extra_forbidden":
+        return "extra_forbidden"
+    if err_type in {"missing"}:
+        return "missing"
+    if err_type in {"too_long", "string_too_long"}:
+        return "too_long"
+    if err_type in {"too_short", "string_too_short"}:
+        return "too_short"
+    if err_type == "list_type":
+        return "invalid"
+    if err_type == "model_type":
+        return "invalid"
+    return err_type.replace(".", "_")[:64] or "invalid"
+
+
+def _error_message_from_pydantic(err: dict[str, Any]) -> str:
+    msg = str(err.get("msg") or "invalid")
+    if msg.startswith("Value error, "):
+        msg = msg[len("Value error, ") :]
+    if len(msg) > 240:
+        msg = msg[:239].rstrip() + "…"
+    return msg
+
+
+def _cap_error(*, path: str, code: str, message: str) -> dict[str, str]:
+    safe_path = _safe_validation_path(path)
+    safe_message = message.strip() or code
+    if len(safe_message) > 240:
+        safe_message = safe_message[:239].rstrip() + "…"
+    return {"path": safe_path, "code": code[:64], "message": safe_message}
+
+
+def _safe_validation_path(path: str) -> str:
+    cleaned = str(path or "").strip()
+    if not cleaned:
+        return "payload"
+    if len(cleaned) > 256:
+        return cleaned[:256]
+    return cleaned
+
+
+def _bound_errors(errors: list[dict[str, str]]) -> list[dict[str, str]]:
+    if len(errors) <= MAX_PUBLISH_VALIDATION_ERRORS:
+        return errors
+    keep = MAX_PUBLISH_VALIDATION_ERRORS - 1
+    bounded = errors[:keep]
+    bounded.append(
+        _cap_error(
+            path="payload",
+            code="validation_errors_truncated",
+            message=f"{len(errors) - keep} additional validation errors omitted",
+        )
+    )
+    return bounded

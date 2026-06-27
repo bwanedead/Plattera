@@ -308,6 +308,75 @@ def test_unsupported_operation_gap_includes_node_precise_repair_items():
     assert outputs["current_draft_ir"]["draft_repair_items"] == repair
 
 
+def test_scoped_live_runs_each_start_at_v0_for_same_graph_id():
+    graph = _linestep_graph("example_scope_graph")
+    with tempfile.TemporaryDirectory() as tmpdir:
+        service = _service(tmpdir)
+        run_a = save_ir_artifact(
+            dossier_id="d-test",
+            feature_graph=graph,
+            draft_run_id="live-run-a",
+            persistence=service,
+        )
+        run_b = save_ir_artifact(
+            dossier_id="d-test",
+            feature_graph=graph,
+            draft_run_id="live-run-b",
+            persistence=service,
+        )
+    assert run_a["outputs"]["draft_version"] == "v0"
+    assert run_b["outputs"]["draft_version"] == "v0"
+    assert run_a["outputs"]["draft_sequence_index"] == 0
+    assert run_b["outputs"]["draft_sequence_index"] == 0
+    assert run_a["outputs"]["artifact_id"] != run_b["outputs"]["artifact_id"]
+    assert run_a["outputs"]["draft_run_id"] == "live-run-a"
+    assert run_b["outputs"]["draft_run_id"] == "live-run-b"
+
+
+def test_scoped_draft_continuation_in_same_run():
+    graph = _linestep_graph("example_scope_graph")
+    with tempfile.TemporaryDirectory() as tmpdir:
+        service = _service(tmpdir)
+        first = save_ir_artifact(
+            dossier_id="d-test",
+            feature_graph=graph,
+            draft_run_id="live-run-a",
+            persistence=service,
+        )
+        second = save_ir_artifact(
+            dossier_id="d-test",
+            feature_graph=graph,
+            base_draft_ref=first["outputs"]["draft_ir_ref"],
+            draft_run_id="live-run-a",
+            persistence=service,
+        )
+    assert first["outputs"]["draft_version"] == "v0"
+    assert second["outputs"]["draft_version"] == "v1"
+    assert second["outputs"]["draft_run_id"] == "live-run-a"
+
+
+def test_base_draft_ref_rejects_cross_run_scope():
+    graph = _linestep_graph("example_scope_graph")
+    with tempfile.TemporaryDirectory() as tmpdir:
+        service = _service(tmpdir)
+        first = save_ir_artifact(
+            dossier_id="d-test",
+            feature_graph=graph,
+            draft_run_id="live-run-a",
+            persistence=service,
+        )
+        mismatch = save_ir_artifact(
+            dossier_id="d-test",
+            feature_graph=graph,
+            base_draft_ref=first["outputs"]["draft_ir_ref"],
+            draft_run_id="live-run-b",
+            persistence=service,
+        )
+    assert mismatch["executed"] is False
+    assert mismatch["refusal"]["reason_code"] == "base_draft_scope_mismatch"
+    assert mismatch["refusal"]["retryable"] is True
+
+
 def test_stable_draft_artifact_ids_and_base_draft_ref_continuation():
     graph = _linestep_graph("right_of_way")
     with tempfile.TemporaryDirectory() as tmpdir:

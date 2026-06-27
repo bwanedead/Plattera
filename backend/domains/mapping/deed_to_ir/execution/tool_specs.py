@@ -394,24 +394,54 @@ def build_deed_to_ir_tool_specs() -> tuple[SemanticToolSpec, ...]:
             ),
             expected_request_shape=(
                 "mapping_artifact_ref: required feature_graph:mapping:* ref from the current dossier. "
-                "scope_results, external_dependencies, closure_dimensions, notes: agent-authored bounded rows."
+                "scope_results, external_dependencies, closure_dimensions, notes: agent-authored bounded row arrays. "
+                "Each external_dependencies row requires dependency_id, affected_scope, description, and status; "
+                "do not put summary on external_dependencies rows. "
+                "notes are structured objects with note_id, summary, and optional basis_refs — not plain strings."
             ),
             expected_request_json_shape=build_publish_deed_to_ir_output_request_json_shape(),
             example_request={
-                "mapping_artifact_ref": "feature_graph:mapping:mapping_parcel_1_ab12cd34",
+                "mapping_artifact_ref": "feature_graph:mapping:mapping_example_scope_ab12cd34",
                 "scope_results": [
                     {
-                        "scope_id": "parcel_1",
-                        "status": "mapped",
-                        "summary": "Primary parcel mapped with partial dependency pending on adjoiner call.",
+                        "scope_id": "example_scope_1",
+                        "status": "forwardable",
+                        "summary": "Example scope mapped and handoffable.",
+                        "blocker_refs": [],
+                        "dependency_refs": [],
+                    },
+                    {
+                        "scope_id": "example_scope_2",
+                        "status": "blocked_partial",
+                        "summary": (
+                            "Example scope is represented only as partial because a continuation source is unavailable."
+                        ),
+                        "blocker_refs": ["missing_continuation_source"],
+                        "dependency_refs": ["missing_continuation_source"],
+                    },
+                ],
+                "external_dependencies": [
+                    {
+                        "dependency_id": "missing_continuation_source",
+                        "affected_scope": "example_scope_2",
+                        "description": "Continuation source needed to complete the blocked scope.",
+                        "status": "missing",
+                        "available_refs": [],
                     }
                 ],
                 "closure_dimensions": [
                     {
-                        "dimension_id": "layer_4_map_handoffability_scoped_completion",
+                        "dimension_id": "layer_1_deed_meaning_to_ir_fidelity",
                         "status": "partial",
-                        "summary": "Parcel 1 mapped; parcel 2 blocked pending external dependency.",
-                        "basis_refs": ["feature_graph:mapping:mapping_parcel_1_ab12cd34"],
+                        "summary": "Mapped scope is represented; blocked scope is explicitly preserved.",
+                        "basis_refs": ["feature_graph:mapping:mapping_example_scope_ab12cd34"],
+                    }
+                ],
+                "notes": [
+                    {
+                        "note_id": "example_normalization_note",
+                        "summary": "Example note about a normalization or handoff decision.",
+                        "basis_refs": [],
                     }
                 ],
             },

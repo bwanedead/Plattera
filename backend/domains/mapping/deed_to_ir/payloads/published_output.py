@@ -110,6 +110,18 @@ class ClosureDimensionRow(BaseModel):
     _validate_basis_refs = field_validator("basis_refs")(_nonblank_ref_list)
 
 
+class OutputNoteRow(BaseModel):
+    model_config = _MODEL_CONFIG
+
+    note_id: str = Field(..., min_length=1, max_length=MAX_ID_LENGTH)
+    summary: str = Field(..., min_length=1, max_length=MAX_SUMMARY_LENGTH)
+    basis_refs: list[str] = Field(default_factory=list, max_length=MAX_ROW_REFS)
+
+    _validate_note_id = field_validator("note_id")(_nonblank)
+    _validate_summary = field_validator("summary")(_nonblank)
+    _validate_basis_refs = field_validator("basis_refs")(_nonblank_ref_list)
+
+
 class DeedToIrPublishedOutput(BaseModel):
     model_config = _MODEL_CONFIG
 
@@ -125,18 +137,7 @@ class DeedToIrPublishedOutput(BaseModel):
         default_factory=list,
         max_length=MAX_CLOSURE_DIMENSIONS,
     )
-    notes: list[str] = Field(default_factory=list, max_length=MAX_NOTES)
-
-    @field_validator("notes")
-    @classmethod
-    def _validate_notes(cls, values: list[str]) -> list[str]:
-        for note in values:
-            text = str(note).strip()
-            if not text:
-                raise ValueError("blank_note")
-            if len(text) > MAX_NOTE_LENGTH:
-                raise ValueError("note_too_long")
-        return [str(note).strip() for note in values]
+    notes: list[OutputNoteRow] = Field(default_factory=list, max_length=MAX_NOTES)
 
     @model_validator(mode="after")
     def _validate_uniqueness(self) -> DeedToIrPublishedOutput:
@@ -149,6 +150,9 @@ class DeedToIrPublishedOutput(BaseModel):
         dimension_ids = [row.dimension_id for row in self.closure_dimensions]
         if len(dimension_ids) != len(set(dimension_ids)):
             raise ValueError("closure_dimension_id_not_unique")
+        note_ids = [row.note_id for row in self.notes]
+        if len(note_ids) != len(set(note_ids)):
+            raise ValueError("note_id_not_unique")
         for row in self.closure_dimensions:
             if row.dimension_id not in ALLOWED_CLOSURE_DIMENSION_IDS:
                 raise ValueError("closure_dimension_id_invalid")

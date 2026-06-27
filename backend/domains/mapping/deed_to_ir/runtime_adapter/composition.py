@@ -90,11 +90,19 @@ def _tool_handler_entries(
         ),
         (
             "save_ir_artifact",
-            _make_save_ir_handler(dossier_id=dossier_id),
+            _make_save_ir_handler(
+                dossier_id=dossier_id,
+                draft_workspace_id=handoff.scope.workspace_id,
+                draft_run_id=handoff.scope.run_id,
+            ),
         ),
         (
             "patch_ir_draft",
-            _make_patch_ir_draft_handler(dossier_id=dossier_id),
+            _make_patch_ir_draft_handler(
+                dossier_id=dossier_id,
+                draft_workspace_id=handoff.scope.workspace_id,
+                draft_run_id=handoff.scope.run_id,
+            ),
         ),
         (
             "submit_ir_for_mapping",
@@ -143,7 +151,12 @@ def _make_capabilities_handler() -> Callable[[Any], Any]:
     return handler
 
 
-def _make_save_ir_handler(*, dossier_id: str) -> Callable[[Any], Any]:
+def _make_save_ir_handler(
+    *,
+    dossier_id: str,
+    draft_workspace_id: str | None = None,
+    draft_run_id: str | None = None,
+) -> Callable[[Any], Any]:
     def handler(request: Any) -> dict[str, Any]:
         inputs = _extract_inputs(request)
         graph = inputs.get("feature_graph")
@@ -155,6 +168,8 @@ def _make_save_ir_handler(*, dossier_id: str) -> Callable[[Any], Any]:
                 base_draft_ref=_optional_str(inputs.get("base_draft_ref")),
                 source_document_id=_optional_str(inputs.get("source_document_id")),
                 created_by=_optional_str(inputs.get("created_by")),
+                draft_workspace_id=draft_workspace_id,
+                draft_run_id=draft_run_id,
             )
         except Exception as exc:
             return _exception_refusal(exc)
@@ -162,7 +177,12 @@ def _make_save_ir_handler(*, dossier_id: str) -> Callable[[Any], Any]:
     return handler
 
 
-def _make_patch_ir_draft_handler(*, dossier_id: str) -> Callable[[Any], Any]:
+def _make_patch_ir_draft_handler(
+    *,
+    dossier_id: str,
+    draft_workspace_id: str | None = None,
+    draft_run_id: str | None = None,
+) -> Callable[[Any], Any]:
     def handler(request: Any) -> dict[str, Any]:
         inputs = _extract_inputs(request)
         base_draft_ref = _optional_str(inputs.get("base_draft_ref"))
@@ -181,6 +201,8 @@ def _make_patch_ir_draft_handler(*, dossier_id: str) -> Callable[[Any], Any]:
                 node_removals=node_removals,
                 edge_removals=edge_removals,
                 graph_id=_optional_str(inputs.get("graph_id")),
+                draft_workspace_id=draft_workspace_id,
+                draft_run_id=draft_run_id,
             )
         except Exception as exc:
             return _exception_refusal(exc)
@@ -221,18 +243,10 @@ def _make_publish_output_handler(
                 transcript_edit_source_revision_ref=handoff.source.source_revision_ref,
                 resolution_state_ref=handoff.resolution_state_ref,
                 mapping_artifact_ref=_optional_str(inputs.get("mapping_artifact_ref")) or "",
-                scope_results=inputs.get("scope_results") if isinstance(inputs.get("scope_results"), list) else [],
-                external_dependencies=(
-                    inputs.get("external_dependencies")
-                    if isinstance(inputs.get("external_dependencies"), list)
-                    else []
-                ),
-                closure_dimensions=(
-                    inputs.get("closure_dimensions")
-                    if isinstance(inputs.get("closure_dimensions"), list)
-                    else []
-                ),
-                notes=inputs.get("notes") if isinstance(inputs.get("notes"), list) else [],
+                scope_results=inputs.get("scope_results"),
+                external_dependencies=inputs.get("external_dependencies"),
+                closure_dimensions=inputs.get("closure_dimensions"),
+                notes=inputs.get("notes"),
             )
         except Exception as exc:
             return _exception_refusal(exc)

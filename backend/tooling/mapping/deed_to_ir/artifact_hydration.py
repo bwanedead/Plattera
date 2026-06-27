@@ -537,6 +537,10 @@ def _index_entry_to_row(
                     row["draft_sequence_index"] = meta.get("draft_sequence_index")
                 if meta.get("is_draft") is not None:
                     row["is_draft"] = meta.get("is_draft")
+                if meta.get("draft_workspace_id"):
+                    row["draft_workspace_id"] = meta.get("draft_workspace_id")
+                if meta.get("draft_run_id"):
+                    row["draft_run_id"] = meta.get("draft_run_id")
     return row
 
 
@@ -676,7 +680,10 @@ def _hydrate_deed_to_ir_output_ref(
         [row.model_dump(mode="json") for row in output.closure_dimensions],
         MAX_CLOSURE_DIMENSIONS,
     )
-    notes, notes_meta = _bound_list(list(output.notes), MAX_NOTES)
+    notes, notes_meta = _bound_list(
+        [row.model_dump(mode="json") for row in output.notes],
+        MAX_NOTES,
+    )
     row: dict[str, Any] = {
         "ref_id": ref_id,
         "artifact_type": "deed_to_ir_output",
