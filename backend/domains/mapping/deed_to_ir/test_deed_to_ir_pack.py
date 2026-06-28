@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from domains.mapping import build_mapping_domain_adapter_registry
@@ -99,6 +100,7 @@ def test_publish_tool_spec_exposes_row_contracts_from_models() -> None:
     shape = publish.expected_request_json_shape
     assert shape["additionalProperties"] is False
     assert shape["required"] == ["mapping_artifact_ref"]
+    assert "expected_ir_artifact_ref" in shape["properties"]
 
     scope = shape["properties"]["scope_results"]
     assert scope["maxItems"] == MAX_SCOPE_RESULTS
@@ -110,10 +112,13 @@ def test_publish_tool_spec_exposes_row_contracts_from_models() -> None:
         "scope_id",
         "status",
         "summary",
+        "basis_refs",
         "blocker_refs",
         "dependency_refs",
     }
     assert scope_props["scope_id"]["maxLength"] == 128
+    assert scope_props["basis_refs"]["maxItems"] == MAX_ROW_REFS
+    assert scope_props["basis_refs"]["items"]["maxLength"] == MAX_REF_LENGTH
     assert scope_props["blocker_refs"]["maxItems"] == MAX_ROW_REFS
     assert scope_props["blocker_refs"]["items"]["maxLength"] == MAX_REF_LENGTH
 
@@ -147,10 +152,16 @@ def test_publish_tool_spec_exposes_row_contracts_from_models() -> None:
     assert note_item["properties"]["summary"]["maxLength"] == MAX_SUMMARY_LENGTH
 
     example = publish.example_request
+    assert example["expected_ir_artifact_ref"].startswith("feature_graph:ir:")
     assert example["external_dependencies"][0]["description"]
     assert "summary" not in example["external_dependencies"][0]
     assert isinstance(example["notes"][0], dict)
     assert "note_id" in example["notes"][0]
+    assert example["scope_results"][0]["basis_refs"]
+    assert example["scope_results"][1]["dependency_refs"] == ["missing_continuation_source"]
+    dumped = json.dumps(example).lower()
+    for forbidden in ("parcel_1", "parcel_2", "range 74", "range 75", "canal"):
+        assert forbidden not in dumped
 
 
 def test_domain_pack_builds() -> None:

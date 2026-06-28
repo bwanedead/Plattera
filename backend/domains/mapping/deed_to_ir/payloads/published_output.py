@@ -72,11 +72,13 @@ class ScopeResultRow(BaseModel):
     scope_id: str = Field(..., min_length=1, max_length=MAX_ID_LENGTH)
     status: str = Field(..., min_length=1, max_length=MAX_STATUS_LENGTH)
     summary: str | None = Field(None, max_length=MAX_SUMMARY_LENGTH)
+    basis_refs: list[str] = Field(default_factory=list, max_length=MAX_ROW_REFS)
     blocker_refs: list[str] = Field(default_factory=list, max_length=MAX_ROW_REFS)
     dependency_refs: list[str] = Field(default_factory=list, max_length=MAX_ROW_REFS)
 
     _validate_scope_id = field_validator("scope_id")(_nonblank)
     _validate_status = field_validator("status")(_nonblank)
+    _validate_basis_refs = field_validator("basis_refs")(_nonblank_ref_list)
     _validate_blocker_refs = field_validator("blocker_refs")(_nonblank_ref_list)
     _validate_dependency_refs = field_validator("dependency_refs")(_nonblank_ref_list)
 

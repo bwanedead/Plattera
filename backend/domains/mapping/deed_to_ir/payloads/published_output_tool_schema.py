@@ -33,6 +33,7 @@ def build_publish_deed_to_ir_output_request_json_shape() -> dict[str, Any]:
         "required": ["mapping_artifact_ref"],
         "properties": {
             "mapping_artifact_ref": {"type": "string", "minLength": 1},
+            "expected_ir_artifact_ref": {"type": "string", "minLength": 1},
             "scope_results": _list_property_schema(
                 parent_model=DeedToIrPublishedOutput,
                 field_name="scope_results",

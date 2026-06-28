@@ -247,6 +247,7 @@ def _make_publish_output_handler(
                 external_dependencies=inputs.get("external_dependencies"),
                 closure_dimensions=inputs.get("closure_dimensions"),
                 notes=inputs.get("notes"),
+                expected_ir_artifact_ref=_optional_str(inputs.get("expected_ir_artifact_ref")),
             )
         except Exception as exc:
             return _exception_refusal(exc)

@@ -54,6 +54,7 @@ def publish_deed_to_ir_output(
     external_dependencies: Any | None = None,
     closure_dimensions: Any | None = None,
     notes: Any | None = None,
+    expected_ir_artifact_ref: str | None = None,
     persistence: FeatureGraphPersistenceService | None = None,
 ) -> dict[str, Any]:
     if not dossier_id:
@@ -80,6 +81,15 @@ def publish_deed_to_ir_output(
         )
     except ValueError as exc:
         return _refusal(str(exc).strip(), str(exc).strip())
+
+    expected_ir_ref = str(expected_ir_artifact_ref or "").strip()
+    if expected_ir_ref:
+        actual_ir_ref = str(package.selected_artifacts.ir_artifact_ref or "").strip()
+        if actual_ir_ref != expected_ir_ref:
+            return _mapping_ir_lineage_mismatch_refusal(
+                expected_ir_artifact_ref=expected_ir_ref,
+                actual_ir_artifact_ref=actual_ir_ref,
+            )
 
     try:
         scopes, deps, closure, note_rows = validate_agent_output_rows(
@@ -332,6 +342,36 @@ def _refusal(code: str, message: str) -> dict[str, Any]:
             "missing_inputs": [],
         },
         "outputs": {"error": {"code": code, "message": message}},
+    }
+
+
+def _mapping_ir_lineage_mismatch_refusal(
+    *,
+    expected_ir_artifact_ref: str,
+    actual_ir_artifact_ref: str,
+) -> dict[str, Any]:
+    code = "mapping_ir_lineage_mismatch"
+    return {
+        "executed": False,
+        "reason_codes": [code],
+        "refusal": {
+            "reason_code": code,
+            "retryable": True,
+            "blocked_by_invariant": False,
+            "blocked_by_budget": False,
+            "missing_inputs": [],
+        },
+        "outputs": {
+            "error": {
+                "code": code,
+                "message": "mapping artifact was not produced from expected IR",
+            },
+            "expected_ir_artifact_ref": expected_ir_artifact_ref,
+            "actual_ir_artifact_ref": actual_ir_artifact_ref,
+            "repair_hint": (
+                "Submit the expected IR for mapping, then publish the returned mapping artifact."
+            ),
+        },
     }
 
 

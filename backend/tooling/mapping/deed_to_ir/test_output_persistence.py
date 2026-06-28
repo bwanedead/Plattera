@@ -90,6 +90,43 @@ def _prepare_mapping(tmp: str):
     return persistence, submitted["outputs"]["mapping_artifact_ref"]
 
 
+def _prepare_stale_mapping_lineage(tmp: str):
+    """IR v0 mapped, then patched to v1 and remapped — returns stale and current mapping refs."""
+    persistence = _services(tmp)
+    graph = _mappable_graph().model_dump(mode="json")
+    graph["graph_id"] = "example_scope_graph"
+    v0 = save_ir_artifact(
+        dossier_id="d-pub",
+        feature_graph=graph,
+        persistence=persistence,
+    )
+    v0_ref = v0["outputs"]["ir_artifact_ref"]
+    mapping_v0 = submit_ir_for_mapping(
+        dossier_id="d-pub",
+        ir_artifact_ref=v0_ref,
+        persistence=persistence,
+    )
+    v1 = save_ir_artifact(
+        dossier_id="d-pub",
+        feature_graph=graph,
+        base_draft_ref=v0_ref,
+        persistence=persistence,
+    )
+    v1_ref = v1["outputs"]["ir_artifact_ref"]
+    mapping_v1 = submit_ir_for_mapping(
+        dossier_id="d-pub",
+        ir_artifact_ref=v1_ref,
+        persistence=persistence,
+    )
+    return (
+        persistence,
+        mapping_v0["outputs"]["mapping_artifact_ref"],
+        mapping_v1["outputs"]["mapping_artifact_ref"],
+        v0_ref,
+        v1_ref,
+    )
+
+
 def test_valid_package_publishes_and_hydrates(monkeypatch) -> None:
     with tempfile.TemporaryDirectory() as tmp:
         persistence, mapping_ref = _prepare_mapping(tmp)
@@ -416,6 +453,130 @@ def test_publish_validation_failure_does_not_persist_output(monkeypatch) -> None
         )
         output_dir = Path(tmp) / "artifacts" / "deed_to_ir" / "d-pub" / "tx_publish" / "ws_publish"
         assert not any(output_dir.glob("rev_*.json")) if output_dir.is_dir() else True
+
+
+def test_publish_succeeds_when_expected_ir_matches_mapping_source(monkeypatch) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        persistence, _mapping_v0, mapping_v1, _v0_ref, v1_ref = _prepare_stale_mapping_lineage(tmp)
+        ctx = _publish_context()
+        _patch_deed_root(monkeypatch, tmp)
+
+        result = publish_deed_to_ir_output(
+            dossier_id="d-pub",
+            mapping_artifact_ref=mapping_v1,
+            expected_ir_artifact_ref=v1_ref,
+            scope_results=[{"scope_id": "example_scope_1", "status": "handoffable"}],
+            **ctx,
+            persistence=persistence,
+        )
+        assert result["executed"] is True
+        assert result["outputs"]["ir_artifact_ref"] == v1_ref
+
+
+def test_publish_refuses_stale_mapping_when_expected_ir_mismatch(monkeypatch) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        persistence, mapping_v0, _mapping_v1, v0_ref, v1_ref = _prepare_stale_mapping_lineage(tmp)
+        ctx = _publish_context()
+        _patch_deed_root(monkeypatch, tmp)
+
+        result = publish_deed_to_ir_output(
+            dossier_id="d-pub",
+            mapping_artifact_ref=mapping_v0,
+            expected_ir_artifact_ref=v1_ref,
+            scope_results=[{"scope_id": "example_scope_1", "status": "handoffable"}],
+            **ctx,
+            persistence=persistence,
+        )
+        assert result["executed"] is False
+        assert result["refusal"]["reason_code"] == "mapping_ir_lineage_mismatch"
+        assert result["refusal"]["retryable"] is True
+        assert result["refusal"]["blocked_by_invariant"] is False
+        outputs = result["outputs"]
+        assert outputs["expected_ir_artifact_ref"] == v1_ref
+        assert outputs["actual_ir_artifact_ref"] == v0_ref
+        assert "repair_hint" in outputs
+        output_dir = Path(tmp) / "artifacts" / "deed_to_ir" / "d-pub" / "tx_publish" / "ws_publish"
+        assert not any(output_dir.glob("rev_*.json")) if output_dir.is_dir() else True
+
+
+def test_publish_omitted_expected_ir_remains_backward_compatible(monkeypatch) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        persistence, mapping_v0, _mapping_v1, v0_ref, _v1_ref = _prepare_stale_mapping_lineage(tmp)
+        ctx = _publish_context()
+        _patch_deed_root(monkeypatch, tmp)
+
+        result = publish_deed_to_ir_output(
+            dossier_id="d-pub",
+            mapping_artifact_ref=mapping_v0,
+            scope_results=[{"scope_id": "example_scope_1", "status": "handoffable"}],
+            **ctx,
+            persistence=persistence,
+        )
+        assert result["executed"] is True
+        assert result["outputs"]["ir_artifact_ref"] == v0_ref
+
+
+def test_publish_scope_results_basis_refs_persist_and_hydrate(monkeypatch) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        persistence, mapping_ref = _prepare_mapping(tmp)
+        ctx = _publish_context()
+        _patch_deed_root(monkeypatch, tmp)
+        ir_ref = "feature_graph:ir:ir_publish"
+        basis = [ir_ref, mapping_ref]
+
+        result = publish_deed_to_ir_output(
+            dossier_id="d-pub",
+            mapping_artifact_ref=mapping_ref,
+            scope_results=[
+                {
+                    "scope_id": "example_scope_1",
+                    "status": "handoffable",
+                    "basis_refs": basis,
+                }
+            ],
+            **ctx,
+            persistence=persistence,
+        )
+        assert result["executed"] is True
+
+        hydrated = hydrate_artifact_refs(
+            dossier_id="d-pub",
+            ref_ids=[result["outputs"]["output_ref"]],
+            transcription_id=ctx["transcription_id"],
+            workspace_id=ctx["workspace_id"],
+            persistence=persistence,
+        )
+        row = hydrated["outputs"]["results"][0]
+        scope_row = row["scope_results"][0]
+        assert scope_row["basis_refs"] == basis
+
+
+def test_publish_refuses_invalid_scope_basis_refs(monkeypatch) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        persistence, mapping_ref = _prepare_mapping(tmp)
+        ctx = _publish_context()
+        _patch_deed_root(monkeypatch, tmp)
+
+        result = publish_deed_to_ir_output(
+            dossier_id="d-pub",
+            mapping_artifact_ref=mapping_ref,
+            scope_results=[
+                {
+                    "scope_id": "example_scope_1",
+                    "status": "handoffable",
+                    "basis_refs": [""],
+                }
+            ],
+            **ctx,
+            persistence=persistence,
+        )
+        assert result["executed"] is False
+        assert result["refusal"]["retryable"] is True
+        errors = result["outputs"]["validation_errors"]
+        assert any(
+            err["path"] == "scope_results[0].basis_refs[0]" and err["code"] == "value_error"
+            for err in errors
+        ) or any("basis_refs" in err["path"] for err in errors)
 
 
 def test_publish_refuses_scope_results_cap_exceeded(monkeypatch) -> None:

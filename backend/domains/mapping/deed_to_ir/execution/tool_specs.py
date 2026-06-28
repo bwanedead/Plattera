@@ -394,7 +394,12 @@ def build_deed_to_ir_tool_specs() -> tuple[SemanticToolSpec, ...]:
             ),
             expected_request_shape=(
                 "mapping_artifact_ref: required feature_graph:mapping:* ref from the current dossier. "
+                "expected_ir_artifact_ref: optional feature_graph:ir:* ref; strongly recommended after any "
+                "draft save or patch. When present, publish verifies the mapping was produced from that exact IR. "
+                "If you patch IR, resubmit the patched IR for mapping before publishing. "
                 "scope_results, external_dependencies, closure_dimensions, notes: agent-authored bounded row arrays. "
+                "scope_results rows may include basis_refs linking to IR, mapping, or other evidence refs. "
+                "For blocked scopes, link dependency_refs and blocker_refs to external_dependencies[].dependency_id. "
                 "Each external_dependencies row requires dependency_id, affected_scope, description, and status; "
                 "do not put summary on external_dependencies rows. "
                 "notes are structured objects with note_id, summary, and optional basis_refs — not plain strings."
@@ -402,20 +407,28 @@ def build_deed_to_ir_tool_specs() -> tuple[SemanticToolSpec, ...]:
             expected_request_json_shape=build_publish_deed_to_ir_output_request_json_shape(),
             example_request={
                 "mapping_artifact_ref": "feature_graph:mapping:mapping_example_scope_ab12cd34",
+                "expected_ir_artifact_ref": "feature_graph:ir:example_scope_v1",
                 "scope_results": [
                     {
                         "scope_id": "example_scope_1",
-                        "status": "forwardable",
-                        "summary": "Example scope mapped and handoffable.",
+                        "status": "handoffable",
+                        "summary": (
+                            "Example scope is represented in executable IR and rendered in the selected mapping."
+                        ),
+                        "basis_refs": [
+                            "feature_graph:ir:example_scope_v1",
+                            "feature_graph:mapping:mapping_example_scope_ab12cd34",
+                        ],
                         "blocker_refs": [],
                         "dependency_refs": [],
                     },
                     {
                         "scope_id": "example_scope_2",
-                        "status": "blocked_partial",
+                        "status": "blocked",
                         "summary": (
-                            "Example scope is represented only as partial because a continuation source is unavailable."
+                            "Example scope remains blocked because a required continuation source is unavailable."
                         ),
+                        "basis_refs": [],
                         "blocker_refs": ["missing_continuation_source"],
                         "dependency_refs": ["missing_continuation_source"],
                     },
