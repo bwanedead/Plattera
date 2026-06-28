@@ -16,6 +16,7 @@ from services.feature_graph.feature_graph_mapping_submission_service import (
 from services.feature_graph.feature_graph_persistence_service import FeatureGraphPersistenceService
 
 from .artifact_hydration import image_evidence_from_png_path, resolve_sidecar_path_for_ref
+from .mapping_review import build_mapping_review_from_mapping_artifact
 
 
 def submit_ir_for_mapping(
@@ -72,6 +73,16 @@ def submit_ir_for_mapping(
         outcome.ir_artifact_ref,
     ]
 
+    mapping_review = build_mapping_review_from_mapping_artifact(
+        mapping=artifact,
+        mapping_artifact_ref=mapping.artifact_ref,
+        compiled_feature_count=compile_outcome.compiled_feature_count,
+        rendered_feature_count=mapping.rendered_feature_count,
+        skipped_feature_count=mapping.skipped_feature_count,
+        compile_gap_count=len(compile_outcome.artifact.gaps),
+        judge_gap_count=len(judge_outcome.artifact.report.gaps),
+    )
+
     return {
         "executed": True,
         "artifact_refs": artifact_refs,
@@ -92,6 +103,7 @@ def submit_ir_for_mapping(
             "warning_count": mapping.warning_count,
             "coordinate_space": artifact.coordinate_space,
             "world_bbox": artifact.world_bbox.model_dump(mode="json"),
+            "mapping_review": mapping_review,
         },
     }
 

@@ -361,7 +361,9 @@ def build_deed_to_ir_tool_specs() -> tuple[SemanticToolSpec, ...]:
                 "Compile, judge, and render are not separate agent workflow actions."
             ),
             expected_request_shape=(
-                "ir_artifact_ref: required canonical feature_graph:ir:* ref from the current dossier."
+                "ir_artifact_ref: required canonical feature_graph:ir:* ref from the current dossier. "
+                "After submit, use outputs.mapping_review.recommended_review_refs for inspection; "
+                "do not hydrate every artifact_refs[] entry just to review mapping sanity."
             ),
             expected_request_json_shape={
                 "type": "object",
@@ -379,9 +381,11 @@ def build_deed_to_ir_tool_specs() -> tuple[SemanticToolSpec, ...]:
                 "side_effect_class": "write",
             },
             expected_result_shape=(
-                "On success: artifact_refs include mapping, compile, judge, IR, and sidecar refs. "
-                "Top-level image_evidence carries clean/control PNG payloads. outputs include bounded "
-                "counts, coordinate_space, world_bbox, and canonical refs without filesystem paths."
+                "On success: outputs.mapping_review carries compact refs, counts, recommended_review_refs, "
+                "and recommended_publish_refs. Prefer mapping_review.recommended_review_refs over "
+                "@this.result.artifact_refs[] for post-submit inspection. artifact_refs still lists all "
+                "persisted refs. Top-level image_evidence carries clean/control PNG payloads. outputs also "
+                "include bounded counts, coordinate_space, world_bbox, and canonical refs without filesystem paths."
             ),
         ),
         SemanticToolSpec(
@@ -482,7 +486,9 @@ def build_deed_to_ir_tool_specs() -> tuple[SemanticToolSpec, ...]:
                 "ref_ids: required non-empty array of feature_graph:*, artifact://dossiers/feature_graphs/*, "
                 "deed_to_ir:operands*, or deed_to_ir:output* refs. max_refs: optional cap (default 8, max 32). "
                 "working_draft_ref: optional feature_graph:ir:* ref used to label compile/judge hydration rows "
-                "with is_current_for_working_draft."
+                "with is_current_for_working_draft. Hydrating a feature_graph:mapping:* ref returns "
+                "mapping_review with compact refs and recommended_publish_refs. Prefer control render for visual "
+                "review, geometry ref for coordinate inspection, and mapping ref for the review packet."
             ),
             expected_request_json_shape={
                 "type": "object",
@@ -499,7 +505,10 @@ def build_deed_to_ir_tool_specs() -> tuple[SemanticToolSpec, ...]:
                 "additionalProperties": False,
             },
             example_request={
-                "ref_ids": ["feature_graph:ir:ir_parcel_1_ab12cd34"],
+                "ref_ids": [
+                    "feature_graph:mapping:mapping_example_scope_ab12cd34",
+                    "artifact://dossiers/feature_graphs/d-example/mappings/mapping_example/control.png",
+                ],
                 "max_refs": 4,
             },
             batching={
@@ -510,10 +519,12 @@ def build_deed_to_ir_tool_specs() -> tuple[SemanticToolSpec, ...]:
             },
             expected_result_shape=(
                 "outputs.results: hydrated artifacts or sidecars keyed by ref with bounded payloads. "
-                "Compile/judge rows include artifact_ref, parent_ir_ref, parent_graph_id, parent_draft_version, "
-                "and optional is_current_for_working_draft when working_draft_ref is supplied. "
-                "outputs.errors: per-ref not_found, prefix, or scope errors. "
-                "image_evidence: present for PNG sidecar refs only."
+                "Mapping rows include mapping_review with source IR, sidecar refs, counts, and "
+                "recommended_publish_refs. Compile/judge rows include artifact_ref, parent_ir_ref, "
+                "parent_graph_id, parent_draft_version, and optional is_current_for_working_draft when "
+                "working_draft_ref is supplied. To publish, use mapping_review.recommended_publish_refs "
+                "mapping_artifact_ref and expected_ir_artifact_ref. PNG sidecars return top-level "
+                "image_evidence. outputs.errors: per-ref not_found, prefix, or scope errors."
             ),
         ),
         SemanticToolSpec(

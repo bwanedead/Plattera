@@ -164,6 +164,18 @@ def test_publish_tool_spec_exposes_row_contracts_from_models() -> None:
         assert forbidden not in dumped
 
 
+def test_submit_and_hydrate_tool_specs_mention_mapping_review() -> None:
+    specs = {spec.tool_id: spec for spec in build_deed_to_ir_tool_specs()}
+    submit = specs["submit_ir_for_mapping"]
+    hydrate = specs["hydrate_artifact_refs"]
+    assert "mapping_review" in submit.expected_result_shape.lower()
+    assert "recommended_review_refs" in submit.expected_result_shape.lower()
+    assert "artifact_refs[]" in submit.expected_result_shape or "artifact_refs" in submit.expected_result_shape
+    assert "mapping_review" in hydrate.expected_result_shape.lower()
+    assert "recommended_publish_refs" in hydrate.expected_result_shape.lower()
+    assert "mapping_example_scope" in json.dumps(hydrate.example_request)
+
+
 def test_domain_pack_builds() -> None:
     pack = build_deed_to_ir_domain_pack()
     payload = pack.build_surface_payload()

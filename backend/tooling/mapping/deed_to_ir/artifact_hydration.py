@@ -333,6 +333,16 @@ def _hydrated_row(
             trunc["skipped_features"] = skipped_meta
         if trunc:
             row["truncated"] = trunc
+        if persistence is not None and dossier_id:
+            from .mapping_review import build_mapping_review_from_persisted_mapping
+
+            review = build_mapping_review_from_persisted_mapping(
+                mapping_raw=artifact,
+                persistence=persistence,
+                dossier_id=dossier_id,
+            )
+            if review is not None:
+                row["mapping_review"] = review
     return _strip_paths(row)
 
 
