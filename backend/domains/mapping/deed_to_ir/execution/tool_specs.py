@@ -362,8 +362,8 @@ def build_deed_to_ir_tool_specs() -> tuple[SemanticToolSpec, ...]:
             ),
             expected_request_shape=(
                 "ir_artifact_ref: required canonical feature_graph:ir:* ref from the current dossier. "
-                "After submit, use outputs.mapping_review.recommended_review_refs for inspection; "
-                "do not hydrate every artifact_refs[] entry just to review mapping sanity."
+                "After submit, inspect outputs.mapping_review and use recommended_review_refs; "
+                "do not hydrate @this.result.artifact_refs[] for ordinary mapping review."
             ),
             expected_request_json_shape={
                 "type": "object",
@@ -374,7 +374,7 @@ def build_deed_to_ir_tool_specs() -> tuple[SemanticToolSpec, ...]:
                 "additionalProperties": False,
             },
             example_request={
-                "ir_artifact_ref": "feature_graph:ir:ir_parcel_1_ab12cd34",
+                "ir_artifact_ref": "feature_graph:ir:example_scope_v1",
             },
             batching={
                 "allowed": False,
@@ -399,7 +399,9 @@ def build_deed_to_ir_tool_specs() -> tuple[SemanticToolSpec, ...]:
             expected_request_shape=(
                 "mapping_artifact_ref: required feature_graph:mapping:* ref from the current dossier. "
                 "expected_ir_artifact_ref: optional feature_graph:ir:* ref; strongly recommended after any "
-                "draft save or patch. When present, publish verifies the mapping was produced from that exact IR. "
+                "draft save or patch — usually from mapping_review.recommended_publish_refs.expected_ir_artifact_ref. "
+                "When present, publish verifies the mapping was produced from that exact IR; stale lineage "
+                "returns a retryable mapping_ir_lineage_mismatch refusal. "
                 "If you patch IR, resubmit the patched IR for mapping before publishing. "
                 "scope_results, external_dependencies, closure_dimensions, notes: agent-authored bounded row arrays. "
                 "scope_results rows may include basis_refs linking to IR, mapping, or other evidence refs. "
@@ -469,7 +471,9 @@ def build_deed_to_ir_tool_specs() -> tuple[SemanticToolSpec, ...]:
             expected_result_shape=(
                 "On success: artifact_refs begin with deed_to_ir:output and revision ref, then mapping package "
                 "and render refs. outputs include output_ref, output_revision_ref, selected artifact refs, "
-                "and bounded scope/dependency/closure counts without filesystem paths or image bytes."
+                "and bounded scope/dependency/closure counts without filesystem paths or image bytes. "
+                "When expected_ir_artifact_ref mismatches the mapping source IR, publish refuses retryably "
+                "with mapping_ir_lineage_mismatch."
             ),
         ),
         SemanticToolSpec(
@@ -486,9 +490,10 @@ def build_deed_to_ir_tool_specs() -> tuple[SemanticToolSpec, ...]:
                 "ref_ids: required non-empty array of feature_graph:*, artifact://dossiers/feature_graphs/*, "
                 "deed_to_ir:operands*, or deed_to_ir:output* refs. max_refs: optional cap (default 8, max 32). "
                 "working_draft_ref: optional feature_graph:ir:* ref used to label compile/judge hydration rows "
-                "with is_current_for_working_draft. Hydrating a feature_graph:mapping:* ref returns "
-                "mapping_review with compact refs and recommended_publish_refs. Prefer control render for visual "
-                "review, geometry ref for coordinate inspection, and mapping ref for the review packet."
+                "with is_current_for_working_draft. Hydrating feature_graph:mapping:* returns mapping_review "
+                "(compact lineage, counts, recommended_review_refs, recommended_publish_refs). Prefer mapping "
+                "ref hydration for compact review over bulk artifact hydration; hydrate control/geometry sidecars "
+                "only when visual or coordinate inspection is needed."
             ),
             expected_request_json_shape={
                 "type": "object",

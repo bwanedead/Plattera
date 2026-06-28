@@ -167,13 +167,36 @@ def test_publish_tool_spec_exposes_row_contracts_from_models() -> None:
 def test_submit_and_hydrate_tool_specs_mention_mapping_review() -> None:
     specs = {spec.tool_id: spec for spec in build_deed_to_ir_tool_specs()}
     submit = specs["submit_ir_for_mapping"]
+    publish = specs["publish_deed_to_ir_output"]
     hydrate = specs["hydrate_artifact_refs"]
     assert "mapping_review" in submit.expected_result_shape.lower()
     assert "recommended_review_refs" in submit.expected_result_shape.lower()
-    assert "artifact_refs[]" in submit.expected_result_shape or "artifact_refs" in submit.expected_result_shape
+    assert "@this.result.artifact_refs[]" in submit.expected_result_shape
+    assert "artifact_refs[]" in submit.expected_request_shape or "artifact_refs" in submit.expected_request_shape
     assert "mapping_review" in hydrate.expected_result_shape.lower()
     assert "recommended_publish_refs" in hydrate.expected_result_shape.lower()
+    assert "mapping_review" in hydrate.expected_request_shape.lower()
     assert "mapping_example_scope" in json.dumps(hydrate.example_request)
+    assert "recommended_publish_refs" in publish.expected_request_shape.lower()
+    assert "mapping_ir_lineage_mismatch" in publish.expected_result_shape.lower()
+
+
+def test_procedural_guidance_covers_hydration_discipline() -> None:
+    guidance = next(
+        b.text.lower()
+        for b in build_deed_to_ir_domain_pack().build_semantic_prompt_blocks()
+        if b.block_id == "deed_to_ir_procedural_guidance"
+    )
+    assert "mapping_review" in guidance
+    assert "recommended_review_refs" in guidance
+    assert "recommended_publish_refs" in guidance
+    assert "expected_ir_artifact_ref" in guidance
+    assert "patch_ir_draft" in guidance
+    assert "resubmit" in guidance
+    assert "operand_suite_ref" in guidance
+    assert "unpin" in guidance
+    assert "@this.result.artifact_refs[]" in guidance
+    assert "mapping_ir_lineage_mismatch" in guidance or "stale mapping lineage" in guidance
 
 
 def test_domain_pack_builds() -> None:
