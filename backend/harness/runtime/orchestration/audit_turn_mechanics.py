@@ -120,6 +120,12 @@ def project_action_sequence_for_audit(record: Mapping[str, Any] | None) -> dict[
                 for key, value in audit_result.items()
                 if value not in (None, "", [], {})
             }
+        read_summary = raw.get("read_action_summary")
+        if isinstance(read_summary, Mapping) and read_summary:
+            row["read_action_summary"] = dict(read_summary)
+        excerpt = raw.get("outputs_excerpt")
+        if isinstance(excerpt, Mapping) and excerpt:
+            row["outputs_excerpt"] = dict(excerpt)
         rows.append(row)
     if not rows:
         return None

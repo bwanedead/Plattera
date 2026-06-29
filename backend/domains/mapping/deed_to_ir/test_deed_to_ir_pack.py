@@ -233,10 +233,23 @@ def test_procedural_guidance_emphasizes_draft_first_and_posture_before_publish()
     )
     assert "draft-first" in guidance or "draft the ir" in guidance
     assert "save a bounded supported draft" in guidance or "save a draft" in guidance
-    assert "before calling publish" in guidance
+    assert "before calling publish" in guidance or "posture alignment" in guidance
     assert "do not use publish as the probe" in guidance
     assert "posture alignment" in guidance or "align posture" in guidance
     assert "retry the same" in guidance and "final_package_preview_ref" in guidance
+    assert "zero `source_entity_links`" in guidance or "zero source_entity_links" in guidance
+    assert "do not reread them again just to feel safer" in guidance
+    assert "known blocked" in guidance or "dependency-pending scope" in guidance
+    assert "represent it as an `annotation`" in guidance or "represent it as an annotation" in guidance
+
+
+def test_procedural_guidance_v18_version() -> None:
+    block = next(
+        b
+        for b in build_deed_to_ir_domain_pack().build_semantic_prompt_blocks()
+        if b.block_id == "deed_to_ir_procedural_guidance"
+    )
+    assert block.version == "v18"
 
 
 def test_startup_context_marks_operand_suite_as_core_anchor() -> None:

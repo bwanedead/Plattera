@@ -763,6 +763,11 @@ def _render_action_sequence_lane(turn: Mapping[str, Any]) -> list[str]:
         if reason:
             line = f"{line} | {reason}"
         lines.append(line)
+        from tooling.mapping.deed_to_ir.read_action_projection import (
+            render_read_action_summary_timeline_lines,
+        )
+
+        lines.extend(render_read_action_summary_timeline_lines(row.get("read_action_summary")))
     lines.append("")
     return lines
 
@@ -895,6 +900,15 @@ def _render_action_row(
                             indent="      ",
                         )
                     )
+                from tooling.mapping.deed_to_ir.read_action_projection import (
+                    render_read_action_summary_timeline_lines,
+                )
+
+                lines.extend(
+                    render_read_action_summary_timeline_lines(
+                        sequence_item.get("read_action_summary") if isinstance(sequence_item, Mapping) else None,
+                    )
+                )
                 break
     if action_type == DELEGATE_SUBTASK_ACTION_TYPE:
         integration_status: str | None = None
@@ -1030,7 +1044,31 @@ def _render_tool_result(
         if source_window_line:
             lines.append(f"  {source_window_line}")
     else:
-        lines.append("  outputs_excerpt: none")
+        sequence = _coerce_mapping(turn.get("recent_action_sequence_result"))
+        sequence_items = sequence.get("items") if sequence else None
+        rendered_sequence = False
+        if isinstance(sequence_items, list) and sequence_items:
+            from tooling.mapping.deed_to_ir.read_action_projection import (
+                render_read_action_summary_timeline_lines,
+            )
+
+            for item in sequence_items[:8]:
+                if not isinstance(item, Mapping):
+                    continue
+                summary_lines = render_read_action_summary_timeline_lines(
+                    item.get("read_action_summary"),
+                    indent="    ",
+                )
+                if summary_lines:
+                    if not rendered_sequence:
+                        lines.append("  action_sequence_summaries:")
+                        rendered_sequence = True
+                    alias = str(item.get("alias") or "?")
+                    action_type = str(item.get("action_type") or "none")
+                    lines.append(f"    - {alias}: {action_type}")
+                    lines.extend(summary_lines)
+        if not rendered_sequence:
+            lines.append("  outputs_excerpt: none")
 
     image_evidence = result.get("image_evidence") or []
     if isinstance(image_evidence, list) and image_evidence:

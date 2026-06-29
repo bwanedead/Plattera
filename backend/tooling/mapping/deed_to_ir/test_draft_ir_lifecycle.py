@@ -16,7 +16,9 @@ from tooling.mapping.deed_to_ir.draft_ir_lifecycle import (
     build_draft_source_metadata,
     build_evaluation_feedback,
     compact_current_draft_ir_for_projection,
+    compute_draft_quality_flags,
     draft_version_label,
+    render_current_draft_ir_timeline_lines,
 )
 from tooling.mapping.deed_to_ir.ir_persistence import save_ir_artifact
 
@@ -213,6 +215,79 @@ def test_build_evaluation_feedback_without_outcomes_is_not_mappable():
     assert feedback["judge_finding_count"] is None
     assert feedback["mechanically_mappable_candidate"] is False
     assert feedback["mapping_submission_ready_candidate"] is False
+
+
+def test_compute_draft_quality_flags_mechanical_only():
+    assert compute_draft_quality_flags(source_entity_link_count=0, unknown_node_count=0) == [
+        "no_source_entity_links"
+    ]
+    assert compute_draft_quality_flags(source_entity_link_count=2, unknown_node_count=1) == [
+        "unknown_nodes_present"
+    ]
+    assert compute_draft_quality_flags(source_entity_link_count=0, unknown_node_count=2) == [
+        "no_source_entity_links",
+        "unknown_nodes_present",
+    ]
+
+
+def test_evaluation_feedback_surfaces_draft_quality_flags():
+    flags = compute_draft_quality_flags(source_entity_link_count=0, unknown_node_count=1)
+    assert flags == ["no_source_entity_links", "unknown_nodes_present"]
+    compact = compact_current_draft_ir_for_projection(
+        {
+            "draft_ir_ref": "feature_graph:ir:x",
+            "draft_version": "v0",
+            "graph_id": "g1",
+            "draft_quality_flags": flags,
+        }
+    )
+    assert compact is not None
+    assert compact["draft_quality_flags"] == flags
+
+
+def test_timeline_renders_draft_quality_flags():
+    lines = render_current_draft_ir_timeline_lines(
+        {
+            "draft_version": "v0",
+            "graph_id": "example_scope_ir",
+            "unknown_node_count": 1,
+            "source_entity_link_count": 0,
+            "draft_quality_flags": ["no_source_entity_links", "unknown_nodes_present"],
+        }
+    )
+    body = "\n".join(lines)
+    assert "draft_quality_flags" in body
+    assert "no_source_entity_links" in body
+    assert "unknown_nodes_present" in body
+
+
+def test_save_ir_with_zero_links_surfaces_draft_quality_flags():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        service = _service(tmpdir)
+
+        class _OkEvaluation:
+            def compile_and_judge_ir(self, **_kwargs):
+                from services.feature_graph.feature_graph_evaluation_service import (
+                    FeatureGraphEvaluationArtifacts,
+                    PersistedCompileOutcome,
+                    PersistedJudgeOutcome,
+                )
+
+                return FeatureGraphEvaluationArtifacts(
+                    compile_outcome=PersistedCompileOutcome(artifact_ref="compile:1", gap_count=0, gaps=[]),
+                    judge_outcome=PersistedJudgeOutcome(artifact_ref="judge:1", gap_count=0, findings=[]),
+                )
+
+        result = save_ir_artifact(
+            dossier_id="d-test",
+            feature_graph=_linestep_graph(),
+            persistence=service,
+            evaluation=_OkEvaluation(),  # type: ignore[arg-type]
+        )
+    outputs = result["outputs"]
+    assert outputs["source_entity_link_count"] == 0
+    assert outputs["draft_quality_flags"] == ["no_source_entity_links"]
+    assert outputs["current_draft_ir"]["draft_quality_flags"] == ["no_source_entity_links"]
 
 
 def test_evaluation_failure_still_saves_draft_but_not_mappable_candidate():

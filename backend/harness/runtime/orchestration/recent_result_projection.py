@@ -147,6 +147,7 @@ def compact_stale_result_slice(row: dict[str, Any], *, stale: bool) -> dict[str,
         "output_shape",
         "outputs_structural_metadata",
         "outputs",
+        "read_action_summary",
     ):
         if key in row and row[key] not in (None, "", [], {}):
             compact[key] = row[key]

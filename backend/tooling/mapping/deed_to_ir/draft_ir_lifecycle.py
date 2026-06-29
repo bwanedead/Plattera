@@ -302,6 +302,20 @@ def build_draft_source_metadata(
     return metadata
 
 
+def compute_draft_quality_flags(
+    *,
+    source_entity_link_count: int,
+    unknown_node_count: int,
+) -> list[str]:
+    """Mechanical draft quality signals — not blockers or semantic judgments."""
+    flags: list[str] = []
+    if source_entity_link_count == 0:
+        flags.append("no_source_entity_links")
+    if unknown_node_count > 0:
+        flags.append("unknown_nodes_present")
+    return flags
+
+
 def run_draft_compile_judge(
     *,
     evaluation: FeatureGraphEvaluationService,
@@ -382,6 +396,10 @@ def build_evaluation_feedback(
     compile_gap_count = compile_outcome.gap_count if compile_outcome is not None else None
     judge_finding_count = judge_outcome.gap_count if judge_outcome is not None else None
     metrics = dict(structural_metrics or {})
+    draft_quality_flags = compute_draft_quality_flags(
+        source_entity_link_count=int(metrics.get("source_entity_link_count") or 0),
+        unknown_node_count=int(metrics.get("unknown_node_count") or 0),
+    )
     mechanically_mappable_candidate = (
         evaluation_succeeded
         and compile_outcome.gap_count == 0
@@ -406,6 +424,7 @@ def build_evaluation_feedback(
         "draft_repair_items": draft_repair_items,
         "mechanically_mappable_candidate": mechanically_mappable_candidate,
         "mapping_submission_ready_candidate": mapping_submission_ready_candidate,
+        "draft_quality_flags": draft_quality_flags,
         **metrics,
     }
 
@@ -442,6 +461,7 @@ def build_current_draft_ir(
         "compile_gaps": evaluation_feedback.get("compile_gaps") or [],
         "judge_findings": evaluation_feedback.get("judge_findings") or [],
         "draft_repair_items": evaluation_feedback.get("draft_repair_items") or [],
+        "draft_quality_flags": evaluation_feedback.get("draft_quality_flags") or [],
         **metrics,
     }
     if evaluation_warning:
@@ -483,6 +503,7 @@ def compact_current_draft_ir_for_projection(
         "mapping_submission_ready_candidate": current_draft_ir.get(
             "mapping_submission_ready_candidate"
         ),
+        "draft_quality_flags": current_draft_ir.get("draft_quality_flags"),
     }
     if isinstance(nodes, list):
         summary["nodes"] = nodes[:MAX_DRAFT_NODE_SUMMARY]
@@ -533,6 +554,7 @@ def render_current_draft_ir_timeline_lines(
         "compile_gap_count",
         "judge_finding_count",
         "mechanically_mappable_candidate",
+        "draft_quality_flags",
     ):
         if key in summary and summary.get(key) is not None:
             lines.append(f"{indent}  {key}: {summary.get(key)}")

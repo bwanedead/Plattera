@@ -1717,3 +1717,51 @@ def test_timeline_filters_stale_complete_run_blockers_flag_on_terminal_turn() ->
     body = render_timeline(turns)
     assert "complete_run_blockers_present" not in body
     assert "active_item_unchanged_turns:3" in body
+
+
+def test_timeline_renders_batched_read_action_summaries_when_top_level_outputs_missing() -> None:
+    from harness.audit.human_timeline import _render_tool_result
+
+    turn = {
+        "tool_result_raw": {
+            "execution_state": "executed",
+            "artifact_refs": [],
+        },
+        "recent_action_sequence_result": {
+            "sequence_id": "req:iter:2:actions",
+            "source_turn_index": 2,
+            "items": [
+                {
+                    "alias": "hydrate_operands",
+                    "action_type": "hydrate_deed_to_ir_input",
+                    "execution_state": "executed",
+                    "read_action_summary": {
+                        "lane": "mapping_operands",
+                        "operand_suite_ref": "deed_to_ir:operands:run:run-example",
+                        "operand_group_count": 1,
+                        "operand_groups": [
+                            {"group_kind": "course_call_candidates", "group_id": "example_scope_calls"}
+                        ],
+                    },
+                },
+                {
+                    "alias": "describe_caps",
+                    "action_type": "describe_feature_graph_capabilities",
+                    "execution_state": "executed",
+                    "read_action_summary": {
+                        "lane": "feature_graph_capabilities",
+                        "requested_sections": ["starter_contract"],
+                        "starter_contract": {
+                            "operations": [{"name": "CourseTraverse", "compiler_support": "supported"}]
+                        },
+                    },
+                },
+            ],
+        },
+    }
+    body = "\n".join(_render_tool_result(turn))
+    assert "action_sequence_summaries:" in body
+    assert "operand_suite_ref: deed_to_ir:operands:run:run-example" in body
+    assert "course_call_candidates" in body
+    assert "operations: CourseTraverse" in body
+    assert "outputs_excerpt: none" not in body

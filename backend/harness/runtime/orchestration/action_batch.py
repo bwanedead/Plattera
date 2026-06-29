@@ -238,6 +238,9 @@ def project_batch_item_row(row: Mapping[str, Any]) -> dict[str, Any]:
     )
     if compact_outputs:
         out["outputs"] = compact_outputs
+    read_summary = row.get("read_action_summary")
+    if isinstance(read_summary, Mapping) and read_summary:
+        out["read_action_summary"] = dict(read_summary)
     error = row.get("error")
     if isinstance(error, Mapping) and error:
         out["error"] = dict(error)
@@ -446,6 +449,7 @@ def build_batch_item_result_row(
     image_evidence: list[Any] | None = None,
     error: Mapping[str, Any] | None = None,
     delegate_result_ref: str | None = None,
+    action_inputs: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     row: dict[str, Any] = {
         "alias": alias,
@@ -490,6 +494,16 @@ def build_batch_item_result_row(
         row["image_evidence_summary"] = evidence_summary
     if error:
         row["error"] = dict(error)
+    if isinstance(outputs, Mapping):
+        from tooling.mapping.deed_to_ir.read_action_projection import compact_read_action_summary
+
+        read_summary = compact_read_action_summary(
+            action_type,
+            outputs,
+            action_inputs=action_inputs,
+        )
+        if read_summary:
+            row["read_action_summary"] = read_summary
     return row
 
 

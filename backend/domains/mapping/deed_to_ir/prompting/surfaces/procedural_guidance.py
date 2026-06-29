@@ -9,7 +9,7 @@ from ..branch import DEED_TO_IR_DOMAIN_ID
 DEED_TO_IR_PROCEDURAL_GUIDANCE_SOURCE_REF = (
     "backend/domains/mapping/deed_to_ir/prompting/surfaces/procedural_guidance.py"
 )
-DEED_TO_IR_PROCEDURAL_GUIDANCE_VERSION = "v17"
+DEED_TO_IR_PROCEDURAL_GUIDANCE_VERSION = "v18"
 
 DEED_TO_IR_PROCEDURAL_GUIDANCE_TEXT = """\
 Use this guidance to orient deed-to-IR work. This is **guidance**, not a hard script.
@@ -23,8 +23,12 @@ Use this guidance to orient deed-to-IR work. This is **guidance**, not a hard sc
 
 ## Draft-first orientation
 - After startup orientation, hydrate the operand suite and the minimal feature-graph authoring contract. Once those are visible, **draft the IR**. Do not keep rereading upstream lanes just to gain more confidence.
+- If you have already hydrated the operand suite and the same focused operation contract, do not reread them again just to feel safer. Save the draft and use compile/judge/mapping feedback. Reread the contract only when a new primitive, unknown parameter, or concrete validation error requires it.
 - A saved draft is the working checkpoint; compile/judge feedback and mapping review are the right way to discover concrete defects.
 - If the first draft may be imperfect, save a bounded supported draft anyway rather than spinning in pre-draft reading. Repair from draft feedback.
+- A compile-clean graph with zero `source_entity_links` is not a good first draft. It may be mechanically mappable, but it is weak deed-to-IR work. For every node or edge derived from upstream deed meaning, attach exact `source_entity_links` when the operand suite or inherited handoff provides a source entity id.
+- `source_entity_links` belong on graph entities, not only graph metadata. Use upstream `operand_id` / resolution item ids as `entity_id`; set `entity_type` to the available upstream entity type (`resolution_unit`, `resolution_item`, or equivalent); set `source_ref` to the inherited resolution state ref when applicable.
+- The first draft does not need perfect provenance, but zero provenance links should be treated as a repair signal before preview/publish — use `draft_quality_flags` and counts, not guesswork.
 
 ## Draft IR lifecycle
 - Before authoring or repairing supported operation nodes, use the FeatureGraph authoring guide as the layer map: deed meaning, node kind, compiler operation, params, operands, and rendered geometry are distinct.
@@ -34,9 +38,10 @@ Use this guidance to orient deed-to-IR work. This is **guidance**, not a hard sc
 - Use `patch_ir_draft` for surgical repair when `draft_repair_items` are directly actionable and operands are already available; use full `save_ir_artifact` for first draft or major rewrite.
 - Keep the current draft ref and repair feedback active while drafting; keep operand values visible via `mapping_operands` / `operand_suite_ref` as needed.
 - Use `outputs.working_draft_ref` (alias of `draft_ir_ref` / `ir_artifact_ref`) for `@this.result.working_draft_ref` hydrate-next on the same turn batch.
-- Compile/judge feedback on draft save is expected mechanical feedback — use `current_draft_ir.draft_repair_items` and node-precise `compile_gaps` to repair the **same graph_id** and save v2; do not reread operation contracts unless a new primitive is genuinely needed.
+- Compile/judge feedback on draft save is expected mechanical feedback — use `current_draft_ir.draft_repair_items`, `draft_quality_flags`, and node-precise `compile_gaps` to repair the **same graph_id** and save the next draft version; do not reread operation contracts unless a new primitive is genuinely needed.
 - `placeholder_only_graph`, `renderable_feature_count`, and `mapping_submission_ready_candidate` distinguish schema-valid scaffolds from map-useful IR.
 - `mechanically_mappable_candidate` means only that no blocking mechanical compile/judge gaps were detected; it is **not** deed-correctness, closure truth, or submission readiness by itself.
+- Use `unknown` only when the feature kind itself is unknown. A known blocked, partial, or dependency-pending scope is not unknown; represent it as an `annotation` with source/provenance links and handoff notes. Do not fabricate geometry for blocked scope.
 - Do not treat `unknown` nodes with deed prose parked in `graph.metadata` as sufficient map IR.
 - `submit_ir_for_mapping` is the deliberate mapping attempt once structural readiness is honest enough for inspection.
 - `prepare_deed_to_ir_final_package` builds a confirmable preview checkpoint — agent-authored rows plus mechanically derived lineage.

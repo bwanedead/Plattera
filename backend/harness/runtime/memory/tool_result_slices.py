@@ -483,6 +483,16 @@ def _extract_current_draft_ir_summary(outputs: Any) -> dict[str, Any] | None:
     return compact_current_draft_ir_for_projection(current)
 
 
+def _extract_feature_graph_capabilities_summary(outputs: Any) -> dict[str, Any] | None:
+    from tooling.mapping.deed_to_ir.read_action_projection import (
+        compact_feature_graph_capabilities_summary,
+    )
+
+    if not isinstance(outputs, Mapping):
+        return None
+    return compact_feature_graph_capabilities_summary(outputs)
+
+
 def _extract_mapping_review_summary(outputs: Any) -> dict[str, Any] | None:
     from tooling.mapping.deed_to_ir.mapping_review import compact_mapping_review_for_projection
 
@@ -1002,6 +1012,7 @@ def _build_bounded_slice_row(
     current_draft_ir_summary = _extract_current_draft_ir_summary(outputs)
     mapping_review_summary = _extract_mapping_review_summary(outputs)
     mapping_operands_summary = _extract_mapping_operands_summary(outputs)
+    feature_graph_capabilities_summary = _extract_feature_graph_capabilities_summary(outputs)
     if text_field_summaries:
         excerpt, excerpt_truncated = _bounded_outputs_excerpt(outputs, max_chars=256)
     elif (
@@ -1010,6 +1021,7 @@ def _build_bounded_slice_row(
         or current_draft_ir_summary is not None
         or mapping_review_summary is not None
         or mapping_operands_summary is not None
+        or feature_graph_capabilities_summary is not None
     ):
         excerpt, excerpt_truncated = _bounded_outputs_excerpt(outputs, max_chars=256)
     else:
@@ -1021,6 +1033,7 @@ def _build_bounded_slice_row(
         and current_draft_ir_summary is None
         and mapping_review_summary is None
         and mapping_operands_summary is None
+        and feature_graph_capabilities_summary is None
         and not text_field_summaries
     )
     artifact_refs = row.get("artifact_refs") if isinstance(row.get("artifact_refs"), list) else []
@@ -1049,6 +1062,8 @@ def _build_bounded_slice_row(
         base["mapping_review"] = mapping_review_summary
     if mapping_operands_summary is not None:
         base["mapping_operands"] = mapping_operands_summary
+    if feature_graph_capabilities_summary is not None:
+        base["feature_graph_capabilities"] = feature_graph_capabilities_summary
     optional_fields: list[tuple[str, Any]] = []
     if point_crop_set_summary is not None:
         optional_fields.append(("point_crop_set_summary", point_crop_set_summary))

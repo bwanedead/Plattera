@@ -271,11 +271,13 @@ def build_deed_to_ir_authoring_example() -> dict[str, Any]:
         "blocked_scope_pattern": {
             "operand_role": "scope_blocker",
             "supported_representation": (
-                "Use annotation or unknown without geometry/op_expr/feature_ref when continuation "
-                "is unavailable."
+                "Use kind=annotation with source/provenance links and handoff notes when the blocked "
+                "scope is known but continuation is unavailable. Reserve unknown for genuinely unknown "
+                "feature kinds — not for known blocked/partial/dependency-pending scope."
             ),
             "do_not": (
-                "Do not park deed meaning only in graph.metadata or fabricate unavailable calls."
+                "Do not park deed meaning only in graph.metadata, use unknown as the default blocked-scope "
+                "representation, or fabricate unavailable calls/geometry."
             ),
         },
     }

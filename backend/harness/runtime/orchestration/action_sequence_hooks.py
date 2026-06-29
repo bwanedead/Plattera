@@ -374,6 +374,7 @@ def _consume_sequence_step_result(
             artifact_refs=artifact_refs,
             image_evidence=image_evidence,
             delegate_result_ref=delegate_result_ref,
+            action_inputs=dict(item.action_inputs),
         )
     )
     return last_step_result, stop_remaining
