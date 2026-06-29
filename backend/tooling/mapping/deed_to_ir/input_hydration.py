@@ -72,15 +72,21 @@ def make_hydrate_deed_to_ir_input_handler(
                 results[section] = payload
             errors.extend(section_errors)
         inherited = _inherited_handoff_conditions(handoff_context)
+        mapping_only = sections == ["mapping_operands"]
+        outputs: dict[str, Any] = {}
+        if "mapping_operands" in results:
+            outputs["mapping_operands"] = results["mapping_operands"]
+        if mapping_only:
+            outputs["inherited_handoff_conditions"] = _deferred_inherited_handoff_conditions()
+        else:
+            outputs["inherited_handoff_conditions"] = inherited
+        outputs["sections"] = sections
+        outputs["results"] = results
+        outputs["errors"] = errors
+        outputs["hydrated_section_count"] = len(results)
         return {
             "executed": True,
-            "outputs": {
-                "inherited_handoff_conditions": inherited,
-                "sections": sections,
-                "results": results,
-                "errors": errors,
-                "hydrated_section_count": len(results),
-            },
+            "outputs": outputs,
         }
 
     return handler
@@ -196,6 +202,17 @@ def _hydrate_resolution_state(
         resolution_state_ref=str(ref) if ref is not None else None,
     )
     return payload, errors
+
+
+def _deferred_inherited_handoff_conditions() -> dict[str, Any]:
+    return {
+        "projection_mode": "deferred_for_operand_lane",
+        "note": (
+            "Full inherited_handoff_conditions omitted for mapping_operands-only hydration; "
+            "operand rows are prioritized. Read startup context or request the "
+            "inherited_handoff_conditions section separately when needed."
+        ),
+    }
 
 
 def _inherited_handoff_conditions(handoff: Mapping[str, Any]) -> dict[str, Any]:

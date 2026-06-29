@@ -57,11 +57,14 @@ def build_deed_to_ir_tool_specs() -> tuple[SemanticToolSpec, ...]:
             category="read",
             purpose=(
                 "Hydrate bounded upstream deed-to-IR input lanes from the startup handoff context. "
-                "Every successful call also returns inherited_handoff_conditions — a compact mechanical "
-                "copy of upstream parcel/issue/HITL/evidence/transcript lanes (not agent conclusions). "
+                "mapping_operands is the compact authoring operand lane — paired with the feature-graph "
+                "capability contract it is usually enough for first IR drafting. "
+                "Every successful call also returns inherited_handoff_conditions except when "
+                "mapping_operands is the only requested section (operand rows are prioritized; inherited "
+                "handoff is deferred with a pointer to startup context). "
                 "Sections include inherited_handoff_conditions, transcript lanes, parcel metadata, issues, "
                 "HITL decisions, evidence refs, mapping_operands, and resolution_state. "
-                "mapping_operands returns a compact table of upstream determined values and scope blockers "
+                "mapping_operands returns operand_suite_ref, compact operand rows, and optional operand_groups "
                 "for IR authoring without nested resolution-state rereads. "
                 "resolution_state returns a compact index by default (projection_mode=index: item/unit/relation "
                 "inventory without opaque payloads). When resolution_unit_ids is supplied, returns selected_rows "
@@ -111,8 +114,10 @@ def build_deed_to_ir_tool_specs() -> tuple[SemanticToolSpec, ...]:
                 "can_run_parallel": True,
             },
             expected_result_shape=(
-                "outputs.inherited_handoff_conditions: always present — bounded mechanical copy of upstream "
-                "parcel forwardability, issues, HITL decisions, evidence refs, and transcript lane excerpts. "
+                "outputs.mapping_operands: present when requested — top-level compact lane with "
+                "operand_suite_ref, operand_groups when mechanically derivable, and bounded operand rows. "
+                "outputs.inherited_handoff_conditions: present — full mechanical copy unless only "
+                "mapping_operands was requested (then deferred_for_operand_lane with pointer). "
                 "outputs.results: map of section -> bounded payload. "
                 "mapping_operands: projection_mode=mapping_operands with compact operand rows for closed/earned "
                 f"atoms and scope blockers (max {MAX_MAPPING_OPERANDS} emitted rows; per-row caps on "
@@ -419,7 +424,8 @@ def build_deed_to_ir_tool_specs() -> tuple[SemanticToolSpec, ...]:
                 "On success: final_package_preview_ref, final_package_preview_revision_ref, derived selected "
                 "artifact refs, review_summary (compile/judge/render counts, coordinate space, world bbox), "
                 "bounded row summaries, publish_ready_candidate (mechanical only — not semantic correctness), "
-                "and recommended_publish_request with final_package_preview_ref. On validation failure: "
+                "and recommended_publish_request with final_package_preview_ref. When publish_ready_candidate=true, "
+                "the returned summary is usually enough to proceed without preview hydration. On validation failure: "
                 "validation_errors, rejected_payload_summary (counts/keys only), row_contract_summary, "
                 "preserve_sections, repair_hint. On incomplete package: missing_sections, "
                 "missing_closure_dimensions, repair_hint. No filesystem paths or image bytes."
@@ -435,7 +441,8 @@ def build_deed_to_ir_tool_specs() -> tuple[SemanticToolSpec, ...]:
             ),
             expected_request_shape=(
                 "Preferred: final_package_preview_ref from prepare_deed_to_ir_final_package — do not pass row "
-                "fields; prepare a new preview to change scope/dependency/closure/notes. "
+                "fields; prepare a new preview to change scope/dependency/closure/notes. Align local readiness/"
+                "audit posture before publish; do not use publish to probe posture alignment. "
                 "Direct (advanced): mapping_artifact_ref plus agent-authored scope_results, external_dependencies, "
                 "closure_dimensions, notes, and optional expected_ir_artifact_ref. "
                 "Publish revalidates preview identity and mapping lineage; stale preview returns retryable "
@@ -470,7 +477,9 @@ def build_deed_to_ir_tool_specs() -> tuple[SemanticToolSpec, ...]:
                 "sidecar refs (geometry.geojson, clean.png, control.png), deed-to-IR operand suite refs "
                 "(deed_to_ir:operands, deed_to_ir:operands:run:*, deed_to_ir:operands:ws:*), deed-to-IR "
                 "final package preview refs (deed_to_ir:final_package_preview, deed_to_ir:final_package_preview:rev:NNNN), "
-                "and deed-to-IR output refs (deed_to_ir:output, deed_to_ir:output:rev:NNNN). Returns bounded "
+                "and deed-to-IR output refs (deed_to_ir:output, deed_to_ir:output:rev:NNNN). "
+                "Hydrating deed_to_ir:operands:* is the preferred way to inspect full compact operands when "
+                "mapping_operands from hydrate_deed_to_ir_input is not already sufficient. Returns bounded "
                 "payloads without filesystem paths. PNG sidecars return top-level image_evidence."
             ),
             expected_request_shape=(

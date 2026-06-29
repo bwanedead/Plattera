@@ -540,11 +540,24 @@ def test_hydrate_mapping_operands_section_returns_compact_operands():
     handler = make_hydrate_deed_to_ir_input_handler(handoff_context=_handoff_context())
     result = handler({"sections": ["mapping_operands"]})
     assert result["executed"] is True
-    payload = result["outputs"]["results"]["mapping_operands"]
+    outputs = result["outputs"]
+    payload = outputs["mapping_operands"]
+    assert payload is outputs["results"]["mapping_operands"]
     assert payload["projection_mode"] == "mapping_operands"
     assert payload["operands"]
     assert payload["operand_suite_ref"].startswith("deed_to_ir:operands:run:")
     assert all("operand_id" in row for row in payload["operands"])
+    inherited = outputs["inherited_handoff_conditions"]
+    assert inherited["projection_mode"] == "deferred_for_operand_lane"
+
+
+def test_hydrate_mapping_operands_with_other_sections_keeps_full_inherited_handoff():
+    handler = make_hydrate_deed_to_ir_input_handler(handoff_context=_handoff_context())
+    result = handler({"sections": ["mapping_operands", "parcel_metadata"]})
+    outputs = result["outputs"]
+    assert "mapping_operands" in outputs
+    assert outputs["inherited_handoff_conditions"].get("projection_mode") != "deferred_for_operand_lane"
+    assert "parcel_metadata" in outputs["results"]
 
 
 def test_operand_groups_mechanical_from_practice_fixture():

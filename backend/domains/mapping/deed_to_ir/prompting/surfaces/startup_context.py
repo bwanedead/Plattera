@@ -9,7 +9,7 @@ from .inherited_handoff_prompt import format_inherited_handoff_conditions_markdo
 from ..branch import DEED_TO_IR_DOMAIN_ID
 from ...payloads import DeedToIrStartupHandoff
 
-DEED_TO_IR_STARTUP_CONTEXT_VERSION = "v5"
+DEED_TO_IR_STARTUP_CONTEXT_VERSION = "v6"
 _STARTUP_CONTEXT_SOURCE_PATH = (
     "backend/domains/mapping/deed_to_ir/prompting/surfaces/startup_context.py"
 )
@@ -62,9 +62,10 @@ def _format_startup_context(handoff: DeedToIrStartupHandoff) -> str:
     if handoff.operand_suite_ref:
         lines.extend(
             [
-                "### Operand suite",
-                f"- operand_suite_ref: `{handoff.operand_suite_ref}`",
-                "- hydrate via `hydrate_artifact_refs` or `hydrate_deed_to_ir_input` section `mapping_operands`",
+                "### Operand suite (core anchor)",
+                f"- operand_suite_ref: `{handoff.operand_suite_ref}` — canonical compact operand source for this run",
+                "- preferred lanes: `hydrate_deed_to_ir_input` section `mapping_operands`, or `hydrate_artifact_refs` on the operand suite ref",
+                "- treat as durable working reference across drafting, mapping review, provenance checks, and final package confidence",
                 "",
             ]
         )

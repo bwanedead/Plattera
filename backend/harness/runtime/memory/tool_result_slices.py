@@ -504,6 +504,35 @@ def _extract_mapping_review_summary(outputs: Any) -> dict[str, Any] | None:
     return None
 
 
+def _extract_mapping_operands_summary(outputs: Any) -> dict[str, Any] | None:
+    from tooling.mapping.deed_to_ir.mapping_operands_projection import (
+        compact_mapping_operands_for_projection,
+    )
+
+    if not isinstance(outputs, Mapping):
+        return None
+    for key in ("mapping_operands",):
+        lane = outputs.get(key)
+        if isinstance(lane, Mapping):
+            compact = compact_mapping_operands_for_projection(lane)
+            if compact is not None:
+                return compact
+    results = outputs.get("results")
+    if isinstance(results, Mapping):
+        lane = results.get("mapping_operands")
+        if isinstance(lane, Mapping):
+            return compact_mapping_operands_for_projection(lane)
+    if isinstance(results, list):
+        for item in results:
+            if not isinstance(item, Mapping):
+                continue
+            if item.get("artifact_type") == "deed_to_ir_operand_suite":
+                compact = compact_mapping_operands_for_projection(item)
+                if compact is not None:
+                    return compact
+    return compact_mapping_operands_for_projection(outputs)
+
+
 def _extract_source_window_summary(outputs: Any) -> dict[str, Any] | None:
     from tooling.mapping.transcript_edit.source_window import compact_source_window_for_projection
 
@@ -972,6 +1001,7 @@ def _build_bounded_slice_row(
     point_crop_set_summary = _extract_point_crop_set_summary(outputs)
     current_draft_ir_summary = _extract_current_draft_ir_summary(outputs)
     mapping_review_summary = _extract_mapping_review_summary(outputs)
+    mapping_operands_summary = _extract_mapping_operands_summary(outputs)
     if text_field_summaries:
         excerpt, excerpt_truncated = _bounded_outputs_excerpt(outputs, max_chars=256)
     elif (
@@ -979,6 +1009,7 @@ def _build_bounded_slice_row(
         or evidence_artifact_summary is not None
         or current_draft_ir_summary is not None
         or mapping_review_summary is not None
+        or mapping_operands_summary is not None
     ):
         excerpt, excerpt_truncated = _bounded_outputs_excerpt(outputs, max_chars=256)
     else:
@@ -989,6 +1020,7 @@ def _build_bounded_slice_row(
         and evidence_artifact_summary is None
         and current_draft_ir_summary is None
         and mapping_review_summary is None
+        and mapping_operands_summary is None
         and not text_field_summaries
     )
     artifact_refs = row.get("artifact_refs") if isinstance(row.get("artifact_refs"), list) else []
@@ -1015,6 +1047,8 @@ def _build_bounded_slice_row(
     }
     if mapping_review_summary is not None:
         base["mapping_review"] = mapping_review_summary
+    if mapping_operands_summary is not None:
+        base["mapping_operands"] = mapping_operands_summary
     optional_fields: list[tuple[str, Any]] = []
     if point_crop_set_summary is not None:
         optional_fields.append(("point_crop_set_summary", point_crop_set_summary))

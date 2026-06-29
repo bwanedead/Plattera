@@ -1,6 +1,8 @@
 """Tests for tool_result_slices.py — structural metadata and excerpt-boundary awareness."""
 from __future__ import annotations
 
+import json
+
 from harness.runtime.memory.continuity_journal import CLIP_SENTINEL_KEY
 from harness.runtime.memory.tool_result_slices import (
     _extract_evidence_artifact_summary,
@@ -855,3 +857,41 @@ def test_text_field_summaries_clip_sentinel_short_excerpt_skipped_when_below_min
     if summaries is not None:
         paths = {s["path"] for s in summaries}
         assert "tiny" not in paths, "Short clip sentinel must be skipped like short plain strings"
+
+
+def test_mapping_operands_slice_carries_operand_suite_ref_and_groups() -> None:
+    large_inherited = {
+        "parcel_metadata": {"x": "y"},
+        "issues": [{"id": f"issue-{index}"} for index in range(40)],
+    }
+    hydrate_outputs = {
+        "inherited_handoff_conditions": large_inherited,
+        "mapping_operands": {
+            "projection_mode": "mapping_operands",
+            "operand_suite_ref": "deed_to_ir:operands:run:run-operands",
+            "operand_groups": [
+                {
+                    "group_id": "example_scope_calls",
+                    "group_kind": "course_call_candidates",
+                    "rows": [{"call_index": 1, "bearing_raw": "N. 90°00' E.", "distance_raw": "100 feet"}],
+                }
+            ],
+            "operands": [{"operand_id": "example_call_1_bearing", "determined_value": "N. 90°00' E."}],
+            "totals": {"emitted": 1, "available": 1},
+        },
+        "results": {"mapping_operands": {"projection_mode": "mapping_operands"}},
+        "hydrated_section_count": 1,
+    }
+    records = [
+        _result_record(1, outputs=hydrate_outputs, action_type="hydrate_deed_to_ir_input"),
+    ]
+    slices = build_recent_tool_result_slices(records, max_records=1, max_chars_per_result=2500)
+    assert len(slices) == 1
+    lane = slices[0].get("mapping_operands")
+    assert isinstance(lane, dict)
+    assert lane.get("operand_suite_ref") == "deed_to_ir:operands:run:run-operands"
+    assert lane.get("operand_groups")
+    assert lane["operand_groups"][0]["group_kind"] == "course_call_candidates"
+    serialized = json.dumps(slices[0])
+    assert "deed_to_ir:operands:run:run-operands" in serialized
+    assert "course_call_candidates" in serialized

@@ -56,6 +56,22 @@ def test_ir_tool_specs_expose_core_contract_and_capability_filters() -> None:
     assert "starter_contract" in describe.expected_result_shape.lower()
 
 
+def test_tool_specs_emphasize_operand_lane_and_posture_publish_flow() -> None:
+    specs = {spec.tool_id: spec for spec in build_deed_to_ir_tool_specs()}
+    hydrate = specs["hydrate_deed_to_ir_input"]
+    hydrate_refs = specs["hydrate_artifact_refs"]
+    prepare = specs["prepare_deed_to_ir_final_package"]
+    publish = specs["publish_deed_to_ir_output"]
+
+    assert "mapping_operands is the compact authoring operand lane" in hydrate.purpose
+    assert "deferred_for_operand_lane" in hydrate.expected_result_shape.lower()
+    assert "operand_suite_ref" in hydrate.expected_result_shape.lower()
+    assert "deed_to_ir:operands:" in hydrate_refs.purpose.lower()
+    assert "publish_ready_candidate=true" in prepare.expected_result_shape.lower()
+    assert "posture" in publish.expected_request_shape.lower()
+    assert "final_package_preview_ref" in publish.purpose.lower()
+
+
 def test_hydrate_tool_spec_exposes_resolution_projection_limits() -> None:
     from tooling.mapping.deed_to_ir.feature_graph_contract_projection import (
         build_compact_feature_node_request_schema,
@@ -200,9 +216,57 @@ def test_procedural_guidance_covers_hydration_discipline() -> None:
     assert "patch_ir_draft" in guidance
     assert "resubmit" in guidance
     assert "operand_suite_ref" in guidance
-    assert "unpin" in guidance
+    assert "core deed-to-ir anchor" in guidance or "core anchor" in guidance
+    assert "unpin `operand_suite_ref`" not in guidance
+    assert "prefer short ttl" not in guidance
+    assert "do not unpin or shrink operand-suite visibility by default" in guidance
+    assert "not disposable context" in guidance
     assert "@this.result.artifact_refs[]" in guidance
     assert "mapping_ir_lineage_mismatch" in guidance or "stale mapping lineage" in guidance
+
+
+def test_procedural_guidance_emphasizes_draft_first_and_posture_before_publish() -> None:
+    guidance = next(
+        b.text.lower()
+        for b in build_deed_to_ir_domain_pack().build_semantic_prompt_blocks()
+        if b.block_id == "deed_to_ir_procedural_guidance"
+    )
+    assert "draft-first" in guidance or "draft the ir" in guidance
+    assert "save a bounded supported draft" in guidance or "save a draft" in guidance
+    assert "before calling publish" in guidance
+    assert "do not use publish as the probe" in guidance
+    assert "posture alignment" in guidance or "align posture" in guidance
+    assert "retry the same" in guidance and "final_package_preview_ref" in guidance
+
+
+def test_startup_context_marks_operand_suite_as_core_anchor() -> None:
+    from domains.mapping.deed_to_ir.prompting.surfaces.startup_context import (
+        build_startup_context_block,
+    )
+    from domains.mapping.deed_to_ir.payloads.startup_handoff import (
+        DeedToIrScope,
+        DeedToIrStartupHandoff,
+        TranscriptEditSourceMetadata,
+    )
+
+    handoff = DeedToIrStartupHandoff(
+        scope=DeedToIrScope(
+            dossier_id="d-example",
+            run_id="run-example",
+            workspace_id="ws-example",
+            transcription_id="tx-example",
+        ),
+        source=TranscriptEditSourceMetadata(
+            loaded_source_label="example",
+            source_revision_ref="transcript_edit:output:rev:0001",
+        ),
+        operand_suite_ref="deed_to_ir:operands:run:run-example",
+    )
+    block = build_startup_context_block(handoff)
+    text = block.text.lower()
+    assert "operand suite (core anchor)" in text
+    assert "canonical compact operand source" in text
+    assert "deed_to_ir:operands:run:run-example" in block.text
 
 
 def test_procedural_guidance_covers_final_package_preview_flow() -> None:

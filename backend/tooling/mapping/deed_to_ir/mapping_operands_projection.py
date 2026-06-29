@@ -176,6 +176,68 @@ def build_operand_groups(operands: Sequence[Mapping[str, Any]]) -> list[dict[str
     return groups
 
 
+MAX_OPERAND_GROUPS_IN_SLICE = 8
+MAX_GROUP_ROWS_IN_SLICE = 12
+MAX_OPERANDS_IN_SLICE = 16
+
+
+def compact_mapping_operands_for_projection(
+    payload: Mapping[str, Any] | None,
+) -> dict[str, Any] | None:
+    """Bounded carry-forward lane for mapping operands / operand suite payloads."""
+    if not isinstance(payload, Mapping) or not payload:
+        return None
+    source = payload
+    nested = payload.get("results")
+    if isinstance(nested, Mapping) and isinstance(nested.get("mapping_operands"), Mapping):
+        source = nested["mapping_operands"]
+    elif isinstance(payload.get("mapping_operands"), Mapping):
+        source = payload["mapping_operands"]
+
+    compact: dict[str, Any] = {}
+    ref = source.get("operand_suite_ref")
+    if isinstance(ref, str) and ref.strip():
+        compact["operand_suite_ref"] = ref.strip()
+    mode = source.get("projection_mode")
+    if isinstance(mode, str) and mode.strip():
+        compact["projection_mode"] = mode.strip()
+    totals = source.get("totals")
+    if isinstance(totals, Mapping) and totals:
+        compact["totals"] = dict(totals)
+
+    groups = source.get("operand_groups")
+    if isinstance(groups, list) and groups:
+        compact_groups: list[dict[str, Any]] = []
+        for group in groups[:MAX_OPERAND_GROUPS_IN_SLICE]:
+            if not isinstance(group, Mapping):
+                continue
+            rows = group.get("rows")
+            group_row: dict[str, Any] = {
+                "group_id": group.get("group_id"),
+                "parcel_id": group.get("parcel_id"),
+                "group_kind": group.get("group_kind"),
+            }
+            if isinstance(rows, list) and rows:
+                group_row["rows"] = [dict(row) for row in rows[:MAX_GROUP_ROWS_IN_SLICE] if isinstance(row, Mapping)]
+            compact_groups.append({key: value for key, value in group_row.items() if value is not None})
+        if compact_groups:
+            compact["operand_groups"] = compact_groups
+
+    operands = source.get("operands")
+    if isinstance(operands, list) and operands:
+        compact["operands"] = [
+            dict(row)
+            for row in operands[:MAX_OPERANDS_IN_SLICE]
+            if isinstance(row, Mapping)
+        ]
+
+    truncation = source.get("truncation")
+    if isinstance(truncation, Mapping) and truncation:
+        compact["truncation"] = dict(truncation)
+
+    return compact if compact else None
+
+
 def _attach_parsed_numeric_fields(row: dict[str, Any]) -> dict[str, Any]:
     value_kind = str(row.get("value_kind") or "").lower()
     determined_value = row.get("determined_value")

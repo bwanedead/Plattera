@@ -9,7 +9,7 @@ from ..branch import DEED_TO_IR_DOMAIN_ID
 DEED_TO_IR_PROCEDURAL_GUIDANCE_SOURCE_REF = (
     "backend/domains/mapping/deed_to_ir/prompting/surfaces/procedural_guidance.py"
 )
-DEED_TO_IR_PROCEDURAL_GUIDANCE_VERSION = "v16"
+DEED_TO_IR_PROCEDURAL_GUIDANCE_VERSION = "v17"
 
 DEED_TO_IR_PROCEDURAL_GUIDANCE_TEXT = """\
 Use this guidance to orient deed-to-IR work. This is **guidance**, not a hard script.
@@ -17,8 +17,14 @@ Use this guidance to orient deed-to-IR work. This is **guidance**, not a hard sc
 ## Startup orientation
 - Read `inherited_handoff_conditions` first — it is the high-salience mechanical copy of upstream parcel metadata, issues, HITL decisions, evidence refs, and transcript lane excerpts.
 - Treat inherited resolution rows as **input/provenance**, not as local work inventory to recreate.
-- Pin the operand suite via `operand_suite_ref` (startup handoff) — cite that ref in local state instead of recopying every evidence detail.
-- Use `mapping_operands` or hydrate `operand_suite_ref` for compact upstream determined values and scope blockers before rereading nested resolution-state rows.
+- Treat the operand suite as a **core deed-to-IR anchor**. It is acceptable for `operand_suite_ref` / `mapping_operands` to remain available across the run. Do not spend turns managing pin lifecycle unless the suite is clearly stale or harmful.
+- Use `hydrate_deed_to_ir_input` section `mapping_operands` or hydrate `operand_suite_ref` via `hydrate_artifact_refs` for compact upstream determined values and scope blockers before rereading nested resolution-state rows.
+- If a `mapping_operands`-only hydration defers `inherited_handoff_conditions`, that is intentional operand-lane protection, not missing context. Do not spend a turn rehydrating inherited handoff just because the operand-focused packet kept it out of the way.
+
+## Draft-first orientation
+- After startup orientation, hydrate the operand suite and the minimal feature-graph authoring contract. Once those are visible, **draft the IR**. Do not keep rereading upstream lanes just to gain more confidence.
+- A saved draft is the working checkpoint; compile/judge feedback and mapping review are the right way to discover concrete defects.
+- If the first draft may be imperfect, save a bounded supported draft anyway rather than spinning in pre-draft reading. Repair from draft feedback.
 
 ## Draft IR lifecycle
 - Before authoring or repairing supported operation nodes, use the FeatureGraph authoring guide as the layer map: deed meaning, node kind, compiler operation, params, operands, and rendered geometry are distinct.
@@ -26,8 +32,7 @@ Use this guidance to orient deed-to-IR work. This is **guidance**, not a hard sc
 - To continue a working draft, pass `base_draft_ref` from the prior save; the tool allocates versioned artifact refs (`feature_graph:ir:right_of_way_v0`, `..._v1`, ...).
 - `save_ir_artifact` saves a **draft checkpoint** (`draft_version` such as v0, v1, v2) — not final publication.
 - Use `patch_ir_draft` for surgical repair when `draft_repair_items` are directly actionable and operands are already available; use full `save_ir_artifact` for first draft or major rewrite.
-- After initial handoff/capability hydration, prefer saving a first bounded draft IR over rereading upstream lanes.
-- Keep `operand_suite_ref`, the current draft ref, and repair feedback active while drafting.
+- Keep the current draft ref and repair feedback active while drafting; keep operand values visible via `mapping_operands` / `operand_suite_ref` as needed.
 - Use `outputs.working_draft_ref` (alias of `draft_ir_ref` / `ir_artifact_ref`) for `@this.result.working_draft_ref` hydrate-next on the same turn batch.
 - Compile/judge feedback on draft save is expected mechanical feedback — use `current_draft_ir.draft_repair_items` and node-precise `compile_gaps` to repair the **same graph_id** and save v2; do not reread operation contracts unless a new primitive is genuinely needed.
 - `placeholder_only_graph`, `renderable_feature_count`, and `mapping_submission_ready_candidate` distinguish schema-valid scaffolds from map-useful IR.
@@ -38,8 +43,9 @@ Use this guidance to orient deed-to-IR work. This is **guidance**, not a hard sc
 - `publish_deed_to_ir_output` is final scoped handoff only; prefer publishing with `final_package_preview_ref` from the preview.
 
 ## Final package preview flow
-- Normal end flow: save/patch draft IR → submit for mapping → inspect mapping review → prepare final package preview → publish from preview → complete.
-- After `prepare_deed_to_ir_final_package` succeeds with `publish_ready_candidate=true`, do **not** hydrate the preview again unless you need row summaries, lineage is unclear, validation failed, or a later IR/mapping change may have made the preview stale.
+- Normal end flow: save/patch draft IR → submit for mapping → inspect mapping review → prepare final package preview → align posture → publish from preview → complete.
+- After `prepare_deed_to_ir_final_package` returns `publish_ready_candidate=true`, preview hydration is **optional**. Hydrate the preview only if the summary is insufficient, lineage is unclear, or validation/staleness is suspected. Otherwise proceed to posture alignment and publish.
+- Before calling publish, posture alignment means the local state says what the preview already showed: mapping reviewed, final package preview accepted, scoped output ready to publish. Do not use publish as the probe for whether readiness posture is aligned; this is normally a state-patch move, not another hydration or a test publish.
 - If publish is refused only by readiness/audit posture (`publish_gate_category=publish_posture_audit_gate`, `preview_still_valid=true`), do **not** rebuild or rehydrate the preview — patch mission/closure posture if warranted and retry the same `final_package_preview_ref`.
 - If the IR is patched after preview, submit mapping again and prepare a new preview before publish.
 - After a successful preview, only reopen IR for material defects: wrong geometry, wrong source value, stale mapping lineage, missing blocked scope/dependency, failed compile/judge/render, or preview does not match intended final handoff.
@@ -76,7 +82,6 @@ Use this guidance to orient deed-to-IR work. This is **guidance**, not a hard sc
 - Hydrate specific refs only when needed: control render for visual map review, geometry ref for feature/coordinate inspection, mapping ref for compact lineage and counts.
 - When publishing, set `mapping_artifact_ref` and `expected_ir_artifact_ref` from `outputs.mapping_review.recommended_publish_refs` (or the same fields on a hydrated mapping row), then prepare final package preview before publish.
 - If any `patch_ir_draft` occurs after mapping, resubmit the patched draft for mapping before publishing — stale mapping lineage is refused retryably when `expected_ir_artifact_ref` does not match.
-- Pin `operand_suite_ref` early when useful; once a valid IR draft exists with no compile/judge gaps and mapping review is available, unpin the operand suite unless actively editing operand-derived geometry. When pinning the operand suite, prefer a shorter pin TTL (for example 4 turns) instead of keeping large reference lanes hot by habit.
 
 ## Supported deed-to-IR authoring pattern
 - **ReferenceFrame** — survey/frame context such as PLSS, local stationing, plat grid, or other external coordinate basis (non-rendered descriptor; not invented ops like `public_land_survey_frame`).
@@ -90,9 +95,9 @@ Use this guidance to orient deed-to-IR work. This is **guidance**, not a hard sc
 - Inventory **deed-to-IR responsibilities**, not transcript-edit atoms or covered units.
 - Do **not** copy inherited covered units into local covered units just to look complete.
 - Local work items should track downstream obligations such as:
-  - author Parcel 1 IR (cite `operand_suite_ref` / `parcel_1_traverse_operands` state — do not recopy every operand row)
-  - represent Parcel 2 as blocked/partial scope
-  - encode governing range decision in IR/provenance
+  - author scoped IR (cite `operand_suite_ref` / `mapping_operands` — do not recopy every operand row)
+  - represent blocked/partial scopes explicitly
+  - encode governing range or frame decisions in IR/provenance
   - submit IR for mapping
   - inspect map/compile/judge artifacts
   - repair IR when mapping exposes a real defect
@@ -102,7 +107,7 @@ Use this guidance to orient deed-to-IR work. This is **guidance**, not a hard sc
 
 ## Foundation workflow (bound)
 - Bound tool contracts live in tool specs — treat those as authoritative; this guidance does not duplicate exact tool IDs or request shapes.
-- Typical flow: hydrate `mapping_operands` and feature-graph capabilities; save a draft early; repair placeholder-only drafts into real op/geometry/feature-ref structure with provenance; submit saved IR for mapping when `mapping_submission_ready_candidate` is true enough for inspection; inspect returned mapping review; prepare final package preview; publish from preview ref.
+- Typical flow: hydrate `mapping_operands` and feature-graph capabilities; save a draft early; repair placeholder-only drafts into real op/geometry/feature-ref structure with provenance; submit saved IR for mapping when `mapping_submission_ready_candidate` is true enough for inspection; inspect returned mapping review; prepare final package preview; align posture; publish from preview ref.
 - Attach exact upstream links through `ProvenanceAttachment.source_entity_links` on graph entities — not only graph metadata.
 - Do not guess schema, operation parameters, units, operand shapes, support status, or provenance contracts. Hydrate capability details in the same orientation batch before the first non-trivial IR save when details are not already in context.
 
@@ -111,6 +116,7 @@ Use this guidance to orient deed-to-IR work. This is **guidance**, not a hard sc
 - Do not parse deed text into IR in bulk prose without durable IR artifacts.
 - Do not treat startup handoff or resolution summary as closure or earned geometry truth.
 - Do not expect deterministic code to infer atom-to-feature associations or source-entity links.
+- Do not unpin or shrink operand-suite visibility by default after drafting — the operand suite is core reference material, not disposable context.
 """
 
 
