@@ -983,6 +983,7 @@ def _render_tool_result(
         from tooling.mapping.deed_to_ir.draft_ir_lifecycle import render_current_draft_ir_timeline_lines
         from tooling.mapping.deed_to_ir.final_package_preview_projection import (
             render_final_package_preview_tool_output,
+            render_final_package_validation_tool_output,
         )
         from tooling.mapping.deed_to_ir.mapping_review import render_mapping_review_tool_output
 
@@ -992,6 +993,9 @@ def _render_tool_result(
         )
         lines.extend(
             render_final_package_preview_tool_output(_coerce_mapping(outputs), indent="  ")
+        )
+        lines.extend(
+            render_final_package_validation_tool_output(_coerce_mapping(outputs), indent="  ")
         )
         source_window_line = render_source_window_timeline_line(
             _coerce_mapping(outputs).get("source_window")

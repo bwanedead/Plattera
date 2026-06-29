@@ -9,7 +9,7 @@ from ..branch import DEED_TO_IR_DOMAIN_ID
 DEED_TO_IR_PROCEDURAL_GUIDANCE_SOURCE_REF = (
     "backend/domains/mapping/deed_to_ir/prompting/surfaces/procedural_guidance.py"
 )
-DEED_TO_IR_PROCEDURAL_GUIDANCE_VERSION = "v14"
+DEED_TO_IR_PROCEDURAL_GUIDANCE_VERSION = "v15"
 
 DEED_TO_IR_PROCEDURAL_GUIDANCE_TEXT = """\
 Use this guidance to orient deed-to-IR work. This is **guidance**, not a hard script.
@@ -42,6 +42,25 @@ Use this guidance to orient deed-to-IR work. This is **guidance**, not a hard sc
 - After a successful preview, only reopen IR for material defects: wrong geometry, wrong source value, stale mapping lineage, missing blocked scope/dependency, failed compile/judge/render, or preview does not match intended final handoff.
 - Do not reopen IR for provenance wording polish or speculative improvement.
 - Publish with the preview ref — do not manually reconstruct compile/judge/render refs or re-copy row payloads at publish time. To change rows, prepare a new preview.
+
+## Final package rows
+- `scope_results`: one row per scope/parcel/object being handed off.
+  - Required: `scope_id`, `status`
+  - Optional: `title`, `summary`, `basis_refs`, `blocker_refs`, `dependency_refs`
+  - Use `dependency_refs` / `blocker_refs` to point at `external_dependencies[].dependency_id`
+- `external_dependencies`: one row per missing external source/dependency.
+  - Required: `dependency_id`, `affected_scope`, `description`, `status`
+  - Optional: `available_refs`
+  - Use `description`, not `summary`. `affected_scope` is the impacted scope id/name.
+  - Do not put `title` on dependency rows.
+- `closure_dimensions`: one row per closure layer.
+  - Required: `dimension_id`, `status`
+  - Optional: `title`, `summary`, `basis_refs`
+  - Use the supported closure dimension ids from the schema (all four layers required in the preview).
+- `notes`: non-blocking handoff notes.
+  - Required: `note_id`, `summary`
+  - Optional: `basis_refs`
+- When prepare validation fails, inspect `rejected_payload_summary`, `row_contract_summary`, and `preserve_sections` — repair the invalid section without dropping valid sections.
 
 ## Mapping review and hydration discipline
 - After `submit_ir_for_mapping`, inspect `outputs.mapping_review` first.

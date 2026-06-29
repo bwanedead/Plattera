@@ -5,6 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from domains.mapping.deed_to_ir.payloads.final_package_example import (
+    build_prepare_deed_to_ir_final_package_example_request,
+)
 from domains.mapping.deed_to_ir.payloads.final_package_preview_tool_schema import (
     build_prepare_deed_to_ir_final_package_request_json_shape,
     build_publish_deed_to_ir_output_request_json_shape_with_preview,
@@ -400,38 +403,14 @@ def build_deed_to_ir_tool_specs() -> tuple[SemanticToolSpec, ...]:
             expected_request_shape=(
                 "mapping_artifact_ref: required feature_graph:mapping:* ref. "
                 "expected_ir_artifact_ref: optional feature_graph:ir:* ref; recommended after draft save or patch. "
-                "scope_results, external_dependencies, closure_dimensions, notes: same strict publish row shapes. "
-                "Invalid rows return retryable field-level validation errors and persist nothing. "
+                "scope_results, external_dependencies, closure_dimensions, notes: strict final-package row shapes — "
+                "see Final package rows guidance. scope_results and all four closure_dimensions are required. "
+                "Invalid rows return retryable validation_errors plus rejected_payload_summary, "
+                "row_contract_summary, preserve_sections, and repair_hint. "
                 "Expected IR mismatch returns retryable mapping_ir_lineage_mismatch and persists nothing."
             ),
             expected_request_json_shape=build_prepare_deed_to_ir_final_package_request_json_shape(),
-            example_request={
-                "mapping_artifact_ref": "feature_graph:mapping:mapping_example_scope_ab12cd34",
-                "expected_ir_artifact_ref": "feature_graph:ir:example_scope_v1",
-                "scope_results": [
-                    {
-                        "scope_id": "example_scope_1",
-                        "status": "handoffable",
-                        "summary": "Example scope is represented in executable IR and rendered in the selected mapping.",
-                        "basis_refs": [
-                            "feature_graph:ir:example_scope_v1",
-                            "feature_graph:mapping:mapping_example_scope_ab12cd34",
-                        ],
-                        "blocker_refs": [],
-                        "dependency_refs": [],
-                    }
-                ],
-                "external_dependencies": [],
-                "closure_dimensions": [
-                    {
-                        "dimension_id": "layer_4_map_handoffability_scoped_completion",
-                        "status": "partial",
-                        "summary": "Mapped scope is represented; blocked scopes are explicitly preserved.",
-                        "basis_refs": ["feature_graph:mapping:mapping_example_scope_ab12cd34"],
-                    }
-                ],
-                "notes": [],
-            },
+            example_request=build_prepare_deed_to_ir_final_package_example_request(),
             batching={
                 "allowed": False,
                 "side_effect_class": "write",
@@ -440,7 +419,10 @@ def build_deed_to_ir_tool_specs() -> tuple[SemanticToolSpec, ...]:
                 "On success: final_package_preview_ref, final_package_preview_revision_ref, derived selected "
                 "artifact refs, review_summary (compile/judge/render counts, coordinate space, world bbox), "
                 "bounded row summaries, publish_ready_candidate (mechanical only — not semantic correctness), "
-                "and recommended_publish_request with final_package_preview_ref. No filesystem paths or image bytes."
+                "and recommended_publish_request with final_package_preview_ref. On validation failure: "
+                "validation_errors, rejected_payload_summary (counts/keys only), row_contract_summary, "
+                "preserve_sections, repair_hint. On incomplete package: missing_sections, "
+                "missing_closure_dimensions, repair_hint. No filesystem paths or image bytes."
             ),
         ),
         SemanticToolSpec(

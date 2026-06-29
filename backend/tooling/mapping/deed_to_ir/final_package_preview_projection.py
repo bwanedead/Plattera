@@ -158,6 +158,78 @@ def render_final_package_preview_timeline_lines(
     return lines
 
 
+def render_final_package_validation_timeline_lines(
+    outputs: Mapping[str, Any] | None,
+    *,
+    indent: str = "  ",
+) -> list[str]:
+    if not isinstance(outputs, Mapping):
+        return []
+    validation_errors = outputs.get("validation_errors")
+    rejected_summary = outputs.get("rejected_payload_summary")
+    preserve_sections = outputs.get("preserve_sections")
+    if not isinstance(validation_errors, list) and not isinstance(rejected_summary, Mapping):
+        missing_sections = outputs.get("missing_sections")
+        if isinstance(missing_sections, list) and missing_sections:
+            lines = [f"{indent}final_package_validation:"]
+            lines.append(f"{indent}  incomplete_sections: {', '.join(str(item) for item in missing_sections)}")
+            missing_closure = outputs.get("missing_closure_dimensions")
+            if isinstance(missing_closure, list) and missing_closure:
+                lines.append(
+                    f"{indent}  missing_closure_dimensions: {', '.join(str(item) for item in missing_closure)}"
+                )
+            return lines
+        return []
+
+    lines = [f"{indent}final_package_validation:"]
+    if isinstance(validation_errors, list) and validation_errors:
+        lines.append(f"{indent}  errors:")
+        for err in validation_errors[:12]:
+            if not isinstance(err, Mapping):
+                continue
+            path = str(err.get("path") or "payload")
+            code = str(err.get("code") or "invalid")
+            message = str(err.get("message") or code)
+            lines.append(f"{indent}    - {path} {code}: {message}")
+
+    if isinstance(rejected_summary, Mapping):
+        lines.append(f"{indent}  rejected_payload_summary:")
+        for section, payload in rejected_summary.items():
+            if not isinstance(payload, Mapping):
+                continue
+            count = payload.get("count", 0)
+            received_type = payload.get("received_type")
+            row_keys = payload.get("row_keys")
+            if isinstance(row_keys, list) and row_keys:
+                rendered_keys = []
+                for sample in row_keys[:4]:
+                    if isinstance(sample, list):
+                        rendered_keys.append("[" + ",".join(str(key) for key in sample) + "]")
+                keys_text = ", ".join(rendered_keys) if rendered_keys else "[]"
+            else:
+                keys_text = "[]"
+            parts = [f"count={count}"]
+            if received_type:
+                parts.append(f"received_type={received_type}")
+            parts.append(f"keys={keys_text}")
+            lines.append(f"{indent}    {section}: {' '.join(parts)}")
+
+    if isinstance(preserve_sections, list) and preserve_sections:
+        lines.append(
+            f"{indent}  preserve_sections: {', '.join(str(item) for item in preserve_sections)}"
+        )
+
+    return lines
+
+
+def render_final_package_validation_tool_output(
+    outputs: Mapping[str, Any] | None,
+    *,
+    indent: str = "  ",
+) -> list[str]:
+    return render_final_package_validation_timeline_lines(outputs, indent=indent)
+
+
 def render_final_package_preview_tool_output(
     outputs: Mapping[str, Any] | None,
     *,

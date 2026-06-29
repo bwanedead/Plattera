@@ -22,11 +22,16 @@ from .final_package_preview_projection import (
     build_recommended_publish_request,
     compact_preview_row_summaries,
 )
+from .final_package_validation import (
+    FinalPackageIncompleteError,
+    final_package_incomplete_refusal,
+    final_package_prepare_validation_refusal,
+    validate_prepare_final_package_rows,
+)
 from .output_package_validation import (
     PublishPayloadValidationError,
     ResolvedMappingPackage,
     resolve_mapping_publish_package,
-    validate_agent_output_rows,
 )
 from .persistence_io import (
     atomic_write_json,
@@ -38,7 +43,6 @@ from .persistence_io import (
     rollback_revision_file,
     status_counts,
     utc_now_iso,
-    validation_failure_refusal,
     workspace_publish_lock,
 )
 from .paths import (
@@ -99,14 +103,22 @@ def prepare_deed_to_ir_final_package(
         )
 
     try:
-        scopes, deps, closure, note_rows = validate_agent_output_rows(
+        scopes, deps, closure, note_rows = validate_prepare_final_package_rows(
             scope_results=scope_results,
             external_dependencies=external_dependencies,
             closure_dimensions=closure_dimensions,
             notes=notes,
         )
     except PublishPayloadValidationError as exc:
-        return validation_failure_refusal(exc)
+        return final_package_prepare_validation_refusal(
+            exc,
+            scope_results=scope_results,
+            external_dependencies=external_dependencies,
+            closure_dimensions=closure_dimensions,
+            notes=notes,
+        )
+    except FinalPackageIncompleteError as exc:
+        return final_package_incomplete_refusal(exc)
 
     source_ref = str(transcript_edit_source_revision_ref or "").strip()
     if not source_ref:

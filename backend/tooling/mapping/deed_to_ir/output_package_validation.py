@@ -37,9 +37,11 @@ class PublishPayloadValidationError(Exception):
         validation_errors: tuple[dict[str, str], ...] | list[dict[str, str]],
         *,
         reason_code: str = PUBLISH_PAYLOAD_VALIDATION_FAILED,
+        prepare_repair_packet: dict[str, Any] | None = None,
     ) -> None:
         self.validation_errors = tuple(validation_errors)
         self.reason_code = reason_code
+        self.prepare_repair_packet = prepare_repair_packet
         super().__init__(reason_code)
 
 

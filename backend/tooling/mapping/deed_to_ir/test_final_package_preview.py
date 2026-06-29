@@ -9,7 +9,10 @@ from pathlib import Path
 from feature_graph.models import FeatureGraph, FeatureKind, FeatureNode, OpExpr
 from tooling.mapping.deed_to_ir.artifact_hydration import hydrate_artifact_refs
 from tooling.mapping.deed_to_ir.final_package_preview_persistence import prepare_deed_to_ir_final_package
-from tooling.mapping.deed_to_ir.final_package_preview_projection import render_final_package_preview_timeline_lines
+from tooling.mapping.deed_to_ir.final_package_preview_projection import (
+    render_final_package_preview_timeline_lines,
+    render_final_package_validation_timeline_lines,
+)
 from tooling.mapping.deed_to_ir.ir_mapping_submission import submit_ir_for_mapping
 from tooling.mapping.deed_to_ir.ir_persistence import save_ir_artifact
 from tooling.mapping.deed_to_ir.output_persistence import publish_deed_to_ir_output
@@ -94,13 +97,13 @@ def _prepare_mapping(tmp: str):
 
 
 def _valid_rows() -> dict:
+    from domains.mapping.deed_to_ir.payloads.published_output import ALLOWED_CLOSURE_DIMENSION_IDS
+
     return {
         "scope_results": [{"scope_id": "example_scope_1", "status": "handoffable"}],
         "closure_dimensions": [
-            {
-                "dimension_id": "layer_4_map_handoffability_scoped_completion",
-                "status": "partial",
-            }
+            {"dimension_id": dimension_id, "status": "partial"}
+            for dimension_id in sorted(ALLOWED_CLOSURE_DIMENSION_IDS)
         ],
         "notes": [
             {
@@ -424,10 +427,20 @@ def test_prepare_accepts_optional_scope_and_closure_title(monkeypatch) -> None:
         ]
         rows["closure_dimensions"] = [
             {
-                "dimension_id": "layer_4_map_handoffability_scoped_completion",
+                "dimension_id": dimension_id,
                 "status": "partial",
-                "title": "Handoff posture",
+                **(
+                    {"title": "Handoff posture"}
+                    if dimension_id == "layer_4_map_handoffability_scoped_completion"
+                    else {}
+                ),
             }
+            for dimension_id in sorted(
+                __import__(
+                    "domains.mapping.deed_to_ir.payloads.published_output",
+                    fromlist=["ALLOWED_CLOSURE_DIMENSION_IDS"],
+                ).ALLOWED_CLOSURE_DIMENSION_IDS
+            )
         ]
 
         result = prepare_deed_to_ir_final_package(

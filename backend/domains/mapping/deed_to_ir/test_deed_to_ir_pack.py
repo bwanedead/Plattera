@@ -218,6 +218,37 @@ def test_procedural_guidance_covers_final_package_preview_flow() -> None:
     assert "provenance wording polish" in guidance
 
 
+def test_procedural_guidance_covers_final_package_row_contract() -> None:
+    guidance = next(
+        b.text.lower()
+        for b in build_deed_to_ir_domain_pack().build_semantic_prompt_blocks()
+        if b.block_id == "deed_to_ir_procedural_guidance"
+    )
+    assert "final package rows" in guidance
+    assert "dependency_refs" in guidance
+    assert "forbidden_common" not in guidance
+    assert "use `description`, not `summary`" in guidance
+    assert "preserve_sections" in guidance
+
+
+def test_prepare_tool_spec_example_is_complete_and_generic() -> None:
+    from domains.mapping.deed_to_ir.payloads.final_package_example import (
+        build_prepare_deed_to_ir_final_package_example_request,
+    )
+
+    prepare = {spec.tool_id: spec for spec in build_deed_to_ir_tool_specs()}["prepare_deed_to_ir_final_package"]
+    example = prepare.example_request
+    canonical = build_prepare_deed_to_ir_final_package_example_request()
+    assert example == canonical
+    assert len(example["scope_results"]) == 2
+    assert len(example["external_dependencies"]) == 1
+    assert len(example["closure_dimensions"]) == 4
+    assert len(example["notes"]) == 1
+    dumped = json.dumps(example).lower()
+    for forbidden in ("parcel_1", "parcel_2", "range 74", "canal"):
+        assert forbidden not in dumped
+
+
 def test_prepare_and_publish_tool_specs_mention_final_package_preview() -> None:
     specs = {spec.tool_id: spec for spec in build_deed_to_ir_tool_specs()}
     prepare = specs["prepare_deed_to_ir_final_package"]
@@ -225,7 +256,8 @@ def test_prepare_and_publish_tool_specs_mention_final_package_preview() -> None:
     hydrate = specs["hydrate_artifact_refs"]
     assert "final_package_preview_ref" in prepare.expected_result_shape.lower()
     assert "publish_ready_candidate" in prepare.expected_result_shape.lower()
-    assert "recommended_publish_request" in prepare.expected_result_shape.lower()
+    assert "rejected_payload_summary" in prepare.expected_result_shape.lower()
+    assert "preserve_sections" in prepare.expected_result_shape.lower()
     assert "final_package_preview_ref" in publish.expected_request_shape.lower()
     assert "final_package_preview_ref" in json.dumps(publish.example_request)
     assert "final_package_preview" in hydrate.expected_request_shape.lower()
