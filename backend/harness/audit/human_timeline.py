@@ -884,6 +884,17 @@ def _render_action_row(
                 item_reason = item.get("reason_code")
                 if item_reason:
                     lines.append(f"      execution_reason_code: {item_reason}")
+                if action_type == "publish_deed_to_ir_output" and item_reason:
+                    from tooling.mapping.deed_to_ir.publish_gate_feedback import (
+                        render_publish_gate_timeline_lines,
+                    )
+
+                    lines.extend(
+                        render_publish_gate_timeline_lines(
+                            reason_code=str(item_reason),
+                            indent="      ",
+                        )
+                    )
                 break
     if action_type == DELEGATE_SUBTASK_ACTION_TYPE:
         integration_status: str | None = None
@@ -986,6 +997,7 @@ def _render_tool_result(
             render_final_package_validation_tool_output,
         )
         from tooling.mapping.deed_to_ir.mapping_review import render_mapping_review_tool_output
+        from tooling.mapping.deed_to_ir.publish_gate_feedback import render_publish_tool_output
 
         lines.extend(render_current_draft_ir_timeline_lines(_coerce_mapping(outputs)))
         lines.extend(
@@ -997,6 +1009,21 @@ def _render_tool_result(
         lines.extend(
             render_final_package_validation_tool_output(_coerce_mapping(outputs), indent="  ")
         )
+        tool_request = _coerce_mapping(turn.get("tool_request"))
+        parsed = _coerce_mapping(turn.get("parsed_action_plan"))
+        action_type = str(
+            tool_request.get("action_type") or parsed.get("action_type") or ""
+        ).strip()
+        refusal = _coerce_mapping(result.get("refusal"))
+        reason_code = str(refusal.get("reason_code") or result.get("execution_reason_code") or "").strip()
+        if action_type == "publish_deed_to_ir_output" or outputs.get("publish_gate_category") or outputs.get("final_output_summary"):
+            lines.extend(
+                render_publish_tool_output(
+                    _coerce_mapping(outputs),
+                    reason_code=reason_code or None,
+                    indent="  ",
+                )
+            )
         source_window_line = render_source_window_timeline_line(
             _coerce_mapping(outputs).get("source_window")
         )
@@ -1510,6 +1537,8 @@ def _render_observability(turn: Mapping[str, Any]) -> list[str]:
         return []
     lines = ["Observability"]
     flags = summary.get("mechanical_flags") or []
+    if isinstance(flags, list):
+        flags = _filter_stale_complete_run_blocker_flags(turn, list(flags))
     if isinstance(flags, list) and flags:
         lines.append("  flags:")
         for flag in flags:
@@ -1528,6 +1557,23 @@ def _render_observability(turn: Mapping[str, Any]) -> list[str]:
             lines.append(f"  {key}: {summary[key]}")
     lines.append("")
     return lines
+
+
+def _filter_stale_complete_run_blocker_flags(
+    turn: Mapping[str, Any],
+    flags: list[Any],
+) -> list[Any]:
+    parsed = _coerce_mapping(turn.get("parsed_action_plan"))
+    tool_request = _coerce_mapping(turn.get("tool_request"))
+    mission = _coerce_mapping(turn.get("mission_state_after")) or _coerce_mapping(
+        turn.get("mission_state_before")
+    ) or _coerce_mapping(turn.get("mission_state"))
+    closure = _coerce_mapping(mission.get("closure_state"))
+    complete_run = bool(parsed.get("complete_run") or tool_request.get("complete_run"))
+    ready_to_close = bool(closure.get("ready_to_close"))
+    if not (complete_run and ready_to_close):
+        return flags
+    return [flag for flag in flags if str(flag) != "complete_run_blockers_present"]
 
 
 # ---------------------------------------------------------------------------

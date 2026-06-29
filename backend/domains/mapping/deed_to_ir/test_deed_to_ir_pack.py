@@ -216,6 +216,20 @@ def test_procedural_guidance_covers_final_package_preview_flow() -> None:
     assert "publish from preview" in guidance or "publish from preview ref" in guidance
     assert "material defects" in guidance
     assert "provenance wording polish" in guidance
+    assert "publish_ready_candidate=true" in guidance
+    assert "hydrate_output_ref_optional" in guidance or "hydrating `deed_to_ir:output` is optional" in guidance
+    assert "publish_posture_audit_gate" in guidance or "readiness/audit posture" in guidance
+
+
+def test_procedural_guidance_discourages_default_post_publish_hydrate() -> None:
+    guidance = next(
+        b.text.lower()
+        for b in build_deed_to_ir_domain_pack().build_semantic_prompt_blocks()
+        if b.block_id == "deed_to_ir_procedural_guidance"
+    )
+    assert "hydrate_next" in guidance
+    assert "output_ref" in guidance
+    assert "optional" in guidance
 
 
 def test_procedural_guidance_covers_final_package_row_contract() -> None:
@@ -259,6 +273,9 @@ def test_prepare_and_publish_tool_specs_mention_final_package_preview() -> None:
     assert "rejected_payload_summary" in prepare.expected_result_shape.lower()
     assert "preserve_sections" in prepare.expected_result_shape.lower()
     assert "final_package_preview_ref" in publish.expected_request_shape.lower()
+    assert "final_output_summary" in publish.expected_result_shape.lower()
+    assert "hydrate_output_ref_optional" in publish.expected_result_shape.lower()
+    assert "publish_gate_category" in publish.expected_result_shape.lower()
     assert "final_package_preview_ref" in json.dumps(publish.example_request)
     assert "final_package_preview" in hydrate.expected_request_shape.lower()
     assert "recommended_publish_request" in hydrate.expected_result_shape.lower()

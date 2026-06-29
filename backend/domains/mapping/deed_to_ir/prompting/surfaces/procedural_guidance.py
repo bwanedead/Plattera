@@ -9,7 +9,7 @@ from ..branch import DEED_TO_IR_DOMAIN_ID
 DEED_TO_IR_PROCEDURAL_GUIDANCE_SOURCE_REF = (
     "backend/domains/mapping/deed_to_ir/prompting/surfaces/procedural_guidance.py"
 )
-DEED_TO_IR_PROCEDURAL_GUIDANCE_VERSION = "v15"
+DEED_TO_IR_PROCEDURAL_GUIDANCE_VERSION = "v16"
 
 DEED_TO_IR_PROCEDURAL_GUIDANCE_TEXT = """\
 Use this guidance to orient deed-to-IR work. This is **guidance**, not a hard script.
@@ -38,10 +38,18 @@ Use this guidance to orient deed-to-IR work. This is **guidance**, not a hard sc
 - `publish_deed_to_ir_output` is final scoped handoff only; prefer publishing with `final_package_preview_ref` from the preview.
 
 ## Final package preview flow
-- Normal end flow: save/patch draft IR → submit for mapping → inspect mapping review → prepare final package preview → hydrate/inspect preview if needed → publish from preview → complete.
+- Normal end flow: save/patch draft IR → submit for mapping → inspect mapping review → prepare final package preview → publish from preview → complete.
+- After `prepare_deed_to_ir_final_package` succeeds with `publish_ready_candidate=true`, do **not** hydrate the preview again unless you need row summaries, lineage is unclear, validation failed, or a later IR/mapping change may have made the preview stale.
+- If publish is refused only by readiness/audit posture (`publish_gate_category=publish_posture_audit_gate`, `preview_still_valid=true`), do **not** rebuild or rehydrate the preview — patch mission/closure posture if warranted and retry the same `final_package_preview_ref`.
+- If the IR is patched after preview, submit mapping again and prepare a new preview before publish.
 - After a successful preview, only reopen IR for material defects: wrong geometry, wrong source value, stale mapping lineage, missing blocked scope/dependency, failed compile/judge/render, or preview does not match intended final handoff.
 - Do not reopen IR for provenance wording polish or speculative improvement.
 - Publish with the preview ref — do not manually reconstruct compile/judge/render refs or re-copy row payloads at publish time. To change rows, prepare a new preview.
+
+## Publish and completion
+- After successful `publish_deed_to_ir_output`, use `outputs.final_output_summary` and the compact publish counts/refs to close when sufficient — hydrating `deed_to_ir:output` is optional unless you need deeper inspection of persisted rows.
+- Do not default to `hydrate_next: ["@this.result.output_ref"]` after successful publish unless a specific unresolved question remains about the persisted package.
+- Publish refusals include `publish_gate_category` and `repair_hint` — distinguish preview invalidity from mapping lineage, storage failure, and posture/audit gates before rebuilding artifacts.
 
 ## Final package rows
 - `scope_results`: one row per scope/parcel/object being handed off.
@@ -68,7 +76,7 @@ Use this guidance to orient deed-to-IR work. This is **guidance**, not a hard sc
 - Hydrate specific refs only when needed: control render for visual map review, geometry ref for feature/coordinate inspection, mapping ref for compact lineage and counts.
 - When publishing, set `mapping_artifact_ref` and `expected_ir_artifact_ref` from `outputs.mapping_review.recommended_publish_refs` (or the same fields on a hydrated mapping row), then prepare final package preview before publish.
 - If any `patch_ir_draft` occurs after mapping, resubmit the patched draft for mapping before publishing — stale mapping lineage is refused retryably when `expected_ir_artifact_ref` does not match.
-- Pin `operand_suite_ref` early when useful; once a valid IR draft exists and needed operands are encoded in draft/provenance, unpin the operand suite unless actively editing operand-derived geometry. Do not keep large reference lanes pinned out of habit.
+- Pin `operand_suite_ref` early when useful; once a valid IR draft exists with no compile/judge gaps and mapping review is available, unpin the operand suite unless actively editing operand-derived geometry. When pinning the operand suite, prefer a shorter pin TTL (for example 4 turns) instead of keeping large reference lanes hot by habit.
 
 ## Supported deed-to-IR authoring pattern
 - **ReferenceFrame** — survey/frame context such as PLSS, local stationing, plat grid, or other external coordinate basis (non-rendered descriptor; not invented ops like `public_land_survey_frame`).

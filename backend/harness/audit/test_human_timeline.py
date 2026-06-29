@@ -1673,6 +1673,10 @@ def test_timeline_renders_deed_to_ir_final_output_section(tmp_path: Path, monkey
                             "status": "partial",
                         }
                     ],
+                    "final_output_summary": {
+                        "ready_for_completion_candidate": True,
+                        "hydrate_output_ref_optional": True,
+                    },
                 },
             },
         }
@@ -1680,7 +1684,36 @@ def test_timeline_renders_deed_to_ir_final_output_section(tmp_path: Path, monkey
     body = render_timeline(turns, audit_dir=tmp_path / "audit")
     assert "## Deed-to-IR Final Output" in body
     assert "deed_to_ir:output" in body
+    assert "publish_output_summary:" in body
+    assert "hydrate_output_ref_optional: true" in body
     assert "scope_status_counts: blocked=1, mapped=1" in body
     assert "external_dependency_count: 2" in body
     assert "layer_4_map_handoffability_scoped_completion: partial" in body
     assert "[open image]" in body
+
+
+def test_timeline_filters_stale_complete_run_blockers_flag_on_terminal_turn() -> None:
+    from harness.audit.human_timeline import render_timeline
+
+    turns = [
+        {
+            "turn_index": 29,
+            "parse_ok": True,
+            "parsed_action_plan": {"complete_run": True},
+            "mission_state_after": {
+                "closure_state": {
+                    "ready_to_close": True,
+                    "ready_to_publish": True,
+                }
+            },
+            "prompt_observability_summary": {
+                "mechanical_flags": [
+                    "complete_run_blockers_present",
+                    "active_item_unchanged_turns:3",
+                ]
+            },
+        }
+    ]
+    body = render_timeline(turns)
+    assert "complete_run_blockers_present" not in body
+    assert "active_item_unchanged_turns:3" in body

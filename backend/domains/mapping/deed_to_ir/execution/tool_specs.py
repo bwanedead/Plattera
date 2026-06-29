@@ -452,9 +452,14 @@ def build_deed_to_ir_tool_specs() -> tuple[SemanticToolSpec, ...]:
             expected_result_shape=(
                 "On success: artifact_refs begin with deed_to_ir:output and revision ref, then mapping package "
                 "and render refs. outputs include output_ref, output_revision_ref, selected artifact refs, "
-                "and bounded scope/dependency/closure counts without filesystem paths or image bytes. "
-                "When expected_ir_artifact_ref mismatches the mapping source IR, publish refuses retryably "
-                "with mapping_ir_lineage_mismatch."
+                "bounded scope/dependency/closure counts, final_output_summary "
+                "(ready_for_completion_candidate and hydrate_output_ref_optional are mechanical only), "
+                "without filesystem paths or image bytes. Hydrating deed_to_ir:output after publish is optional "
+                "unless deeper package inspection is needed. On refusal: publish_gate_category, "
+                "publish_gate_reason_code, preview_still_valid when applicable, and repair_hint. "
+                "Posture/audit gate refusals do not invalidate a prepared preview — retry the same "
+                "final_package_preview_ref after patching posture. When expected_ir_artifact_ref mismatches "
+                "the mapping source IR, publish refuses retryably with mapping_ir_lineage_mismatch."
             ),
         ),
         SemanticToolSpec(

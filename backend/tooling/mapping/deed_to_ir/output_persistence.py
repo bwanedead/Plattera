@@ -38,6 +38,10 @@ from .persistence_io import (
     validation_failure_refusal,
     workspace_publish_lock,
 )
+from .publish_gate_feedback import (
+    build_final_output_summary,
+    enrich_publish_refusal_result,
+)
 
 # Backward-compatible aliases for co-located tests and lazy imports.
 _atomic_write_json = atomic_write_json
@@ -51,6 +55,16 @@ _rollback_revision_file = rollback_revision_file
 _next_revision_digits = next_revision_digits
 _status_counts = status_counts
 _utc_now_iso = utc_now_iso
+
+
+def _publish_refusal(code: str, message: str) -> dict[str, Any]:
+    return enrich_publish_refusal_result(_refusal(code, message))
+
+
+def _enrich_publish_result(result: dict[str, Any]) -> dict[str, Any]:
+    if result.get("executed"):
+        return result
+    return enrich_publish_refusal_result(result)
 
 
 def publish_deed_to_ir_output(
@@ -74,7 +88,7 @@ def publish_deed_to_ir_output(
     mapping_ref = str(mapping_artifact_ref or "").strip()
 
     if preview_ref and mapping_ref:
-        return _refusal(
+        return _publish_refusal(
             "publish_request_ambiguous",
             "Provide either final_package_preview_ref or direct mapping_artifact_ref, not both.",
         )
@@ -87,7 +101,7 @@ def publish_deed_to_ir_output(
             expected_ir_artifact_ref,
         )
         if any(field not in (None, [], "") for field in row_fields):
-            return _refusal(
+            return _publish_refusal(
                 "final_package_preview_row_mutation_forbidden",
                 "Publishing from preview uses frozen preview rows; prepare a new preview to change them.",
             )
@@ -101,7 +115,7 @@ def publish_deed_to_ir_output(
         )
 
     if not mapping_ref:
-        return _refusal(
+        return _publish_refusal(
             "publish_target_required",
             "Provide final_package_preview_ref (preferred) or mapping_artifact_ref.",
         )
@@ -142,15 +156,15 @@ def _publish_direct(
     if not dossier_id:
         raise ValueError("dossier_id_required")
     if not str(transcription_id or "").strip():
-        return _refusal("transcription_id_required", "transcription_id is required to publish deed-to-IR output.")
+        return _publish_refusal("transcription_id_required", "transcription_id is required to publish deed-to-IR output.")
     workspace_key = resolve_workspace_key(workspace_id=workspace_id, run_id=run_id)
     if not workspace_key:
-        return _refusal(
+        return _publish_refusal(
             "workspace_identity_required",
             "Provide workspace_id or run_id to scope deed-to-IR output storage.",
         )
     if not str(mapping_artifact_ref or "").strip():
-        return _refusal("mapping_artifact_ref_required", "mapping_artifact_ref is required.")
+        return _publish_refusal("mapping_artifact_ref_required", "mapping_artifact_ref is required.")
 
     service = persistence or FeatureGraphPersistenceService()
     sidecars = FeatureGraphMappingSidecarService(artifacts_root=service.artifacts_root)
@@ -162,15 +176,17 @@ def _publish_direct(
             sidecars=sidecars,
         )
     except ValueError as exc:
-        return _refusal(str(exc).strip(), str(exc).strip())
+        return _publish_refusal(str(exc).strip(), str(exc).strip())
 
     expected_ir_ref = str(expected_ir_artifact_ref or "").strip()
     if expected_ir_ref:
         actual_ir_ref = str(package.selected_artifacts.ir_artifact_ref or "").strip()
         if actual_ir_ref != expected_ir_ref:
-            return _mapping_ir_lineage_mismatch_refusal(
+            return _enrich_publish_result(
+                _mapping_ir_lineage_mismatch_refusal(
                 expected_ir_artifact_ref=expected_ir_ref,
                 actual_ir_artifact_ref=actual_ir_ref,
+                )
             )
 
     try:
@@ -181,11 +197,11 @@ def _publish_direct(
             notes=notes,
         )
     except PublishPayloadValidationError as exc:
-        return _validation_failure_refusal(exc)
+        return _enrich_publish_result(_validation_failure_refusal(exc))
 
     source_ref = str(transcript_edit_source_revision_ref or "").strip()
     if not source_ref:
-        return _refusal(
+        return _publish_refusal(
             "transcript_edit_source_revision_ref_required",
             "Startup handoff must include transcript_edit source revision ref.",
         )
@@ -226,10 +242,10 @@ def _publish_from_final_package_preview(
     if not dossier_id:
         raise ValueError("dossier_id_required")
     if not str(transcription_id or "").strip():
-        return _refusal("transcription_id_required", "transcription_id is required to publish deed-to-IR output.")
+        return _publish_refusal("transcription_id_required", "transcription_id is required to publish deed-to-IR output.")
     workspace_key = resolve_workspace_key(workspace_id=workspace_id, run_id=run_id)
     if not workspace_key:
-        return _refusal(
+        return _publish_refusal(
             "workspace_identity_required",
             "Provide workspace_id or run_id to scope deed-to-IR output storage.",
         )
@@ -241,15 +257,15 @@ def _publish_from_final_package_preview(
         preview_ref=final_package_preview_ref,
     )
     if raw is None:
-        return _refusal(error or "final_package_preview_not_found", error or "final_package_preview_not_found")
+        return _publish_refusal(error or "final_package_preview_not_found", error or "final_package_preview_not_found")
 
     try:
         preview = DeedToIrFinalPackagePreview.model_validate(raw)
     except Exception:
-        return _refusal("final_package_preview_invalid", "Stored final package preview is invalid.")
+        return _publish_refusal("final_package_preview_invalid", "Stored final package preview is invalid.")
 
     if not preview.publish_ready_candidate:
-        return _refusal(
+        return _publish_refusal(
             "final_package_preview_not_ready",
             "Preview was not marked publish_ready_candidate; prepare a new preview.",
         )
@@ -265,21 +281,25 @@ def _publish_from_final_package_preview(
             sidecars=sidecars,
         )
     except ValueError as exc:
-        return _refusal(str(exc).strip(), str(exc).strip())
+        return _publish_refusal(str(exc).strip(), str(exc).strip())
 
     preview_ir = str(preview.selected_artifacts.ir_artifact_ref or "").strip()
     current_ir = str(package.selected_artifacts.ir_artifact_ref or "").strip()
     if preview_ir != current_ir:
-        return _final_package_preview_stale_refusal(
+        return _enrich_publish_result(
+            _final_package_preview_stale_refusal(
             preview_ir_artifact_ref=preview_ir,
             current_ir_artifact_ref=current_ir,
+            )
         )
 
     expected_ir = str(preview.lineage_summary.expected_ir_artifact_ref or "").strip()
     if expected_ir and current_ir != expected_ir:
-        return _mapping_ir_lineage_mismatch_refusal(
+        return _enrich_publish_result(
+            _mapping_ir_lineage_mismatch_refusal(
             expected_ir_artifact_ref=expected_ir,
             actual_ir_artifact_ref=current_ir,
+            )
         )
 
     published = preview_to_published_output(preview)
@@ -306,7 +326,7 @@ def _persist_published_output(
 ) -> dict[str, Any]:
     workspace_key = resolve_workspace_key(workspace_id=workspace_id, run_id=run_id)
     if not workspace_key:
-        return _refusal(
+        return _publish_refusal(
             "workspace_identity_required",
             "Provide workspace_id or run_id to scope deed-to-IR output storage.",
         )
@@ -325,7 +345,7 @@ def _persist_published_output(
                 revision_digits,
             )
             if revision_path.exists():
-                return _refusal("output_revision_exists", "Output revision already exists.")
+                return _publish_refusal("output_revision_exists", "Output revision already exists.")
             _atomic_write_json(revision_path, published.model_dump(mode="json"))
 
             try:
@@ -339,7 +359,7 @@ def _persist_published_output(
             except Exception as exc:
                 _rollback_revision_file(revision_path)
                 message = str(exc).strip() or "final_pointer_write_failed"
-                return _refusal("final_pointer_write_failed", message)
+                return _publish_refusal("final_pointer_write_failed", message)
 
             pointer_path = deed_to_ir_output_latest_pointer_path(
                 dossier_id,
@@ -358,11 +378,11 @@ def _persist_published_output(
             )
             revision_ref = build_output_revision_ref(revision_digits)
     except UnsafeDeedToIrPathSegmentError as exc:
-        return _refusal("invalid_scope_path", str(exc))
+        return _publish_refusal("invalid_scope_path", str(exc))
     except ValueError as exc:
         code = str(exc).strip()
         if code in {"publication_in_progress", "output_revision_exists"}:
-            return _refusal(code, code)
+            return _publish_refusal(code, code)
         raise
 
     selected = package.selected_artifacts
@@ -405,6 +425,7 @@ def _persist_published_output(
             "closure_dimension_count": len(closure),
             "closure_dimension_statuses": closure_dimension_statuses,
             "note_count": len(note_rows),
+            "final_output_summary": build_final_output_summary(publish_succeeded=True),
         },
     }
 

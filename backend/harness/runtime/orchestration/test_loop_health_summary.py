@@ -533,6 +533,27 @@ def test_flags_ready_to_close_with_blockers_suppresses_flag() -> None:
         complete_run_blockers=["some_blocker"],
     )
     assert "complete_run_blockers_present" not in result
+    assert "complete_run_blocked:some_blocker" in result
+
+
+def test_terminal_ready_snapshot_suppresses_stale_ready_to_close_false_blocker() -> None:
+    cs = ClosureState(ready_to_close=True, ready_to_publish=True)
+    result = _call_projection(closure_state=cs, work_universe_posture="audited")
+    assert result["complete_run_blockers"] == []
+
+
+def test_sanitize_complete_run_blockers_drops_stale_ready_to_close_false() -> None:
+    cs = ClosureState(ready_to_close=True, ready_to_publish=False)
+    result = _call_projection(closure_state=cs, work_universe_posture="audited")
+    assert "ready_to_close_false" not in result["complete_run_blockers"]
+    assert "ready_to_publish_false" in result["publish_blockers"]
+
+
+def test_terminal_ready_summary_has_no_complete_run_blockers_present_flag() -> None:
+    mem = _mem(ready_to_close=True, ready_to_publish=True, work_universe_posture="audited")
+    summary = build_prompt_observability_summary(mem)
+    assert summary["closure_readiness_projection"]["complete_run_blockers"] == []
+    assert "complete_run_blockers_present" not in summary["mechanical_flags"]
 
 
 def test_flags_surface_group_and_critical_rigor_gaps() -> None:

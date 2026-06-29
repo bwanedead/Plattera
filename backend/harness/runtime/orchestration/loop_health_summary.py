@@ -38,6 +38,12 @@ from .evidence_locality import (
 from .state_patch_repair_bundle import project_state_patch_repair_bundle_for_prompt
 
 
+def _closure_bool(closure_state: Any, field: str) -> bool:
+    if isinstance(closure_state, Mapping):
+        return bool(closure_state.get(field))
+    return bool(getattr(closure_state, field, False))
+
+
 def build_prompt_observability_summary(
     loop_memory: LoopMemoryState,
     *,
@@ -266,8 +272,9 @@ def build_prompt_observability_summary(
     user_message_consumed_unknown_count = int(
         getattr(cont, "user_message_consumed_unknown_count", 0) or 0
     )
+    closure_ready_to_close = _closure_bool(closure_state, "ready_to_close")
     artifact_claim_inventory_suspect_count = _artifact_claim_inventory_suspect_count(
-        closure_ready_to_close=bool(getattr(closure_state, "ready_to_close", False)),
+        closure_ready_to_close=closure_ready_to_close,
         work_universe_posture=work_universe_posture,
         substantial_artifact_output_count=substantial_artifact_output_count,
         atomic_item_count=atomic_item_count,
@@ -416,7 +423,7 @@ def build_prompt_observability_summary(
         feedback=feedback,
         success_condition_count=len(success_conditions),
         resolution_item_count=len(resolution_items),
-        closure_ready_to_close=bool(getattr(closure_state, "ready_to_close", False)),
+        closure_ready_to_close=closure_ready_to_close,
         work_universe_posture=work_universe_posture,
         atomic_item_count=atomic_item_count,
         covered_unit_count=covered_units_metrics["covered_unit_count"],
@@ -1576,9 +1583,9 @@ def _closure_readiness_projection(
             f"resolution_items_below_minimum:{resolution_item_count}/{minimum_publish_items}"
         )
 
-    if not bool(getattr(closure_state, "ready_to_close", False)):
+    if not _closure_bool(closure_state, "ready_to_close"):
         complete_run_blockers.append("ready_to_close_false")
-    if not bool(getattr(closure_state, "ready_to_publish", False)):
+    if not _closure_bool(closure_state, "ready_to_publish"):
         publish_blockers.append("ready_to_publish_false")
 
     if _as_optional_text(feedback.get("outcome")) == "rejected":
@@ -1609,9 +1616,23 @@ def _closure_readiness_projection(
         publish_blockers.append(blocker)
 
     return {
-        "complete_run_blockers": _unique_texts(complete_run_blockers),
+        "complete_run_blockers": _sanitize_complete_run_blockers(
+            complete_run_blockers,
+            closure_ready_to_close=_closure_bool(closure_state, "ready_to_close"),
+        ),
         "publish_blockers": _unique_texts(publish_blockers),
     }
+
+
+def _sanitize_complete_run_blockers(
+    blockers: list[str],
+    *,
+    closure_ready_to_close: bool,
+) -> list[str]:
+    unique = _unique_texts(blockers)
+    if not closure_ready_to_close:
+        return unique
+    return [blocker for blocker in unique if blocker != "ready_to_close_false"]
 
 
 def _mechanical_flags(
@@ -1878,8 +1899,16 @@ def _mechanical_flags(
         )
     ):
         flags.append(f"artifact_excerpt_boundary_risk:{recent_result_truncated_count}")
-    if not closure_ready_to_close and complete_run_blockers:
+    blockers_for_flag = list(complete_run_blockers)
+    if closure_ready_to_close:
+        blockers_for_flag = [
+            blocker for blocker in blockers_for_flag if blocker != "ready_to_close_false"
+        ]
+    if not closure_ready_to_close and blockers_for_flag:
         flags.append("complete_run_blockers_present")
+    elif closure_ready_to_close and blockers_for_flag:
+        for blocker in blockers_for_flag[:3]:
+            flags.append(f"complete_run_blocked:{blocker}")
     return flags[:24]
 
 
