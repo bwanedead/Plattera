@@ -5,8 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from domains.mapping.deed_to_ir.payloads.published_output_tool_schema import (
-    build_publish_deed_to_ir_output_request_json_shape,
+from domains.mapping.deed_to_ir.payloads.final_package_preview_tool_schema import (
+    build_prepare_deed_to_ir_final_package_request_json_shape,
+    build_publish_deed_to_ir_output_request_json_shape_with_preview,
 )
 from tooling.mapping.deed_to_ir.feature_graph_contract_projection import (
     build_compact_feature_node_request_schema,
@@ -389,28 +390,21 @@ def build_deed_to_ir_tool_specs() -> tuple[SemanticToolSpec, ...]:
             ),
         ),
         SemanticToolSpec(
-            tool_id="publish_deed_to_ir_output",
+            tool_id="prepare_deed_to_ir_final_package",
             category="write",
             purpose=(
-                "Publish one agent-authored deed-to-IR handoff package from a selected mapping revision. "
-                "Mechanically derives exact IR, compile, judge, geometry, and render lineage from the mapping "
-                "artifact. Records agent-authored scope, dependency, and closure posture; does not determine closure."
+                "Prepare one confirmable final package preview before publish. Agent authors scope, dependency, "
+                "closure, and note rows; deterministic code derives mechanical artifact lineage from the selected "
+                "mapping and returns a bounded review summary. Does not write final output pointers."
             ),
             expected_request_shape=(
-                "mapping_artifact_ref: required feature_graph:mapping:* ref from the current dossier. "
-                "expected_ir_artifact_ref: optional feature_graph:ir:* ref; strongly recommended after any "
-                "draft save or patch — usually from mapping_review.recommended_publish_refs.expected_ir_artifact_ref. "
-                "When present, publish verifies the mapping was produced from that exact IR; stale lineage "
-                "returns a retryable mapping_ir_lineage_mismatch refusal. "
-                "If you patch IR, resubmit the patched IR for mapping before publishing. "
-                "scope_results, external_dependencies, closure_dimensions, notes: agent-authored bounded row arrays. "
-                "scope_results rows may include basis_refs linking to IR, mapping, or other evidence refs. "
-                "For blocked scopes, link dependency_refs and blocker_refs to external_dependencies[].dependency_id. "
-                "Each external_dependencies row requires dependency_id, affected_scope, description, and status; "
-                "do not put summary on external_dependencies rows. "
-                "notes are structured objects with note_id, summary, and optional basis_refs — not plain strings."
+                "mapping_artifact_ref: required feature_graph:mapping:* ref. "
+                "expected_ir_artifact_ref: optional feature_graph:ir:* ref; recommended after draft save or patch. "
+                "scope_results, external_dependencies, closure_dimensions, notes: same strict publish row shapes. "
+                "Invalid rows return retryable field-level validation errors and persist nothing. "
+                "Expected IR mismatch returns retryable mapping_ir_lineage_mismatch and persists nothing."
             ),
-            expected_request_json_shape=build_publish_deed_to_ir_output_request_json_shape(),
+            expected_request_json_shape=build_prepare_deed_to_ir_final_package_request_json_shape(),
             example_request={
                 "mapping_artifact_ref": "feature_graph:mapping:mapping_example_scope_ab12cd34",
                 "expected_ir_artifact_ref": "feature_graph:ir:example_scope_v1",
@@ -418,51 +412,56 @@ def build_deed_to_ir_tool_specs() -> tuple[SemanticToolSpec, ...]:
                     {
                         "scope_id": "example_scope_1",
                         "status": "handoffable",
-                        "summary": (
-                            "Example scope is represented in executable IR and rendered in the selected mapping."
-                        ),
+                        "summary": "Example scope is represented in executable IR and rendered in the selected mapping.",
                         "basis_refs": [
                             "feature_graph:ir:example_scope_v1",
                             "feature_graph:mapping:mapping_example_scope_ab12cd34",
                         ],
                         "blocker_refs": [],
                         "dependency_refs": [],
-                    },
-                    {
-                        "scope_id": "example_scope_2",
-                        "status": "blocked",
-                        "summary": (
-                            "Example scope remains blocked because a required continuation source is unavailable."
-                        ),
-                        "basis_refs": [],
-                        "blocker_refs": ["missing_continuation_source"],
-                        "dependency_refs": ["missing_continuation_source"],
-                    },
-                ],
-                "external_dependencies": [
-                    {
-                        "dependency_id": "missing_continuation_source",
-                        "affected_scope": "example_scope_2",
-                        "description": "Continuation source needed to complete the blocked scope.",
-                        "status": "missing",
-                        "available_refs": [],
                     }
                 ],
+                "external_dependencies": [],
                 "closure_dimensions": [
                     {
-                        "dimension_id": "layer_1_deed_meaning_to_ir_fidelity",
+                        "dimension_id": "layer_4_map_handoffability_scoped_completion",
                         "status": "partial",
-                        "summary": "Mapped scope is represented; blocked scope is explicitly preserved.",
+                        "summary": "Mapped scope is represented; blocked scopes are explicitly preserved.",
                         "basis_refs": ["feature_graph:mapping:mapping_example_scope_ab12cd34"],
                     }
                 ],
-                "notes": [
-                    {
-                        "note_id": "example_normalization_note",
-                        "summary": "Example note about a normalization or handoff decision.",
-                        "basis_refs": [],
-                    }
-                ],
+                "notes": [],
+            },
+            batching={
+                "allowed": False,
+                "side_effect_class": "write",
+            },
+            expected_result_shape=(
+                "On success: final_package_preview_ref, final_package_preview_revision_ref, derived selected "
+                "artifact refs, review_summary (compile/judge/render counts, coordinate space, world bbox), "
+                "bounded row summaries, publish_ready_candidate (mechanical only — not semantic correctness), "
+                "and recommended_publish_request with final_package_preview_ref. No filesystem paths or image bytes."
+            ),
+        ),
+        SemanticToolSpec(
+            tool_id="publish_deed_to_ir_output",
+            category="write",
+            purpose=(
+                "Publish one agent-authored deed-to-IR handoff package. Preferred path: pass "
+                "final_package_preview_ref only — rows are frozen from the preview. Direct mapping_artifact_ref "
+                "publish remains supported for backward compatibility but is advanced."
+            ),
+            expected_request_shape=(
+                "Preferred: final_package_preview_ref from prepare_deed_to_ir_final_package — do not pass row "
+                "fields; prepare a new preview to change scope/dependency/closure/notes. "
+                "Direct (advanced): mapping_artifact_ref plus agent-authored scope_results, external_dependencies, "
+                "closure_dimensions, notes, and optional expected_ir_artifact_ref. "
+                "Publish revalidates preview identity and mapping lineage; stale preview returns retryable "
+                "final_package_preview_stale or mapping_ir_lineage_mismatch."
+            ),
+            expected_request_json_shape=build_publish_deed_to_ir_output_request_json_shape_with_preview(),
+            example_request={
+                "final_package_preview_ref": "deed_to_ir:final_package_preview:rev:0001",
             },
             batching={
                 "allowed": False,
@@ -482,18 +481,22 @@ def build_deed_to_ir_tool_specs() -> tuple[SemanticToolSpec, ...]:
             purpose=(
                 "Hydrate feature-graph artifact refs (ir, compile, judge, bundle, mapping), mapping "
                 "sidecar refs (geometry.geojson, clean.png, control.png), deed-to-IR operand suite refs "
-                "(deed_to_ir:operands, deed_to_ir:operands:run:*, deed_to_ir:operands:ws:*), and deed-to-IR "
-                "output refs (deed_to_ir:output, deed_to_ir:output:rev:NNNN). Returns bounded payloads "
-                "without filesystem paths. PNG sidecars return top-level image_evidence."
+                "(deed_to_ir:operands, deed_to_ir:operands:run:*, deed_to_ir:operands:ws:*), deed-to-IR "
+                "final package preview refs (deed_to_ir:final_package_preview, deed_to_ir:final_package_preview:rev:NNNN), "
+                "and deed-to-IR output refs (deed_to_ir:output, deed_to_ir:output:rev:NNNN). Returns bounded "
+                "payloads without filesystem paths. PNG sidecars return top-level image_evidence."
             ),
             expected_request_shape=(
                 "ref_ids: required non-empty array of feature_graph:*, artifact://dossiers/feature_graphs/*, "
-                "deed_to_ir:operands*, or deed_to_ir:output* refs. max_refs: optional cap (default 8, max 32). "
+                "deed_to_ir:operands*, deed_to_ir:final_package_preview*, or deed_to_ir:output* refs. "
+                "max_refs: optional cap (default 8, max 32). "
                 "working_draft_ref: optional feature_graph:ir:* ref used to label compile/judge hydration rows "
                 "with is_current_for_working_draft. Hydrating feature_graph:mapping:* returns mapping_review "
-                "(compact lineage, counts, recommended_review_refs, recommended_publish_refs). Prefer mapping "
-                "ref hydration for compact review over bulk artifact hydration; hydrate control/geometry sidecars "
-                "only when visual or coordinate inspection is needed."
+                "(compact lineage, counts, recommended_review_refs, recommended_publish_refs). Hydrating "
+                "deed_to_ir:final_package_preview:* returns selected artifact refs, row summaries, review_summary, "
+                "publish_ready_candidate, and recommended_publish_request. Prefer mapping/preview ref hydration "
+                "over bulk artifact hydration; hydrate control/geometry sidecars only when visual or coordinate "
+                "inspection is needed."
             ),
             expected_request_json_shape={
                 "type": "object",
@@ -525,11 +528,12 @@ def build_deed_to_ir_tool_specs() -> tuple[SemanticToolSpec, ...]:
             expected_result_shape=(
                 "outputs.results: hydrated artifacts or sidecars keyed by ref with bounded payloads. "
                 "Mapping rows include mapping_review with source IR, sidecar refs, counts, and "
-                "recommended_publish_refs. Compile/judge rows include artifact_ref, parent_ir_ref, "
-                "parent_graph_id, parent_draft_version, and optional is_current_for_working_draft when "
-                "working_draft_ref is supplied. To publish, use mapping_review.recommended_publish_refs "
-                "mapping_artifact_ref and expected_ir_artifact_ref. PNG sidecars return top-level "
-                "image_evidence. outputs.errors: per-ref not_found, prefix, or scope errors."
+                "recommended_publish_refs. Preview rows include selected_artifacts, scope_summaries, "
+                "review_summary, publish_ready_candidate, and recommended_publish_request. Compile/judge rows "
+                "include artifact_ref, parent_ir_ref, parent_graph_id, parent_draft_version, and optional "
+                "is_current_for_working_draft when working_draft_ref is supplied. To publish, prefer "
+                "recommended_publish_request.final_package_preview_ref from a prepared preview. "
+                "PNG sidecars return top-level image_evidence. outputs.errors: per-ref not_found, prefix, or scope errors."
             ),
         ),
         SemanticToolSpec(

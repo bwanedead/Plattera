@@ -52,3 +52,21 @@ def deed_to_ir_output_revision_path(
 ) -> Path:
     rev = require_safe_revision_digits(revision_digits)
     return deed_to_ir_output_dir(dossier_id, transcription_id, workspace_id) / f"rev_{rev}.json"
+
+
+def deed_to_ir_preview_dir(dossier_id: str, transcription_id: str, workspace_id: str) -> Path:
+    return deed_to_ir_workspace_root(dossier_id, transcription_id, workspace_id) / "final_package_preview"
+
+
+def deed_to_ir_preview_latest_pointer_path(dossier_id: str, transcription_id: str, workspace_id: str) -> Path:
+    return deed_to_ir_preview_dir(dossier_id, transcription_id, workspace_id) / "latest.json"
+
+
+def deed_to_ir_preview_revision_path(
+    dossier_id: str,
+    transcription_id: str,
+    workspace_id: str,
+    revision_digits: str,
+) -> Path:
+    rev = require_safe_revision_digits(revision_digits)
+    return deed_to_ir_preview_dir(dossier_id, transcription_id, workspace_id) / f"rev_{rev}.json"

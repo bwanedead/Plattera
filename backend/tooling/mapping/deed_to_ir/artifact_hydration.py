@@ -175,6 +175,19 @@ def hydrate_feature_graph_artifact_refs(
             else:
                 errors.append({"ref_id": text, "reason": error or "operand_suite_hydration_failed"})
             continue
+        if text.startswith("deed_to_ir:final_package_preview"):
+            row, error = _hydrate_final_package_preview_ref(
+                dossier_id=dossier_id,
+                ref_id=text,
+                transcription_id=transcription_id,
+                workspace_id=workspace_id,
+                run_id=run_id,
+            )
+            if row is not None:
+                results.append(row)
+            else:
+                errors.append({"ref_id": text, "reason": error or "preview_hydration_failed"})
+            continue
         if text.startswith("deed_to_ir:output"):
             row, error = _hydrate_deed_to_ir_output_ref(
                 dossier_id=dossier_id,
@@ -633,6 +646,25 @@ def _hydrate_operand_suite_ref(
         "artifact_type": "deed_to_ir_operand_suite",
         **payload,
     }, None
+
+
+def _hydrate_final_package_preview_ref(
+    *,
+    dossier_id: str,
+    ref_id: str,
+    transcription_id: str | None,
+    workspace_id: str | None,
+    run_id: str | None,
+) -> tuple[dict[str, Any] | None, str | None]:
+    from .final_package_preview_persistence import hydrate_final_package_preview_ref
+
+    return hydrate_final_package_preview_ref(
+        dossier_id=dossier_id,
+        ref_id=ref_id,
+        transcription_id=transcription_id,
+        workspace_id=workspace_id,
+        run_id=run_id,
+    )
 
 
 def _hydrate_deed_to_ir_output_ref(

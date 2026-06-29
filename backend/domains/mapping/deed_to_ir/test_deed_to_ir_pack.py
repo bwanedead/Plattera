@@ -30,6 +30,7 @@ def test_manifest_tool_ids_match_tool_specs() -> None:
         "save_ir_artifact",
         "patch_ir_draft",
         "submit_ir_for_mapping",
+        "prepare_deed_to_ir_final_package",
         "publish_deed_to_ir_output",
         "hydrate_artifact_refs",
         "list_feature_graph_artifacts",
@@ -97,7 +98,11 @@ def test_publish_tool_spec_exposes_row_contracts_from_models() -> None:
     )
 
     publish = {spec.tool_id: spec for spec in build_deed_to_ir_tool_specs()}["publish_deed_to_ir_output"]
-    shape = publish.expected_request_json_shape
+    assert publish.expected_request_json_shape["oneOf"]
+    direct_shape = publish.expected_request_json_shape["oneOf"][1]
+    preview_shape = publish.expected_request_json_shape["oneOf"][0]
+    assert preview_shape["required"] == ["final_package_preview_ref"]
+    shape = direct_shape
     assert shape["additionalProperties"] is False
     assert shape["required"] == ["mapping_artifact_ref"]
     assert "expected_ir_artifact_ref" in shape["properties"]
@@ -111,6 +116,7 @@ def test_publish_tool_spec_exposes_row_contracts_from_models() -> None:
     assert set(scope_props) == {
         "scope_id",
         "status",
+        "title",
         "summary",
         "basis_refs",
         "blocker_refs",
@@ -152,14 +158,13 @@ def test_publish_tool_spec_exposes_row_contracts_from_models() -> None:
     assert note_item["properties"]["summary"]["maxLength"] == MAX_SUMMARY_LENGTH
 
     example = publish.example_request
-    assert example["expected_ir_artifact_ref"].startswith("feature_graph:ir:")
-    assert example["external_dependencies"][0]["description"]
-    assert "summary" not in example["external_dependencies"][0]
-    assert isinstance(example["notes"][0], dict)
-    assert "note_id" in example["notes"][0]
-    assert example["scope_results"][0]["basis_refs"]
-    assert example["scope_results"][1]["dependency_refs"] == ["missing_continuation_source"]
-    dumped = json.dumps(example).lower()
+    assert example["final_package_preview_ref"].startswith("deed_to_ir:final_package_preview:rev:")
+
+    prepare = {spec.tool_id: spec for spec in build_deed_to_ir_tool_specs()}["prepare_deed_to_ir_final_package"]
+    prepare_example = prepare.example_request
+    assert prepare_example["expected_ir_artifact_ref"].startswith("feature_graph:ir:")
+    assert prepare_example["scope_results"][0]["basis_refs"]
+    dumped = json.dumps(prepare_example).lower()
     for forbidden in ("parcel_1", "parcel_2", "range 74", "range 75", "canal"):
         assert forbidden not in dumped
 
@@ -177,7 +182,8 @@ def test_submit_and_hydrate_tool_specs_mention_mapping_review() -> None:
     assert "recommended_publish_refs" in hydrate.expected_result_shape.lower()
     assert "mapping_review" in hydrate.expected_request_shape.lower()
     assert "mapping_example_scope" in json.dumps(hydrate.example_request)
-    assert "recommended_publish_refs" in publish.expected_request_shape.lower()
+    assert "recommended_publish_refs" in hydrate.expected_result_shape.lower()
+    assert "final_package_preview_ref" in publish.expected_request_shape.lower()
     assert "mapping_ir_lineage_mismatch" in publish.expected_result_shape.lower()
 
 
@@ -199,6 +205,33 @@ def test_procedural_guidance_covers_hydration_discipline() -> None:
     assert "mapping_ir_lineage_mismatch" in guidance or "stale mapping lineage" in guidance
 
 
+def test_procedural_guidance_covers_final_package_preview_flow() -> None:
+    guidance = next(
+        b.text.lower()
+        for b in build_deed_to_ir_domain_pack().build_semantic_prompt_blocks()
+        if b.block_id == "deed_to_ir_procedural_guidance"
+    )
+    assert "prepare_deed_to_ir_final_package" in guidance
+    assert "final_package_preview_ref" in guidance
+    assert "publish from preview" in guidance or "publish from preview ref" in guidance
+    assert "material defects" in guidance
+    assert "provenance wording polish" in guidance
+
+
+def test_prepare_and_publish_tool_specs_mention_final_package_preview() -> None:
+    specs = {spec.tool_id: spec for spec in build_deed_to_ir_tool_specs()}
+    prepare = specs["prepare_deed_to_ir_final_package"]
+    publish = specs["publish_deed_to_ir_output"]
+    hydrate = specs["hydrate_artifact_refs"]
+    assert "final_package_preview_ref" in prepare.expected_result_shape.lower()
+    assert "publish_ready_candidate" in prepare.expected_result_shape.lower()
+    assert "recommended_publish_request" in prepare.expected_result_shape.lower()
+    assert "final_package_preview_ref" in publish.expected_request_shape.lower()
+    assert "final_package_preview_ref" in json.dumps(publish.example_request)
+    assert "final_package_preview" in hydrate.expected_request_shape.lower()
+    assert "recommended_publish_request" in hydrate.expected_result_shape.lower()
+
+
 def test_domain_pack_builds() -> None:
     pack = build_deed_to_ir_domain_pack()
     payload = pack.build_surface_payload()
@@ -208,11 +241,12 @@ def test_domain_pack_builds() -> None:
         "save_ir_artifact",
         "patch_ir_draft",
         "submit_ir_for_mapping",
+        "prepare_deed_to_ir_final_package",
         "publish_deed_to_ir_output",
         "hydrate_artifact_refs",
         "list_feature_graph_artifacts",
     ]
-    assert len(payload["tool_specs"]) == 8
+    assert len(payload["tool_specs"]) == 9
     assert payload["closure_policy"]["hard_enforced"] is False
     assert payload["closure_policy"]["publish_action_ids"] == ["publish_deed_to_ir_output"]
     assert payload["closure_policy"]["required_output_ref_for_complete"] == "deed_to_ir:output"

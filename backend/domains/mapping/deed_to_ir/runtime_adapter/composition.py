@@ -19,6 +19,7 @@ from tooling.mapping.deed_to_ir.input_hydration import make_hydrate_deed_to_ir_i
 from tooling.mapping.deed_to_ir.ir_draft_patch import patch_ir_draft
 from tooling.mapping.deed_to_ir.ir_mapping_submission import submit_ir_for_mapping
 from tooling.mapping.deed_to_ir.ir_persistence import save_ir_artifact
+from tooling.mapping.deed_to_ir.final_package_preview_persistence import prepare_deed_to_ir_final_package
 from tooling.mapping.deed_to_ir.output_persistence import publish_deed_to_ir_output
 
 from ..domain_pack import DeedToIrDomainPack
@@ -107,6 +108,10 @@ def _tool_handler_entries(
         (
             "submit_ir_for_mapping",
             _make_submit_ir_handler(dossier_id=dossier_id),
+        ),
+        (
+            "prepare_deed_to_ir_final_package",
+            _make_prepare_final_package_handler(dossier_id=dossier_id, handoff=handoff),
         ),
         (
             "publish_deed_to_ir_output",
@@ -227,6 +232,34 @@ def _make_submit_ir_handler(*, dossier_id: str) -> Callable[[Any], Any]:
     return handler
 
 
+def _make_prepare_final_package_handler(
+    *,
+    dossier_id: str,
+    handoff: DeedToIrStartupHandoff,
+) -> Callable[[Any], Any]:
+    def handler(request: Any) -> dict[str, Any]:
+        inputs = _extract_inputs(request)
+        try:
+            return prepare_deed_to_ir_final_package(
+                dossier_id=dossier_id,
+                transcription_id=handoff.scope.transcription_id,
+                workspace_id=handoff.scope.workspace_id,
+                run_id=handoff.scope.run_id,
+                transcript_edit_source_revision_ref=handoff.source.source_revision_ref,
+                resolution_state_ref=handoff.resolution_state_ref,
+                mapping_artifact_ref=_optional_str(inputs.get("mapping_artifact_ref")) or "",
+                scope_results=inputs.get("scope_results"),
+                external_dependencies=inputs.get("external_dependencies"),
+                closure_dimensions=inputs.get("closure_dimensions"),
+                notes=inputs.get("notes"),
+                expected_ir_artifact_ref=_optional_str(inputs.get("expected_ir_artifact_ref")),
+            )
+        except Exception as exc:
+            return _exception_refusal(exc)
+
+    return handler
+
+
 def _make_publish_output_handler(
     *,
     dossier_id: str,
@@ -242,12 +275,13 @@ def _make_publish_output_handler(
                 run_id=handoff.scope.run_id,
                 transcript_edit_source_revision_ref=handoff.source.source_revision_ref,
                 resolution_state_ref=handoff.resolution_state_ref,
-                mapping_artifact_ref=_optional_str(inputs.get("mapping_artifact_ref")) or "",
+                mapping_artifact_ref=_optional_str(inputs.get("mapping_artifact_ref")),
                 scope_results=inputs.get("scope_results"),
                 external_dependencies=inputs.get("external_dependencies"),
                 closure_dimensions=inputs.get("closure_dimensions"),
                 notes=inputs.get("notes"),
                 expected_ir_artifact_ref=_optional_str(inputs.get("expected_ir_artifact_ref")),
+                final_package_preview_ref=_optional_str(inputs.get("final_package_preview_ref")),
             )
         except Exception as exc:
             return _exception_refusal(exc)

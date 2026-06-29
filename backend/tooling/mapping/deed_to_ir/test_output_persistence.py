@@ -861,7 +861,7 @@ def test_publish_refuses_overwriting_existing_revision(monkeypatch) -> None:
 
         monkeypatch.setattr(
             "tooling.mapping.deed_to_ir.output_persistence._next_revision_digits",
-            lambda *, output_dir: "0001",
+            lambda *, revision_dir: "0001",
         )
 
         result = publish_deed_to_ir_output(

@@ -18,6 +18,7 @@ MAX_DESCRIPTION_LENGTH = 1024
 MAX_ID_LENGTH = 128
 MAX_REF_LENGTH = 1024
 MAX_STATUS_LENGTH = 64
+MAX_TITLE_LENGTH = 256
 
 ALLOWED_CLOSURE_DIMENSION_IDS = frozenset(
     {
@@ -71,6 +72,7 @@ class ScopeResultRow(BaseModel):
 
     scope_id: str = Field(..., min_length=1, max_length=MAX_ID_LENGTH)
     status: str = Field(..., min_length=1, max_length=MAX_STATUS_LENGTH)
+    title: str | None = Field(None, max_length=MAX_TITLE_LENGTH)
     summary: str | None = Field(None, max_length=MAX_SUMMARY_LENGTH)
     basis_refs: list[str] = Field(default_factory=list, max_length=MAX_ROW_REFS)
     blocker_refs: list[str] = Field(default_factory=list, max_length=MAX_ROW_REFS)
@@ -104,6 +106,7 @@ class ClosureDimensionRow(BaseModel):
 
     dimension_id: str = Field(..., min_length=1, max_length=MAX_ID_LENGTH)
     status: str = Field(..., min_length=1, max_length=MAX_STATUS_LENGTH)
+    title: str | None = Field(None, max_length=MAX_TITLE_LENGTH)
     summary: str | None = Field(None, max_length=MAX_SUMMARY_LENGTH)
     basis_refs: list[str] = Field(default_factory=list, max_length=MAX_ROW_REFS)
 

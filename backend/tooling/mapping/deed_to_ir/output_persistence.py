@@ -2,15 +2,9 @@
 
 from __future__ import annotations
 
-import json
-import os
-import sys
-import tempfile
-from contextlib import contextmanager
-from datetime import datetime, timezone
-from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
+from domains.mapping.deed_to_ir.payloads.final_package_preview import DeedToIrFinalPackagePreview
 from domains.mapping.deed_to_ir.payloads.published_output import (
     DeedToIrOutputSource,
     DeedToIrPublishedOutput,
@@ -20,7 +14,6 @@ from services.feature_graph.feature_graph_persistence_service import FeatureGrap
 
 from .output_package_validation import (
     PublishPayloadValidationError,
-    PUBLISH_PAYLOAD_VALIDATION_FAILED,
     resolve_mapping_publish_package,
     validate_agent_output_rows,
 )
@@ -31,17 +24,106 @@ from .paths import (
     deed_to_ir_output_latest_pointer_path,
     deed_to_ir_output_revision_path,
 )
+from .persistence_io import (
+    atomic_write_json,
+    final_package_preview_stale_refusal,
+    mapping_ir_lineage_mismatch_refusal,
+    next_revision_digits,
+    read_json,
+    refusal,
+    resolve_workspace_key,
+    rollback_revision_file,
+    status_counts,
+    utc_now_iso,
+    validation_failure_refusal,
+    workspace_publish_lock,
+)
 
-
-def resolve_workspace_key(*, workspace_id: str | None, run_id: str | None) -> str | None:
-    workspace = str(workspace_id or "").strip()
-    if workspace:
-        return workspace
-    run = str(run_id or "").strip()
-    return run or None
+# Backward-compatible aliases for co-located tests and lazy imports.
+_atomic_write_json = atomic_write_json
+_read_json = read_json
+_refusal = refusal
+_mapping_ir_lineage_mismatch_refusal = mapping_ir_lineage_mismatch_refusal
+_final_package_preview_stale_refusal = final_package_preview_stale_refusal
+_validation_failure_refusal = validation_failure_refusal
+_workspace_publish_lock = workspace_publish_lock
+_rollback_revision_file = rollback_revision_file
+_next_revision_digits = next_revision_digits
+_status_counts = status_counts
+_utc_now_iso = utc_now_iso
 
 
 def publish_deed_to_ir_output(
+    *,
+    dossier_id: str,
+    transcription_id: str | None,
+    workspace_id: str | None,
+    run_id: str | None,
+    transcript_edit_source_revision_ref: str | None,
+    resolution_state_ref: str | None,
+    mapping_artifact_ref: str | None = None,
+    scope_results: Any | None = None,
+    external_dependencies: Any | None = None,
+    closure_dimensions: Any | None = None,
+    notes: Any | None = None,
+    expected_ir_artifact_ref: str | None = None,
+    final_package_preview_ref: str | None = None,
+    persistence: FeatureGraphPersistenceService | None = None,
+) -> dict[str, Any]:
+    preview_ref = str(final_package_preview_ref or "").strip()
+    mapping_ref = str(mapping_artifact_ref or "").strip()
+
+    if preview_ref and mapping_ref:
+        return _refusal(
+            "publish_request_ambiguous",
+            "Provide either final_package_preview_ref or direct mapping_artifact_ref, not both.",
+        )
+    if preview_ref:
+        row_fields = (
+            scope_results,
+            external_dependencies,
+            closure_dimensions,
+            notes,
+            expected_ir_artifact_ref,
+        )
+        if any(field not in (None, [], "") for field in row_fields):
+            return _refusal(
+                "final_package_preview_row_mutation_forbidden",
+                "Publishing from preview uses frozen preview rows; prepare a new preview to change them.",
+            )
+        return _publish_from_final_package_preview(
+            dossier_id=dossier_id,
+            transcription_id=transcription_id,
+            workspace_id=workspace_id,
+            run_id=run_id,
+            final_package_preview_ref=preview_ref,
+            persistence=persistence,
+        )
+
+    if not mapping_ref:
+        return _refusal(
+            "publish_target_required",
+            "Provide final_package_preview_ref (preferred) or mapping_artifact_ref.",
+        )
+
+    return _publish_direct(
+        dossier_id=dossier_id,
+        transcription_id=transcription_id,
+        workspace_id=workspace_id,
+        run_id=run_id,
+        transcript_edit_source_revision_ref=transcript_edit_source_revision_ref,
+        resolution_state_ref=resolution_state_ref,
+        mapping_artifact_ref=mapping_ref,
+        scope_results=scope_results,
+        external_dependencies=external_dependencies,
+        closure_dimensions=closure_dimensions,
+        notes=notes,
+        expected_ir_artifact_ref=expected_ir_artifact_ref,
+        persistence=persistence,
+    )
+
+
+def _publish_direct(
     *,
     dossier_id: str,
     transcription_id: str | None,
@@ -119,6 +201,115 @@ def publish_deed_to_ir_output(
         closure_dimensions=closure,  # type: ignore[arg-type]
         notes=note_rows,
     )
+    return _persist_published_output(
+        dossier_id=dossier_id,
+        transcription_id=transcription_id,
+        workspace_id=workspace_id,
+        run_id=run_id,
+        published=published,
+        package=package,
+        persistence=service,
+    )
+
+
+def _publish_from_final_package_preview(
+    *,
+    dossier_id: str,
+    transcription_id: str | None,
+    workspace_id: str | None,
+    run_id: str | None,
+    final_package_preview_ref: str,
+    persistence: FeatureGraphPersistenceService | None = None,
+) -> dict[str, Any]:
+    from .final_package_preview_persistence import load_final_package_preview_by_ref, preview_to_published_output
+
+    if not dossier_id:
+        raise ValueError("dossier_id_required")
+    if not str(transcription_id or "").strip():
+        return _refusal("transcription_id_required", "transcription_id is required to publish deed-to-IR output.")
+    workspace_key = resolve_workspace_key(workspace_id=workspace_id, run_id=run_id)
+    if not workspace_key:
+        return _refusal(
+            "workspace_identity_required",
+            "Provide workspace_id or run_id to scope deed-to-IR output storage.",
+        )
+
+    raw, error = load_final_package_preview_by_ref(
+        dossier_id=dossier_id,
+        transcription_id=str(transcription_id).strip(),
+        workspace_id=workspace_key,
+        preview_ref=final_package_preview_ref,
+    )
+    if raw is None:
+        return _refusal(error or "final_package_preview_not_found", error or "final_package_preview_not_found")
+
+    try:
+        preview = DeedToIrFinalPackagePreview.model_validate(raw)
+    except Exception:
+        return _refusal("final_package_preview_invalid", "Stored final package preview is invalid.")
+
+    if not preview.publish_ready_candidate:
+        return _refusal(
+            "final_package_preview_not_ready",
+            "Preview was not marked publish_ready_candidate; prepare a new preview.",
+        )
+
+    service = persistence or FeatureGraphPersistenceService()
+    sidecars = FeatureGraphMappingSidecarService(artifacts_root=service.artifacts_root)
+    mapping_ref = preview.selected_artifacts.mapping_artifact_ref
+    try:
+        package = resolve_mapping_publish_package(
+            dossier_id=dossier_id,
+            mapping_artifact_ref=mapping_ref,
+            persistence=service,
+            sidecars=sidecars,
+        )
+    except ValueError as exc:
+        return _refusal(str(exc).strip(), str(exc).strip())
+
+    preview_ir = str(preview.selected_artifacts.ir_artifact_ref or "").strip()
+    current_ir = str(package.selected_artifacts.ir_artifact_ref or "").strip()
+    if preview_ir != current_ir:
+        return _final_package_preview_stale_refusal(
+            preview_ir_artifact_ref=preview_ir,
+            current_ir_artifact_ref=current_ir,
+        )
+
+    expected_ir = str(preview.lineage_summary.expected_ir_artifact_ref or "").strip()
+    if expected_ir and current_ir != expected_ir:
+        return _mapping_ir_lineage_mismatch_refusal(
+            expected_ir_artifact_ref=expected_ir,
+            actual_ir_artifact_ref=current_ir,
+        )
+
+    published = preview_to_published_output(preview)
+    return _persist_published_output(
+        dossier_id=dossier_id,
+        transcription_id=transcription_id,
+        workspace_id=workspace_id,
+        run_id=run_id,
+        published=published,
+        package=package,
+        persistence=service,
+    )
+
+
+def _persist_published_output(
+    *,
+    dossier_id: str,
+    transcription_id: str | None,
+    workspace_id: str | None,
+    run_id: str | None,
+    published: DeedToIrPublishedOutput,
+    package: Any,
+    persistence: FeatureGraphPersistenceService,
+) -> dict[str, Any]:
+    workspace_key = resolve_workspace_key(workspace_id=workspace_id, run_id=run_id)
+    if not workspace_key:
+        return _refusal(
+            "workspace_identity_required",
+            "Provide workspace_id or run_id to scope deed-to-IR output storage.",
+        )
 
     revision_digits: str
     revision_ref: str
@@ -126,7 +317,7 @@ def publish_deed_to_ir_output(
         safe_transcription_id = str(transcription_id).strip()
         output_dir = deed_to_ir_output_dir(dossier_id, safe_transcription_id, workspace_key)
         with _workspace_publish_lock(output_dir):
-            revision_digits = _next_revision_digits(output_dir=output_dir)
+            revision_digits = _next_revision_digits(revision_dir=output_dir)
             revision_path = deed_to_ir_output_revision_path(
                 dossier_id,
                 safe_transcription_id,
@@ -138,7 +329,7 @@ def publish_deed_to_ir_output(
             _atomic_write_json(revision_path, published.model_dump(mode="json"))
 
             try:
-                service.mark_final_artifacts(
+                persistence.mark_final_artifacts(
                     dossier_id=dossier_id,
                     targets={
                         "ir": package.ir_artifact.artifact_id,
@@ -175,6 +366,10 @@ def publish_deed_to_ir_output(
         raise
 
     selected = package.selected_artifacts
+    scopes = [row.model_dump(mode="json") for row in published.scope_results]
+    deps = [row.model_dump(mode="json") for row in published.external_dependencies]
+    closure = [row.model_dump(mode="json") for row in published.closure_dimensions]
+    note_rows = [row.model_dump(mode="json") for row in published.notes]
     artifact_refs = [
         OUTPUT_REF,
         revision_ref,
@@ -235,164 +430,4 @@ def load_published_output(
     )
 
 
-def _rollback_revision_file(path: Path) -> None:
-    try:
-        if path.is_file():
-            path.unlink()
-    except OSError:
-        pass
-
-
-def _next_revision_digits(*, output_dir: Path) -> str:
-    highest = 0
-    for path in output_dir.glob("rev_*.json"):
-        stem = path.stem.replace("rev_", "")
-        if len(stem) == 4 and stem.isdigit():
-            highest = max(highest, int(stem))
-    return f"{highest + 1:04d}"
-
-
-@contextmanager
-def _workspace_publish_lock(output_dir: Path) -> Iterator[None]:
-    output_dir.mkdir(parents=True, exist_ok=True)
-    lock_path = output_dir / ".publish.lock"
-    handle = open(lock_path, "a+b")
-    try:
-        if sys.platform == "win32":
-            import msvcrt
-
-            handle.seek(0)
-            msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
-        else:
-            import fcntl
-
-            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except OSError as exc:
-        handle.close()
-        raise ValueError("publication_in_progress") from exc
-    try:
-        yield
-    finally:
-        try:
-            if sys.platform == "win32":
-                import msvcrt
-
-                handle.seek(0)
-                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
-            else:
-                import fcntl
-
-                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
-        finally:
-            handle.close()
-
-
-def _status_counts(rows: list[dict[str, Any]]) -> dict[str, int]:
-    counts: dict[str, int] = {}
-    for row in rows:
-        status = str(row.get("status") or "unknown")
-        counts[status] = counts.get(status, 0) + 1
-    return counts
-
-
-def _utc_now_iso() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
-
-
-def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp_path = tempfile.mkstemp(
-        prefix="deed_output_",
-        suffix=".json",
-        dir=str(path.parent),
-    )
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            json.dump(payload, handle, ensure_ascii=False, indent=2, sort_keys=True)
-            handle.write("\n")
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(tmp_path, str(path))
-    finally:
-        try:
-            if os.path.exists(tmp_path):
-                os.remove(tmp_path)
-        except OSError:
-            pass
-
-
-def _read_json(path: Path) -> dict[str, Any] | None:
-    if not path.is_file():
-        return None
-    try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return None
-    return raw if isinstance(raw, dict) else None
-
-
-def _refusal(code: str, message: str) -> dict[str, Any]:
-    return {
-        "executed": False,
-        "refusal": {
-            "reason_code": code,
-            "retryable": False,
-            "blocked_by_invariant": True,
-            "blocked_by_budget": False,
-            "missing_inputs": [],
-        },
-        "outputs": {"error": {"code": code, "message": message}},
-    }
-
-
-def _mapping_ir_lineage_mismatch_refusal(
-    *,
-    expected_ir_artifact_ref: str,
-    actual_ir_artifact_ref: str,
-) -> dict[str, Any]:
-    code = "mapping_ir_lineage_mismatch"
-    return {
-        "executed": False,
-        "reason_codes": [code],
-        "refusal": {
-            "reason_code": code,
-            "retryable": True,
-            "blocked_by_invariant": False,
-            "blocked_by_budget": False,
-            "missing_inputs": [],
-        },
-        "outputs": {
-            "error": {
-                "code": code,
-                "message": "mapping artifact was not produced from expected IR",
-            },
-            "expected_ir_artifact_ref": expected_ir_artifact_ref,
-            "actual_ir_artifact_ref": actual_ir_artifact_ref,
-            "repair_hint": (
-                "Submit the expected IR for mapping, then publish the returned mapping artifact."
-            ),
-        },
-    }
-
-
-def _validation_failure_refusal(exc: PublishPayloadValidationError) -> dict[str, Any]:
-    reason_code = exc.reason_code or PUBLISH_PAYLOAD_VALIDATION_FAILED
-    validation_errors = list(exc.validation_errors)
-    return {
-        "executed": False,
-        "reason_codes": [reason_code],
-        "refusal": {
-            "reason_code": reason_code,
-            "retryable": True,
-            "blocked_by_invariant": False,
-            "blocked_by_budget": False,
-            "missing_inputs": [],
-        },
-        "outputs": {
-            "error": {
-                "code": PUBLISH_PAYLOAD_VALIDATION_FAILED,
-                "message": "publish payload validation failed",
-            },
-            "validation_errors": validation_errors,
-        },
-    }
+# Shared helpers live in persistence_io.py; aliases above preserve test imports.

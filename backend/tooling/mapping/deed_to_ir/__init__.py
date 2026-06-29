@@ -10,6 +10,7 @@ from .feature_graph_capabilities import describe_feature_graph_capabilities
 from .inherited_handoff_projection import build_inherited_handoff_conditions
 from .input_hydration import make_hydrate_deed_to_ir_input_handler
 from .ir_mapping_submission import submit_ir_for_mapping
+from .final_package_preview_persistence import prepare_deed_to_ir_final_package
 from .output_persistence import publish_deed_to_ir_output
 from .ir_persistence import IR_REF_PREFIX, save_ir_artifact
 from .resolution_state_loading import (
@@ -43,6 +44,7 @@ __all__ = [
     "make_hydrate_artifact_refs_handler",
     "make_hydrate_deed_to_ir_input_handler",
     "mechanical_resolution_state_snapshot",
+    "prepare_deed_to_ir_final_package",
     "publish_deed_to_ir_output",
     "resolve_resolution_state_snapshot",
     "resolution_state_counts",
