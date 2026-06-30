@@ -145,6 +145,7 @@ def _handle_policy_block(
     lifecycle: OrchestrationLifecycle,
     session_manager: ExecutionSessionManager,
     session_id: str,
+    run_ctx: dict[str, Any] | None = None,
     required_output_gate_outcome: str | None = None,
 ) -> None:
     tracer.emit_execution_result(
@@ -178,6 +179,34 @@ def _handle_policy_block(
                 "max_strikes": MAX_CONSECUTIVE_MISSING_OUTPUT_COMPLETE_ATTEMPTS,
                 "outcome": required_output_gate_outcome or "repairable_continue",
             }
+        }
+    elif reason_code.startswith(("work_universe_", "closure_publish_", "closure_complete_")):
+        from .action_sequence import effective_actions
+        from .closure_enforcement_feedback import build_closure_enforcement_block_feedback
+        from .completion_anchor import evaluate_preview_ready_publish_bypass
+
+        actions = effective_actions(action_plan)
+        blocked_action_id = (
+            actions[0].action_type
+            if len(actions) == 1
+            else (action_plan.action_type or "action_sequence")
+        )
+        preview_bypass = evaluate_preview_ready_publish_bypass(
+            closure_policy=(run_ctx or {}).get("domain_closure_policy")
+            if isinstance(run_ctx, dict)
+            else None,
+            action_plan=action_plan,
+            step_result_records=loop_memory.continuity.kernel_step_result_records,
+        )
+        preview_valid = None
+        if preview_bypass.get("allowed") or preview_bypass.get("final_package_preview_ref"):
+            preview_valid = preview_bypass.get("allowed") is True
+        mechanical_audit = {
+            "closure_enforcement_block": build_closure_enforcement_block_feedback(
+                blocked_action_id=str(blocked_action_id or ""),
+                reason_code=reason_code,
+                preview_still_valid=preview_valid,
+            ),
         }
     observe_turn_completed(
         turn_completion_observer,
@@ -504,6 +533,7 @@ def run_orchestration_kernel_loop(
                 lifecycle=active_lifecycle,
                 session_manager=session_manager,
                 session_id=session_id,
+                run_ctx=run_ctx,
             )
             continue
 
@@ -602,6 +632,7 @@ def run_orchestration_kernel_loop(
                     lifecycle=active_lifecycle,
                     session_manager=session_manager,
                     session_id=session_id,
+                    run_ctx=run_ctx,
                     required_output_gate_outcome=gate_outcome,
                 )
                 if (
@@ -635,6 +666,7 @@ def run_orchestration_kernel_loop(
                 lifecycle=active_lifecycle,
                 session_manager=session_manager,
                 session_id=session_id,
+                run_ctx=run_ctx,
             )
             continue
 

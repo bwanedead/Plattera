@@ -100,6 +100,99 @@ def is_posture_mirror_blocker(blocker: str, *, policy: CompletionAnchorPolicy) -
     return any(text.startswith(prefix) for prefix in policy.posture_mirror_blocker_prefixes)
 
 
+def is_publish_posture_mirror_blocker(blocker: str, *, policy: CompletionAnchorPolicy) -> bool:
+    text = str(blocker or "").strip()
+    if not text:
+        return False
+    exact = policy.publish_posture_mirror_blocker_exact or policy.posture_mirror_blocker_exact
+    prefixes = policy.publish_posture_mirror_blocker_prefixes or policy.posture_mirror_blocker_prefixes
+    if text in exact:
+        return True
+    return any(text.startswith(prefix) for prefix in prefixes)
+
+
+def _publish_action_inputs(action_plan: Any) -> dict[str, Any]:
+    from .action_sequence import effective_actions
+
+    actions = effective_actions(action_plan)
+    if len(actions) == 1:
+        inputs = actions[0].action_inputs
+        return dict(inputs) if isinstance(inputs, Mapping) else {}
+    inputs = action_plan.action_inputs
+    return dict(inputs) if isinstance(inputs, Mapping) else {}
+
+
+def find_publish_ready_preview_outputs(
+    step_result_records: list[Any] | tuple[Any, ...] | None,
+    *,
+    preview_ref: str,
+    prepare_action_ids: tuple[str, ...] = (),
+    preview_ready_field: str = "publish_ready_candidate",
+) -> dict[str, Any] | None:
+    target = str(preview_ref or "").strip()
+    if not target or not step_result_records:
+        return None
+    allowed_prepare = {str(item).strip() for item in prepare_action_ids if str(item).strip()}
+    for row in reversed(list(step_result_records)):
+        if not isinstance(row, Mapping):
+            continue
+        action_type = str(row.get("action_type") or "")
+        if allowed_prepare and action_type not in allowed_prepare:
+            continue
+        if str(row.get("execution_state") or "") not in {"executed", "deduped"}:
+            continue
+        outputs = row.get("outputs_for_continuity")
+        if not isinstance(outputs, Mapping):
+            continue
+        if not bool(outputs.get(preview_ready_field)):
+            continue
+        candidate_refs = {
+            str(outputs.get("final_package_preview_ref") or "").strip(),
+            str(outputs.get("working_preview_ref") or "").strip(),
+            str(outputs.get("preview_ref") or "").strip(),
+        }
+        candidate_refs.discard("")
+        if target in candidate_refs:
+            return dict(outputs)
+        for ref in collect_ref_strings(outputs):
+            if ref == target or ref.startswith(f"{target}:"):
+                return dict(outputs)
+    return None
+
+
+def evaluate_preview_ready_publish_bypass(
+    *,
+    closure_policy: Mapping[str, Any] | None,
+    action_plan: Any,
+    step_result_records: list[Any] | tuple[Any, ...] | None,
+) -> dict[str, Any]:
+    policy = _parse_completion_anchor_policy(closure_policy)
+    if policy is None or not policy.preview_ready_publish_bypass:
+        return {"allowed": False}
+    inputs = _publish_action_inputs(action_plan)
+    preview_ref = str(inputs.get("final_package_preview_ref") or "").strip()
+    if not preview_ref:
+        return {"allowed": False, "reason": "missing_final_package_preview_ref"}
+    preview_outputs = find_publish_ready_preview_outputs(
+        step_result_records,
+        preview_ref=preview_ref,
+        prepare_action_ids=policy.preview_prepare_action_ids,
+        preview_ready_field=policy.preview_ready_field,
+    )
+    if preview_outputs is None:
+        return {
+            "allowed": False,
+            "reason": "preview_not_publish_ready_or_not_found",
+            "final_package_preview_ref": preview_ref,
+        }
+    return {
+        "allowed": True,
+        "final_package_preview_ref": preview_ref,
+        "publish_ready_candidate": True,
+        "preview_ready_summary": preview_outputs.get("preview_ready_summary"),
+    }
+
+
 def evaluate_completion_anchor(
     *,
     closure_policy: Mapping[str, Any] | None,
@@ -221,6 +314,19 @@ def apply_completion_anchor_to_closure_readiness(
         else:
             kept.append(blocker)
     out["complete_run_blockers"] = kept
+    publish_blockers = [
+        str(item).strip()
+        for item in (out.get("publish_blockers") or [])
+        if str(item).strip()
+    ]
+    publish_suppressed: list[str] = []
+    publish_kept: list[str] = []
+    for blocker in publish_blockers:
+        if is_publish_posture_mirror_blocker(blocker, policy=policy):
+            publish_suppressed.append(blocker)
+        else:
+            publish_kept.append(blocker)
+    out["publish_blockers"] = publish_kept
     anchor_out = dict(anchor)
     if suppressed:
         anchor_out["completion_anchor_suppressed_flags"] = [
@@ -230,6 +336,16 @@ def apply_completion_anchor_to_closure_readiness(
                 "suppressed_blockers": suppressed[:8],
             }
         ]
+    if publish_suppressed:
+        existing = list(anchor_out.get("completion_anchor_suppressed_flags") or [])
+        existing.append(
+            {
+                "flag": "publish_blockers_present",
+                "reason": policy.suppressed_flag_reason,
+                "suppressed_blockers": publish_suppressed[:8],
+            }
+        )
+        anchor_out["completion_anchor_suppressed_flags"] = existing
     out["completion_anchor"] = anchor_out
     return out
 

@@ -40,6 +40,21 @@ def build_deed_to_ir_closure_policy() -> DomainClosurePolicy:
             publish_lineage_ref_fields=("mapping_artifact_ref", "ir_artifact_ref"),
             published_preview_ref_field="final_package_preview_ref",
             require_published_preview_ref=True,
+            preview_ready_publish_bypass=True,
+            preview_prepare_action_ids=("prepare_deed_to_ir_final_package",),
+            preview_ready_field="publish_ready_candidate",
+            publish_posture_mirror_blocker_exact=(
+                "ready_to_publish_false",
+            ),
+            publish_posture_mirror_blocker_prefixes=(
+                "work_universe_not_audited:",
+                "closed_items_without_earned_determination:",
+                "closed_items_without_basis:",
+                "closed_dimensions_without_earned_determination:",
+                "closed_dimensions_without_basis:",
+                "required_dimensions_missing:",
+                "resolution_items_below_minimum:",
+            ),
             posture_mirror_blocker_exact=(
                 "ready_to_close_false",
                 "skipped_resolution_rows_pending",

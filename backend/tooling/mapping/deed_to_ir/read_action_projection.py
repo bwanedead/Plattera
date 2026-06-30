@@ -109,6 +109,9 @@ def compact_feature_graph_capabilities_summary(
     starter = outputs.get("starter_contract")
     if isinstance(starter, Mapping):
         contract: dict[str, Any] = {}
+        first_draft = starter.get("first_draft_authoring_card")
+        if isinstance(first_draft, Mapping):
+            contract["first_draft_authoring_card"] = first_draft
         feature_kinds = starter.get("feature_kinds")
         if isinstance(feature_kinds, list) and feature_kinds:
             contract["feature_kinds"] = feature_kinds[:MAX_FEATURE_KINDS_IN_SUMMARY]
@@ -139,6 +142,21 @@ def compact_feature_graph_capabilities_summary(
                 contract["operations"] = compact_ops
         if contract:
             summary["starter_contract"] = contract
+
+    first_draft = outputs.get("first_draft_authoring_card")
+    if isinstance(first_draft, Mapping):
+        summary["first_draft_authoring_card"] = first_draft
+    elif isinstance(starter, Mapping):
+        nested = starter.get("first_draft_authoring_card")
+        if isinstance(nested, Mapping):
+            summary["first_draft_authoring_card"] = nested
+    if "first_draft_authoring_card" not in summary and (
+        isinstance(starter, Mapping)
+        or any(key in outputs for key in ("starter_contract", "registered_operations", "examples"))
+    ):
+        from .first_draft_authoring_card import build_first_draft_authoring_card
+
+        summary["first_draft_authoring_card"] = build_first_draft_authoring_card()
 
     ignored = outputs.get("ignored_operation_names")
     if isinstance(ignored, list) and ignored:
@@ -213,6 +231,11 @@ def render_read_action_summary_timeline_lines(
         fields = starter.get("provenance_link_required_fields")
         if isinstance(fields, list) and fields:
             lines.append(f"{indent}  provenance_link_fields: {', '.join(str(f) for f in fields[:6])}")
+    card = summary.get("first_draft_authoring_card")
+    if isinstance(card, Mapping):
+        ops = card.get("normal_deed_operation_names")
+        if isinstance(ops, list) and ops:
+            lines.append(f"{indent}  first_draft_operations: {', '.join(str(o) for o in ops[:8])}")
     truncation = summary.get("truncation")
     if isinstance(truncation, Mapping) and truncation:
         lines.append(f"{indent}  truncation: {truncation}")

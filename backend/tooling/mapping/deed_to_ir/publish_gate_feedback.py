@@ -14,6 +14,11 @@ POSTURE_AUDIT_REPAIR_HINT = (
     "then retry the same final_package_preview_ref."
 )
 
+CLOSURE_ENFORCEMENT_POSTURE_REPAIR_HINT = (
+    "Preview remains valid. Patch mission/closure posture if warranted, then retry "
+    "publish with the same final_package_preview_ref."
+)
+
 _PREVIEW_INVALID_CODES = frozenset(
     {
         "final_package_preview_invalid",
@@ -258,4 +263,75 @@ def _indented_prose(text: str, *, indent: str) -> list[str]:
             lines.append(f"{indent}{stripped}")
     if not lines and text.strip():
         lines.append(f"{indent}{text.strip()}")
+    return lines
+
+
+def build_closure_enforcement_block_feedback(
+    *,
+    blocked_action_id: str,
+    reason_code: str,
+    message: str | None = None,
+    preview_still_valid: bool | None = None,
+    next_repair_action: str | None = None,
+) -> dict[str, Any]:
+    category = classify_publish_gate_reason(reason_code)
+    feedback: dict[str, Any] = {
+        "blocked_action_id": str(blocked_action_id or "").strip() or "unknown",
+        "closure_enforcement_reason_code": str(reason_code or "").strip(),
+        "publish_gate_category": category,
+        "blocking_categories": [category],
+    }
+    if message:
+        feedback["closure_enforcement_message"] = str(message).strip()
+    if preview_still_valid is True:
+        feedback["preview_still_valid"] = True
+    elif preview_still_valid is False:
+        feedback["preview_still_valid"] = False
+    elif category == PUBLISH_GATE_POSTURE_AUDIT:
+        feedback["preview_still_valid"] = True
+    if next_repair_action:
+        feedback["next_repair_action"] = next_repair_action
+    elif category == PUBLISH_GATE_POSTURE_AUDIT:
+        feedback["next_repair_action"] = CLOSURE_ENFORCEMENT_POSTURE_REPAIR_HINT
+    else:
+        feedback["next_repair_action"] = publish_gate_repair_hint(
+            reason_code=str(reason_code or "").strip(),
+            publish_gate_category=category,
+        )
+    return feedback
+
+
+def render_closure_enforcement_blocked_timeline_lines(
+    feedback: Mapping[str, Any] | None,
+    *,
+    indent: str = "  ",
+) -> list[str]:
+    if not isinstance(feedback, Mapping) or not feedback:
+        return []
+    lines = [f"{indent}closure_enforcement_blocked:"]
+    blocked = feedback.get("blocked_action_id")
+    if blocked:
+        lines.append(f"{indent}  blocked_action_id: {blocked}")
+    reason = feedback.get("closure_enforcement_reason_code")
+    if reason:
+        lines.append(f"{indent}  reason_code: {reason}")
+    category = feedback.get("publish_gate_category")
+    if category:
+        lines.append(f"{indent}  blocking_category: {category}")
+    categories = feedback.get("blocking_categories")
+    if isinstance(categories, list) and categories:
+        lines.append(f"{indent}  blocking_categories: {', '.join(str(c) for c in categories[:6])}")
+    preview_valid = feedback.get("preview_still_valid")
+    if preview_valid is True:
+        lines.append(f"{indent}  preview_still_valid: true")
+    elif preview_valid is False:
+        lines.append(f"{indent}  preview_still_valid: false")
+    repair = feedback.get("next_repair_action")
+    if repair:
+        lines.append(f"{indent}  next_repair_action:")
+        lines.extend(_indented_prose(str(repair), indent=f"{indent}    "))
+    message = feedback.get("closure_enforcement_message")
+    if message:
+        lines.append(f"{indent}  message:")
+        lines.extend(_indented_prose(str(message), indent=f"{indent}    "))
     return lines

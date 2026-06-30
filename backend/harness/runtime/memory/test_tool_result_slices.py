@@ -895,3 +895,31 @@ def test_mapping_operands_slice_carries_operand_suite_ref_and_groups() -> None:
     serialized = json.dumps(slices[0])
     assert "deed_to_ir:operands:run:run-operands" in serialized
     assert "course_call_candidates" in serialized
+
+
+def test_first_draft_authoring_card_slice_survives_large_capability_output() -> None:
+    from tooling.mapping.deed_to_ir.feature_graph_capabilities import describe_feature_graph_capabilities
+
+    caps = describe_feature_graph_capabilities(sections=["starter_contract", "examples"])
+    filler = {"section": "x" * 4000 for section in range(12)}
+    caps["filler"] = filler
+    records = [
+        _result_record(
+            1,
+            outputs=caps,
+            action_type="describe_feature_graph_capabilities",
+        ),
+    ]
+    slices = build_recent_tool_result_slices(records, max_records=1, max_chars_per_result=2500)
+    assert len(slices) == 1
+    card = slices[0].get("first_draft_authoring_card")
+    assert isinstance(card, dict)
+    assert card.get("normal_deed_operation_names") == [
+        "ReferenceFrame",
+        "TiedPoint",
+        "CourseTraverse",
+        "Close",
+    ]
+    serialized = json.dumps(slices[0])
+    assert "first_draft_authoring_card" in serialized
+    assert "CourseTraverse" in serialized

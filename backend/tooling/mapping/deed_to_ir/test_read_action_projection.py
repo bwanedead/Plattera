@@ -43,6 +43,14 @@ def test_capabilities_summary_includes_sections_and_operations():
     outputs = {
         "sections": ["starter_contract"],
         "starter_contract": {
+            "first_draft_authoring_card": {
+                "normal_deed_operation_names": [
+                    "ReferenceFrame",
+                    "TiedPoint",
+                    "CourseTraverse",
+                    "Close",
+                ],
+            },
             "feature_kinds": ["point", "annotation", "unknown"],
             "feature_kind_vs_operation_contract": {
                 "annotation_note": "annotation is a FeatureKind for blocked scope.",
@@ -109,3 +117,11 @@ def test_compact_read_action_summary_dispatches_by_action_type():
     )
     assert caps is not None
     assert caps["lane"] == "feature_graph_capabilities"
+    card = caps.get("first_draft_authoring_card")
+    assert isinstance(card, dict)
+    assert card.get("normal_deed_operation_names") == [
+        "ReferenceFrame",
+        "TiedPoint",
+        "CourseTraverse",
+        "Close",
+    ]

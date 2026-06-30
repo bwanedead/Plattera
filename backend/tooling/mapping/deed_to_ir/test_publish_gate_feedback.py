@@ -10,8 +10,10 @@ from tooling.mapping.deed_to_ir.publish_gate_feedback import (
     POSTURE_AUDIT_REPAIR_HINT,
     PUBLISH_GATE_POSTURE_AUDIT,
     PUBLISH_GATE_PREVIEW_PACKAGE_INVALID,
+    build_closure_enforcement_block_feedback,
     build_publish_gate_feedback,
     classify_publish_gate_reason,
+    render_closure_enforcement_blocked_timeline_lines,
     render_publish_gate_timeline_lines,
     render_publish_output_summary_timeline_lines,
 )
@@ -29,6 +31,20 @@ def test_posture_audit_gate_does_not_imply_preview_invalidity() -> None:
     assert gate["preview_still_valid"] is True
     assert POSTURE_AUDIT_REPAIR_HINT in gate["repair_hint"]
     assert "same final_package_preview_ref" in gate["repair_hint"]
+
+
+def test_closure_enforcement_blocked_timeline_shows_gate_reason() -> None:
+    feedback = build_closure_enforcement_block_feedback(
+        blocked_action_id="publish_deed_to_ir_output",
+        reason_code="work_universe_publish_not_audited",
+        preview_still_valid=True,
+    )
+    body = "\n".join(render_closure_enforcement_blocked_timeline_lines(feedback))
+    assert "closure_enforcement_blocked:" in body
+    assert "blocked_action_id: publish_deed_to_ir_output" in body
+    assert "work_universe_publish_not_audited" in body
+    assert "preview_still_valid: true" in body
+    assert "next_repair_action:" in body
 
 
 def test_preview_invalid_gate_classifies_validation_failures() -> None:

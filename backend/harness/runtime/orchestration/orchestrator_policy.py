@@ -11,6 +11,7 @@ from typing import Any
 from ..memory import LoopMemoryState
 from .action_sequence import effective_actions
 from .contracts import ActionPlan
+from .completion_anchor import evaluate_preview_ready_publish_bypass
 from .required_output_gate import required_output_artifact_enforcement_failure
 from .state_patch_apply import StatePatchError, apply_state_patch
 
@@ -167,6 +168,78 @@ def resolution_inventory_enforcement_failure(
     )
 
 
+def _is_publish_action(
+    *,
+    policy: dict[str, Any],
+    action_plan: ActionPlan,
+) -> bool:
+    return bool(policy) and _action_has_policy_role(
+        policy=policy,
+        action_plan=action_plan,
+        role_action_ids_key="publish_action_ids",
+    )
+
+
+def _publish_real_blocker_failure(
+    *,
+    run_ctx: dict[str, Any],
+    loop_memory: LoopMemoryState,
+    action_plan: ActionPlan,
+    policy: dict[str, Any],
+) -> tuple[str, str] | None:
+    """Enforce only real publish blockers when preview-ready bypass is active."""
+    cs = effective_closure_state(loop_memory=loop_memory, action_plan=action_plan)
+    required_dimension_ids = tuple(
+        str(value).strip()
+        for value in (policy.get("required_dimension_ids") or ())
+        if str(value).strip()
+    )
+    dimensions = {
+        str(getattr(dim, "dimension_id", "") or ""): dim
+        for dim in getattr(cs, "dimensions", ()) or ()
+        if str(getattr(dim, "dimension_id", "") or "")
+    }
+
+    if bool(getattr(cs, "requires_hitl", False)) or any(
+        bool(getattr(dimensions[dim_id], "requires_hitl", False))
+        for dim_id in required_dimension_ids
+        if dim_id in dimensions
+    ):
+        return (
+            "closure_publish_requires_hitl",
+            "closure enforcement requires HITL before publish",
+        )
+
+    resolution_state = effective_resolution_state(
+        loop_memory=loop_memory,
+        action_plan=action_plan,
+    )
+    items_requiring_hitl = [
+        str(getattr(row, "item_id", "") or "").strip()
+        for row in (getattr(resolution_state, "items", ()) or ())
+        if bool(getattr(row, "requires_hitl", False))
+    ]
+    items_requiring_hitl = [item_id for item_id in items_requiring_hitl if item_id]
+    if items_requiring_hitl:
+        return (
+            "closure_publish_items_require_hitl",
+            (
+                "closure enforcement requires HITL integration for one or more resolution items "
+                f"before publish: {items_requiring_hitl}"
+            ),
+        )
+
+    output_failure = required_output_artifact_enforcement_failure(
+        run_ctx=run_ctx,
+        loop_memory=loop_memory,
+        action_plan=action_plan,
+    )
+    if output_failure is not None:
+        return output_failure
+
+    return None
+
+
 def closure_enforcement_failure(
     *,
     run_ctx: dict[str, Any],
@@ -174,14 +247,27 @@ def closure_enforcement_failure(
     action_plan: ActionPlan,
 ) -> tuple[str, str] | None:
     policy = closure_policy(run_ctx)
-    is_publish = bool(policy) and _action_has_policy_role(
-        policy=policy,
-        action_plan=action_plan,
-        role_action_ids_key="publish_action_ids",
-    )
+    is_publish = _is_publish_action(policy=policy or {}, action_plan=action_plan)
     is_complete = bool(action_plan.complete_run)
     if not (is_publish or is_complete):
         return None
+
+    preview_bypass = (
+        evaluate_preview_ready_publish_bypass(
+            closure_policy=policy,
+            action_plan=action_plan,
+            step_result_records=getattr(loop_memory.continuity, "kernel_step_result_records", ()),
+        )
+        if is_publish
+        else {"allowed": False}
+    )
+    if is_publish and preview_bypass.get("allowed"):
+        return _publish_real_blocker_failure(
+            run_ctx=run_ctx,
+            loop_memory=loop_memory,
+            action_plan=action_plan,
+            policy=policy or {},
+        )
 
     mission_state = effective_mission_state(loop_memory=loop_memory, action_plan=action_plan)
     posture = str(getattr(mission_state, "work_universe_posture", "") or "").strip() or "initial"

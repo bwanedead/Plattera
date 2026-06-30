@@ -9,7 +9,7 @@ from ..branch import DEED_TO_IR_DOMAIN_ID
 DEED_TO_IR_PROCEDURAL_GUIDANCE_SOURCE_REF = (
     "backend/domains/mapping/deed_to_ir/prompting/surfaces/procedural_guidance.py"
 )
-DEED_TO_IR_PROCEDURAL_GUIDANCE_VERSION = "v20"
+DEED_TO_IR_PROCEDURAL_GUIDANCE_VERSION = "v21"
 
 DEED_TO_IR_PROCEDURAL_GUIDANCE_TEXT = """\
 Use this guidance to orient deed-to-IR work. This is **guidance**, not a hard script.
@@ -22,7 +22,7 @@ Use this guidance to orient deed-to-IR work. This is **guidance**, not a hard sc
 - If a `mapping_operands`-only hydration defers `inherited_handoff_conditions`, that is intentional operand-lane protection, not missing context. Do not spend a turn rehydrating inherited handoff just because the operand-focused packet kept it out of the way.
 
 ## Draft-first orientation
-- After startup orientation, hydrate the operand suite and the minimal feature-graph authoring contract. Once those are visible, **draft the IR**. Do not keep rereading upstream lanes just to gain more confidence.
+- After startup orientation, hydrate the operand suite and the minimal feature-graph authoring contract (`starter_contract.first_draft_authoring_card`). Once those are visible, **draft the IR**. Do not keep rereading upstream lanes or repeat focused capability reads just to gain more confidence.
 - If you have already hydrated the operand suite and the same focused operation contract, do not reread them again just to feel safer. Save the draft and use compile/judge/mapping feedback. Reread the contract only when a new primitive, unknown parameter, or concrete validation error requires it.
 - A saved draft is the working checkpoint; compile/judge feedback and mapping review are the right way to discover concrete defects.
 - If the first draft may be imperfect, save a bounded supported draft anyway rather than spinning in pre-draft reading. Repair from draft feedback.
@@ -65,7 +65,9 @@ Use this guidance to orient deed-to-IR work. This is **guidance**, not a hard sc
 
 ## Publish and completion
 - After successful `publish_deed_to_ir_output` with `final_output_summary.ready_for_completion_candidate=true`, normally call `complete_run`. Do not hydrate output/preview/IR/mapping just to restate what publish already returned.
-- Do not patch the local work graph merely to make posture mirror final package rows — the published output is the durable closeout package.
+- Do not patch the local work graph merely to make posture mirror final package rows — the published output is the durable closeout package and its closure rows are authoritative.
+- Mission `closure_state.dimensions` mirroring is optional after publish. If you patch dimensions, each row requires `dimension_id`, `title`, and `status`. Final package closure rows use `dimension_id` + `status` only — do not mirror them verbatim without `title`.
+- If `closure_dimension_validation_failed` appears on a late `complete_run` patch while publish already succeeded, treat it as repair noise unless it affects package identity; the published output remains authoritative.
 - Continue only for a material defect: wrong IR/mapping lineage, wrong scope/dependency/closure metadata, map review defect, user/HITL correction, or publish result not completion-ready.
 - Mapping review before preview/publish is still required — the completion anchor applies only after publish succeeds.
 - Use `outputs.final_output_summary` and compact publish counts/refs to close when sufficient — hydrating `deed_to_ir:output` is optional unless you need deeper inspection of persisted rows.

@@ -253,6 +253,7 @@ def _render_turn(
     out.extend(render_stable_context_timeline(turn, link_context=link_context))
     out.extend(_render_required_output_gate(turn))
     out.extend(_render_tool_result(turn, link_context=link_context))
+    out.extend(_render_closure_enforcement_block(turn))
     out.extend(_render_saved_artifact(turn))
     out.extend(_render_state_patch(turn))
     out.extend(render_state_patch_repair_bundle_timeline(turn))
@@ -954,6 +955,50 @@ def _render_action_row(
         )
         for section_line in section:
             lines.append(f"      {section_line}")
+    return lines
+
+
+def _render_closure_enforcement_block(turn: Mapping[str, Any]) -> list[str]:
+    if str(turn.get("terminal_decision") or "") != "closure_enforcement_blocked":
+        return []
+    feedback = turn.get("closure_enforcement_block")
+    if not isinstance(feedback, Mapping):
+        feedback = None
+    if feedback is None:
+        state_feedback = _coerce_mapping(turn.get("state_patch_feedback"))
+        if str(state_feedback.get("gate") or "") == "closure_enforcement_blocked":
+            from harness.runtime.orchestration.closure_enforcement_feedback import (
+                build_closure_enforcement_block_feedback,
+            )
+
+            tool_request = _coerce_mapping(turn.get("tool_request"))
+            parsed = _coerce_mapping(turn.get("parsed_action_plan"))
+            action_type = str(
+                tool_request.get("action_type") or parsed.get("action_type") or ""
+            ).strip()
+            actions = _extract_actions(tool_request, parsed)
+            if len(actions) == 1:
+                action_type = str(actions[0].get("action_type") or action_type).strip()
+            reason_code = str(
+                state_feedback.get("reason_code")
+                or state_feedback.get("execution_reason_code")
+                or ""
+            ).strip()
+            if reason_code:
+                feedback = build_closure_enforcement_block_feedback(
+                    blocked_action_id=action_type or "unknown",
+                    reason_code=reason_code,
+                    message=str(state_feedback.get("message") or "").strip() or None,
+                )
+    if not isinstance(feedback, Mapping):
+        return []
+    from harness.runtime.orchestration.closure_enforcement_feedback import (
+        render_closure_enforcement_blocked_timeline_lines,
+    )
+
+    lines = ["Closure Enforcement Block"]
+    lines.extend(render_closure_enforcement_blocked_timeline_lines(feedback, indent="  "))
+    lines.append("")
     return lines
 
 

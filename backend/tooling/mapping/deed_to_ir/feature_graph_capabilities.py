@@ -33,6 +33,7 @@ from .feature_graph_examples import (
     build_operation_example,
     build_reference_node_example,
 )
+from .first_draft_authoring_card import build_first_draft_authoring_card
 
 DEFAULT_CAPABILITY_SECTIONS = ("starter_contract",)
 VALID_CAPABILITY_SECTIONS = frozenset(
@@ -136,6 +137,7 @@ def _build_starter_contract(*, operation_names: list[str] | None) -> dict[str, A
     else:
         operations = [_project_operation(OPERATION_REGISTRY[name]) for name in ops]
     return {
+        "first_draft_authoring_card": build_first_draft_authoring_card(),
         "feature_kinds": [kind.value for kind in FeatureKind],
         "feature_kind_vs_operation_contract": {
             "feature_kinds": (

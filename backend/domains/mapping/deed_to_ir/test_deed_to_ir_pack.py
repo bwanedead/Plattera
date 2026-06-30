@@ -249,7 +249,7 @@ def test_procedural_guidance_v20_preview_publish_handoff() -> None:
         for b in build_deed_to_ir_domain_pack().build_semantic_prompt_blocks()
         if b.block_id == "deed_to_ir_procedural_guidance"
     )
-    assert block.version == "v20"
+    assert block.version == "v21"
     text = block.text.lower()
     assert "publish launchpad" in text
     assert "recommended_publish_request" in text
@@ -386,6 +386,10 @@ def test_domain_pack_builds() -> None:
     assert payload["closure_policy"]["completion_anchor"]["published_preview_ref_field"] == (
         "final_package_preview_ref"
     )
+    assert payload["closure_policy"]["completion_anchor"]["preview_ready_publish_bypass"] is True
+    assert payload["closure_policy"]["completion_anchor"]["preview_prepare_action_ids"] == [
+        "prepare_deed_to_ir_final_package",
+    ]
     assert payload["closure_policy"]["required_dimension_ids"] == [
         "layer_1_deed_meaning_to_ir_fidelity",
         "layer_2_ir_geometry_integrity",
@@ -425,6 +429,9 @@ def test_branch_and_guidance_mission_markers() -> None:
         if b.block_id == "deed_to_ir_procedural_guidance"
     )
     assert "inherited_handoff_conditions" in guidance
+    assert "first_draft_authoring_card" in guidance
+    assert "closure_dimension_validation_failed" in guidance
+    assert "published output remains authoritative" in guidance
     assert "downstream deed-to-ir responsibilities" in guidance
     assert "draft checkpoint" in guidance
     assert "save_ir_artifact" in guidance or "save a **draft checkpoint**" in guidance
@@ -472,6 +479,20 @@ def test_branch_and_guidance_mission_markers() -> None:
         "canal",
     ):
         assert practice_token not in authoring
+
+
+def test_starter_contract_projection_includes_first_draft_authoring_card() -> None:
+    from tooling.mapping.deed_to_ir.feature_graph_capabilities import describe_feature_graph_capabilities
+    from tooling.mapping.deed_to_ir.feature_graph_examples import example_forbidden_tokens
+
+    caps = describe_feature_graph_capabilities(sections=["starter_contract"])
+    card = caps["starter_contract"]["first_draft_authoring_card"]
+    combined = json.dumps(card).lower()
+    for token in example_forbidden_tokens():
+        assert token not in combined
+    assert "referenceframe" in combined.replace("_", "")
+    assert "coursetraverse" in combined.replace("_", "")
+    assert "annotation" in combined
 
 
 def test_tool_and_capability_examples_expose_generic_authoring_pattern() -> None:

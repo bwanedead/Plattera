@@ -256,6 +256,28 @@ def test_timeline_publish_result_renders_expected_next():
     assert "expected_next: complete_run" in body
 
 
+def test_timeline_renders_closure_enforcement_blocked_publish_gate():
+    from harness.audit.human_timeline import _render_closure_enforcement_block
+
+    turn = {
+        "terminal_decision": "closure_enforcement_blocked",
+        "closure_enforcement_block": {
+            "blocked_action_id": "publish_deed_to_ir_output",
+            "closure_enforcement_reason_code": "work_universe_publish_not_audited",
+            "publish_gate_category": "publish_posture_audit_gate",
+            "preview_still_valid": True,
+            "next_repair_action": "Patch posture, then retry publish.",
+        },
+        "tool_request": {"action_type": "publish_deed_to_ir_output"},
+        "parsed_action_plan": {"action_type": "publish_deed_to_ir_output"},
+    }
+    body = "\n".join(_render_closure_enforcement_block(turn))
+    assert "Closure Enforcement Block" in body
+    assert "publish_deed_to_ir_output" in body
+    assert "work_universe_publish_not_audited" in body
+    assert "preview_still_valid: true" in body
+
+
 def test_is_posture_mirror_blocker_classification():
     policy = build_deed_to_ir_closure_policy().completion_anchor
     assert policy is not None

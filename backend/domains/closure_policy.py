@@ -30,6 +30,11 @@ class CompletionAnchorPolicy:
     publish_ready_field: str = "ready_for_completion_candidate"
     posture_mirror_blocker_exact: tuple[str, ...] = ()
     posture_mirror_blocker_prefixes: tuple[str, ...] = ()
+    preview_ready_publish_bypass: bool = False
+    preview_prepare_action_ids: tuple[str, ...] = ()
+    preview_ready_field: str = "publish_ready_candidate"
+    publish_posture_mirror_blocker_exact: tuple[str, ...] = ()
+    publish_posture_mirror_blocker_prefixes: tuple[str, ...] = ()
     expected_next: str | None = None
     suppressed_flag_reason: str = "local posture mismatch after published output"
 
