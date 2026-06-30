@@ -293,6 +293,22 @@ def build_prompt_observability_summary(
         closed_dimensions_without_basis_count=closed_dimensions_without_basis_count,
         items_requires_hitl_count=items_requires_hitl_count,
     )
+    from harness.runtime.orchestration.completion_anchor import (
+        apply_completion_anchor_to_closure_readiness,
+        evaluate_completion_anchor,
+    )
+
+    completion_anchor = evaluate_completion_anchor(
+        closure_policy=closure_policy,
+        latest_refs=cont.latest_refs,
+        step_result_records=step_result_records,
+    )
+    if completion_anchor is not None:
+        closure_readiness_projection = apply_completion_anchor_to_closure_readiness(
+            closure_readiness_projection,
+            anchor=completion_anchor,
+            closure_policy=closure_policy,
+        )
 
     summary = {
         "prompt_event_count": int(telemetry.prompt_event_count),
@@ -409,6 +425,7 @@ def build_prompt_observability_summary(
         "notebook_shaped_graph_rows_count": notebook_shaped_graph_rows_count,
         "artifact_claim_inventory_suspect_count": artifact_claim_inventory_suspect_count,
         "closure_readiness_projection": closure_readiness_projection,
+        "completion_anchor": closure_readiness_projection.get("completion_anchor"),
         "multi_action_turn_count": int(getattr(cont, "multi_action_turn_count", 0) or 0),
         "single_action_turn_count": int(getattr(cont, "single_action_turn_count", 0) or 0),
         "max_actions_in_turn": int(getattr(cont, "max_actions_in_turn", 0) or 0),
@@ -494,6 +511,7 @@ def build_prompt_observability_summary(
         hitl_consumed_unknown_prompt_count=hitl_ledger_metrics["hitl_consumed_unknown_prompt_count"],
         artifact_state_dirty_since_write_count=artifact_state_dirty_since_write_count,
         claim_inventory_pressure_enabled=claim_inventory_pressure_enabled,
+        completion_anchor=closure_readiness_projection.get("completion_anchor"),
     )
     summary["performance_evaluation"] = build_performance_evaluation(
         loop_memory,
@@ -1691,6 +1709,7 @@ def _mechanical_flags(
     hitl_consumed_unknown_prompt_count: int = 0,
     artifact_state_dirty_since_write_count: int = 0,
     claim_inventory_pressure_enabled: bool = False,
+    completion_anchor: Mapping[str, Any] | None = None,
 ) -> list[str]:
     flags: list[str] = []
     repair_bundle = feedback.get("state_patch_repair_bundle")
@@ -1900,11 +1919,22 @@ def _mechanical_flags(
     ):
         flags.append(f"artifact_excerpt_boundary_risk:{recent_result_truncated_count}")
     blockers_for_flag = list(complete_run_blockers)
+    anchor = completion_anchor if isinstance(completion_anchor, Mapping) else {}
+    anchor_satisfied = bool(anchor.get("satisfied"))
+    if anchor_satisfied:
+        flags.append("completion_anchor_satisfied")
+        expected_next = str(anchor.get("expected_next") or "").strip()
+        if expected_next:
+            flags.append(f"expected_next:{expected_next}")
     if closure_ready_to_close:
         blockers_for_flag = [
             blocker for blocker in blockers_for_flag if blocker != "ready_to_close_false"
         ]
-    if not closure_ready_to_close and blockers_for_flag:
+    if anchor_satisfied:
+        if blockers_for_flag:
+            for blocker in blockers_for_flag[:3]:
+                flags.append(f"complete_run_blocked:{blocker}")
+    elif not closure_ready_to_close and blockers_for_flag:
         flags.append("complete_run_blockers_present")
     elif closure_ready_to_close and blockers_for_flag:
         for blocker in blockers_for_flag[:3]:

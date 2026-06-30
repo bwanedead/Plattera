@@ -18,6 +18,23 @@ class ClosureDimensionStandard:
 
 
 @dataclass(frozen=True)
+class CompletionAnchorPolicy:
+    """Declarative completion-anchor rules owned by the domain closure policy."""
+
+    enabled: bool = False
+    publish_action_ids: tuple[str, ...] = ()
+    publish_lineage_ref_fields: tuple[str, ...] = ()
+    published_preview_ref_field: str | None = None
+    require_published_preview_ref: bool = False
+    publish_ready_container: str = "final_output_summary"
+    publish_ready_field: str = "ready_for_completion_candidate"
+    posture_mirror_blocker_exact: tuple[str, ...] = ()
+    posture_mirror_blocker_prefixes: tuple[str, ...] = ()
+    expected_next: str | None = None
+    suppressed_flag_reason: str = "local posture mismatch after published output"
+
+
+@dataclass(frozen=True)
 class DomainClosurePolicy:
     hard_enforced: bool = False
     enforce_on_publish: bool = False
@@ -32,3 +49,4 @@ class DomainClosurePolicy:
     standards: tuple[ClosureDimensionStandard, ...] = ()
     # Optional output-tier ref key/value required in latest_refs before complete_run.
     required_output_ref_for_complete: str | None = None
+    completion_anchor: CompletionAnchorPolicy | None = None

@@ -226,6 +226,7 @@ def test_publish_from_preview_writes_output_and_pointers(monkeypatch) -> None:
         assert published["executed"] is True
         assert published["outputs"]["output_ref"] == "deed_to_ir:output"
         assert published["outputs"]["ir_artifact_ref"] == ir_ref
+        assert published["outputs"]["final_package_preview_ref"] == preview_ref
         output_dir = (
             Path(tmp) / "artifacts" / "deed_to_ir" / "d-preview" / ctx["transcription_id"] / ctx["workspace_id"] / "output"
         )

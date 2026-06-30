@@ -9,7 +9,7 @@ from ..branch import DEED_TO_IR_DOMAIN_ID
 DEED_TO_IR_PROCEDURAL_GUIDANCE_SOURCE_REF = (
     "backend/domains/mapping/deed_to_ir/prompting/surfaces/procedural_guidance.py"
 )
-DEED_TO_IR_PROCEDURAL_GUIDANCE_VERSION = "v18"
+DEED_TO_IR_PROCEDURAL_GUIDANCE_VERSION = "v19"
 
 DEED_TO_IR_PROCEDURAL_GUIDANCE_TEXT = """\
 Use this guidance to orient deed-to-IR work. This is **guidance**, not a hard script.
@@ -58,7 +58,11 @@ Use this guidance to orient deed-to-IR work. This is **guidance**, not a hard sc
 - Publish with the preview ref — do not manually reconstruct compile/judge/render refs or re-copy row payloads at publish time. To change rows, prepare a new preview.
 
 ## Publish and completion
-- After successful `publish_deed_to_ir_output`, use `outputs.final_output_summary` and the compact publish counts/refs to close when sufficient — hydrating `deed_to_ir:output` is optional unless you need deeper inspection of persisted rows.
+- After successful `publish_deed_to_ir_output` with `final_output_summary.ready_for_completion_candidate=true`, normally call `complete_run`. Do not hydrate output/preview/IR/mapping just to restate what publish already returned.
+- Do not patch the local work graph merely to make posture mirror final package rows — the published output is the durable closeout package.
+- Continue only for a material defect: wrong IR/mapping lineage, wrong scope/dependency/closure metadata, map review defect, user/HITL correction, or publish result not completion-ready.
+- Mapping review before preview/publish is still required — the completion anchor applies only after publish succeeds.
+- Use `outputs.final_output_summary` and compact publish counts/refs to close when sufficient — hydrating `deed_to_ir:output` is optional unless you need deeper inspection of persisted rows.
 - Do not default to `hydrate_next: ["@this.result.output_ref"]` after successful publish unless a specific unresolved question remains about the persisted package.
 - Publish refusals include `publish_gate_category` and `repair_hint` — distinguish preview invalidity from mapping lineage, storage failure, and posture/audit gates before rebuilding artifacts.
 

@@ -230,6 +230,8 @@ def render_publish_output_summary_timeline_lines(
             f"{indent}  hydrate_output_ref_optional: "
             f"{str(bool(summary.get('hydrate_output_ref_optional'))).lower()}"
         )
+    if summary.get("ready_for_completion_candidate") is True:
+        lines.append(f"{indent}  expected_next: complete_run")
     return lines
 
 

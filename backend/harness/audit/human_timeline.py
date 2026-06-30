@@ -1038,6 +1038,22 @@ def _render_tool_result(
                     indent="  ",
                 )
             )
+            from harness.runtime.orchestration.completion_anchor import (
+                render_completion_anchor_timeline_lines,
+            )
+
+            anchor = _coerce_mapping(outputs.get("completion_anchor"))
+            if not anchor and outputs.get("final_output_summary"):
+                summary = _coerce_mapping(outputs.get("final_output_summary"))
+                if summary.get("ready_for_completion_candidate") is True:
+                    anchor = {
+                        "satisfied": True,
+                        "output_ref": outputs.get("output_ref"),
+                        "mapping_ref": outputs.get("mapping_artifact_ref"),
+                        "ready_for_completion_candidate": True,
+                        "expected_next": "complete_run",
+                    }
+            lines.extend(render_completion_anchor_timeline_lines(anchor, indent="  "))
         source_window_line = render_source_window_timeline_line(
             _coerce_mapping(outputs).get("source_window")
         )
@@ -1593,6 +1609,13 @@ def _render_observability(turn: Mapping[str, Any]) -> list[str]:
     ):
         if key in summary:
             lines.append(f"  {key}: {summary[key]}")
+    from harness.runtime.orchestration.completion_anchor import render_completion_anchor_timeline_lines
+
+    anchor = _coerce_mapping(summary.get("completion_anchor"))
+    if not anchor:
+        projection = _coerce_mapping(summary.get("closure_readiness_projection"))
+        anchor = _coerce_mapping(projection.get("completion_anchor"))
+    lines.extend(render_completion_anchor_timeline_lines(anchor, indent="  "))
     lines.append("")
     return lines
 
@@ -1601,6 +1624,14 @@ def _filter_stale_complete_run_blocker_flags(
     turn: Mapping[str, Any],
     flags: list[Any],
 ) -> list[Any]:
+    summary = _coerce_mapping(turn.get("prompt_observability_summary"))
+    anchor = _coerce_mapping(summary.get("completion_anchor"))
+    if anchor.get("satisfied"):
+        flags = [
+            flag
+            for flag in flags
+            if str(flag) != "complete_run_blockers_present"
+        ]
     parsed = _coerce_mapping(turn.get("parsed_action_plan"))
     tool_request = _coerce_mapping(turn.get("tool_request"))
     mission = _coerce_mapping(turn.get("mission_state_after")) or _coerce_mapping(

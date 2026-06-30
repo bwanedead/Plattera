@@ -311,6 +311,7 @@ def _publish_from_final_package_preview(
         published=published,
         package=package,
         persistence=service,
+        final_package_preview_ref=final_package_preview_ref,
     )
 
 
@@ -323,6 +324,7 @@ def _persist_published_output(
     published: DeedToIrPublishedOutput,
     package: Any,
     persistence: FeatureGraphPersistenceService,
+    final_package_preview_ref: str | None = None,
 ) -> dict[str, Any]:
     workspace_key = resolve_workspace_key(workspace_id=workspace_id, run_id=run_id)
     if not workspace_key:
@@ -406,27 +408,31 @@ def _persist_published_output(
         {"dimension_id": row["dimension_id"], "status": row["status"]}
         for row in closure
     ]
+    preview_ref = str(final_package_preview_ref or "").strip() or None
+    outputs: dict[str, Any] = {
+        "output_ref": OUTPUT_REF,
+        "output_revision_ref": revision_ref,
+        "mapping_artifact_ref": selected.mapping_artifact_ref,
+        "ir_artifact_ref": selected.ir_artifact_ref,
+        "compile_artifact_ref": selected.compile_artifact_ref,
+        "judge_artifact_ref": selected.judge_artifact_ref,
+        "geometry_ref": selected.geometry_ref,
+        "clean_render_ref": selected.clean_render_ref,
+        "control_render_ref": selected.control_render_ref,
+        "scope_result_count": len(scopes),
+        "scope_status_counts": scope_status_counts,
+        "external_dependency_count": len(deps),
+        "closure_dimension_count": len(closure),
+        "closure_dimension_statuses": closure_dimension_statuses,
+        "note_count": len(note_rows),
+        "final_output_summary": build_final_output_summary(publish_succeeded=True),
+    }
+    if preview_ref:
+        outputs["final_package_preview_ref"] = preview_ref
     return {
         "executed": True,
         "artifact_refs": artifact_refs,
-        "outputs": {
-            "output_ref": OUTPUT_REF,
-            "output_revision_ref": revision_ref,
-            "mapping_artifact_ref": selected.mapping_artifact_ref,
-            "ir_artifact_ref": selected.ir_artifact_ref,
-            "compile_artifact_ref": selected.compile_artifact_ref,
-            "judge_artifact_ref": selected.judge_artifact_ref,
-            "geometry_ref": selected.geometry_ref,
-            "clean_render_ref": selected.clean_render_ref,
-            "control_render_ref": selected.control_render_ref,
-            "scope_result_count": len(scopes),
-            "scope_status_counts": scope_status_counts,
-            "external_dependency_count": len(deps),
-            "closure_dimension_count": len(closure),
-            "closure_dimension_statuses": closure_dimension_statuses,
-            "note_count": len(note_rows),
-            "final_output_summary": build_final_output_summary(publish_succeeded=True),
-        },
+        "outputs": outputs,
     }
 
 

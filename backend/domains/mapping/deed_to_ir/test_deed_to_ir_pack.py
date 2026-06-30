@@ -243,13 +243,18 @@ def test_procedural_guidance_emphasizes_draft_first_and_posture_before_publish()
     assert "represent it as an `annotation`" in guidance or "represent it as an annotation" in guidance
 
 
-def test_procedural_guidance_v18_version() -> None:
+def test_procedural_guidance_v19_completion_anchor() -> None:
     block = next(
         b
         for b in build_deed_to_ir_domain_pack().build_semantic_prompt_blocks()
         if b.block_id == "deed_to_ir_procedural_guidance"
     )
-    assert block.version == "v18"
+    assert block.version == "v19"
+    text = block.text.lower()
+    assert "ready_for_completion_candidate=true" in text
+    assert "normally call `complete_run`" in text or "call `complete_run`" in text
+    assert "do not patch the local work graph merely to make posture mirror" in text
+    assert "mapping review before preview/publish is still required" in text
 
 
 def test_startup_context_marks_operand_suite_as_core_anchor() -> None:
@@ -376,6 +381,10 @@ def test_domain_pack_builds() -> None:
     assert payload["closure_policy"]["hard_enforced"] is False
     assert payload["closure_policy"]["publish_action_ids"] == ["publish_deed_to_ir_output"]
     assert payload["closure_policy"]["required_output_ref_for_complete"] == "deed_to_ir:output"
+    assert payload["closure_policy"]["completion_anchor"]["enabled"] is True
+    assert payload["closure_policy"]["completion_anchor"]["published_preview_ref_field"] == (
+        "final_package_preview_ref"
+    )
     assert payload["closure_policy"]["required_dimension_ids"] == [
         "layer_1_deed_meaning_to_ir_fidelity",
         "layer_2_ir_geometry_integrity",
