@@ -53,9 +53,15 @@ _BATCH_SINGLE_SUFFIXES: dict[str, str] = {
 
 PREPARE_DEED_TO_IR_FINAL_PACKAGE_ACTION_ID = "prepare_deed_to_ir_final_package"
 _DERIVED_REF_PLACEHOLDER = "@result.derived_ref_id"
+_PREVIEW_VALID_REPLACEMENTS: tuple[str, ...] = (
+    "@this.result.working_preview_ref",
+    "@this.result.final_package_preview_revision_ref",
+)
 _PREVIEW_PLACEHOLDER_HINT = (
     "@this.result.derived_ref_id is not emitted by prepare_deed_to_ir_final_package. "
-    "Use @this.result.working_preview_ref or @this.result.final_package_preview_revision_ref."
+    "Use @this.result.working_preview_ref or @this.result.final_package_preview_revision_ref. "
+    "Preview hydration is optional when preview_ready_summary is present — prefer "
+    "recommended_publish_request for publish."
 )
 
 
@@ -415,6 +421,10 @@ def enrich_hydrate_next_resolution_errors(
         ):
             out["reason_code"] = "hydrate_next_placeholder_not_supported"
             out["hint"] = _PREVIEW_PLACEHOLDER_HINT
+            out["valid_replacements"] = list(_PREVIEW_VALID_REPLACEMENTS)
+            out["hydration_optional"] = True
+            if source_action_type:
+                out["source_action_type"] = source_action_type
         enriched.append(out)
     return enriched
 

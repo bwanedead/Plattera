@@ -51,6 +51,7 @@ Use this guidance to orient deed-to-IR work. This is **guidance**, not a hard sc
 - Normal end flow: save/patch draft IR → submit for mapping → inspect mapping review → prepare final package preview → publish from preview → complete (with final state patch only if still needed).
 - A ready preview is a **publish launchpad**. When `prepare_deed_to_ir_final_package` returns `publish_ready_candidate=true` with valid lineage, scope counts, dependency count, and closure statuses, normally publish from `recommended_publish_request` on the next artifact-writing turn.
 - Do not hydrate the preview just to reread the same summary. Use `working_preview_ref` only when targeted preview hydration is genuinely needed.
+- Do not use `@this.result.derived_ref_id` after `prepare_deed_to_ir_final_package` — that tool does not emit `derived_ref_id`. Publish from `recommended_publish_request`; hydrate with `@this.result.working_preview_ref` only when necessary.
 - State alignment is useful but should be **economical**:
   - patch obvious closure/work-item state in the same turn as preview when already known,
   - or patch final state in the same turn as `complete_run`,

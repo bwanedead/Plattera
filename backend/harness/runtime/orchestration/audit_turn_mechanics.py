@@ -37,6 +37,16 @@ def project_hydration_record_for_audit(record: Mapping[str, Any] | None) -> dict
                 if isinstance(row, Mapping)
                 else str(row)[:128],
                 "hint": str(row.get("hint") or "")[:400] or None,
+                "valid_replacements": [
+                    str(item)[:128]
+                    for item in (row.get("valid_replacements") or [])
+                    if isinstance(item, str) and item.strip()
+                ][:4]
+                or None,
+                "hydration_optional": row.get("hydration_optional")
+                if row.get("hydration_optional") is not None
+                else None,
+                "source_action_type": str(row.get("source_action_type") or "")[:64] or None,
                 "source_action_alias": str(
                     row.get("source_action_alias") or row.get("action_alias") or ""
                 )[:64]

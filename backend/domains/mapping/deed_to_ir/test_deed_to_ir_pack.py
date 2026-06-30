@@ -243,7 +243,7 @@ def test_procedural_guidance_emphasizes_draft_first_and_posture_before_publish()
     assert "represent it as an `annotation`" in guidance or "represent it as an annotation" in guidance
 
 
-def test_procedural_guidance_v20_preview_publish_handoff() -> None:
+def test_procedural_guidance_v21_preview_publish_handoff() -> None:
     block = next(
         b
         for b in build_deed_to_ir_domain_pack().build_semantic_prompt_blocks()
@@ -253,6 +253,8 @@ def test_procedural_guidance_v20_preview_publish_handoff() -> None:
     text = block.text.lower()
     assert "publish launchpad" in text
     assert "recommended_publish_request" in text
+    assert "working_preview_ref" in text
+    assert "derived_ref_id" in text
     assert "do not hydrate the preview just to reread the same summary" in text
     assert "ready_for_completion_candidate=true" in text
     assert "normally call `complete_run`" in text or "call `complete_run`" in text

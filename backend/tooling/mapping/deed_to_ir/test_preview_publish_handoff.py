@@ -75,10 +75,12 @@ def test_procedural_guidance_discourages_preview_rehydration_when_ready():
         for b in build_deed_to_ir_domain_pack().build_semantic_prompt_blocks()
         if b.block_id == "deed_to_ir_procedural_guidance"
     )
-    assert block.version == "v20"
+    assert block.version == "v21"
     text = block.text.lower()
     assert "publish launchpad" in text
     assert "do not hydrate the preview just to reread the same summary" in text
+    assert "derived_ref_id" in text
+    assert "prepare_deed_to_ir_final_package" in text
     assert "working_preview_ref" in text
     assert "economical" in text
     assert "posture-only repair before publish" in text
@@ -98,6 +100,11 @@ def test_derived_ref_id_after_preview_emits_advisory_hint():
     assert enriched
     assert enriched[0]["reason_code"] == "hydrate_next_placeholder_not_supported"
     assert "working_preview_ref" in enriched[0]["hint"]
+    assert enriched[0]["valid_replacements"] == [
+        "@this.result.working_preview_ref",
+        "@this.result.final_package_preview_revision_ref",
+    ]
+    assert enriched[0]["hydration_optional"] is True
 
 
 def test_hydration_lane_renders_placeholder_hint():
@@ -112,12 +119,19 @@ def test_hydration_lane_renders_placeholder_hint():
                     "@this.result.derived_ref_id is not emitted by prepare_deed_to_ir_final_package. "
                     "Use @this.result.working_preview_ref or @this.result.final_package_preview_revision_ref."
                 ),
+                "valid_replacements": [
+                    "@this.result.working_preview_ref",
+                    "@this.result.final_package_preview_revision_ref",
+                ],
+                "hydration_optional": True,
             }
         ],
     }
     body = "\n".join(_render_hydration_lane(lane, indent="  ", title="agent_requested_hydration"))
     assert "hydrate_next_placeholder_not_supported" in body
     assert "working_preview_ref" in body
+    assert "valid_replacements:" in body
+    assert "hydration_optional: true" in body
 
 
 def test_working_preview_ref_placeholder_resolves():

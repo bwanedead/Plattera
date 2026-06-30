@@ -509,11 +509,36 @@ def compile_course_traverse(
         ))
         return None
 
-    start_point = previous_point
-    if start_point is None and op_expr.operands:
+    start_point: Optional[Tuple[float, float]] = None
+    if op_expr.operands:
         operand = op_expr.operands[0]
-        if isinstance(operand, str):
-            start_point = _compiled_point_from_operand(operand, compiled_features)
+        if not isinstance(operand, str) or not operand.strip():
+            result.add_gap(precondition_failed_gap(
+                feature_id=node.id,
+                operation="CourseTraverse",
+                precondition="start_operand_valid",
+                reason="invalid_start_operand: start operand must be a non-blank feature id string",
+                metadata={
+                    "reason_code": "invalid_start_operand",
+                    "operand_type": type(operand).__name__,
+                },
+            ))
+            return None
+        operand_id = operand.strip()
+        start_point = _compiled_point_from_operand(operand_id, compiled_features)
+        if start_point is None:
+            result.add_gap(precondition_failed_gap(
+                feature_id=node.id,
+                operation="CourseTraverse",
+                precondition="start_operand_resolved",
+                reason=(
+                    f"start operand '{operand_id}' is not compiled or has no point/start geometry"
+                ),
+                metadata={"operand_id": operand_id, "reason_code": "start_operand_unresolved"},
+            ))
+            return None
+    elif previous_point is not None:
+        start_point = previous_point
     if start_point is None:
         start_point = (0.0, 0.0)
 
@@ -679,6 +704,34 @@ def compile_node(
         return None
 
 
+def _warn_duplicate_schematic_tied_points(result: CompileResult) -> None:
+    """Non-blocking warning when schematic tied points overlap without global tie resolution."""
+    by_coord: dict[tuple[float, float], list[str]] = {}
+    for node_id, compiled in result.compiled_features.items():
+        if not isinstance(compiled, dict):
+            continue
+        if compiled.get("source") != "schematic_tied_point":
+            continue
+        geom = compiled.get("geometry")
+        if not isinstance(geom, dict) or geom.get("type") != "Point":
+            continue
+        coords = geom.get("coordinates")
+        if not isinstance(coords, list) or len(coords) < 2:
+            continue
+        try:
+            key = (round(float(coords[0]), 6), round(float(coords[1]), 6))
+        except (TypeError, ValueError):
+            continue
+        by_coord.setdefault(key, []).append(node_id)
+    for coord, node_ids in by_coord.items():
+        if len(node_ids) < 2:
+            continue
+        result.add_warning(
+            "Schematic tied points "
+            f"{node_ids} share coordinates {list(coord)} without global tie resolution"
+        )
+
+
 def compile_graph(graph: FeatureGraph) -> CompileResult:
     """
     Compile a feature graph into concrete geometry outputs.
@@ -734,4 +787,5 @@ def compile_graph(graph: FeatureGraph) -> CompileResult:
             if "end_point" in compiled:
                 previous_point = tuple(compiled["end_point"])
 
+    _warn_duplicate_schematic_tied_points(result)
     return result

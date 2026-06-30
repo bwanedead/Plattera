@@ -722,6 +722,13 @@ def _render_hydration_lane(
                 hint = row.get("hint")
                 if isinstance(hint, str) and hint.strip():
                     lines.extend(_indented_prose(hint.strip(), indent=f"{indent}      "))
+                replacements = row.get("valid_replacements")
+                if isinstance(replacements, list) and replacements:
+                    lines.append(f"{indent}      valid_replacements:")
+                    for ref in replacements[:4]:
+                        lines.append(f"{indent}        - {ref}")
+                if row.get("hydration_optional") is True:
+                    lines.append(f"{indent}      hydration_optional: true")
             else:
                 lines.append(f"{indent}    - {row}")
     errors = lane.get("hydration_errors")

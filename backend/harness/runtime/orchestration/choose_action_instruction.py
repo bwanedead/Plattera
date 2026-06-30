@@ -230,7 +230,7 @@ A normal turn is one coherent plan, not separate ceremony. Decide:
 `operator_progress_message` is the short user-facing intent line. `rationale` is the compact internal reason why this move now and what gain is expected. Keep both short; do not duplicate the same paragraph in both fields.
 
 Use `actions` for tool work. One row is one tool call; several rows are several tool calls in the same turn. Shape:
-`{"actions":[{"alias":"short_name","action_type":"tool_id","action_inputs":{},"hydrate_next":["@this.result.derived_ref_id"],"hydrate_next_reason":"inspect this result next turn"}],"operator_progress_message":"Creating the focused artifact I will inspect next.","rationale":"Create a focused artifact now and route it into the next turn so the next decision can use the generated evidence directly."}`
+`{"actions":[{"alias":"short_name","action_type":"tool_id","action_inputs":{}}],"operator_progress_message":"Creating the focused artifact I will inspect next.","rationale":"Create a focused artifact now and route it into the next turn so the next decision can use the generated evidence directly."}`
 
 Each action row:
 - `alias`: short unique handle for this turn's result. Use letters, digits, `_`, or `-`; no dots.
@@ -241,12 +241,14 @@ Each action row:
 
 Use multiple rows when every row is already justified before seeing the other rows' results: several known crops, several known read-only checks, several known hydrations, or a deliberate mechanical sequence where each step is already chosen. Actions execute sequentially, but you do not inspect row A's result before authoring row B in the same turn. If B depends on interpreting A, do A now, request hydration if needed, then decide B on a later turn.
 
-Per-action `hydrate_next` removes predictable hydrate-only turns. Use it when this action will produce or name an artifact you already know you must inspect next turn. Supported placeholders:
-- `@this.result.derived_ref_id` — single ref from this row's transform-style result
+Per-action `hydrate_next` removes predictable hydrate-only turns. Use it when this action will produce or name an artifact you already know you must inspect next turn. Supported placeholders (tool-specific — use the placeholder the tool actually emits):
+- `@this.result.derived_ref_id` — image/transform tools that emit `derived_ref_id` (e.g. crop/transform actions)
 - `@this.result.revision_ref` — single ref from this row's save-style result (legacy alias)
-- `@this.result.working_draft_ref` — single ref from this row's save-style result when the tool returns `working_draft_ref`
+- `@this.result.working_draft_ref` — IR draft save tools that return `working_draft_ref`
+- `@this.result.working_preview_ref` — `prepare_deed_to_ir_final_package` when targeted preview hydration is genuinely needed (normally use `recommended_publish_request` instead)
+- `@this.result.final_package_preview_revision_ref` — same preview revision ref as `working_preview_ref`
 - `@this.result.published_ref` — single ref from this row's publish-style result (legacy alias)
-- `@this.result.output_ref` — single ref from this row's publish-style result when the tool returns `output_ref`
+- `@this.result.output_ref` — publish-style tools that return `output_ref`
 - `@this.result.artifact_refs[]` — this row's bounded artifact refs list
 
 Bounds: at most 5 requested refs per row and at most 5 resolved refs after aggregate dedupe. Non-string entries are rejected. Unresolved placeholders become compact next-turn errors, not runner crashes. `hydrate_next` is attention routing for the NEXT turn only: it does not execute as the current action, does not replace a current-turn hydrate when you need content now, and does not make the referenced content authoritative. The next turn still decides what the hydrated content means after seeing `structured_state.agent_requested_hydration` and `structured_state.recent_action_sequence_result`.
@@ -290,7 +292,10 @@ Minimal HITL:
 One action with next-turn hydration:
 `{"actions":[{"alias":"save_draft","action_type":"save_workspace_artifact","action_inputs":{"payload":{"status":"draft"}},"hydrate_next":["@this.result.working_draft_ref"],"hydrate_next_reason":"verify saved payload shape before publish"}],"rationale":"Save the narrowed draft now; next turn should inspect the saved revision directly rather than spend a separate turn requesting hydration."}`
 
-Multiple independent actions:
+Final package preview (hydration usually unnecessary):
+`{"actions":[{"alias":"prepare_preview","action_type":"prepare_deed_to_ir_final_package","action_inputs":{"mapping_artifact_ref":"feature_graph:mapping:example"}}],"rationale":"Preview is publish-ready; next turn should publish from recommended_publish_request rather than hydrate the preview."}`
+
+Multiple independent image-transform actions:
 `{"actions":[{"alias":"crop_a","action_type":"transform_artifact","action_inputs":{"ref_id":"image:assoc:tx-1:original","sub_action":"crop","params":{"box_norm":[0,0,0.5,0.5]}},"hydrate_next":["@this.result.derived_ref_id"]},{"alias":"crop_b","action_type":"transform_artifact","action_inputs":{"ref_id":"image:assoc:tx-1:original","sub_action":"crop","params":{"box_norm":[0.5,0,1,0.5]}},"hydrate_next":["@this.result.derived_ref_id"]}],"rationale":"Create both independent region crops in one turn instead of serializing two transform-only turns."}`
 
 Minimal complete:

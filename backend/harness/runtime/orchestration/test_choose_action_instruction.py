@@ -127,6 +127,17 @@ def test_choose_action_instruction_omits_idempotency_from_model_facing_shapes() 
     assert '"idempotency_key"' not in text
 
 
+def test_choose_action_instruction_tool_specific_hydrate_next_placeholders() -> None:
+    text = CHOOSE_ACTION_INSTRUCTION
+    lowered = text.lower()
+    assert "tool-specific" in lowered
+    assert "@this.result.working_preview_ref" in text
+    assert "prepare_deed_to_ir_final_package" in text
+    assert "image/transform tools" in lowered or "transform actions" in lowered
+    assert "derived_ref_id" in text
+    assert "final package preview (hydration usually unnecessary)" in lowered
+
+
 def test_choose_action_instruction_includes_tiny_examples() -> None:
     text = CHOOSE_ACTION_INSTRUCTION
     assert 'Minimal one-action dispatch:' in text
@@ -137,7 +148,7 @@ def test_choose_action_instruction_includes_tiny_examples() -> None:
     assert 'Minimal complete:' in text
     assert '"actions":[{"alias":"load_ref","action_type":"hydrate_artifact_refs"' in text
     assert 'One action with next-turn hydration:' in text
-    assert 'Multiple independent actions:' in text
+    assert 'Multiple independent image-transform actions:' in text
     assert '@this.result.revision_ref' in text
     assert '@this.result.working_draft_ref' in text
     assert '@this.result.output_ref' in text
