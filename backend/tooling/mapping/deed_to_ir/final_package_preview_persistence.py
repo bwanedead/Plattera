@@ -21,6 +21,7 @@ from .final_package_preview_projection import (
     build_preview_hydration_payload,
     build_recommended_publish_request,
     compact_preview_row_summaries,
+    enrich_prepare_preview_tool_outputs,
 )
 from .final_package_validation import (
     FinalPackageIncompleteError,
@@ -213,25 +214,24 @@ def prepare_deed_to_ir_final_package(
     return {
         "executed": True,
         "artifact_refs": artifact_refs,
-        "outputs": {
-            "final_package_preview_ref": PREVIEW_REF,
-            "final_package_preview_revision_ref": revision_ref,
-            "mapping_artifact_ref": selected.mapping_artifact_ref,
-            "ir_artifact_ref": selected.ir_artifact_ref,
-            "compile_artifact_ref": selected.compile_artifact_ref,
-            "judge_artifact_ref": selected.judge_artifact_ref,
-            "geometry_ref": selected.geometry_ref,
-            "clean_render_ref": selected.clean_render_ref,
-            "control_render_ref": selected.control_render_ref,
-            "review_summary": preview.mechanical_review_summary.model_dump(mode="json"),
-            "lineage_summary": preview.lineage_summary.model_dump(mode="json"),
-            "publish_ready_candidate": True,
-            "recommended_publish_request": build_recommended_publish_request(
-                preview_revision_ref=revision_ref,
-            ),
-            **row_summaries,
-            "scope_status_counts": status_counts(scopes),
-        },
+        "outputs": enrich_prepare_preview_tool_outputs(
+            {
+                "mapping_artifact_ref": selected.mapping_artifact_ref,
+                "ir_artifact_ref": selected.ir_artifact_ref,
+                "compile_artifact_ref": selected.compile_artifact_ref,
+                "judge_artifact_ref": selected.judge_artifact_ref,
+                "geometry_ref": selected.geometry_ref,
+                "clean_render_ref": selected.clean_render_ref,
+                "control_render_ref": selected.control_render_ref,
+                "review_summary": preview.mechanical_review_summary.model_dump(mode="json"),
+                "lineage_summary": preview.lineage_summary.model_dump(mode="json"),
+                "publish_ready_candidate": True,
+                **row_summaries,
+                "scope_status_counts": status_counts(scopes),
+            },
+            preview_revision_ref=revision_ref,
+            preview_ref=PREVIEW_REF,
+        ),
     }
 
 

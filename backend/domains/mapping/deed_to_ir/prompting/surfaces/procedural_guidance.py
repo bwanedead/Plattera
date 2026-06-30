@@ -9,7 +9,7 @@ from ..branch import DEED_TO_IR_DOMAIN_ID
 DEED_TO_IR_PROCEDURAL_GUIDANCE_SOURCE_REF = (
     "backend/domains/mapping/deed_to_ir/prompting/surfaces/procedural_guidance.py"
 )
-DEED_TO_IR_PROCEDURAL_GUIDANCE_VERSION = "v19"
+DEED_TO_IR_PROCEDURAL_GUIDANCE_VERSION = "v20"
 
 DEED_TO_IR_PROCEDURAL_GUIDANCE_TEXT = """\
 Use this guidance to orient deed-to-IR work. This is **guidance**, not a hard script.
@@ -48,9 +48,15 @@ Use this guidance to orient deed-to-IR work. This is **guidance**, not a hard sc
 - `publish_deed_to_ir_output` is final scoped handoff only; prefer publishing with `final_package_preview_ref` from the preview.
 
 ## Final package preview flow
-- Normal end flow: save/patch draft IR → submit for mapping → inspect mapping review → prepare final package preview → align posture → publish from preview → complete.
-- After `prepare_deed_to_ir_final_package` returns `publish_ready_candidate=true`, preview hydration is **optional**. Hydrate the preview only if the summary is insufficient, lineage is unclear, or validation/staleness is suspected. Otherwise proceed to posture alignment and publish.
-- Before calling publish, posture alignment means the local state says what the preview already showed: mapping reviewed, final package preview accepted, scoped output ready to publish. Do not use publish as the probe for whether readiness posture is aligned; this is normally a state-patch move, not another hydration or a test publish.
+- Normal end flow: save/patch draft IR → submit for mapping → inspect mapping review → prepare final package preview → publish from preview → complete (with final state patch only if still needed).
+- A ready preview is a **publish launchpad**. When `prepare_deed_to_ir_final_package` returns `publish_ready_candidate=true` with valid lineage, scope counts, dependency count, and closure statuses, normally publish from `recommended_publish_request` on the next artifact-writing turn.
+- Do not hydrate the preview just to reread the same summary. Use `working_preview_ref` only when targeted preview hydration is genuinely needed.
+- State alignment is useful but should be **economical**:
+  - patch obvious closure/work-item state in the same turn as preview when already known,
+  - or patch final state in the same turn as `complete_run`,
+  - do not spend separate turns on posture-only repair before publish unless publish depends on it or local state would materially mislead downstream handoff.
+- If a state patch fails, do not keep repairing posture before publish unless the failure affects the package, lineage, scope posture, dependency posture, or final handoff truth.
+- Before calling publish, posture alignment means the local state says what the preview already showed: mapping reviewed, final package preview accepted, scoped output ready to publish. Do not use publish as the probe for whether readiness posture is aligned.
 - If publish is refused only by readiness/audit posture (`publish_gate_category=publish_posture_audit_gate`, `preview_still_valid=true`), do **not** rebuild or rehydrate the preview — patch mission/closure posture if warranted and retry the same `final_package_preview_ref`.
 - If the IR is patched after preview, submit mapping again and prepare a new preview before publish.
 - After a successful preview, only reopen IR for material defects: wrong geometry, wrong source value, stale mapping lineage, missing blocked scope/dependency, failed compile/judge/render, or preview does not match intended final handoff.

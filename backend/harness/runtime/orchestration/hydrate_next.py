@@ -35,7 +35,9 @@ _SINGLE_PLACEHOLDERS: dict[str, str] = {
     "@result.revision_ref": "revision_ref",
     "@result.published_ref": "published_ref",
     "@result.working_draft_ref": "working_draft_ref",
+    "@result.working_preview_ref": "working_preview_ref",
     "@result.output_ref": "output_ref",
+    "@result.final_package_preview_revision_ref": "final_package_preview_revision_ref",
 }
 _LIST_PLACEHOLDER = "@result.artifact_refs[]"
 _BATCH_LIST_SUFFIX = ".result.artifact_refs[]"
@@ -44,8 +46,17 @@ _BATCH_SINGLE_SUFFIXES: dict[str, str] = {
     ".result.revision_ref": "revision_ref",
     ".result.published_ref": "published_ref",
     ".result.working_draft_ref": "working_draft_ref",
+    ".result.working_preview_ref": "working_preview_ref",
     ".result.output_ref": "output_ref",
+    ".result.final_package_preview_revision_ref": "final_package_preview_revision_ref",
 }
+
+PREPARE_DEED_TO_IR_FINAL_PACKAGE_ACTION_ID = "prepare_deed_to_ir_final_package"
+_DERIVED_REF_PLACEHOLDER = "@result.derived_ref_id"
+_PREVIEW_PLACEHOLDER_HINT = (
+    "@this.result.derived_ref_id is not emitted by prepare_deed_to_ir_final_package. "
+    "Use @this.result.working_preview_ref or @this.result.final_package_preview_revision_ref."
+)
 
 
 class HydrateNextValidationError(ValueError):
@@ -363,6 +374,51 @@ def validate_stored_hydrate_next_record(row: Any) -> dict[str, Any] | None:
 PLACEHOLDER_OUTPUT_KEYS: tuple[str, ...] = tuple(_SINGLE_PLACEHOLDERS.values())
 
 
+def _normalize_placeholder_ref(entry: str) -> str:
+    text = str(entry or "").strip()
+    if text.startswith("@this."):
+        return "@" + text[len("@this.") :]
+    return text
+
+
+def enrich_hydrate_next_resolution_errors(
+    errors: list[dict[str, Any]] | tuple[dict[str, Any], ...],
+    *,
+    source_action_type: str | None,
+    tool_outputs: Mapping[str, Any] | None,
+) -> list[dict[str, Any]]:
+    """Add tool-specific advisory hints without changing resolution semantics."""
+    if not errors:
+        return []
+    outputs = tool_outputs if isinstance(tool_outputs, Mapping) else {}
+    has_preview_outputs = any(
+        isinstance(outputs.get(key), str) and str(outputs.get(key)).strip()
+        for key in (
+            "working_preview_ref",
+            "final_package_preview_revision_ref",
+            "final_package_preview_ref",
+        )
+    )
+    enriched: list[dict[str, Any]] = []
+    for row in errors:
+        if not isinstance(row, Mapping):
+            continue
+        out = dict(row)
+        requested = _normalize_placeholder_ref(str(out.get("requested_ref") or ""))
+        if (
+            out.get("reason_code") == "placeholder_not_found"
+            and requested == _DERIVED_REF_PLACEHOLDER
+            and (
+                source_action_type == PREPARE_DEED_TO_IR_FINAL_PACKAGE_ACTION_ID
+                or has_preview_outputs
+            )
+        ):
+            out["reason_code"] = "hydrate_next_placeholder_not_supported"
+            out["hint"] = _PREVIEW_PLACEHOLDER_HINT
+        enriched.append(out)
+    return enriched
+
+
 def build_tool_result_snapshot_from_batch_item(row: Mapping[str, Any]) -> dict[str, Any]:
     """Build a placeholder-resolution snapshot from one action-sequence item row."""
     from harness.runtime.memory.point_crop_set_projection import (
@@ -408,6 +464,8 @@ def build_tool_result_snapshot(
             "revision_ref",
             "published_ref",
             "working_draft_ref",
+            "working_preview_ref",
+            "final_package_preview_revision_ref",
             "output_ref",
         ) if k in outputs}
     if isinstance(artifact_refs, (list, tuple)):

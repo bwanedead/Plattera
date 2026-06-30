@@ -134,9 +134,12 @@ def test_prepare_preview_happy_path_derives_artifact_refs(monkeypatch) -> None:
         outputs = result["outputs"]
         assert outputs["publish_ready_candidate"] is True
         assert outputs["final_package_preview_revision_ref"].startswith(PREVIEW_REV_PREFIX)
+        assert outputs["working_preview_ref"] == outputs["final_package_preview_revision_ref"]
         assert outputs["recommended_publish_request"]["final_package_preview_ref"] == outputs[
             "final_package_preview_revision_ref"
         ]
+        assert outputs["preview_ready_summary"]["expected_next"] == "publish_deed_to_ir_output"
+        assert outputs["preview_ready_summary"]["hydrate_preview_optional"] is True
         assert outputs["ir_artifact_ref"] == ir_ref
         assert outputs["mapping_artifact_ref"] == mapping_ref
         assert outputs["compile_artifact_ref"].startswith("feature_graph:compile:")

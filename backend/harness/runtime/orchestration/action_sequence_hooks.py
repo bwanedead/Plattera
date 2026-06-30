@@ -24,6 +24,7 @@ from .hydrate_next import (
     MAX_HYDRATE_NEXT_REFS,
     build_hydrate_next_record,
     build_tool_result_snapshot,
+    enrich_hydrate_next_resolution_errors,
     resolve_hydrate_next_refs,
 )
 from .orchestrator_turn import (
@@ -105,6 +106,15 @@ def capture_hydrate_after_sequence(
             list(item.hydrate_next),
             tool_result=tool_snapshot,
             batch_results=None,
+        )
+        tool_outputs = None
+        if isinstance(tool_snapshot, Mapping):
+            raw_outputs = tool_snapshot.get("outputs")
+            tool_outputs = raw_outputs if isinstance(raw_outputs, Mapping) else None
+        errors = enrich_hydrate_next_resolution_errors(
+            errors,
+            source_action_type=item.action_type,
+            tool_outputs=tool_outputs,
         )
         for ref in item.hydrate_next:
             if ref not in requested_all:

@@ -718,6 +718,9 @@ def _render_hydration_lane(
                 ]
                 detail = " | ".join(part for part in parts if part)
                 lines.append(f"{indent}    - {detail or row}")
+                hint = row.get("hint")
+                if isinstance(hint, str) and hint.strip():
+                    lines.extend(_indented_prose(hint.strip(), indent=f"{indent}      "))
             else:
                 lines.append(f"{indent}    - {row}")
     errors = lane.get("hydration_errors")
@@ -1159,6 +1162,46 @@ def _render_rendered_evidence_output(outputs: Mapping[str, Any], *, indent: str)
     return lines
 
 
+def _classify_state_patch_alignment_scope(applied_paths: Any) -> str | None:
+    if not isinstance(applied_paths, list) or not applied_paths:
+        return None
+    posture_prefixes = (
+        "mission.work_universe_posture",
+        "mission.motion_posture",
+        "mission.motion_posture_basis",
+        "mission.closure_state.ready_to_close",
+        "mission.closure_state.ready_to_publish",
+        "mission.closure_state.overall_status",
+        "mission.closure_state.requires_hitl",
+        "mission.closure_state.no_further_progress",
+        "mission.closure_state.dimensions",
+        "mission.success_conditions",
+    )
+    saw_posture = False
+    saw_package = False
+    for raw in applied_paths:
+        path = str(raw or "").strip()
+        if not path:
+            continue
+        if path.startswith("resolution_state"):
+            saw_package = True
+            continue
+        if any(path == prefix or path.startswith(f"{prefix}.") for prefix in posture_prefixes):
+            saw_posture = True
+            continue
+        if path.startswith("mission."):
+            saw_posture = True
+            continue
+        saw_package = True
+    if saw_package and not saw_posture:
+        return "package_critical_or_mixed"
+    if saw_posture and not saw_package:
+        return "posture_only"
+    if saw_posture and saw_package:
+        return "mixed"
+    return None
+
+
 def _render_state_patch(turn: Mapping[str, Any]) -> list[str]:
     feedback = _coerce_mapping(turn.get("state_patch_feedback"))
     if not feedback:
@@ -1170,6 +1213,9 @@ def _render_state_patch(turn: Mapping[str, Any]) -> list[str]:
         lines.append(f"  reason_code: {reason}")
     applied_paths = feedback.get("applied_paths") or []
     rejected_paths = feedback.get("rejected_paths") or []
+    alignment_scope = _classify_state_patch_alignment_scope(applied_paths)
+    if alignment_scope:
+        lines.append(f"  alignment_scope: {alignment_scope}")
     lines.extend(_bullet_list("  applied_paths:", applied_paths))
     lines.extend(_bullet_list("  rejected_paths:", rejected_paths))
     lines.append("")

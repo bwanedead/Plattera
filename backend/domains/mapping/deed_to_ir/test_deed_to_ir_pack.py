@@ -243,18 +243,19 @@ def test_procedural_guidance_emphasizes_draft_first_and_posture_before_publish()
     assert "represent it as an `annotation`" in guidance or "represent it as an annotation" in guidance
 
 
-def test_procedural_guidance_v19_completion_anchor() -> None:
+def test_procedural_guidance_v20_preview_publish_handoff() -> None:
     block = next(
         b
         for b in build_deed_to_ir_domain_pack().build_semantic_prompt_blocks()
         if b.block_id == "deed_to_ir_procedural_guidance"
     )
-    assert block.version == "v19"
+    assert block.version == "v20"
     text = block.text.lower()
+    assert "publish launchpad" in text
+    assert "recommended_publish_request" in text
+    assert "do not hydrate the preview just to reread the same summary" in text
     assert "ready_for_completion_candidate=true" in text
     assert "normally call `complete_run`" in text or "call `complete_run`" in text
-    assert "do not patch the local work graph merely to make posture mirror" in text
-    assert "mapping review before preview/publish is still required" in text
 
 
 def test_startup_context_marks_operand_suite_as_core_anchor() -> None:

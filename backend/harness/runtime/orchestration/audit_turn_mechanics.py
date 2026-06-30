@@ -36,6 +36,7 @@ def project_hydration_record_for_audit(record: Mapping[str, Any] | None) -> dict
                 "reason_code": str(row.get("reason_code") or row)[:128]
                 if isinstance(row, Mapping)
                 else str(row)[:128],
+                "hint": str(row.get("hint") or "")[:400] or None,
                 "source_action_alias": str(
                     row.get("source_action_alias") or row.get("action_alias") or ""
                 )[:64]

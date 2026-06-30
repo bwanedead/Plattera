@@ -5,9 +5,50 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
+PREPARE_PREVIEW_OUTPUT_TOP_LEVEL_KEYS: tuple[str, ...] = (
+    "final_package_preview_ref",
+    "final_package_preview_revision_ref",
+    "working_preview_ref",
+    "recommended_publish_request",
+    "preview_ready_summary",
+    "publish_ready_candidate",
+)
+
 
 def build_recommended_publish_request(*, preview_revision_ref: str) -> dict[str, str]:
     return {"final_package_preview_ref": preview_revision_ref}
+
+
+def build_preview_ready_summary(*, publish_ready_candidate: bool) -> dict[str, Any] | None:
+    if not publish_ready_candidate:
+        return None
+    return {
+        "ready_for_publish_candidate": True,
+        "expected_next": "publish_deed_to_ir_output",
+        "hydrate_preview_optional": True,
+        "state_alignment_optional": True,
+    }
+
+
+def enrich_prepare_preview_tool_outputs(
+    outputs: dict[str, Any],
+    *,
+    preview_revision_ref: str,
+    preview_ref: str,
+) -> dict[str, Any]:
+    """Attach stable preview ref aliases and mechanical next-step summary."""
+    outputs["final_package_preview_ref"] = preview_ref
+    outputs["final_package_preview_revision_ref"] = preview_revision_ref
+    outputs["working_preview_ref"] = preview_revision_ref
+    outputs["recommended_publish_request"] = build_recommended_publish_request(
+        preview_revision_ref=preview_revision_ref,
+    )
+    ready_summary = build_preview_ready_summary(
+        publish_ready_candidate=bool(outputs.get("publish_ready_candidate")),
+    )
+    if ready_summary is not None:
+        outputs["preview_ready_summary"] = ready_summary
+    return outputs
 
 
 def compact_preview_row_summaries(
@@ -63,6 +104,7 @@ def build_preview_hydration_payload(
         "schema_version": preview.get("schema_version"),
         "final_package_preview_ref": ref_id,
         "final_package_preview_revision_ref": preview_revision_ref,
+        "working_preview_ref": preview_revision_ref,
         "selected_artifacts": selected_dict,
         **row_summaries,
         "review_summary": preview.get("mechanical_review_summary"),
@@ -70,6 +112,14 @@ def build_preview_hydration_payload(
         "publish_ready_candidate": preview.get("publish_ready_candidate"),
         "recommended_publish_request": build_recommended_publish_request(
             preview_revision_ref=preview_revision_ref,
+        ),
+        **(
+            {"preview_ready_summary": ready_summary}
+            if (ready_summary := build_preview_ready_summary(
+                publish_ready_candidate=bool(preview.get("publish_ready_candidate")),
+            ))
+            is not None
+            else {}
         ),
     }
 
@@ -154,6 +204,28 @@ def render_final_package_preview_timeline_lines(
     ready = preview.get("publish_ready_candidate")
     if ready is not None:
         lines.append(f"{indent}  publish_ready_candidate: {str(bool(ready)).lower()}")
+
+    recommended = preview.get("recommended_publish_request")
+    if isinstance(recommended, Mapping):
+        preview_publish_ref = recommended.get("final_package_preview_ref")
+        if isinstance(preview_publish_ref, str) and preview_publish_ref.strip():
+            lines.append(
+                f"{indent}  recommended_publish_request: "
+                f"final_package_preview_ref={preview_publish_ref.strip()}"
+            )
+
+    ready_summary = preview.get("preview_ready_summary")
+    if isinstance(ready_summary, Mapping) and ready_summary:
+        lines.append(f"{indent}preview_ready_summary:")
+        if ready_summary.get("ready_for_publish_candidate") is not None:
+            lines.append(
+                f"{indent}  ready_for_publish_candidate: "
+                f"{str(bool(ready_summary.get('ready_for_publish_candidate'))).lower()}"
+            )
+        if ready_summary.get("expected_next"):
+            lines.append(f"{indent}  expected_next: {ready_summary.get('expected_next')}")
+        if ready_summary.get("hydrate_preview_optional") is True:
+            lines.append(f"{indent}  hydrate_preview_optional: true")
 
     return lines
 
@@ -244,6 +316,7 @@ def render_final_package_preview_tool_output(
         for key in (
             "final_package_preview_revision_ref",
             "final_package_preview_ref",
+            "working_preview_ref",
             "selected_artifacts",
             "scope_summaries",
             "scope_results",
@@ -252,11 +325,18 @@ def render_final_package_preview_tool_output(
             "closure_dimension_statuses",
             "closure_dimensions",
             "publish_ready_candidate",
+            "preview_ready_summary",
+            "recommended_publish_request",
         )
         if outputs.get(key) is not None
     }
-    if top_level.get("selected_artifacts") or top_level.get("scope_summaries") or top_level.get(
-        "scope_results"
+    if (
+        top_level.get("selected_artifacts")
+        or top_level.get("scope_summaries")
+        or top_level.get("scope_results")
+        or top_level.get("preview_ready_summary")
+        or top_level.get("recommended_publish_request")
+        or top_level.get("working_preview_ref")
     ):
         preview_ref = outputs.get("final_package_preview_revision_ref") or outputs.get(
             "final_package_preview_ref"

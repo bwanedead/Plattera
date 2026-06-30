@@ -423,14 +423,18 @@ def build_deed_to_ir_tool_specs() -> tuple[SemanticToolSpec, ...]:
                 "side_effect_class": "write",
             },
             expected_result_shape=(
-                "On success: final_package_preview_ref, final_package_preview_revision_ref, derived selected "
-                "artifact refs, review_summary (compile/judge/render counts, coordinate space, world bbox), "
-                "bounded row summaries, publish_ready_candidate (mechanical only — not semantic correctness), "
-                "and recommended_publish_request with final_package_preview_ref. When publish_ready_candidate=true, "
-                "the returned summary is usually enough to proceed without preview hydration. On validation failure: "
-                "validation_errors, rejected_payload_summary (counts/keys only), row_contract_summary, "
-                "preserve_sections, repair_hint. On incomplete package: missing_sections, "
-                "missing_closure_dimensions, repair_hint. No filesystem paths or image bytes."
+                "On success: final_package_preview_ref, final_package_preview_revision_ref, working_preview_ref "
+                "(alias of revision ref), derived selected artifact refs, review_summary (compile/judge/render "
+                "counts, coordinate space, world bbox), bounded row summaries, publish_ready_candidate "
+                "(mechanical only — not semantic correctness), recommended_publish_request with "
+                "final_package_preview_ref, and preview_ready_summary when publish_ready_candidate=true "
+                "(expected_next=publish_deed_to_ir_output; hydrate_preview_optional=true). "
+                "Use recommended_publish_request for publish. Use working_preview_ref only when targeted "
+                "preview hydration is genuinely needed. This tool does not emit a derived_ref_id hydrate-next "
+                "placeholder. On validation failure: validation_errors, rejected_payload_summary "
+                "(counts/keys only), row_contract_summary, preserve_sections, repair_hint. On incomplete "
+                "package: missing_sections, missing_closure_dimensions, repair_hint. No filesystem paths or "
+                "image bytes."
             ),
         ),
         SemanticToolSpec(
@@ -442,9 +446,11 @@ def build_deed_to_ir_tool_specs() -> tuple[SemanticToolSpec, ...]:
                 "publish remains supported for backward compatibility but is advanced."
             ),
             expected_request_shape=(
-                "Preferred: final_package_preview_ref from prepare_deed_to_ir_final_package — do not pass row "
-                "fields; prepare a new preview to change scope/dependency/closure/notes. Align local readiness/"
-                "audit posture before publish; do not use publish to probe posture alignment. "
+                "Preferred after preview: copy recommended_publish_request from prepare_deed_to_ir_final_package, "
+                "or pass final_package_preview_ref only — do not pass row fields; prepare a new preview to change "
+                "scope/dependency/closure/notes. When preview_ready_summary.expected_next=publish_deed_to_ir_output, "
+                "publish is the normal next artifact-writing move. Do not wait for perfect local posture if the "
+                "preview is valid and remaining local state patch is only audit mirroring. "
                 "Direct (advanced): mapping_artifact_ref plus agent-authored scope_results, external_dependencies, "
                 "closure_dimensions, notes, and optional expected_ir_artifact_ref. "
                 "Publish revalidates preview identity and mapping lineage; stale preview returns retryable "

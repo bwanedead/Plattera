@@ -24,6 +24,7 @@ None of these hooks decide which refs matter — that is for the agent.
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from typing import Any
 
 from ...execution.contracts import ExecutionState, ExecutionStepRequest
@@ -35,6 +36,7 @@ from .hydrate_next import (
     HYDRATE_ARTIFACT_REFS_ACTION_ID,
     build_hydrate_next_record,
     build_tool_result_snapshot,
+    enrich_hydrate_next_resolution_errors,
     resolve_hydrate_next_refs,
 )
 from .orchestrator_turn import accumulate_image_evidence
@@ -82,6 +84,19 @@ def capture_hydrate_next_after_step(
         requested,
         tool_result=tool_snapshot,
         batch_results=batch_snapshot,
+    )
+    source_action_type = None
+    tool_outputs = None
+    if record is not None:
+        source_action_type = str(getattr(record, "action_type", None) or "").strip() or None
+        result = getattr(record, "result", None)
+        if result is not None:
+            raw_outputs = getattr(result, "outputs", None)
+            tool_outputs = raw_outputs if isinstance(raw_outputs, Mapping) else None
+    errors = enrich_hydrate_next_resolution_errors(
+        errors,
+        source_action_type=source_action_type,
+        tool_outputs=tool_outputs,
     )
     record_payload = build_hydrate_next_record(
         requested_refs=requested,
