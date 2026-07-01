@@ -34,6 +34,23 @@ ROW_CONTRACT_SUMMARY: dict[str, dict[str, Any]] = {
         "required": ["note_id", "summary"],
         "optional": ["basis_refs"],
     },
+    "upstream_corrections": {
+        "required": [
+            "correction_id",
+            "posture",
+            "resolution_used_by_ir",
+            "recommended_action",
+            "basis_refs",
+            "rationale",
+        ],
+        "optional": [
+            "title",
+            "target_entity_id",
+            "target_entity_type",
+            "upstream_value",
+            "corrected_value",
+        ],
+    },
 }
 
 PREPARE_VALIDATION_REPAIR_HINT = (
@@ -52,6 +69,7 @@ _SECTION_FIELDS = (
     "external_dependencies",
     "closure_dimensions",
     "notes",
+    "upstream_corrections",
 )
 
 
@@ -75,14 +93,22 @@ def validate_prepare_final_package_rows(
     external_dependencies: Any = None,
     closure_dimensions: Any = None,
     notes: Any = None,
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+    upstream_corrections: Any = None,
+) -> tuple[
+    list[dict[str, Any]],
+    list[dict[str, Any]],
+    list[dict[str, Any]],
+    list[dict[str, Any]],
+    list[dict[str, Any]],
+]:
     """Validate agent rows for prepare; enforce minimum final-package shape."""
     try:
-        scopes, deps, closure, note_rows = validate_agent_output_rows(
+        scopes, deps, closure, note_rows, corrections = validate_agent_output_rows(
             scope_results=scope_results,
             external_dependencies=external_dependencies,
             closure_dimensions=closure_dimensions,
             notes=notes,
+            upstream_corrections=upstream_corrections,
         )
     except PublishPayloadValidationError as exc:
         raise _attach_prepare_repair_context(
@@ -91,13 +117,14 @@ def validate_prepare_final_package_rows(
             external_dependencies=external_dependencies,
             closure_dimensions=closure_dimensions,
             notes=notes,
+            upstream_corrections=upstream_corrections,
         ) from exc
 
     validate_final_package_minimum_shape(
         scope_results=scopes,
         closure_dimensions=closure,
     )
-    return scopes, deps, closure, note_rows
+    return scopes, deps, closure, note_rows, corrections
 
 
 def validate_final_package_minimum_shape(
@@ -135,6 +162,7 @@ def build_rejected_payload_summary(
     external_dependencies: Any,
     closure_dimensions: Any,
     notes: Any,
+    upstream_corrections: Any = None,
 ) -> dict[str, dict[str, Any]]:
     summary: dict[str, dict[str, Any]] = {}
     for field_name, rows in (
@@ -142,6 +170,7 @@ def build_rejected_payload_summary(
         ("external_dependencies", external_dependencies),
         ("closure_dimensions", closure_dimensions),
         ("notes", notes),
+        ("upstream_corrections", upstream_corrections),
     ):
         summary[field_name] = _summarize_section_rows(rows)
     return summary
@@ -154,6 +183,7 @@ def compute_preserve_sections(
     external_dependencies: Any,
     closure_dimensions: Any,
     notes: Any,
+    upstream_corrections: Any = None,
 ) -> list[str]:
     sections_with_errors = _sections_with_validation_errors(validation_errors)
     preserve: list[str] = []
@@ -162,6 +192,7 @@ def compute_preserve_sections(
         ("external_dependencies", external_dependencies),
         ("closure_dimensions", closure_dimensions),
         ("notes", notes),
+        ("upstream_corrections", upstream_corrections),
     ):
         if isinstance(value, list) and section not in sections_with_errors:
             preserve.append(section)
@@ -175,6 +206,7 @@ def build_prepare_validation_repair_packet(
     external_dependencies: Any,
     closure_dimensions: Any,
     notes: Any,
+    upstream_corrections: Any = None,
 ) -> dict[str, Any]:
     return {
         "validation_errors": validation_errors,
@@ -183,6 +215,7 @@ def build_prepare_validation_repair_packet(
             external_dependencies=external_dependencies,
             closure_dimensions=closure_dimensions,
             notes=notes,
+            upstream_corrections=upstream_corrections,
         ),
         "row_contract_summary": dict(ROW_CONTRACT_SUMMARY),
         "repair_hint": PREPARE_VALIDATION_REPAIR_HINT,
@@ -192,6 +225,7 @@ def build_prepare_validation_repair_packet(
             external_dependencies=external_dependencies,
             closure_dimensions=closure_dimensions,
             notes=notes,
+            upstream_corrections=upstream_corrections,
         ),
     }
 
@@ -203,6 +237,7 @@ def final_package_prepare_validation_refusal(
     external_dependencies: Any = None,
     closure_dimensions: Any = None,
     notes: Any = None,
+    upstream_corrections: Any = None,
 ) -> dict[str, Any]:
     validation_errors = list(exc.validation_errors)
     repair_packet = exc.prepare_repair_packet
@@ -213,6 +248,7 @@ def final_package_prepare_validation_refusal(
             external_dependencies=external_dependencies,
             closure_dimensions=closure_dimensions,
             notes=notes,
+            upstream_corrections=upstream_corrections,
         )
     reason_code = exc.reason_code or PUBLISH_PAYLOAD_VALIDATION_FAILED
     return {
@@ -265,6 +301,7 @@ def _attach_prepare_repair_context(
     external_dependencies: Any,
     closure_dimensions: Any,
     notes: Any,
+    upstream_corrections: Any = None,
 ) -> PublishPayloadValidationError:
     return PublishPayloadValidationError(
         exc.validation_errors,
@@ -275,6 +312,7 @@ def _attach_prepare_repair_context(
             external_dependencies=external_dependencies,
             closure_dimensions=closure_dimensions,
             notes=notes,
+            upstream_corrections=upstream_corrections,
         ),
     )
 

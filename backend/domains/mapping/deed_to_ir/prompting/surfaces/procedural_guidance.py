@@ -9,7 +9,7 @@ from ..branch import DEED_TO_IR_DOMAIN_ID
 DEED_TO_IR_PROCEDURAL_GUIDANCE_SOURCE_REF = (
     "backend/domains/mapping/deed_to_ir/prompting/surfaces/procedural_guidance.py"
 )
-DEED_TO_IR_PROCEDURAL_GUIDANCE_VERSION = "v21"
+DEED_TO_IR_PROCEDURAL_GUIDANCE_VERSION = "v22"
 
 DEED_TO_IR_PROCEDURAL_GUIDANCE_TEXT = """\
 Use this guidance to orient deed-to-IR work. This is **guidance**, not a hard script.
@@ -93,6 +93,16 @@ Use this guidance to orient deed-to-IR work. This is **guidance**, not a hard sc
   - Required: `note_id`, `summary`
   - Optional: `basis_refs`
 - When prepare validation fails, inspect `rejected_payload_summary`, `row_contract_summary`, and `preserve_sections` — repair the invalid section without dropping valid sections.
+
+## Upstream correction report (final package only)
+- Trust transcript-edit as the normal starting point. Do not trigger transcript-edit repair repeatedly during drafting.
+- If map/geometry/deed logic exposes a concrete upstream handoff defect, investigate with transcript lanes and evidence refs while continuing to solve the IR/map.
+- During drafting, keep working notes local. Do not emit `upstream_corrections` as a live repair trigger.
+- If final IR/map **relies on a correction** to the inherited handoff, include one `upstream_corrections` row in the final package preview.
+- `upstream_corrections` are **final reports for later targeted transcript-edit amendment**, not automatic transcript mutation and not live repair runs.
+- Do not emit correction rows for ordinary blocked external dependencies — use `external_dependencies` for that.
+- Do not emit correction rows just because IR chose a normalized value already supported by the handoff.
+- Final published output may be correct and usable even before a later transcript-edit amendment exists.
 
 ## Mapping review and hydration discipline
 - After `submit_ir_for_mapping`, inspect `outputs.mapping_review` first.

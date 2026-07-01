@@ -14,6 +14,7 @@ from .published_output import (
     MAX_REF_LENGTH,
     OutputNoteRow,
     ScopeResultRow,
+    UpstreamCorrectionRow,
 )
 
 _REF_ARRAY_FIELDS = frozenset(
@@ -58,6 +59,11 @@ def build_publish_deed_to_ir_output_request_json_shape() -> dict[str, Any]:
                 parent_model=DeedToIrPublishedOutput,
                 field_name="notes",
                 item_model=OutputNoteRow,
+            ),
+            "upstream_corrections": _list_property_schema(
+                parent_model=DeedToIrPublishedOutput,
+                field_name="upstream_corrections",
+                item_model=UpstreamCorrectionRow,
             ),
         },
         "additionalProperties": False,

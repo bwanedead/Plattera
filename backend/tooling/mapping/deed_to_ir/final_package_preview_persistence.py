@@ -67,6 +67,7 @@ def prepare_deed_to_ir_final_package(
     external_dependencies: Any | None = None,
     closure_dimensions: Any | None = None,
     notes: Any | None = None,
+    upstream_corrections: Any | None = None,
     expected_ir_artifact_ref: str | None = None,
     persistence: FeatureGraphPersistenceService | None = None,
 ) -> dict[str, Any]:
@@ -104,11 +105,12 @@ def prepare_deed_to_ir_final_package(
         )
 
     try:
-        scopes, deps, closure, note_rows = validate_prepare_final_package_rows(
+        scopes, deps, closure, note_rows, corrections = validate_prepare_final_package_rows(
             scope_results=scope_results,
             external_dependencies=external_dependencies,
             closure_dimensions=closure_dimensions,
             notes=notes,
+            upstream_corrections=upstream_corrections,
         )
     except PublishPayloadValidationError as exc:
         return final_package_prepare_validation_refusal(
@@ -117,6 +119,7 @@ def prepare_deed_to_ir_final_package(
             external_dependencies=external_dependencies,
             closure_dimensions=closure_dimensions,
             notes=notes,
+            upstream_corrections=upstream_corrections,
         )
     except FinalPackageIncompleteError as exc:
         return final_package_incomplete_refusal(exc)
@@ -144,6 +147,7 @@ def prepare_deed_to_ir_final_package(
         external_dependencies=deps,  # type: ignore[arg-type]
         closure_dimensions=closure,  # type: ignore[arg-type]
         notes=note_rows,
+        upstream_corrections=corrections,  # type: ignore[arg-type]
         mechanical_review_summary=_build_mechanical_review_summary(package),
         lineage_summary=lineage_summary,
         publish_ready_candidate=True,
@@ -204,6 +208,7 @@ def prepare_deed_to_ir_final_package(
         external_dependencies=deps,
         closure_dimensions=closure,
         notes=note_rows,
+        upstream_corrections=corrections,
     )
     artifact_refs = [
         PREVIEW_REF,
@@ -287,6 +292,7 @@ def preview_to_published_output(preview: DeedToIrFinalPackagePreview) -> DeedToI
         external_dependencies=preview.external_dependencies,
         closure_dimensions=preview.closure_dimensions,
         notes=preview.notes,
+        upstream_corrections=preview.upstream_corrections,
     )
 
 

@@ -252,6 +252,7 @@ def _make_prepare_final_package_handler(
                 external_dependencies=inputs.get("external_dependencies"),
                 closure_dimensions=inputs.get("closure_dimensions"),
                 notes=inputs.get("notes"),
+                upstream_corrections=inputs.get("upstream_corrections"),
                 expected_ir_artifact_ref=_optional_str(inputs.get("expected_ir_artifact_ref")),
             )
         except Exception as exc:
@@ -280,6 +281,7 @@ def _make_publish_output_handler(
                 external_dependencies=inputs.get("external_dependencies"),
                 closure_dimensions=inputs.get("closure_dimensions"),
                 notes=inputs.get("notes"),
+                upstream_corrections=inputs.get("upstream_corrections"),
                 expected_ir_artifact_ref=_optional_str(inputs.get("expected_ir_artifact_ref")),
                 final_package_preview_ref=_optional_str(inputs.get("final_package_preview_ref")),
             )

@@ -273,5 +273,5 @@ def test_prepare_example_contains_all_sections_without_practice_tokens() -> None
     assert len(example["closure_dimensions"]) == 4
     assert len(example["notes"]) == 1
     dumped = json.dumps(example).lower()
-    for forbidden in ("parcel_1", "parcel_2", "range 74", "range 75", "canal", "practice"):
+    for forbidden in ("parcel_1", "parcel_2", "range 74", "range 75", "canal", "practice", "518", "542"):
         assert forbidden not in dumped

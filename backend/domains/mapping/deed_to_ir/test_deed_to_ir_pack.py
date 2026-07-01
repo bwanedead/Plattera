@@ -243,21 +243,42 @@ def test_procedural_guidance_emphasizes_draft_first_and_posture_before_publish()
     assert "represent it as an `annotation`" in guidance or "represent it as an annotation" in guidance
 
 
-def test_procedural_guidance_v21_preview_publish_handoff() -> None:
+def test_procedural_guidance_v22_upstream_corrections() -> None:
     block = next(
         b
         for b in build_deed_to_ir_domain_pack().build_semantic_prompt_blocks()
         if b.block_id == "deed_to_ir_procedural_guidance"
     )
-    assert block.version == "v21"
+    assert block.version == "v22"
     text = block.text.lower()
+    assert "upstream_corrections" in text
+    assert "final report" in text or "final reports" in text
+    assert "not automatic transcript mutation" in text or "not live repair" in text
+    assert "external_dependencies" in text
+    assert "trust transcript-edit" in text
     assert "publish launchpad" in text
     assert "recommended_publish_request" in text
     assert "working_preview_ref" in text
-    assert "derived_ref_id" in text
-    assert "do not hydrate the preview just to reread the same summary" in text
-    assert "ready_for_completion_candidate=true" in text
-    assert "normally call `complete_run`" in text or "call `complete_run`" in text
+
+
+def test_prepare_and_publish_tool_schemas_expose_upstream_corrections() -> None:
+    from domains.mapping.deed_to_ir.payloads.final_package_preview_tool_schema import (
+        build_prepare_deed_to_ir_final_package_request_json_shape,
+    )
+    from domains.mapping.deed_to_ir.payloads.published_output_tool_schema import (
+        build_publish_deed_to_ir_output_request_json_shape,
+    )
+
+    prepare_shape = build_prepare_deed_to_ir_final_package_request_json_shape()
+    publish_shape = build_publish_deed_to_ir_output_request_json_shape()
+    prepare_items = prepare_shape["properties"]["upstream_corrections"]["items"]
+    publish_items = publish_shape["properties"]["upstream_corrections"]["items"]
+    for items in (prepare_items, publish_items):
+        required = set(items["required"])
+        assert {"correction_id", "posture", "resolution_used_by_ir", "recommended_action", "basis_refs", "rationale"} <= required
+        assert items["additionalProperties"] is False
+        assert "posture" in items["properties"]
+        assert "recommended_action" in items["properties"]
 
 
 def test_startup_context_marks_operand_suite_as_core_anchor() -> None:
@@ -343,8 +364,10 @@ def test_prepare_tool_spec_example_is_complete_and_generic() -> None:
     assert len(example["external_dependencies"]) == 1
     assert len(example["closure_dimensions"]) == 4
     assert len(example["notes"]) == 1
+    assert len(example["upstream_corrections"]) == 1
+    assert example["upstream_corrections"][0]["correction_id"]
     dumped = json.dumps(example).lower()
-    for forbidden in ("parcel_1", "parcel_2", "range 74", "canal"):
+    for forbidden in ("parcel_1", "parcel_2", "range 74", "canal", "518", "542"):
         assert forbidden not in dumped
 
 

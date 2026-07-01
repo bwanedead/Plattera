@@ -11,7 +11,11 @@ MAX_SCOPE_RESULTS = 32
 MAX_EXTERNAL_DEPENDENCIES = 32
 MAX_CLOSURE_DIMENSIONS = 8
 MAX_NOTES = 16
+MAX_UPSTREAM_CORRECTIONS = 16
 MAX_ROW_REFS = 16
+MAX_RATIONALE_LENGTH = 1024
+MAX_CORRECTION_VALUE_LENGTH = 512
+MAX_TARGET_ENTITY_TYPE_LENGTH = 64
 MAX_NOTE_LENGTH = 512
 MAX_SUMMARY_LENGTH = 1024
 MAX_DESCRIPTION_LENGTH = 1024
@@ -127,6 +131,35 @@ class OutputNoteRow(BaseModel):
     _validate_basis_refs = field_validator("basis_refs")(_nonblank_ref_list)
 
 
+UpstreamCorrectionPosture = Literal["suspected", "confirmed_from_source", "needs_hitl"]
+UpstreamCorrectionRecommendedAction = Literal[
+    "transcript_amendment",
+    "ir_only_note",
+    "dependency_block",
+    "hitl_review",
+]
+
+
+class UpstreamCorrectionRow(BaseModel):
+    model_config = _MODEL_CONFIG
+
+    correction_id: str = Field(..., min_length=1, max_length=MAX_ID_LENGTH)
+    title: str | None = Field(None, max_length=MAX_TITLE_LENGTH)
+    target_entity_id: str | None = Field(None, max_length=MAX_ID_LENGTH)
+    target_entity_type: str | None = Field(None, max_length=MAX_TARGET_ENTITY_TYPE_LENGTH)
+    upstream_value: str | None = Field(None, max_length=MAX_CORRECTION_VALUE_LENGTH)
+    corrected_value: str | None = Field(None, max_length=MAX_CORRECTION_VALUE_LENGTH)
+    posture: UpstreamCorrectionPosture
+    resolution_used_by_ir: bool
+    recommended_action: UpstreamCorrectionRecommendedAction
+    basis_refs: list[str] = Field(..., min_length=1, max_length=MAX_ROW_REFS)
+    rationale: str = Field(..., min_length=1, max_length=MAX_RATIONALE_LENGTH)
+
+    _validate_correction_id = field_validator("correction_id")(_nonblank)
+    _validate_basis_refs = field_validator("basis_refs")(_nonblank_ref_list)
+    _validate_rationale = field_validator("rationale")(_nonblank)
+
+
 class DeedToIrPublishedOutput(BaseModel):
     model_config = _MODEL_CONFIG
 
@@ -143,6 +176,10 @@ class DeedToIrPublishedOutput(BaseModel):
         max_length=MAX_CLOSURE_DIMENSIONS,
     )
     notes: list[OutputNoteRow] = Field(default_factory=list, max_length=MAX_NOTES)
+    upstream_corrections: list[UpstreamCorrectionRow] = Field(
+        default_factory=list,
+        max_length=MAX_UPSTREAM_CORRECTIONS,
+    )
 
     @model_validator(mode="after")
     def _validate_uniqueness(self) -> DeedToIrPublishedOutput:
@@ -158,6 +195,9 @@ class DeedToIrPublishedOutput(BaseModel):
         note_ids = [row.note_id for row in self.notes]
         if len(note_ids) != len(set(note_ids)):
             raise ValueError("note_id_not_unique")
+        correction_ids = [row.correction_id for row in self.upstream_corrections]
+        if len(correction_ids) != len(set(correction_ids)):
+            raise ValueError("correction_id_not_unique")
         for row in self.closure_dimensions:
             if row.dimension_id not in ALLOWED_CLOSURE_DIMENSION_IDS:
                 raise ValueError("closure_dimension_id_invalid")

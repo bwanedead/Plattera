@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
+from .final_package_preview_projection import render_upstream_corrections_timeline_lines
+
 PUBLISH_GATE_PREVIEW_PACKAGE_INVALID = "preview_package_invalid"
 PUBLISH_GATE_MAPPING_LINEAGE_MISMATCH = "mapping_lineage_mismatch"
 PUBLISH_GATE_WORKSPACE_STORAGE_FAILURE = "workspace_storage_failure"
@@ -225,6 +227,15 @@ def render_publish_output_summary_timeline_lines(
                 )
         if parts:
             lines.append(f"{indent}  closure_dimension_statuses: {', '.join(parts)}")
+    lines.extend(
+        render_upstream_corrections_timeline_lines(
+            upstream_correction_count=outputs.get("upstream_correction_count"),
+            upstream_correction_summaries=outputs.get("upstream_correction_summaries")
+            if isinstance(outputs.get("upstream_correction_summaries"), list)
+            else None,
+            indent=f"{indent}  ",
+        )
+    )
     if summary.get("ready_for_completion_candidate") is not None:
         lines.append(
             f"{indent}  ready_for_completion_candidate: "

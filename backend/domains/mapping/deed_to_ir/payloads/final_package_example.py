@@ -59,4 +59,25 @@ def build_prepare_deed_to_ir_final_package_example_request() -> dict[str, Any]:
                 "basis_refs": [],
             }
         ],
+        "upstream_corrections": [
+            {
+                "correction_id": "example_call_distance_transcript_correction",
+                "title": "Example call distance correction",
+                "target_entity_id": "example_call2_distance",
+                "target_entity_type": "resolution_unit",
+                "upstream_value": "410 feet",
+                "corrected_value": "438 feet",
+                "posture": "confirmed_from_source",
+                "resolution_used_by_ir": True,
+                "recommended_action": "transcript_amendment",
+                "basis_refs": [
+                    "transcript_edit:resolution_state:example",
+                    "feature_graph:ir:example_bundle_v1",
+                    "feature_graph:mapping:mapping_example_bundle_ab12cd34",
+                ],
+                "rationale": (
+                    "Final IR and mapping rely on the corrected distance after source evidence review."
+                ),
+            }
+        ],
     }

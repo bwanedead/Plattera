@@ -11,11 +11,13 @@ from domains.mapping.deed_to_ir.payloads.published_output import (
     MAX_EXTERNAL_DEPENDENCIES,
     MAX_NOTES,
     MAX_SCOPE_RESULTS,
+    MAX_UPSTREAM_CORRECTIONS,
     ClosureDimensionRow,
     DeedToIrSelectedArtifacts,
     ExternalDependencyRow,
     OutputNoteRow,
     ScopeResultRow,
+    UpstreamCorrectionRow,
 )
 from feature_graph.artifact_refs import parse_feature_graph_artifact_ref
 from feature_graph.artifacts import CompileArtifact, IRArtifact, JudgeArtifact
@@ -198,7 +200,14 @@ def validate_agent_output_rows(
     external_dependencies: Any = None,
     closure_dimensions: Any = None,
     notes: Any = None,
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+    upstream_corrections: Any = None,
+) -> tuple[
+    list[dict[str, Any]],
+    list[dict[str, Any]],
+    list[dict[str, Any]],
+    list[dict[str, Any]],
+    list[dict[str, Any]],
+]:
     errors: list[dict[str, str]] = []
 
     scope_list, scope_type_errors = _require_row_list(scope_results, field_name="scope_results")
@@ -209,6 +218,11 @@ def validate_agent_output_rows(
     errors.extend(closure_type_errors)
     note_list, note_type_errors = _require_row_list(notes, field_name="notes")
     errors.extend(note_type_errors)
+    correction_list, correction_type_errors = _require_row_list(
+        upstream_corrections,
+        field_name="upstream_corrections",
+    )
+    errors.extend(correction_type_errors)
 
     if len(scope_list) > MAX_SCOPE_RESULTS:
         errors.append(
@@ -240,6 +254,14 @@ def validate_agent_output_rows(
                 path="notes",
                 code="cap_exceeded",
                 message=f"notes exceeds maximum of {MAX_NOTES} items",
+            )
+        )
+    if len(correction_list) > MAX_UPSTREAM_CORRECTIONS:
+        errors.append(
+            _cap_error(
+                path="upstream_corrections",
+                code="cap_exceeded",
+                message=f"upstream_corrections exceeds maximum of {MAX_UPSTREAM_CORRECTIONS} items",
             )
         )
 
@@ -287,6 +309,17 @@ def validate_agent_output_rows(
             validated_notes.append(validated)
         errors.extend(row_errors)
 
+    validated_corrections: list[dict[str, Any]] = []
+    for index, row in enumerate(correction_list):
+        validated, row_errors = _validate_row_at(
+            UpstreamCorrectionRow,
+            row,
+            path_prefix=f"upstream_corrections[{index}]",
+        )
+        if validated is not None:
+            validated_corrections.append(validated)
+        errors.extend(row_errors)
+
     _collect_uniqueness_errors(
         [row["scope_id"] for row in validated_scopes],
         path="scope_results",
@@ -311,6 +344,12 @@ def validate_agent_output_rows(
         code="note_id_not_unique",
         errors=errors,
     )
+    _collect_uniqueness_errors(
+        [row["correction_id"] for row in validated_corrections],
+        path="upstream_corrections",
+        code="correction_id_not_unique",
+        errors=errors,
+    )
     for index, row in enumerate(validated_closure):
         dimension_id = row["dimension_id"]
         if dimension_id not in ALLOWED_CLOSURE_DIMENSION_IDS:
@@ -325,7 +364,7 @@ def validate_agent_output_rows(
     if errors:
         raise PublishPayloadValidationError(tuple(_bound_errors(errors)))
 
-    return validated_scopes, validated_deps, validated_closure, validated_notes
+    return validated_scopes, validated_deps, validated_closure, validated_notes, validated_corrections
 
 
 def _require_row_list(value: Any, *, field_name: str) -> tuple[list[Any], list[dict[str, str]]]:

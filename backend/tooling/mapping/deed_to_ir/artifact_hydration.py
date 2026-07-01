@@ -680,8 +680,10 @@ def _hydrate_deed_to_ir_output_ref(
         MAX_EXTERNAL_DEPENDENCIES,
         MAX_NOTES,
         MAX_SCOPE_RESULTS,
+        MAX_UPSTREAM_CORRECTIONS,
         DeedToIrPublishedOutput,
     )
+    from .final_package_preview_projection import compact_upstream_correction_summaries
     from .output_persistence import load_published_output, resolve_workspace_key
     from .output_refs import parse_output_ref
 
@@ -726,6 +728,10 @@ def _hydrate_deed_to_ir_output_ref(
         [row.model_dump(mode="json") for row in output.notes],
         MAX_NOTES,
     )
+    corrections, corrections_meta = _bound_list(
+        [row.model_dump(mode="json") for row in output.upstream_corrections],
+        MAX_UPSTREAM_CORRECTIONS,
+    )
     row: dict[str, Any] = {
         "ref_id": ref_id,
         "artifact_type": "deed_to_ir_output",
@@ -736,6 +742,9 @@ def _hydrate_deed_to_ir_output_ref(
         "external_dependencies": deps,
         "closure_dimensions": closure,
         "notes": notes,
+        "upstream_correction_count": len(output.upstream_corrections),
+        "upstream_correction_summaries": compact_upstream_correction_summaries(corrections),
+        "upstream_corrections": corrections,
     }
     trunc = {
         k: v
@@ -744,6 +753,7 @@ def _hydrate_deed_to_ir_output_ref(
             "external_dependencies": deps_meta or None,
             "closure_dimensions": closure_meta or None,
             "notes": notes_meta or None,
+            "upstream_corrections": corrections_meta or None,
         }.items()
         if v
     }

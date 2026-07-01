@@ -18,6 +18,8 @@ from .published_output import (
     MAX_SCOPE_RESULTS,
     OutputNoteRow,
     ScopeResultRow,
+    UpstreamCorrectionRow,
+    MAX_UPSTREAM_CORRECTIONS,
     _MODEL_CONFIG,
 )
 
@@ -60,6 +62,10 @@ class DeedToIrFinalPackagePreview(BaseModel):
         max_length=MAX_CLOSURE_DIMENSIONS,
     )
     notes: list[OutputNoteRow] = Field(default_factory=list, max_length=MAX_NOTES)
+    upstream_corrections: list[UpstreamCorrectionRow] = Field(
+        default_factory=list,
+        max_length=MAX_UPSTREAM_CORRECTIONS,
+    )
     mechanical_review_summary: MechanicalReviewSummary
     lineage_summary: LineageSummary
     publish_ready_candidate: bool
@@ -78,6 +84,9 @@ class DeedToIrFinalPackagePreview(BaseModel):
         note_ids = [row.note_id for row in self.notes]
         if len(note_ids) != len(set(note_ids)):
             raise ValueError("note_id_not_unique")
+        correction_ids = [row.correction_id for row in self.upstream_corrections]
+        if len(correction_ids) != len(set(correction_ids)):
+            raise ValueError("correction_id_not_unique")
         for row in self.closure_dimensions:
             if row.dimension_id not in ALLOWED_CLOSURE_DIMENSION_IDS:
                 raise ValueError("closure_dimension_id_invalid")

@@ -51,12 +51,73 @@ def enrich_prepare_preview_tool_outputs(
     return outputs
 
 
+def compact_upstream_correction_summaries(
+    rows: list[dict[str, Any]] | list[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    summaries: list[dict[str, Any]] = []
+    for row in rows:
+        if not isinstance(row, Mapping):
+            continue
+        correction_id = row.get("correction_id")
+        if not correction_id:
+            continue
+        summaries.append(
+            {
+                "correction_id": correction_id,
+                "posture": row.get("posture"),
+                "recommended_action": row.get("recommended_action"),
+                "target_entity_id": row.get("target_entity_id"),
+                "resolution_used_by_ir": row.get("resolution_used_by_ir"),
+            }
+        )
+    return summaries
+
+
+def render_upstream_corrections_timeline_lines(
+    *,
+    upstream_correction_count: int | None = None,
+    upstream_correction_summaries: list[Mapping[str, Any]] | None = None,
+    upstream_corrections: list[Mapping[str, Any]] | None = None,
+    indent: str = "  ",
+) -> list[str]:
+    summaries = upstream_correction_summaries
+    if summaries is None and isinstance(upstream_corrections, list):
+        summaries = compact_upstream_correction_summaries(list(upstream_corrections))
+    if not isinstance(summaries, list):
+        summaries = []
+    count = upstream_correction_count
+    if count is None:
+        count = len(summaries)
+    if not count:
+        return []
+    lines = [f"{indent}upstream_corrections: {count}"]
+    for row in summaries:
+        if not isinstance(row, Mapping):
+            continue
+        correction_id = str(row.get("correction_id") or "").strip()
+        if not correction_id:
+            continue
+        parts = [f"posture={row.get('posture') or '?'}"]
+        action = row.get("recommended_action")
+        if action:
+            parts.append(f"action={action}")
+        target = row.get("target_entity_id")
+        if target:
+            parts.append(f"target={target}")
+        used = row.get("resolution_used_by_ir")
+        if used is not None:
+            parts.append(f"used_by_ir={str(bool(used)).lower()}")
+        lines.append(f"{indent}- {correction_id} {' '.join(parts)}")
+    return lines
+
+
 def compact_preview_row_summaries(
     *,
     scope_results: list[dict[str, Any]],
     external_dependencies: list[dict[str, Any]],
     closure_dimensions: list[dict[str, Any]],
     notes: list[dict[str, Any]],
+    upstream_corrections: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     scope_summaries = [
         {"scope_id": row.get("scope_id"), "status": row.get("status")}
@@ -68,6 +129,7 @@ def compact_preview_row_summaries(
         for row in closure_dimensions
         if isinstance(row, dict) and row.get("dimension_id")
     ]
+    corrections = upstream_corrections or []
     return {
         "scope_summaries": scope_summaries,
         "scope_result_count": len(scope_results),
@@ -75,6 +137,8 @@ def compact_preview_row_summaries(
         "closure_dimension_statuses": closure_dimension_statuses,
         "closure_dimension_count": len(closure_dimensions),
         "note_count": len(notes),
+        "upstream_correction_count": len(corrections),
+        "upstream_correction_summaries": compact_upstream_correction_summaries(corrections),
     }
 
 
@@ -97,6 +161,9 @@ def build_preview_hydration_payload(
         if isinstance(preview.get("closure_dimensions"), list)
         else [],
         notes=list(preview.get("notes") or []) if isinstance(preview.get("notes"), list) else [],
+        upstream_corrections=list(preview.get("upstream_corrections") or [])
+        if isinstance(preview.get("upstream_corrections"), list)
+        else [],
     )
     return {
         "ref_id": ref_id,
@@ -173,6 +240,19 @@ def render_final_package_preview_timeline_lines(
             dep_count = len(deps)
     if isinstance(dep_count, int):
         lines.append(f"{indent}  dependencies: {dep_count}")
+
+    lines.extend(
+        render_upstream_corrections_timeline_lines(
+            upstream_correction_count=preview.get("upstream_correction_count"),
+            upstream_correction_summaries=preview.get("upstream_correction_summaries")
+            if isinstance(preview.get("upstream_correction_summaries"), list)
+            else None,
+            upstream_corrections=preview.get("upstream_corrections")
+            if isinstance(preview.get("upstream_corrections"), list)
+            else None,
+            indent=f"{indent}  ",
+        )
+    )
 
     closure_statuses = preview.get("closure_dimension_statuses")
     if not isinstance(closure_statuses, list):
@@ -324,6 +404,9 @@ def render_final_package_preview_tool_output(
             "external_dependencies",
             "closure_dimension_statuses",
             "closure_dimensions",
+            "upstream_correction_count",
+            "upstream_correction_summaries",
+            "upstream_corrections",
             "publish_ready_candidate",
             "preview_ready_summary",
             "recommended_publish_request",

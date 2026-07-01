@@ -42,6 +42,7 @@ from .publish_gate_feedback import (
     build_final_output_summary,
     enrich_publish_refusal_result,
 )
+from .final_package_preview_projection import compact_upstream_correction_summaries
 
 # Backward-compatible aliases for co-located tests and lazy imports.
 _atomic_write_json = atomic_write_json
@@ -80,6 +81,7 @@ def publish_deed_to_ir_output(
     external_dependencies: Any | None = None,
     closure_dimensions: Any | None = None,
     notes: Any | None = None,
+    upstream_corrections: Any | None = None,
     expected_ir_artifact_ref: str | None = None,
     final_package_preview_ref: str | None = None,
     persistence: FeatureGraphPersistenceService | None = None,
@@ -98,6 +100,7 @@ def publish_deed_to_ir_output(
             external_dependencies,
             closure_dimensions,
             notes,
+            upstream_corrections,
             expected_ir_artifact_ref,
         )
         if any(field not in (None, [], "") for field in row_fields):
@@ -132,6 +135,7 @@ def publish_deed_to_ir_output(
         external_dependencies=external_dependencies,
         closure_dimensions=closure_dimensions,
         notes=notes,
+        upstream_corrections=upstream_corrections,
         expected_ir_artifact_ref=expected_ir_artifact_ref,
         persistence=persistence,
     )
@@ -150,6 +154,7 @@ def _publish_direct(
     external_dependencies: Any | None = None,
     closure_dimensions: Any | None = None,
     notes: Any | None = None,
+    upstream_corrections: Any | None = None,
     expected_ir_artifact_ref: str | None = None,
     persistence: FeatureGraphPersistenceService | None = None,
 ) -> dict[str, Any]:
@@ -190,11 +195,12 @@ def _publish_direct(
             )
 
     try:
-        scopes, deps, closure, note_rows = validate_agent_output_rows(
+        scopes, deps, closure, note_rows, corrections = validate_agent_output_rows(
             scope_results=scope_results,
             external_dependencies=external_dependencies,
             closure_dimensions=closure_dimensions,
             notes=notes,
+            upstream_corrections=upstream_corrections,
         )
     except PublishPayloadValidationError as exc:
         return _enrich_publish_result(_validation_failure_refusal(exc))
@@ -216,6 +222,7 @@ def _publish_direct(
         external_dependencies=deps,  # type: ignore[arg-type]
         closure_dimensions=closure,  # type: ignore[arg-type]
         notes=note_rows,
+        upstream_corrections=corrections,  # type: ignore[arg-type]
     )
     return _persist_published_output(
         dossier_id=dossier_id,
@@ -392,6 +399,7 @@ def _persist_published_output(
     deps = [row.model_dump(mode="json") for row in published.external_dependencies]
     closure = [row.model_dump(mode="json") for row in published.closure_dimensions]
     note_rows = [row.model_dump(mode="json") for row in published.notes]
+    correction_rows = [row.model_dump(mode="json") for row in published.upstream_corrections]
     artifact_refs = [
         OUTPUT_REF,
         revision_ref,
@@ -425,6 +433,8 @@ def _persist_published_output(
         "closure_dimension_count": len(closure),
         "closure_dimension_statuses": closure_dimension_statuses,
         "note_count": len(note_rows),
+        "upstream_correction_count": len(correction_rows),
+        "upstream_correction_summaries": compact_upstream_correction_summaries(correction_rows),
         "final_output_summary": build_final_output_summary(publish_succeeded=True),
     }
     if preview_ref:
