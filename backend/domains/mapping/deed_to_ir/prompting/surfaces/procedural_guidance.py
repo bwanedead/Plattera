@@ -9,7 +9,7 @@ from ..branch import DEED_TO_IR_DOMAIN_ID
 DEED_TO_IR_PROCEDURAL_GUIDANCE_SOURCE_REF = (
     "backend/domains/mapping/deed_to_ir/prompting/surfaces/procedural_guidance.py"
 )
-DEED_TO_IR_PROCEDURAL_GUIDANCE_VERSION = "v22"
+DEED_TO_IR_PROCEDURAL_GUIDANCE_VERSION = "v23"
 
 DEED_TO_IR_PROCEDURAL_GUIDANCE_TEXT = """\
 Use this guidance to orient deed-to-IR work. This is **guidance**, not a hard script.
@@ -89,16 +89,22 @@ Use this guidance to orient deed-to-IR work. This is **guidance**, not a hard sc
   - Required: `dimension_id`, `status`
   - Optional: `title`, `summary`, `basis_refs`
   - Use the supported closure dimension ids from the schema (all four layers required in the preview).
-- `notes`: non-blocking handoff notes.
+- `notes`: non-blocking handoff commentary only — **notes are not the correction lane**.
   - Required: `note_id`, `summary`
   - Optional: `basis_refs`
+  - Use notes for context that does not report an upstream value delta the final IR relied on.
 - When prepare validation fails, inspect `rejected_payload_summary`, `row_contract_summary`, and `preserve_sections` — repair the invalid section without dropping valid sections.
 
 ## Upstream correction report (final package only)
 - Trust transcript-edit as the normal starting point. Do not trigger transcript-edit repair repeatedly during drafting.
-- If map/geometry/deed logic exposes a concrete upstream handoff defect, investigate with transcript lanes and evidence refs while continuing to solve the IR/map.
+- If map/geometry/deed logic exposes a concrete upstream handoff defect, investigate with targeted source evidence refs (`image:derived:*`, `image:assoc:*` via `hydrate_artifact_refs`) and transcript lanes while continuing to solve the IR/map.
 - During drafting, keep working notes local. Do not emit `upstream_corrections` as a live repair trigger.
-- If final IR/map **relies on a correction** to the inherited handoff, include one `upstream_corrections` row in the final package preview.
+- **`upstream_corrections` are the machine-readable correction lane** for upstream handoff/transcript/resolution deltas the final IR actually relied on.
+- If final IR uses a value different from inherited `mapping_operands`, selected resolution rows, or transcript-edit output — and that difference is intentional — put it in **`upstream_corrections`**, not only in `notes`.
+- Do not duplicate the same correction as both a note and an upstream correction unless the note carries separate non-corrective context.
+- If the correction is merely suspected and not used by IR: `posture="suspected"` and `resolution_used_by_ir=false`.
+- If the correction was used by IR: set `resolution_used_by_ir=true` and include source/evidence basis in `basis_refs`.
+- If final IR/map **relies on a correction** to the inherited handoff, include one or more `upstream_corrections` rows in the final package preview.
 - `upstream_corrections` are **final reports for later targeted transcript-edit amendment**, not automatic transcript mutation and not live repair runs.
 - Do not emit correction rows for ordinary blocked external dependencies — use `external_dependencies` for that.
 - Do not emit correction rows just because IR chose a normalized value already supported by the handoff.
@@ -108,6 +114,7 @@ Use this guidance to orient deed-to-IR work. This is **guidance**, not a hard sc
 - After `submit_ir_for_mapping`, inspect `outputs.mapping_review` first.
 - Prefer `outputs.mapping_review.recommended_review_refs` over `@this.result.artifact_refs[]` for ordinary mapping review — do not bulk-hydrate every returned ref by habit.
 - Hydrate specific refs only when needed: control render for visual map review, geometry ref for feature/coordinate inspection, mapping ref for compact lineage and counts.
+- For upstream source repair, hydrate targeted transcript-edit evidence refs (`image:derived:*`, `image:assoc:*`) via `hydrate_artifact_refs` — do not bulk-hydrate the entire transcript-edit artifact universe.
 - When publishing, set `mapping_artifact_ref` and `expected_ir_artifact_ref` from `outputs.mapping_review.recommended_publish_refs` (or the same fields on a hydrated mapping row), then prepare final package preview before publish.
 - If any `patch_ir_draft` occurs after mapping, resubmit the patched draft for mapping before publishing — stale mapping lineage is refused retryably when `expected_ir_artifact_ref` does not match.
 

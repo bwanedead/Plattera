@@ -11,10 +11,9 @@ import pytest
 from domains.mapping.deed_to_ir.runtime_adapter import build_deed_to_ir_runtime_adapter
 from domains.mapping.deed_to_ir.test_fixtures.corrupted_handoff_fixture import (
     _CORRUPTION_UNIT_ID,
-    assert_corrupted_operand_differs_from_source_lanes,
+    assert_contradiction_variant_operand_differs_from_source_lanes,
     corrupted_fixture_root,
     extract_corrupted_operand_value,
-    extract_source_lane_distance_text,
     find_resolution_unit,
     iter_covered_units,
     load_fixture_manifest,
@@ -130,9 +129,7 @@ def test_corrupted_fixture_differs_only_in_intended_bounded_areas() -> None:
 
 def test_corrupted_resolution_operand_changed_and_source_lane_preserves_correct_value() -> None:
     assert extract_corrupted_operand_value() == "618 feet"
-    source_text = extract_source_lane_distance_text()
-    assert "518 feet" in source_text
-    assert_corrupted_operand_differs_from_source_lanes()
+    assert_contradiction_variant_operand_differs_from_source_lanes()
 
 
 def test_runtime_adapter_launches_with_corrupted_fixture_paths() -> None:

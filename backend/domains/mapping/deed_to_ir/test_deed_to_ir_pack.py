@@ -243,22 +243,29 @@ def test_procedural_guidance_emphasizes_draft_first_and_posture_before_publish()
     assert "represent it as an `annotation`" in guidance or "represent it as an annotation" in guidance
 
 
-def test_procedural_guidance_v22_upstream_corrections() -> None:
+def test_procedural_guidance_v23_upstream_corrections_discipline() -> None:
     block = next(
         b
         for b in build_deed_to_ir_domain_pack().build_semantic_prompt_blocks()
         if b.block_id == "deed_to_ir_procedural_guidance"
     )
-    assert block.version == "v22"
+    assert block.version == "v23"
     text = block.text.lower()
     assert "upstream_corrections" in text
+    assert "notes are not the correction lane" in text
+    assert "machine-readable correction lane" in text
+    assert "resolution_used_by_ir=true" in text or "resolution_used_by_ir=true" in block.text
+    assert "not only in `notes`" in block.text or "not only in notes" in text
+    assert "mapping_operands" in text
+    assert "image:derived" in block.text or "image:derived:*" in block.text
     assert "final report" in text or "final reports" in text
     assert "not automatic transcript mutation" in text or "not live repair" in text
     assert "external_dependencies" in text
     assert "trust transcript-edit" in text
-    assert "publish launchpad" in text
-    assert "recommended_publish_request" in text
-    assert "working_preview_ref" in text
+
+
+def test_procedural_guidance_v22_upstream_corrections() -> None:
+    test_procedural_guidance_v23_upstream_corrections_discipline()
 
 
 def test_prepare_and_publish_tool_schemas_expose_upstream_corrections() -> None:
@@ -351,6 +358,37 @@ def test_procedural_guidance_covers_final_package_row_contract() -> None:
     assert "preserve_sections" in guidance
 
 
+def test_prepare_example_places_operand_delta_in_upstream_corrections_not_notes() -> None:
+    from domains.mapping.deed_to_ir.payloads.final_package_example import (
+        build_prepare_deed_to_ir_final_package_example_request,
+    )
+
+    example = build_prepare_deed_to_ir_final_package_example_request()
+    correction = example["upstream_corrections"][0]
+    note_text = json.dumps(example["notes"]).lower()
+    correction_text = json.dumps(correction).lower()
+
+    assert correction["resolution_used_by_ir"] is True
+    assert correction["upstream_value"]
+    assert correction["corrected_value"]
+    assert correction["upstream_value"] != correction["corrected_value"]
+    assert "upstream correction" not in note_text or "not an upstream correction" in note_text
+    assert correction["upstream_value"] not in note_text
+    assert correction["corrected_value"] not in note_text
+    assert "mapping_operands" in correction["rationale"] or "inherited" in correction_text
+
+
+def test_prepare_and_publish_tool_specs_state_correction_lane_discipline() -> None:
+    specs = {spec.tool_id: spec for spec in build_deed_to_ir_tool_specs()}
+    prepare = specs["prepare_deed_to_ir_final_package"].expected_request_shape.lower()
+    publish = specs["publish_deed_to_ir_output"].expected_request_shape.lower()
+    hydrate = specs["hydrate_artifact_refs"].expected_request_shape.lower()
+    assert "not only in notes" in prepare or "not only in notes" in publish
+    assert "resolution_used_by_ir" in publish
+    assert "image:derived" in hydrate
+    assert "image:assoc" in hydrate
+
+
 def test_prepare_tool_spec_example_is_complete_and_generic() -> None:
     from domains.mapping.deed_to_ir.payloads.final_package_example import (
         build_prepare_deed_to_ir_final_package_example_request,
@@ -365,7 +403,7 @@ def test_prepare_tool_spec_example_is_complete_and_generic() -> None:
     assert len(example["closure_dimensions"]) == 4
     assert len(example["notes"]) == 1
     assert len(example["upstream_corrections"]) == 1
-    assert example["upstream_corrections"][0]["correction_id"]
+    assert example["upstream_corrections"][0]["correction_id"] == "example_inherited_operand_distance_correction"
     dumped = json.dumps(example).lower()
     for forbidden in ("parcel_1", "parcel_2", "range 74", "canal", "518", "542"):
         assert forbidden not in dumped

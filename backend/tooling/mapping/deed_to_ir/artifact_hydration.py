@@ -20,6 +20,8 @@ from services.feature_graph.feature_graph_mapping_sidecar_service import (
 )
 from services.feature_graph.feature_graph_persistence_service import FeatureGraphPersistenceService
 
+from .upstream_source_evidence_hydration import hydrate_upstream_source_evidence_ref
+
 REF_PREFIXES = ARTIFACT_REF_PREFIXES
 IR_REF_PREFIX = ARTIFACT_REF_PREFIXES["ir"]
 DOSSIER_ARTIFACT_REF_PREFIX = "artifact://dossiers/"
@@ -174,6 +176,20 @@ def hydrate_feature_graph_artifact_refs(
                 results.append(row)
             else:
                 errors.append({"ref_id": text, "reason": error or "operand_suite_hydration_failed"})
+            continue
+        if text.startswith("image:assoc:") or text.startswith("image:derived:"):
+            row, error, evidence = hydrate_upstream_source_evidence_ref(
+                dossier_id=dossier_id,
+                transcription_id=transcription_id,
+                ref_id=text,
+                handoff_context=handoff_context,
+            )
+            if row is not None:
+                results.append(row)
+                if evidence is not None:
+                    image_evidence.append(evidence)
+            else:
+                errors.append({"ref_id": text, "reason": (error or {}).get("reason", "hydration_failed")})
             continue
         if text.startswith("deed_to_ir:final_package_preview"):
             row, error = _hydrate_final_package_preview_ref(

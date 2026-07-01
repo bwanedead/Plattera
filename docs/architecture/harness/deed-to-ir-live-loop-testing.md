@@ -81,24 +81,90 @@ during deed-to-IR startup.
 Use this frozen handoff when running the standard deed-to-IR live loop. Expected
 behavior: efficient publish/complete against a clean inherited handoff.
 
-### Corrupted handoff repair test (secondary)
+### Corrupted handoff repair tests (secondary)
 
-Use only when explicitly asked to run the **corrupted handoff repair test**. Fixture:
+Use only when explicitly asked to run a **corrupted handoff repair test**. Two
+variants exist; pick the one that matches the test goal:
+
+#### 1. Contradiction fixture (`corrupted_handoff_call_distance`)
 
 ```text
 practice_deeds/right_of_way/deed_to_ir/variants/corrupted_handoff_call_distance/
+```
+
+- corrupts `p1_call2_distance` in resolution state to **618 feet**
+- transcript lanes still show the source-supported **518 feet**
+- tests whether deed-to-IR notices operand-vs-transcript contradiction
+- expected: if final IR uses the transcript-supported value over the inherited
+  operand, final package includes **`upstream_corrections`**, not only `notes`
+
+#### 2. Source repair fixture (`corrupted_handoff_source_repair`)
+
+```text
+practice_deeds/right_of_way/deed_to_ir/variants/corrupted_handoff_source_repair/
+```
+
+- corrupts `p1_call2_distance` in resolution state **and** both transcript lanes
+  to **618 feet** (simulates transcript-edit making the wrong value durable)
+- preserves upstream source evidence refs (e.g. `image:derived:*` crops) that
+  still support the correct value
+- tests map/source sanity repair — not obvious transcript-lane contradiction
+- expected: agent detects suspicious inherited value or geometry, hydrates targeted
+  source evidence via `hydrate_artifact_refs`, repairs IR, and reports
+  **`upstream_corrections`** with `resolution_used_by_ir=true`
+- critical source evidence backup:
+  `practice_deeds/right_of_way/transcript_edit/practice-row-live-20260619-76/evidence/derived_images/`
+  (see **Upstream lineage fixture / recovery** below)
+
+Both variants are derived from the normal frozen handoff. Manifests label them as
+test fixture variants — not real transcript-edit output. Runtime startup must
+not expose manifest answer keys to the model.
+
+Both use the same `deed_to_ir` run collection and auto-allocated
+`deed-to-ir-live-r000000XX` ids.
+
+### Upstream lineage fixture / recovery
+
+Optional local backup for upstream transcript-edit run `practice-row-live-20260619-76`.
+This directory is intentionally git-ignored; keep it on the development machine as
+a recovery asset, not as a committed fixture:
+
+```text
+practice_deeds/right_of_way/transcript_edit/practice-row-live-20260619-76/
   fixture_manifest.json
   transcript_edit_output.json
   resolution_state.json
+  source/draft_legal_text_image_original.jpg
+  evidence/derived_images/
+    fba6f159e40d4010896245d6525d4acf.json
+    fba6f159e40d4010896245d6525d4acf.png
 ```
 
-This variant is derived from the normal frozen handoff. It deliberately corrupts
-one mapping-critical resolution operand (`p1_call2_distance`) while transcript
-lanes preserve the source-supported value. The manifest labels it as a test
-fixture variant — not real transcript-edit output.
+Purpose:
 
-Expected behavior: publish/complete with at least one `upstream_corrections` row
-when the agent confirms repair from source/verbatim evidence.
+- preserve upstream handoff + source image + critical `p1_call2_distance` crop
+- recover when mutable local transcript-edit artifacts are damaged (e.g. fake 1×1
+  test PNGs overwriting live derived images)
+
+Rules:
+
+- do **not** commit this backup directory; `practice_deeds/right_of_way/transcript_edit/`
+  is local-only recovery storage
+- do **not** write tests into the live
+  `backend/dossiers_data/artifacts/transcript_edit/.../practice-row-live-20260619-76/`
+  directory; use temp paths + monkeypatch (see synthetic evidence test helpers)
+- the fixture manifest is for operators/tests only — never expose it to the
+  deed-to-IR runtime agent as evidence
+
+Restore critical crop to live artifacts (PowerShell, repo venv active, from
+`backend/`):
+
+```powershell
+python -c "from domains.mapping.deed_to_ir.test_fixtures.transcript_edit_lineage_fixture import restore_critical_evidence_to_live_artifacts; print(restore_critical_evidence_to_live_artifacts(dossier_id='9f5eecb6-cd7e-483c-b691-b76aa7132e8e', transcription_id='draft_legal_text_image', workspace_id='practice-row-live-20260619-76', allow_live_restore=True))"
+```
+
+After restore, smoke-check hydration shows `width_height: [3200, 1350]` (not
+`[1, 1]`) for ref `image:derived:fba6f159e40d4010896245d6525d4acf`.
 
 ---
 
@@ -185,13 +251,26 @@ Guidance:
 - prefer `max_iterations: 100` for roomier live testing
 - automatic ids look like `deed-to-ir-live-r00000001` and increase per collection
 
-### 5b. Corrupted handoff repair test
+### 5b. Corrupted handoff repair tests
 
-Use this block **only** when explicitly running the corrupted handoff repair test.
-The launch flow is identical; only fixture paths change:
+Use these blocks **only** when explicitly running a corrupted handoff repair test.
+The launch flow is identical; only `$fixtureRoot` changes.
+
+**Contradiction fixture:**
 
 ```powershell
 $fixtureRoot = (Resolve-Path "..\practice_deeds\right_of_way\deed_to_ir\variants\corrupted_handoff_call_distance").Path
+```
+
+**Source repair fixture:**
+
+```powershell
+$fixtureRoot = (Resolve-Path "..\practice_deeds\right_of_way\deed_to_ir\variants\corrupted_handoff_source_repair").Path
+```
+
+Shared launch block (set `$fixtureRoot` first):
+
+```powershell
 $contextObject = @{
   dossier_id = "9f5eecb6-cd7e-483c-b691-b76aa7132e8e"
   transcription_id = "draft_legal_text_image"
@@ -231,8 +310,8 @@ $startResult.human_timeline_path
 
 Corrupted-run guidance for the testing agent:
 
-- use the corrupted fixture **only** when explicitly asked for the corrupted
-  handoff repair test; do not substitute it for normal practice runs
+- use a corrupted fixture **only** when explicitly asked for that variant; do not
+  substitute it for normal practice runs
 - do **not** create scratch `run_id` files; let the CLI auto-allocate the id
 - watch the normal deed-to-IR timeline path under
   `backend/harness/cli_artifacts/cli_runs/by_loop_kind/deed_to_ir/<runId>/audit/human/timeline.md`
@@ -240,8 +319,9 @@ Corrupted-run guidance for the testing agent:
   mapping, or publication progress)
 - do **not** mutate the normal frozen fixture at
   `practice_deeds/right_of_way/deed_to_ir/`
+- record upstream value deltas in **`upstream_corrections`**, not only in `notes`
 
-Success signals for the corrupted repair test:
+Success signals (both corrupted variants):
 
 - saves/patches IR
 - submits mapping
@@ -250,12 +330,24 @@ Success signals for the corrupted repair test:
 - completes the run
 - includes `upstream_corrections` documenting the upstream delta when repair was
   needed and confirmed from source/verbatim/evidence basis
+- sets `resolution_used_by_ir=true` when the final IR used the corrected value
+
+Additional success signals for **source repair** (`corrupted_handoff_source_repair`):
+
+- initially sees corrupted inherited operand/transcript agreement (618 feet)
+- drafts/maps or otherwise detects geometry/source sanity issue
+- hydrates targeted source evidence refs (`image:derived:*`, `image:assoc:*`) via
+  `hydrate_artifact_refs` — not the whole transcript-edit artifact universe
+- patches or authors IR using source-supported value
+- final package preview includes an `upstream_corrections` row; published output
+  preserves that row
 
 Failure signals:
 
-- blindly publishes the corrupted resolution operand with no correction
-- repeatedly rereads transcript lanes without drafting/patching IR
+- blindly publishes the corrupted value with no correction
+- corrects value but records only a `notes` row (notes are not the correction lane)
 - emits `upstream_corrections` rows without source/verbatim/evidence basis
+- repeatedly rereads broad transcript lanes without targeted evidence inspection
 - spawns or requests transcript-edit repair during drafting (out of scope)
 - mutates the normal frozen fixture
 
@@ -447,8 +539,11 @@ After a live run, inspect:
 ## 9. Related Code
 
 - Frozen fixture (normal): `practice_deeds/right_of_way/deed_to_ir/`
-- Corrupted fixture variant: `practice_deeds/right_of_way/deed_to_ir/variants/corrupted_handoff_call_distance/`
-- Fixture integrity tests: `backend/domains/mapping/deed_to_ir/test_corrupted_handoff_fixture.py`
+- Upstream transcript-edit lineage backup: `practice_deeds/right_of_way/transcript_edit/practice-row-live-20260619-76/`
+- Corrupted contradiction variant: `practice_deeds/right_of_way/deed_to_ir/variants/corrupted_handoff_call_distance/`
+- Corrupted source-repair variant: `practice_deeds/right_of_way/deed_to_ir/variants/corrupted_handoff_source_repair/`
+- Lineage fixture helpers: `backend/domains/mapping/deed_to_ir/test_fixtures/transcript_edit_lineage_fixture.py`
+- Lineage integrity tests: `backend/domains/mapping/deed_to_ir/test_transcript_edit_lineage_fixture.py`
 - Resolution path loader: `backend/tooling/mapping/deed_to_ir/resolution_state_loading.py`
 - Generic runtime entrypoint: `backend/harness/runtime/runner/entrypoint.py`
 - Upstream run lineage: `backend/harness/runtime/upstream_run_lineage.py`
