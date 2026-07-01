@@ -1,0 +1,31 @@
+{
+  "schema_version": "deed_to_ir_live_handoff_fixture.v1",
+  "fixture_variant": "corrupted_handoff_call_distance",
+  "fixture_variant_label": "Test fixture variant \u2014 deliberate upstream handoff corruption (not real transcript-edit output)",
+  "fixture_variant_purpose": "Live deed-to-IR repair-behavior test: corrupted resolution operand with transcript lanes preserving source-supported value",
+  "derived_from_fixture": "practice_deeds/right_of_way/deed_to_ir",
+  "corruption_target": {
+    "unit_id": "p1_call2_distance",
+    "resolution_state_value": "618 feet",
+    "source_supported_value": "518 feet",
+    "source_lane": "source_transcript_verbatim and normalized_or_mapping_transcript"
+  },
+  "source_upstream_run_id": "practice-row-live-20260619-76",
+  "dossier_id": "9f5eecb6-cd7e-483c-b691-b76aa7132e8e",
+  "transcription_id": "draft_legal_text_image",
+  "transcript_output_ref": "transcript_edit:output",
+  "resolution_state_ref": "transcript_edit:resolution_state:practice-row-live-20260619-76",
+  "files": {
+    "transcript_edit_output.json": {
+      "sha256": "7db51786f2560aebfdb98311752e46e5b3280aff3daa7b6f19ae49e99021841b",
+      "byte_length": 9053
+    },
+    "resolution_state.json": {
+      "sha256": "aefb917f0e3c4b8e50e64102e6a4693c527a7b4c68094fa5be4bbdca7a9998f6",
+      "byte_length": 71363,
+      "item_count": 5,
+      "relation_count": 4,
+      "covered_unit_count": 15
+    }
+  }
+}

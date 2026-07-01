@@ -28,6 +28,8 @@ For practice-deed expectations, read
 For upstream transcript-edit context, read
 [`docs/architecture/harness/transcript-edit-live-loop-testing.md`](./transcript-edit-live-loop-testing.md).
 
+For repair-behavior testing, use the **Corrupted Handoff Repair Test** section below.
+
 ---
 
 ## 2. Non-Negotiable Standards
@@ -74,6 +76,30 @@ Practice identities:
 There is **no automatic latest-run selection** and **no live CLI upstream read**
 during deed-to-IR startup.
 
+### Normal practice test (default)
+
+Use this frozen handoff when running the standard deed-to-IR live loop. Expected
+behavior: efficient publish/complete against a clean inherited handoff.
+
+### Corrupted handoff repair test (secondary)
+
+Use only when explicitly asked to run the **corrupted handoff repair test**. Fixture:
+
+```text
+practice_deeds/right_of_way/deed_to_ir/variants/corrupted_handoff_call_distance/
+  fixture_manifest.json
+  transcript_edit_output.json
+  resolution_state.json
+```
+
+This variant is derived from the normal frozen handoff. It deliberately corrupts
+one mapping-critical resolution operand (`p1_call2_distance`) while transcript
+lanes preserve the source-supported value. The manifest labels it as a test
+fixture variant — not real transcript-edit output.
+
+Expected behavior: publish/complete with at least one `upstream_corrections` row
+when the agent confirms repair from source/verbatim evidence.
+
 ---
 
 ## 4. Inherited Handoff vs Fresh Deed-to-IR Mission State
@@ -100,7 +126,9 @@ cd backend
 ```
 
 Start a run with the **generic harness runtime entrypoint**. The CLI allocates a
-sortable run id automatically when `--run-id` is omitted:
+sortable run id automatically when `--run-id` is omitted.
+
+### 5a. Normal practice test
 
 ```powershell
 $fixtureRoot = (Resolve-Path "..\practice_deeds\right_of_way\deed_to_ir").Path
@@ -156,6 +184,83 @@ Guidance:
   child process from `resolution_state_snapshot_path`
 - prefer `max_iterations: 100` for roomier live testing
 - automatic ids look like `deed-to-ir-live-r00000001` and increase per collection
+
+### 5b. Corrupted handoff repair test
+
+Use this block **only** when explicitly running the corrupted handoff repair test.
+The launch flow is identical; only fixture paths change:
+
+```powershell
+$fixtureRoot = (Resolve-Path "..\practice_deeds\right_of_way\deed_to_ir\variants\corrupted_handoff_call_distance").Path
+$contextObject = @{
+  dossier_id = "9f5eecb6-cd7e-483c-b691-b76aa7132e8e"
+  transcription_id = "draft_legal_text_image"
+  max_iterations = 100
+  transcript_edit_output_path = Join-Path $fixtureRoot "transcript_edit_output.json"
+  resolution_state_ref = "transcript_edit:resolution_state:practice-row-live-20260619-76"
+  resolution_state_snapshot_path = Join-Path $fixtureRoot "resolution_state.json"
+  upstream_run_lineage = @{
+    schema_version = "upstream_run_lineage.v1"
+    upstream_runs = @(
+      @{
+        run_id = "practice-row-live-20260619-76"
+        domain_id = "transcript_edit"
+        relation = "input_handoff"
+        handoff_refs = @(
+          "transcript_edit:output"
+          "transcript_edit:resolution_state:practice-row-live-20260619-76"
+        )
+      }
+    )
+  }
+}
+$ctx = $contextObject | ConvertTo-Json -Depth 6 -Compress
+
+$startResult = python -m harness.cli.start `
+  --loop-kind deed_to_ir `
+  --python-module harness.runtime.runner.entrypoint `
+  --module-arg=--domain-id `
+  --module-arg=deed_to_ir `
+  --module-arg=--launch-context-json `
+  --module-arg=$ctx | ConvertFrom-Json
+
+$runId = $startResult.run_id
+$startResult.run_collection
+$startResult.human_timeline_path
+```
+
+Corrupted-run guidance for the testing agent:
+
+- use the corrupted fixture **only** when explicitly asked for the corrupted
+  handoff repair test; do not substitute it for normal practice runs
+- do **not** create scratch `run_id` files; let the CLI auto-allocate the id
+- watch the normal deed-to-IR timeline path under
+  `backend/harness/cli_artifacts/cli_runs/by_loop_kind/deed_to_ir/<runId>/audit/human/timeline.md`
+- stop and review if the run appears to spin (repeated reads without drafting,
+  mapping, or publication progress)
+- do **not** mutate the normal frozen fixture at
+  `practice_deeds/right_of_way/deed_to_ir/`
+
+Success signals for the corrupted repair test:
+
+- saves/patches IR
+- submits mapping
+- prepares final package
+- publishes output
+- completes the run
+- includes `upstream_corrections` documenting the upstream delta when repair was
+  needed and confirmed from source/verbatim/evidence basis
+
+Failure signals:
+
+- blindly publishes the corrupted resolution operand with no correction
+- repeatedly rereads transcript lanes without drafting/patching IR
+- emits `upstream_corrections` rows without source/verbatim/evidence basis
+- spawns or requests transcript-edit repair during drafting (out of scope)
+- mutates the normal frozen fixture
+
+After launch, use the same `status`, `watch`, `answer`, `pause`, `stop`, and
+`resume` commands from section 5a with the allocated `$runId`.
 
 Check status:
 
@@ -317,6 +422,10 @@ During a healthy deed-to-IR live run you should eventually see:
 - published deed-to-IR output revision (`deed_to_ir:output`, `deed_to_ir:output:rev:NNNN`)
 - audit timeline entries for tool calls and publish outputs
 
+For the **corrupted handoff repair test**, also confirm published output (or final
+package preview) includes at least one `upstream_corrections` row when the agent
+relied on a corrected value instead of the corrupted resolution operand.
+
 Absence of publish output alone does not mean the harness failed; it may mean the
 agent has not yet earned publication.
 
@@ -337,7 +446,9 @@ After a live run, inspect:
 
 ## 9. Related Code
 
-- Frozen fixture: `practice_deeds/right_of_way/deed_to_ir/`
+- Frozen fixture (normal): `practice_deeds/right_of_way/deed_to_ir/`
+- Corrupted fixture variant: `practice_deeds/right_of_way/deed_to_ir/variants/corrupted_handoff_call_distance/`
+- Fixture integrity tests: `backend/domains/mapping/deed_to_ir/test_corrupted_handoff_fixture.py`
 - Resolution path loader: `backend/tooling/mapping/deed_to_ir/resolution_state_loading.py`
 - Generic runtime entrypoint: `backend/harness/runtime/runner/entrypoint.py`
 - Upstream run lineage: `backend/harness/runtime/upstream_run_lineage.py`
