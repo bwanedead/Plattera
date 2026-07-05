@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +18,7 @@ from services.feature_graph.feature_graph_persistence_service import FeatureGrap
 
 from .artifact_hydration import image_evidence_from_png_path, resolve_sidecar_path_for_ref
 from .mapping_review import build_mapping_review_from_mapping_artifact
+from .mapping_sanity import attach_sanity_review_to_mapping_review, build_operand_evidence_index
 
 
 def submit_ir_for_mapping(
@@ -25,6 +27,8 @@ def submit_ir_for_mapping(
     ir_artifact_ref: str,
     persistence: FeatureGraphPersistenceService | None = None,
     submission: FeatureGraphMappingSubmissionService | None = None,
+    resolution_state_snapshot: Mapping[str, Any] | None = None,
+    handoff_context: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     if not dossier_id:
         raise ValueError("dossier_id_required")
@@ -82,6 +86,15 @@ def submit_ir_for_mapping(
         compile_gap_count=len(compile_outcome.artifact.gaps),
         judge_gap_count=len(judge_outcome.artifact.report.gaps),
     )
+    attach_sanity_review_to_mapping_review(
+        mapping_review,
+        graph=ir_artifact.graph,
+        compile_artifact=compile_outcome.artifact,
+        operand_evidence_index=_resolve_operand_evidence_index(
+            resolution_state_snapshot=resolution_state_snapshot,
+            handoff_context=handoff_context,
+        ),
+    )
 
     return {
         "executed": True,
@@ -106,6 +119,22 @@ def submit_ir_for_mapping(
             "mapping_review": mapping_review,
         },
     }
+
+
+def _resolve_operand_evidence_index(
+    *,
+    resolution_state_snapshot: Mapping[str, Any] | None,
+    handoff_context: Mapping[str, Any] | None,
+) -> dict[str, list[str]] | None:
+    snapshot = resolution_state_snapshot
+    if snapshot is None and isinstance(handoff_context, Mapping):
+        raw = handoff_context.get("resolution_state_snapshot")
+        if isinstance(raw, Mapping):
+            snapshot = raw
+    if snapshot is None:
+        return None
+    index = build_operand_evidence_index(snapshot)
+    return index or None
 
 
 def _default_submission_service(

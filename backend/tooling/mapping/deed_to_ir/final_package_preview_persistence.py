@@ -32,6 +32,7 @@ from .final_package_validation import (
 from .output_package_validation import (
     PublishPayloadValidationError,
     ResolvedMappingPackage,
+    mapping_artifact_not_found_refusal,
     resolve_mapping_publish_package,
 )
 from .persistence_io import (
@@ -94,7 +95,14 @@ def prepare_deed_to_ir_final_package(
             sidecars=sidecars,
         )
     except ValueError as exc:
-        return refusal(str(exc).strip(), str(exc).strip())
+        code = str(exc).strip()
+        if code == "mapping_artifact_not_found":
+            return mapping_artifact_not_found_refusal(
+                persistence=service,
+                dossier_id=dossier_id,
+                requested_ref=str(mapping_artifact_ref).strip(),
+            )
+        return refusal(code, code)
 
     expected_ir_ref = str(expected_ir_artifact_ref or "").strip()
     actual_ir_ref = str(package.selected_artifacts.ir_artifact_ref or "").strip()

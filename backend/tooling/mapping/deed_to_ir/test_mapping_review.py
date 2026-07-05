@@ -82,6 +82,7 @@ def test_submit_output_includes_mapping_review() -> None:
     assert submitted["executed"] is True
     review = submitted["outputs"]["mapping_review"]
     assert review["mapping_artifact_ref"] == submitted["outputs"]["mapping_artifact_ref"]
+    assert review.get("sanity_review") is not None
     assert review["source_ir_artifact_ref"] == ir_ref
     assert review["recommended_publish_refs"]["expected_ir_artifact_ref"] == ir_ref
     assert review["recommended_publish_refs"]["mapping_artifact_ref"] == review["mapping_artifact_ref"]

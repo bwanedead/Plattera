@@ -249,6 +249,7 @@ def hydrate_feature_graph_artifact_refs(
                 dossier_id=dossier_id,
                 persistence=service,
                 working_draft_ref=working_draft_ref,
+                handoff_context=handoff_context,
             )
         )
     payload: dict[str, Any] = {
@@ -272,6 +273,7 @@ def _hydrated_row(
     dossier_id: str | None = None,
     persistence: FeatureGraphPersistenceService | None = None,
     working_draft_ref: str | None = None,
+    handoff_context: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     artifact_type = str(artifact.get("artifact_type") or "")
     row: dict[str, Any] = {
@@ -364,11 +366,18 @@ def _hydrated_row(
             row["truncated"] = trunc
         if persistence is not None and dossier_id:
             from .mapping_review import build_mapping_review_from_persisted_mapping
+            from .mapping_sanity import build_operand_evidence_index
 
+            operand_evidence_index = None
+            if isinstance(handoff_context, Mapping):
+                operand_evidence_index = build_operand_evidence_index(
+                    handoff_context.get("resolution_state_snapshot")
+                ) or None
             review = build_mapping_review_from_persisted_mapping(
                 mapping_raw=artifact,
                 persistence=persistence,
                 dossier_id=dossier_id,
+                operand_evidence_index=operand_evidence_index,
             )
             if review is not None:
                 row["mapping_review"] = review

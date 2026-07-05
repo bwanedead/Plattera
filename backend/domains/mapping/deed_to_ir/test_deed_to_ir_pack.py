@@ -249,7 +249,7 @@ def test_procedural_guidance_v23_upstream_corrections_discipline() -> None:
         for b in build_deed_to_ir_domain_pack().build_semantic_prompt_blocks()
         if b.block_id == "deed_to_ir_procedural_guidance"
     )
-    assert block.version == "v23"
+    assert block.version == "v24"
     text = block.text.lower()
     assert "upstream_corrections" in text
     assert "notes are not the correction lane" in text
@@ -266,6 +266,22 @@ def test_procedural_guidance_v23_upstream_corrections_discipline() -> None:
 
 def test_procedural_guidance_v22_upstream_corrections() -> None:
     test_procedural_guidance_v23_upstream_corrections_discipline()
+
+
+def test_procedural_guidance_v24_mapping_sanity_discipline() -> None:
+    block = next(
+        b
+        for b in build_deed_to_ir_domain_pack().build_semantic_prompt_blocks()
+        if b.block_id == "deed_to_ir_procedural_guidance"
+    )
+    assert block.version == "v24"
+    text = block.text.lower()
+    assert "sanity_review" in text
+    assert "endpoint displacement" in text
+    assert "source-sanity trigger" in text
+    assert "not automatically a deed defect" in text
+    assert "full canonical refs" in text
+    assert "intentionally open alignments" in text
 
 
 def test_prepare_and_publish_tool_schemas_expose_upstream_corrections() -> None:

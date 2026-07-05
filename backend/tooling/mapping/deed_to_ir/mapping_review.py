@@ -5,8 +5,16 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
+from feature_graph.artifact_refs import build_feature_graph_artifact_ref, parse_feature_graph_artifact_ref
+from feature_graph.artifacts import CompileArtifact, IRArtifact
 from feature_graph.mapping_artifacts import MappingArtifact
 from services.feature_graph.feature_graph_persistence_service import FeatureGraphPersistenceService
+
+from .mapping_sanity import (
+    attach_sanity_review_to_mapping_review,
+    compact_sanity_review_for_projection,
+    render_sanity_review_timeline_lines,
+)
 
 MAX_RECOMMENDED_REVIEW_REFS = 3
 
@@ -96,6 +104,7 @@ def build_mapping_review_from_persisted_mapping(
     mapping_raw: Mapping[str, Any],
     persistence: FeatureGraphPersistenceService,
     dossier_id: str,
+    operand_evidence_index: dict[str, list[str]] | None = None,
 ) -> dict[str, Any] | None:
     """Rebuild mapping_review from a stored mapping artifact payload."""
     if str(mapping_raw.get("artifact_type") or "") != "mapping":
@@ -115,10 +124,8 @@ def build_mapping_review_from_persisted_mapping(
     skipped = len(mapping.skipped_features)
     if skipped <= 0 and isinstance(mapping.geometry.skipped_feature_count, int):
         skipped = mapping.geometry.skipped_feature_count
-    from feature_graph.artifact_refs import build_feature_graph_artifact_ref
-
     mapping_ref = build_feature_graph_artifact_ref("mapping", mapping.artifact_id)
-    return build_mapping_review_from_mapping_artifact(
+    review = build_mapping_review_from_mapping_artifact(
         mapping=mapping,
         mapping_artifact_ref=mapping_ref,
         compiled_feature_count=compiled,
@@ -127,6 +134,20 @@ def build_mapping_review_from_persisted_mapping(
         compile_gap_count=compile_gap,
         judge_gap_count=judge_gap,
     )
+    graph, compile_artifact = _load_graph_and_compile_for_mapping(
+        persistence=persistence,
+        dossier_id=dossier_id,
+        mapping=mapping,
+        mapping_raw=mapping_raw,
+    )
+    if graph is not None and compile_artifact is not None:
+        attach_sanity_review_to_mapping_review(
+            review,
+            graph=graph,
+            compile_artifact=compile_artifact,
+            operand_evidence_index=operand_evidence_index,
+        )
+    return review
 
 
 def compact_mapping_review_for_projection(
@@ -145,6 +166,9 @@ def compact_mapping_review_for_projection(
         "skipped_feature_count": mapping_review.get("skipped_feature_count"),
         "recommended_publish_refs": mapping_review.get("recommended_publish_refs"),
     }
+    sanity_compact = compact_sanity_review_for_projection(mapping_review.get("sanity_review"))
+    if sanity_compact is not None:
+        compact["sanity_review"] = sanity_compact
     filtered = {key: value for key, value in compact.items() if value is not None}
     return filtered or None
 
@@ -187,6 +211,7 @@ def render_mapping_review_timeline_lines(
                 f"{indent}  publish: mapping_artifact_ref={mapping_ref or ''} "
                 f"expected_ir_artifact_ref={expected_ir or ''}"
             )
+    lines.extend(render_sanity_review_timeline_lines(mapping_review.get("sanity_review"), indent=indent))
     return lines
 
 
@@ -248,3 +273,37 @@ def _evaluation_counts_from_mapping_artifact(
                 if isinstance(gaps, list):
                     judge_gap_count = len(gaps)
     return compile_gap_count, judge_gap_count, compiled_feature_count
+
+
+def _load_graph_and_compile_for_mapping(
+    *,
+    persistence: FeatureGraphPersistenceService,
+    dossier_id: str,
+    mapping: MappingArtifact,
+    mapping_raw: Mapping[str, Any],
+) -> tuple[Any | None, CompileArtifact | None]:
+    compile_id = str(mapping_raw.get("compile_artifact_id") or mapping.compile_artifact_id or "").strip()
+    if compile_id.startswith("feature_graph:compile:"):
+        try:
+            _, compile_id = parse_feature_graph_artifact_ref(compile_id)
+        except ValueError:
+            compile_id = ""
+    compile_raw = persistence.get_artifact(dossier_id, compile_id) if compile_id else None
+    compile_artifact: CompileArtifact | None = None
+    if isinstance(compile_raw, Mapping):
+        try:
+            compile_artifact = CompileArtifact.model_validate(dict(compile_raw))
+        except Exception:
+            compile_artifact = None
+
+    source_ir_ref = str(mapping.source_ir_artifact_ref or "").strip()
+    graph = None
+    if source_ir_ref.startswith("feature_graph:ir:"):
+        try:
+            _, ir_id = parse_feature_graph_artifact_ref(source_ir_ref)
+            ir_raw = persistence.get_artifact(dossier_id, ir_id)
+            if isinstance(ir_raw, Mapping):
+                graph = IRArtifact.model_validate(dict(ir_raw)).graph
+        except Exception:
+            graph = None
+    return graph, compile_artifact

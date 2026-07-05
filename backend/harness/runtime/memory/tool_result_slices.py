@@ -631,23 +631,24 @@ def _content_row_length(row: Mapping[str, Any]) -> int:
 
 
 def _shrink_artifact_refs(slice_row: dict[str, Any]) -> bool:
+    """Drop artifact ref lists to fit budget; never char-truncate copyable refs."""
     refs = slice_row.get("artifact_refs")
     if not isinstance(refs, list) or not refs:
         return False
+    if slice_row.get("mapping_review") is not None:
+        slice_row.pop("artifact_refs", None)
+        slice_row.pop("latest_artifact_ref", None)
+        slice_row["artifact_refs_omitted"] = int(slice_row.get("artifact_refs_omitted") or 0) + len(refs)
+        return True
     if any(len(str(ref)) > _MAX_ARTIFACT_REF_CHARS for ref in refs):
-        trimmed = [str(ref)[:_MAX_ARTIFACT_REF_CHARS] for ref in refs]
-        slice_row["artifact_refs"] = trimmed
-        slice_row["latest_artifact_ref"] = trimmed[0] if trimmed else None
+        slice_row.pop("artifact_refs", None)
+        slice_row.pop("latest_artifact_ref", None)
+        slice_row["artifact_refs_omitted"] = int(slice_row.get("artifact_refs_omitted") or 0) + len(refs)
         return True
     if len(refs) > 1:
         slice_row["artifact_refs"] = refs[:-1]
         slice_row["artifact_refs_omitted"] = int(slice_row.get("artifact_refs_omitted") or 0) + 1
         slice_row["latest_artifact_ref"] = slice_row["artifact_refs"][0]
-        return True
-    if len(str(refs[0])) > 32:
-        trimmed = str(refs[0])[:32]
-        slice_row["artifact_refs"] = [trimmed]
-        slice_row["latest_artifact_ref"] = trimmed
         return True
     return False
 
@@ -1065,7 +1066,7 @@ def _build_bounded_slice_row(
     )
     artifact_refs = row.get("artifact_refs") if isinstance(row.get("artifact_refs"), list) else []
     if mapping_review_summary is not None and artifact_refs:
-        artifact_refs = [str(artifact_refs[0])[:_MAX_ARTIFACT_REF_CHARS]]
+        artifact_refs = []
     source_window_summary = _extract_source_window_summary(outputs)
     structural_metadata = (
         _cap_structural_metadata(_extract_structural_metadata(outputs))

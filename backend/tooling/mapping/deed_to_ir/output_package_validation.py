@@ -503,3 +503,54 @@ def _bound_errors(errors: list[dict[str, str]]) -> list[dict[str, str]]:
         )
     )
     return bounded
+
+
+def list_valid_mapping_refs(
+    *,
+    persistence: FeatureGraphPersistenceService,
+    dossier_id: str,
+    limit: int = 8,
+) -> list[str]:
+    """List recent canonical mapping artifact refs for a dossier."""
+    from feature_graph.artifact_refs import build_feature_graph_artifact_ref
+
+    entries = persistence.list_artifacts(dossier_id=dossier_id, artifact_type="mapping")
+    entries.sort(key=lambda item: str((item or {}).get("saved_at") or ""), reverse=True)
+    refs: list[str] = []
+    for entry in entries[: max(1, limit)]:
+        artifact_id = str((entry or {}).get("artifact_id") or "").strip()
+        if not artifact_id:
+            continue
+        refs.append(build_feature_graph_artifact_ref("mapping", artifact_id))
+    return refs
+
+
+def mapping_artifact_not_found_refusal(
+    *,
+    persistence: FeatureGraphPersistenceService,
+    dossier_id: str,
+    requested_ref: str | None = None,
+) -> dict[str, Any]:
+    code = "mapping_artifact_not_found"
+    valid_mapping_refs = list_valid_mapping_refs(persistence=persistence, dossier_id=dossier_id)
+    message = "Mapping artifact was not found in the current dossier."
+    if requested_ref:
+        message = f"Mapping artifact '{requested_ref}' was not found in the current dossier."
+    return {
+        "executed": False,
+        "refusal": {
+            "reason_code": code,
+            "retryable": True,
+            "blocked_by_invariant": False,
+            "blocked_by_budget": False,
+            "missing_inputs": [],
+        },
+        "outputs": {
+            "error": {"code": code, "message": message},
+            "valid_mapping_refs": valid_mapping_refs,
+            "repair_hint": (
+                "Use the full mapping_artifact_ref returned by submit_ir_for_mapping "
+                "or mapping_review.recommended_publish_refs."
+            ),
+        },
+    }

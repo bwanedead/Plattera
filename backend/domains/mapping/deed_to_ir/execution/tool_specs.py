@@ -393,10 +393,12 @@ def build_deed_to_ir_tool_specs() -> tuple[SemanticToolSpec, ...]:
             },
             expected_result_shape=(
                 "On success: outputs.mapping_review carries compact refs, counts, recommended_review_refs, "
-                "and recommended_publish_refs. Prefer mapping_review.recommended_review_refs over "
-                "@this.result.artifact_refs[] for post-submit inspection. artifact_refs still lists all "
-                "persisted refs. Top-level image_evidence carries clean/control PNG payloads. outputs also "
-                "include bounded counts, coordinate_space, world_bbox, and canonical refs without filesystem paths."
+                "recommended_publish_refs, and sanity_review (feature_metrics, course_leg_tables, "
+                "endpoint_displacement_candidates, recommended_source_evidence_refs, review_questions). "
+                "Prefer mapping_review.recommended_review_refs over @this.result.artifact_refs[] for "
+                "post-submit inspection. artifact_refs still lists all persisted refs. Top-level image_evidence "
+                "carries clean/control PNG payloads. outputs also include bounded counts, coordinate_space, "
+                "world_bbox, and canonical refs without filesystem paths."
             ),
         ),
         SemanticToolSpec(
@@ -419,7 +421,9 @@ def build_deed_to_ir_tool_specs() -> tuple[SemanticToolSpec, ...]:
                 "correction report guidance. scope_results and all four closure_dimensions are required. "
                 "Invalid rows return retryable validation_errors plus rejected_payload_summary, "
                 "row_contract_summary, preserve_sections, and repair_hint. "
-                "Expected IR mismatch returns retryable mapping_ir_lineage_mismatch and persists nothing."
+                "Expected IR mismatch returns retryable mapping_ir_lineage_mismatch and persists nothing. "
+                "Missing mapping ref returns retryable mapping_artifact_not_found with valid_mapping_refs "
+                "and repair_hint; nothing is persisted."
             ),
             expected_request_json_shape=build_prepare_deed_to_ir_final_package_request_json_shape(),
             example_request=build_prepare_deed_to_ir_final_package_example_request(),

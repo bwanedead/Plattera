@@ -107,7 +107,7 @@ def _tool_handler_entries(
         ),
         (
             "submit_ir_for_mapping",
-            _make_submit_ir_handler(dossier_id=dossier_id),
+            _make_submit_ir_handler(dossier_id=dossier_id, handoff=handoff),
         ),
         (
             "prepare_deed_to_ir_final_package",
@@ -215,7 +215,11 @@ def _make_patch_ir_draft_handler(
     return handler
 
 
-def _make_submit_ir_handler(*, dossier_id: str) -> Callable[[Any], Any]:
+def _make_submit_ir_handler(
+    *,
+    dossier_id: str,
+    handoff: DeedToIrStartupHandoff,
+) -> Callable[[Any], Any]:
     def handler(request: Any) -> dict[str, Any]:
         inputs = _extract_inputs(request)
         ir_artifact_ref = _optional_str(inputs.get("ir_artifact_ref"))
@@ -225,6 +229,7 @@ def _make_submit_ir_handler(*, dossier_id: str) -> Callable[[Any], Any]:
             return submit_ir_for_mapping(
                 dossier_id=dossier_id,
                 ir_artifact_ref=ir_artifact_ref,
+                resolution_state_snapshot=handoff.resolution_state_snapshot,
             )
         except Exception as exc:
             return _exception_refusal(exc)

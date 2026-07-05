@@ -187,6 +187,114 @@ def _draw_course_arrows(draw: ImageDraw.ImageDraw, ctx: RenderContext, propertie
             _draw_direction_markers(draw, ctx, start, end)
 
 
+def _draw_dashed_world_line(
+    draw: ImageDraw.ImageDraw,
+    ctx: RenderContext,
+    start: list[float],
+    end: list[float],
+    *,
+    color: tuple[int, int, int] = (220, 38, 38),
+    dash_len: float = 8.0,
+    gap_len: float = 5.0,
+) -> None:
+    sx, sy = ctx.world_to_canvas(float(start[0]), float(start[1]))
+    ex, ey = ctx.world_to_canvas(float(end[0]), float(end[1]))
+    length = math.hypot(ex - sx, ey - sy)
+    if length < 1.0:
+        return
+    dx = (ex - sx) / length
+    dy = (ey - sy) / length
+    pos = 0.0
+    draw_segment = True
+    while pos < length:
+        segment = dash_len if draw_segment else gap_len
+        next_pos = min(length, pos + segment)
+        if draw_segment:
+            x1 = sx + dx * pos
+            y1 = sy + dy * pos
+            x2 = sx + dx * next_pos
+            y2 = sy + dy * next_pos
+            draw.line([(x1, y1), (x2, y2)], fill=color, width=1)
+        pos = next_pos
+        draw_segment = not draw_segment
+
+
+def _draw_endpoint_gap_annotation(
+    draw: ImageDraw.ImageDraw,
+    ctx: RenderContext,
+    geometry: dict[str, Any],
+    *,
+    occupied: dict[str, int],
+) -> None:
+    if geometry.get("type") != "LineString":
+        return
+    coords = geometry.get("coordinates")
+    if not isinstance(coords, list) or len(coords) < 2:
+        return
+    start = coords[0]
+    end = coords[-1]
+    if not isinstance(start, list) or not isinstance(end, list) or len(start) < 2 or len(end) < 2:
+        return
+    gap = math.hypot(float(end[0]) - float(start[0]), float(end[1]) - float(start[1]))
+    if gap < 0.5:
+        return
+    _draw_dashed_world_line(draw, ctx, start, end)
+    mid_x = (float(start[0]) + float(end[0])) / 2.0
+    mid_y = (float(start[1]) + float(end[1])) / 2.0
+    cx, cy = ctx.world_to_canvas(mid_x, mid_y)
+    label_x, label_y = _control_label_position((cx, cy), occupied=occupied)
+    draw.text((label_x, label_y), f"gap {gap:.1f} ft", fill=(220, 38, 38))
+
+
+def _draw_course_leg_labels(
+    draw: ImageDraw.ImageDraw,
+    ctx: RenderContext,
+    properties: dict[str, Any],
+    geometry: dict[str, Any],
+    *,
+    occupied: dict[str, int],
+) -> None:
+    courses = properties.get("courses")
+    coords = geometry.get("coordinates")
+    if not isinstance(courses, list) or not isinstance(coords, list) or len(coords) < 2:
+        return
+    for index, course in enumerate(courses[:12]):
+        leg_index = index + 1
+        if index + 1 >= len(coords):
+            break
+        start = coords[index]
+        end = coords[index + 1]
+        if not isinstance(start, list) or not isinstance(end, list) or len(start) < 2 or len(end) < 2:
+            continue
+        mid_x = (float(start[0]) + float(end[0])) / 2.0
+        mid_y = (float(start[1]) + float(end[1])) / 2.0
+        cx, cy = ctx.world_to_canvas(mid_x, mid_y)
+        label_x, label_y = _control_label_position((cx, cy), occupied=occupied)
+        distance = course.get("distance") if isinstance(course, dict) else None
+        bearing = course.get("bearing") if isinstance(course, dict) else None
+        if isinstance(distance, (int, float)):
+            if isinstance(bearing, (int, float)):
+                text = f"L{leg_index} {float(distance):g}ft @{float(bearing):.1f}°"
+            else:
+                text = f"L{leg_index} {float(distance):g}ft"
+        else:
+            text = f"L{leg_index}"
+        draw.text((label_x, label_y), text, fill=(30, 64, 175))
+    start = coords[0]
+    end = coords[-1]
+    if isinstance(start, list) and len(start) >= 2:
+        sx, sy = ctx.world_to_canvas(float(start[0]), float(start[1]))
+        draw.text((sx + 4, sy - 12), "S", fill=(16, 185, 129))
+    if isinstance(end, list) and len(end) >= 2:
+        ex, ey = ctx.world_to_canvas(float(end[0]), float(end[1]))
+        draw.text((ex + 4, ey - 12), "E", fill=(239, 68, 68))
+    for vertex_index, coord in enumerate(coords[:12]):
+        if not isinstance(coord, list) or len(coord) < 2:
+            continue
+        vx, vy = ctx.world_to_canvas(float(coord[0]), float(coord[1]))
+        draw.text((vx - 4, vy + 6), str(vertex_index + 1), fill=(99, 102, 241))
+
+
 def _draw_vertex_markers(draw: ImageDraw.ImageDraw, ctx: RenderContext, geometry: dict[str, Any]) -> None:
     geom_type = geometry.get("type")
     coords = geometry.get("coordinates")
@@ -349,6 +457,8 @@ def _render_png(
             if isinstance(start, list) and isinstance(end, list):
                 _draw_direction_markers(draw, ctx, start, end)
             _draw_course_arrows(draw, ctx, properties, geometry)
+            _draw_course_leg_labels(draw, ctx, properties, geometry, occupied=label_slots)
+            _draw_endpoint_gap_annotation(draw, ctx, geometry, occupied=label_slots)
         _draw_closure_residuals(draw, ctx, compile_artifact)
         _draw_frame_and_tie_features(draw, ctx, graph, projection)
         _draw_gap_markers(draw, ctx, projection, judge_artifact)
