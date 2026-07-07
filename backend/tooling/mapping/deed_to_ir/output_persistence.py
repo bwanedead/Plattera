@@ -319,6 +319,7 @@ def _publish_from_final_package_preview(
         package=package,
         persistence=service,
         final_package_preview_ref=final_package_preview_ref,
+        correction_lane_advisory=preview.correction_lane_advisory,
     )
 
 
@@ -332,6 +333,7 @@ def _persist_published_output(
     package: Any,
     persistence: FeatureGraphPersistenceService,
     final_package_preview_ref: str | None = None,
+    correction_lane_advisory: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     workspace_key = resolve_workspace_key(workspace_id=workspace_id, run_id=run_id)
     if not workspace_key:
@@ -439,6 +441,8 @@ def _persist_published_output(
     }
     if preview_ref:
         outputs["final_package_preview_ref"] = preview_ref
+    if isinstance(correction_lane_advisory, dict) and correction_lane_advisory:
+        outputs["correction_lane_advisory"] = correction_lane_advisory
     return {
         "executed": True,
         "artifact_refs": artifact_refs,

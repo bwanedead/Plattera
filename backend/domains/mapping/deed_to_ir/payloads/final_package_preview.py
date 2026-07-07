@@ -69,6 +69,10 @@ class DeedToIrFinalPackagePreview(BaseModel):
     mechanical_review_summary: MechanicalReviewSummary
     lineage_summary: LineageSummary
     publish_ready_candidate: bool
+    correction_lane_advisory: dict[str, Any] | None = Field(
+        default=None,
+        description="Mechanical non-blocking advisory when upstream_corrections is empty but package text suggests correction reporting.",
+    )
 
     @model_validator(mode="after")
     def _validate_uniqueness(self) -> DeedToIrFinalPackagePreview:

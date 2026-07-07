@@ -5,6 +5,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
+from .correction_lane_advisory import render_correction_lane_advisory_timeline_lines
+
 PREPARE_PREVIEW_OUTPUT_TOP_LEVEL_KEYS: tuple[str, ...] = (
     "final_package_preview_ref",
     "final_package_preview_revision_ref",
@@ -188,6 +190,11 @@ def build_preview_hydration_payload(
             is not None
             else {}
         ),
+        **(
+            {"correction_lane_advisory": preview.get("correction_lane_advisory")}
+            if isinstance(preview.get("correction_lane_advisory"), Mapping)
+            else {}
+        ),
     }
 
 
@@ -249,6 +256,14 @@ def render_final_package_preview_timeline_lines(
             else None,
             upstream_corrections=preview.get("upstream_corrections")
             if isinstance(preview.get("upstream_corrections"), list)
+            else None,
+            indent=f"{indent}  ",
+        )
+    )
+    lines.extend(
+        render_correction_lane_advisory_timeline_lines(
+            preview.get("correction_lane_advisory")
+            if isinstance(preview.get("correction_lane_advisory"), Mapping)
             else None,
             indent=f"{indent}  ",
         )
@@ -407,6 +422,7 @@ def render_final_package_preview_tool_output(
             "upstream_correction_count",
             "upstream_correction_summaries",
             "upstream_corrections",
+            "correction_lane_advisory",
             "publish_ready_candidate",
             "preview_ready_summary",
             "recommended_publish_request",
@@ -447,4 +463,9 @@ def render_final_package_preview_tool_output(
                     indent=indent,
                 )
             )
+    advisory = outputs.get("correction_lane_advisory")
+    if isinstance(advisory, Mapping):
+        body = "\n".join(lines)
+        if "correction_lane_advisory:" not in body:
+            lines.extend(render_correction_lane_advisory_timeline_lines(advisory, indent=indent))
     return lines

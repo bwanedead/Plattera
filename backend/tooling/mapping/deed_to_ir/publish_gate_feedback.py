@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
+from .correction_lane_advisory import render_correction_lane_advisory_timeline_lines
 from .final_package_preview_projection import render_upstream_corrections_timeline_lines
 
 PUBLISH_GATE_PREVIEW_PACKAGE_INVALID = "preview_package_invalid"
@@ -232,6 +233,14 @@ def render_publish_output_summary_timeline_lines(
             upstream_correction_count=outputs.get("upstream_correction_count"),
             upstream_correction_summaries=outputs.get("upstream_correction_summaries")
             if isinstance(outputs.get("upstream_correction_summaries"), list)
+            else None,
+            indent=f"{indent}  ",
+        )
+    )
+    lines.extend(
+        render_correction_lane_advisory_timeline_lines(
+            outputs.get("correction_lane_advisory")
+            if isinstance(outputs.get("correction_lane_advisory"), Mapping)
             else None,
             indent=f"{indent}  ",
         )

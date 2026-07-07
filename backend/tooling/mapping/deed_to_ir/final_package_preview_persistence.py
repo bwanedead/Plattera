@@ -17,6 +17,7 @@ from domains.mapping.deed_to_ir.payloads.published_output import (
 from services.feature_graph.feature_graph_mapping_sidecar_service import FeatureGraphMappingSidecarService
 from services.feature_graph.feature_graph_persistence_service import FeatureGraphPersistenceService
 
+from .correction_lane_advisory import detect_correction_lane_advisory
 from .final_package_preview_projection import (
     build_preview_hydration_payload,
     build_recommended_publish_request,
@@ -145,6 +146,13 @@ def prepare_deed_to_ir_final_package(
         lineage_mismatch=False,
         mismatch_reason_code=None,
     )
+    correction_lane_advisory = detect_correction_lane_advisory(
+        upstream_corrections=corrections,
+        scope_results=scopes,
+        external_dependencies=deps,
+        closure_dimensions=closure,
+        notes=note_rows,
+    )
     preview = DeedToIrFinalPackagePreview(
         source=DeedToIrOutputSource(
             transcript_edit_source_revision_ref=source_ref,
@@ -159,6 +167,7 @@ def prepare_deed_to_ir_final_package(
         mechanical_review_summary=_build_mechanical_review_summary(package),
         lineage_summary=lineage_summary,
         publish_ready_candidate=True,
+        correction_lane_advisory=correction_lane_advisory,
     )
 
     revision_digits: str
@@ -241,6 +250,11 @@ def prepare_deed_to_ir_final_package(
                 "publish_ready_candidate": True,
                 **row_summaries,
                 "scope_status_counts": status_counts(scopes),
+                **(
+                    {"correction_lane_advisory": correction_lane_advisory}
+                    if correction_lane_advisory is not None
+                    else {}
+                ),
             },
             preview_revision_ref=revision_ref,
             preview_ref=PREVIEW_REF,

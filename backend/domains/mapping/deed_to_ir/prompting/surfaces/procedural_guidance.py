@@ -9,7 +9,7 @@ from ..branch import DEED_TO_IR_DOMAIN_ID
 DEED_TO_IR_PROCEDURAL_GUIDANCE_SOURCE_REF = (
     "backend/domains/mapping/deed_to_ir/prompting/surfaces/procedural_guidance.py"
 )
-DEED_TO_IR_PROCEDURAL_GUIDANCE_VERSION = "v24"
+DEED_TO_IR_PROCEDURAL_GUIDANCE_VERSION = "v25"
 
 DEED_TO_IR_PROCEDURAL_GUIDANCE_TEXT = """\
 Use this guidance to orient deed-to-IR work. This is **guidance**, not a hard script.
@@ -96,14 +96,16 @@ Use this guidance to orient deed-to-IR work. This is **guidance**, not a hard sc
 - When prepare validation fails, inspect `rejected_payload_summary`, `row_contract_summary`, and `preserve_sections` — repair the invalid section without dropping valid sections.
 
 ## Upstream correction report (final package only)
+- **`notes` are commentary only** — non-corrective context, handoff reminders, or audit color. They are not the machine-readable correction lane.
+- **`upstream_corrections` is the machine-readable lane** for final IR divergence from inherited transcript-edit output, resolution state, or mapping operands.
+- If the final IR uses a value that differs from the inherited handoff because source/map sanity established a better value, the final package **must** include an `upstream_corrections` row — not only a note.
+- If an upstream defect was investigated but **not** used by final IR: `resolution_used_by_ir=false` (and `posture="suspected"` when still uncertain).
+- If an upstream defect was used by final IR: `resolution_used_by_ir=true` with source/evidence refs in `basis_refs`.
+- During prepare, a mechanical `correction_lane_advisory` may appear when `upstream_corrections` is empty but package text mentions correction-like language — treat it as a steering signal, not a refusal.
 - Trust transcript-edit as the normal starting point. Do not trigger transcript-edit repair repeatedly during drafting.
 - If map/geometry/deed logic exposes a concrete upstream handoff defect, investigate with targeted source evidence refs (`image:derived:*`, `image:assoc:*` via `hydrate_artifact_refs`) and transcript lanes while continuing to solve the IR/map.
 - During drafting, keep working notes local. Do not emit `upstream_corrections` as a live repair trigger.
-- **`upstream_corrections` are the machine-readable correction lane** for upstream handoff/transcript/resolution deltas the final IR actually relied on.
-- If final IR uses a value different from inherited `mapping_operands`, selected resolution rows, or transcript-edit output — and that difference is intentional — put it in **`upstream_corrections`**, not only in `notes`.
 - Do not duplicate the same correction as both a note and an upstream correction unless the note carries separate non-corrective context.
-- If the correction is merely suspected and not used by IR: `posture="suspected"` and `resolution_used_by_ir=false`.
-- If the correction was used by IR: set `resolution_used_by_ir=true` and include source/evidence basis in `basis_refs`.
 - If final IR/map **relies on a correction** to the inherited handoff, include one or more `upstream_corrections` rows in the final package preview.
 - `upstream_corrections` are **final reports for later targeted transcript-edit amendment**, not automatic transcript mutation and not live repair runs.
 - Do not emit correction rows for ordinary blocked external dependencies — use `external_dependencies` for that.

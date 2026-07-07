@@ -61,23 +61,23 @@ def build_prepare_deed_to_ir_final_package_example_request() -> dict[str, Any]:
         ],
         "upstream_corrections": [
             {
-                "correction_id": "example_inherited_operand_distance_correction",
-                "title": "Example inherited operand distance correction",
-                "target_entity_id": "example_call2_distance",
+                "correction_id": "example_call_2_distance_source_repair",
+                "title": "Example call 2 distance source repair",
+                "target_entity_id": "example_call_2_distance",
                 "target_entity_type": "resolution_unit",
-                "upstream_value": "410 feet",
-                "corrected_value": "438 feet",
+                "upstream_value": "430 feet",
+                "corrected_value": "410 feet",
                 "posture": "confirmed_from_source",
                 "resolution_used_by_ir": True,
                 "recommended_action": "transcript_amendment",
                 "basis_refs": [
-                    "transcript_edit:resolution_state:example",
                     "image:derived:example_source_crop",
-                    "feature_graph:ir:example_bundle_v1",
+                    "feature_graph:ir:example_scope_v1",
+                    "feature_graph:mapping:mapping_example_bundle_ab12cd34",
                 ],
                 "rationale": (
-                    "Final IR and mapping rely on the corrected distance; inherited mapping_operands "
-                    "carried the upstream value but source evidence supports the corrected value."
+                    "Source evidence and mapping sanity supported the corrected course distance "
+                    "used by the final IR."
                 ),
             }
         ],

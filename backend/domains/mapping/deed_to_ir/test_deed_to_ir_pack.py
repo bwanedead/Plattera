@@ -249,13 +249,13 @@ def test_procedural_guidance_v23_upstream_corrections_discipline() -> None:
         for b in build_deed_to_ir_domain_pack().build_semantic_prompt_blocks()
         if b.block_id == "deed_to_ir_procedural_guidance"
     )
-    assert block.version == "v24"
+    assert block.version == "v25"
     text = block.text.lower()
     assert "upstream_corrections" in text
-    assert "notes are not the correction lane" in text
+    assert "`notes` are commentary only" in block.text
     assert "machine-readable correction lane" in text
-    assert "resolution_used_by_ir=true" in text or "resolution_used_by_ir=true" in block.text
-    assert "not only in `notes`" in block.text or "not only in notes" in text
+    assert "resolution_used_by_ir=false" in text or "resolution_used_by_ir=true" in block.text
+    assert "not only a note" in text or "not only in notes" in text
     assert "mapping_operands" in text
     assert "image:derived" in block.text or "image:derived:*" in block.text
     assert "final report" in text or "final reports" in text
@@ -274,7 +274,7 @@ def test_procedural_guidance_v24_mapping_sanity_discipline() -> None:
         for b in build_deed_to_ir_domain_pack().build_semantic_prompt_blocks()
         if b.block_id == "deed_to_ir_procedural_guidance"
     )
-    assert block.version == "v24"
+    assert block.version == "v25"
     text = block.text.lower()
     assert "sanity_review" in text
     assert "endpoint displacement" in text
@@ -282,6 +282,20 @@ def test_procedural_guidance_v24_mapping_sanity_discipline() -> None:
     assert "not automatically a deed defect" in text
     assert "full canonical refs" in text
     assert "intentionally open alignments" in text
+
+
+def test_procedural_guidance_v25_correction_lane_discipline() -> None:
+    block = next(
+        b
+        for b in build_deed_to_ir_domain_pack().build_semantic_prompt_blocks()
+        if b.block_id == "deed_to_ir_procedural_guidance"
+    )
+    assert block.version == "v25"
+    text = block.text.lower()
+    assert "notes are commentary only" in text or "notes` are commentary only" in block.text
+    assert "correction_lane_advisory" in text
+    assert "resolution_used_by_ir=false" in text or "resolution_used_by_ir=false" in block.text
+    assert "must" in text and "upstream_corrections" in text
 
 
 def test_prepare_and_publish_tool_schemas_expose_upstream_corrections() -> None:
@@ -391,7 +405,7 @@ def test_prepare_example_places_operand_delta_in_upstream_corrections_not_notes(
     assert "upstream correction" not in note_text or "not an upstream correction" in note_text
     assert correction["upstream_value"] not in note_text
     assert correction["corrected_value"] not in note_text
-    assert "mapping_operands" in correction["rationale"] or "inherited" in correction_text
+    assert "mapping sanity" in correction["rationale"].lower() or "source evidence" in correction["rationale"].lower()
 
 
 def test_prepare_and_publish_tool_specs_state_correction_lane_discipline() -> None:
@@ -419,7 +433,7 @@ def test_prepare_tool_spec_example_is_complete_and_generic() -> None:
     assert len(example["closure_dimensions"]) == 4
     assert len(example["notes"]) == 1
     assert len(example["upstream_corrections"]) == 1
-    assert example["upstream_corrections"][0]["correction_id"] == "example_inherited_operand_distance_correction"
+    assert example["upstream_corrections"][0]["correction_id"] == "example_call_2_distance_source_repair"
     dumped = json.dumps(example).lower()
     for forbidden in ("parcel_1", "parcel_2", "range 74", "canal", "518", "542"):
         assert forbidden not in dumped
