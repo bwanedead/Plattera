@@ -1,0 +1,84 @@
+{
+  "continuity": {
+    "active_item_id": null,
+    "compacted_continuity_summary": null,
+    "continuity_journal_entries": [],
+    "kernel_compaction_covered_through_turn_index": 0,
+    "kernel_step_records": [],
+    "kernel_step_result_records": [],
+    "latest_refs": {
+      "foo": "bar"
+    },
+    "mission_state": {
+      "active_mode": null,
+      "blocker_summary": {},
+      "closure_state": {
+        "dimensions": [],
+        "no_further_progress": false,
+        "opaque_payload": {},
+        "overall_status": null,
+        "ready_to_close": false,
+        "ready_to_publish": false,
+        "requires_hitl": false,
+        "schema_version": "closure_state.v1",
+        "summary": null,
+        "updated_at_epoch_seconds": 0.0
+      },
+      "continuity_summary": {},
+      "high_signal_artifact_refs": [],
+      "latest_refs_summary": {},
+      "loop_family": "orchestration_kernel",
+      "mission_id": "m1",
+      "mission_mode_summary": {},
+      "motion_posture": "inventory",
+      "motion_posture_basis": null,
+      "objective": null,
+      "opaque_payload": {},
+      "prompt_observability_summary": {},
+      "request_id": null,
+      "resolution_state": {
+        "active_item_id": null,
+        "items": [],
+        "opaque_payload": {},
+        "relations": [],
+        "schema_version": "resolution_state.v1",
+        "updated_at_epoch_seconds": 0.0
+      },
+      "schema_version": "mission_state.v1",
+      "session_id": null,
+      "success_conditions": [],
+      "terminal_summary": {},
+      "updated_at_epoch_seconds": 0.0,
+      "verification_summary": {},
+      "waiting_summary": {},
+      "work_universe_posture": "initial"
+    },
+    "operator_progress_message": null,
+    "resolution_state": {
+      "active_item_id": null,
+      "items": [],
+      "opaque_payload": {},
+      "relations": [],
+      "schema_version": "resolution_state.v1",
+      "updated_at_epoch_seconds": 0.0
+    },
+    "state_patch_feedback": {}
+  },
+  "execution_session": null,
+  "hitl": {
+    "answered_hitl_responses": [],
+    "blocking_prompt_id": null,
+    "hitl_state": "no_prompt",
+    "pending_feedback_prompt_id": null,
+    "pending_feedback_response": null,
+    "pending_hitl_requests": []
+  },
+  "next_iteration": 19,
+  "schema_version": "kernel_resume.v1",
+  "telemetry": {
+    "last_prompt_event_id": null,
+    "last_prompt_event_surface": null,
+    "llm_contact_count": 0,
+    "prompt_event_count": 0
+  }
+}

@@ -433,6 +433,40 @@ Resume restores the last completed-turn checkpoint. It does not replay a partial
 failed model call or infer domain meaning. Completed runs are not reopened by the
 current resume path.
 
+### Resume from latest checkpoint
+
+```powershell
+python -m harness.cli.status --run-id $runId
+python -m harness.cli.resume --run-id $runId
+```
+
+### Fork from a selected turn (child test run)
+
+When per-turn checkpoints exist under `resume_checkpoints/turn_NNNN.json`, fork a
+**new** run from a known mid-run state without mutating the original audit history:
+
+```powershell
+python -m harness.cli.fork_resume --run-id $runId --from-turn 18
+```
+
+`turn_NNNN.json` is the durable state **after turn N completed**. The snapshot inside
+carries `next_iteration = N + 1`, so `--from-turn 18` resumes at turn 19. After turn
+14 completes, use `--from-turn 14` (file `turn_0014.json`), not `turn_0015.json`.
+
+This allocates a new run id (for example `deed-to-ir-live-r00000027`), copies the
+original spawn argv (with embedded launch-context `run_id` / `workspace_id` stripped so
+the child receives CLI identity via env), points `HARNESS_CLI_RESUME_FILE` at the
+selected checkpoint, and records fork lineage in the child run's `state.json`
+(`forked_from_run_id`, `forked_from_turn`, `source_checkpoint_path`). The source run's
+artifacts remain unchanged.
+
+Older runs that predate per-turn checkpoint persistence only have the latest
+`kernel_resume.json`. Those cannot be rewound to an arbitrary turn except from that
+latest checkpoint via `harness.cli.resume`.
+
+Forked replay is for testing current harness/domain changes against a known
+mid-run state — not for rewriting completed audit history.
+
 ### Tester-to-agent corrections
 
 HITL is agent-initiated. To give a tester-initiated correction or missing context,
@@ -457,6 +491,9 @@ New runs are stored under a namespaced collection derived from `--loop-kind`:
 backend/harness/cli_artifacts/cli_runs/by_loop_kind/deed_to_ir/<runId>/
   state.json
   kernel_resume.json
+  resume_checkpoints/
+    turn_0001.json
+    turn_0002.json
   done.json
   result.json
   stdout.log

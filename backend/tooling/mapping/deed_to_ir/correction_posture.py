@@ -13,6 +13,7 @@ from .correction_contract_card import (
     CORRECTION_CONTRACT_REF,
     CORRECTION_REPAIR_HINT,
     build_correction_contract_card,
+    upstream_correction_row_contract_fields,
 )
 from .correction_lane_advisory import detect_correction_lane_advisory
 from .mapping_operands_projection import build_mapping_operands
@@ -121,9 +122,30 @@ def compact_correction_posture_for_projection(posture: Mapping[str, Any] | None)
     return compact
 
 
-def upstream_corrections_required_refusal(*, correction_posture: Mapping[str, Any]) -> dict[str, Any]:
+def upstream_corrections_required_refusal(
+    *,
+    correction_posture: Mapping[str, Any],
+    retry_package_shell: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
     """Retryable prepare refusal when correction posture is active and corrections lane is empty."""
     card = build_correction_contract_card()
+    outputs: dict[str, Any] = {
+        "error": {
+            "code": _UPSTREAM_CORRECTIONS_REQUIRED,
+            "message": (
+                "Selected IR appears to differ from inherited operands; add agent-authored "
+                "upstream_corrections rows or revise the package if no correction was used."
+            ),
+        },
+        "correction_posture": dict(correction_posture),
+        "correction_contract_card": card,
+        "repair_hint": CORRECTION_REPAIR_HINT,
+        "required_upstream_correction_fields": list(
+            upstream_correction_row_contract_fields().get("required_row_fields") or []
+        ),
+    }
+    if isinstance(retry_package_shell, Mapping) and retry_package_shell:
+        outputs["retry_package_shell"] = dict(retry_package_shell)
     return {
         "executed": False,
         "reason_codes": [_UPSTREAM_CORRECTIONS_REQUIRED],
@@ -134,18 +156,7 @@ def upstream_corrections_required_refusal(*, correction_posture: Mapping[str, An
             "blocked_by_budget": False,
             "missing_inputs": [],
         },
-        "outputs": {
-            "error": {
-                "code": _UPSTREAM_CORRECTIONS_REQUIRED,
-                "message": (
-                    "Selected IR appears to differ from inherited operands; add agent-authored "
-                    "upstream_corrections rows or revise the package if no correction was used."
-                ),
-            },
-            "correction_posture": dict(correction_posture),
-            "correction_contract_card": card,
-            "repair_hint": CORRECTION_REPAIR_HINT,
-        },
+        "outputs": outputs,
     }
 
 
@@ -198,6 +209,11 @@ def render_upstream_corrections_required_timeline_lines(
         lines.append(f"{indent}  repair_hint: {repair_hint.strip()}")
     lines.extend(
         render_correction_posture_timeline_lines(outputs.get("correction_posture"), indent=indent)
+    )
+    from .final_package_retry_projection import render_retry_package_shell_timeline_lines
+
+    lines.extend(
+        render_retry_package_shell_timeline_lines(outputs.get("retry_package_shell"), indent=indent)
     )
     from .correction_contract_card import render_correction_contract_card_timeline_lines
 

@@ -9,7 +9,7 @@ from ..branch import DEED_TO_IR_DOMAIN_ID
 DEED_TO_IR_PROCEDURAL_GUIDANCE_SOURCE_REF = (
     "backend/domains/mapping/deed_to_ir/prompting/surfaces/procedural_guidance.py"
 )
-DEED_TO_IR_PROCEDURAL_GUIDANCE_VERSION = "v26"
+DEED_TO_IR_PROCEDURAL_GUIDANCE_VERSION = "v27"
 
 DEED_TO_IR_PROCEDURAL_GUIDANCE_TEXT = """\
 Use this guidance to orient deed-to-IR work. This is **guidance**, not a hard script.
@@ -104,6 +104,7 @@ Use this guidance to orient deed-to-IR work. This is **guidance**, not a hard sc
 - During prepare, a mechanical `correction_lane_advisory` may appear when `upstream_corrections` is empty but package text mentions correction-like language — treat it as a steering signal, not a refusal.
 - When a tool returns `correction_posture.active=true`, follow the correction contract card (`deed_to_ir:correction_contract`). Do not publish a final package with corrected IR values and empty `upstream_corrections`.
 - Prepare may retryably refuse with `upstream_corrections_required` when correction posture is active and the corrections lane is empty — add agent-authored `upstream_corrections` rows or revise the IR/package.
+- On `upstream_corrections_required`, copy `retry_package_shell` from the refusal: reuse the same `mapping_artifact_ref`, `expected_ir_artifact_ref`, and package rows; add `upstream_corrections` only — do not rebuild refs from memory or mix prior mapping/IR pairs.
 - Trust transcript-edit as the normal starting point. Do not trigger transcript-edit repair repeatedly during drafting.
 - If map/geometry/deed logic exposes a concrete upstream handoff defect, investigate with targeted source evidence refs (`image:derived:*`, `image:assoc:*` via `hydrate_artifact_refs`) and transcript lanes while continuing to solve the IR/map.
 - During drafting, keep working notes local. Do not emit `upstream_corrections` as a live repair trigger.
@@ -122,7 +123,7 @@ Use this guidance to orient deed-to-IR work. This is **guidance**, not a hard sc
 - Station chains, centerlines, routes, strips, and intentionally open alignments may not close — endpoint displacement is a mechanical fact to interpret, not a universal failure.
 - Hydrate specific refs only when needed: control render for visual map review (leg/gap annotations), geometry ref for feature/coordinate inspection, mapping ref for compact lineage, counts, and sanity_review.
 - For upstream source repair, hydrate targeted transcript-edit evidence refs (`image:derived:*`, `image:assoc:*`) via `hydrate_artifact_refs` — do not bulk-hydrate the entire transcript-edit artifact universe.
-- When publishing, set `mapping_artifact_ref` and `expected_ir_artifact_ref` from `outputs.mapping_review.recommended_publish_refs` (or the same fields on a hydrated mapping row), then prepare final package preview before publish.
+- After a successful remap via `submit_ir_for_mapping`, use `mapping_review.lineage_lock` or `mapping_review.recommended_publish_refs` directly for the next preview — do not mix a newer IR ref with an older mapping ref (or vice versa).
 - If any `patch_ir_draft` occurs after mapping, resubmit the patched draft for mapping before publishing — stale mapping lineage is refused retryably when `expected_ir_artifact_ref` does not match.
 
 ## Supported deed-to-IR authoring pattern

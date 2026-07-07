@@ -182,6 +182,9 @@ def compact_mapping_review_for_projection(
     correction_posture = mapping_review.get("correction_posture")
     if isinstance(correction_posture, Mapping) and correction_posture.get("active"):
         compact["correction_posture"] = dict(correction_posture)
+    lineage_lock = mapping_review.get("lineage_lock")
+    if isinstance(lineage_lock, Mapping) and lineage_lock:
+        compact["lineage_lock"] = dict(lineage_lock)
     filtered = {key: value for key, value in compact.items() if value is not None}
     return filtered or None
 
@@ -230,6 +233,17 @@ def render_mapping_review_timeline_lines(
     lines.extend(
         render_correction_posture_timeline_lines(mapping_review.get("correction_posture"), indent=indent)
     )
+    lineage_lock = mapping_review.get("lineage_lock")
+    if isinstance(lineage_lock, Mapping) and lineage_lock:
+        lines.append(f"{indent}  lineage_lock:")
+        source_ir = lineage_lock.get("source_ir_artifact_ref")
+        mapping_ref = lineage_lock.get("mapping_artifact_ref")
+        if source_ir:
+            lines.append(f"{indent}    source_ir: {source_ir}")
+        if mapping_ref:
+            lines.append(f"{indent}    mapping: {mapping_ref}")
+        if lineage_lock.get("use_these_refs_for_next_preview") is True:
+            lines.append(f"{indent}    use_these_refs_for_next_preview: true")
     return lines
 
 

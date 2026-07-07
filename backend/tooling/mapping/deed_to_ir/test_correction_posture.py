@@ -227,6 +227,13 @@ def test_prepare_run25_shape_refuses_with_empty_corrections(monkeypatch) -> None
     assert outputs["correction_posture"]["active"] is True
     assert outputs["correction_contract_card"]["contract_ref"] == CORRECTION_CONTRACT_REF
     assert "upstream_corrections rows" in outputs["repair_hint"]
+    shell = outputs.get("retry_package_shell")
+    assert isinstance(shell, dict)
+    assert shell.get("mapping_artifact_ref") == mapping_ref
+    assert shell.get("expected_ir_artifact_ref") == ir_ref
+    assert shell.get("missing_section") == "upstream_corrections"
+    assert isinstance(shell.get("scope_results"), list) and shell["scope_results"]
+    assert "correction_id" in (shell.get("required_upstream_correction_fields") or [])
 
 
 def test_prepare_run25_shape_succeeds_with_correction_row(monkeypatch) -> None:

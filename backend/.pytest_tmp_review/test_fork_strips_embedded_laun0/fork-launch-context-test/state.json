@@ -1,0 +1,25 @@
+{
+  "run_id": "fork-launch-context-test",
+  "pid": 999999,
+  "loop_kind": "deed_to_ir",
+  "run_collection": "deed_to_ir",
+  "mode": "live",
+  "paths": {
+    "run_dir": "C:\\projects\\Plattera\\backend\\.pytest_tmp_review\\test_fork_strips_embedded_laun0\\fork-launch-context-test",
+    "state_file": "C:\\projects\\Plattera\\backend\\.pytest_tmp_review\\test_fork_strips_embedded_laun0\\fork-launch-context-test\\state.json",
+    "done_file": "C:\\projects\\Plattera\\backend\\.pytest_tmp_review\\test_fork_strips_embedded_laun0\\fork-launch-context-test\\done.json",
+    "result_file": "C:\\projects\\Plattera\\backend\\.pytest_tmp_review\\test_fork_strips_embedded_laun0\\fork-launch-context-test\\result.json",
+    "stdout_log": "C:\\projects\\Plattera\\backend\\.pytest_tmp_review\\test_fork_strips_embedded_laun0\\fork-launch-context-test\\stdout.log",
+    "stderr_log": "C:\\projects\\Plattera\\backend\\.pytest_tmp_review\\test_fork_strips_embedded_laun0\\fork-launch-context-test\\stderr.log"
+  },
+  "spawn_argv": [
+    "python",
+    "-m",
+    "harness.runtime.runner.entrypoint",
+    "--launch-context-json",
+    "{\"run_id\":\"fork-launch-context-test\",\"workspace_id\":\"parent-ws\",\"dossier_id\":\"d1\"}"
+  ],
+  "created_at_epoch_seconds": 1783465961.2363613,
+  "status": "started",
+  "extra": {}
+}

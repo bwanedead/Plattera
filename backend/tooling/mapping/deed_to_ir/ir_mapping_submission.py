@@ -110,6 +110,12 @@ def submit_ir_for_mapping(
         compile_artifact=compile_outcome.artifact,
         ir_artifact_ref=outcome.ir_artifact_ref,
     )
+    lineage_lock = {
+        "source_ir_artifact_ref": outcome.ir_artifact_ref,
+        "mapping_artifact_ref": mapping.artifact_ref,
+        "use_these_refs_for_next_preview": True,
+    }
+    mapping_review["lineage_lock"] = lineage_lock
 
     return {
         "executed": True,
@@ -132,6 +138,7 @@ def submit_ir_for_mapping(
             "coordinate_space": artifact.coordinate_space,
             "world_bbox": artifact.world_bbox.model_dump(mode="json"),
             "mapping_review": mapping_review,
+            "lineage_lock": lineage_lock,
         },
     }
 

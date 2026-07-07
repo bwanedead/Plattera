@@ -29,7 +29,7 @@ from harness.runtime.memory.resume_snapshot import (
 from harness.runtime.model_failure_classifier import MODEL_RESUMABLE_REASON_CODES
 
 
-RESUME_CHECKPOINT_FILENAME = "kernel_resume.json"
+from .resume_paths import RESUME_CHECKPOINT_FILENAME, kernel_resume_path
 RESUME_ATTEMPTS_DIRNAME = "resume_attempts"
 
 _RESULT_RESUMABLE_REASON_CODES = set(MODEL_RESUMABLE_REASON_CODES) | {
@@ -47,7 +47,7 @@ _RESULT_RESUMABLE_REASON_CODES = set(MODEL_RESUMABLE_REASON_CODES) | {
 
 
 def _checkpoint_path(run_id: str) -> Path:
-    return run_dir(run_id) / RESUME_CHECKPOINT_FILENAME
+    return kernel_resume_path(run_dir(run_id))
 
 
 def _read_result_file(path: Path) -> tuple[dict[str, Any] | None, str | None]:

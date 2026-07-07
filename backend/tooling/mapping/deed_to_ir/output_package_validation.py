@@ -367,6 +367,45 @@ def validate_agent_output_rows(
     return validated_scopes, validated_deps, validated_closure, validated_notes, validated_corrections
 
 
+def validate_upstream_correction_rows_only(
+    upstream_corrections: Any,
+) -> list[dict[str, Any]]:
+    """Validate only upstream_corrections rows (used before lineage checks)."""
+    errors: list[dict[str, str]] = []
+    correction_list, correction_type_errors = _require_row_list(
+        upstream_corrections,
+        field_name="upstream_corrections",
+    )
+    errors.extend(correction_type_errors)
+    if len(correction_list) > MAX_UPSTREAM_CORRECTIONS:
+        errors.append(
+            _cap_error(
+                path="upstream_corrections",
+                code="cap_exceeded",
+                message=f"upstream_corrections exceeds maximum of {MAX_UPSTREAM_CORRECTIONS} items",
+            )
+        )
+    validated_corrections: list[dict[str, Any]] = []
+    for index, row in enumerate(correction_list):
+        validated, row_errors = _validate_row_at(
+            UpstreamCorrectionRow,
+            row,
+            path_prefix=f"upstream_corrections[{index}]",
+        )
+        if validated is not None:
+            validated_corrections.append(validated)
+        errors.extend(row_errors)
+    _collect_uniqueness_errors(
+        [row["correction_id"] for row in validated_corrections],
+        path="upstream_corrections",
+        code="correction_id_not_unique",
+        errors=errors,
+    )
+    if errors:
+        raise PublishPayloadValidationError(tuple(_bound_errors(errors)))
+    return validated_corrections
+
+
 def _require_row_list(value: Any, *, field_name: str) -> tuple[list[Any], list[dict[str, str]]]:
     if value is None:
         return [], []

@@ -271,6 +271,66 @@ def final_package_prepare_validation_refusal(
     }
 
 
+def final_package_prepare_combined_refusal(
+    *,
+    validation_exc: PublishPayloadValidationError | None = None,
+    expected_ir_artifact_ref: str | None = None,
+    actual_ir_artifact_ref: str | None = None,
+    scope_results: Any = None,
+    external_dependencies: Any = None,
+    closure_dimensions: Any = None,
+    notes: Any = None,
+    upstream_corrections: Any = None,
+) -> dict[str, Any]:
+    """Retryable refusal when row validation and mapping lineage both fail."""
+    reason_codes: list[str] = []
+    outputs: dict[str, Any] = {}
+    if validation_exc is not None:
+        reason_codes.append(validation_exc.reason_code or PUBLISH_PAYLOAD_VALIDATION_FAILED)
+        repair_packet = validation_exc.prepare_repair_packet
+        if repair_packet is None:
+            repair_packet = build_prepare_validation_repair_packet(
+                validation_errors=list(validation_exc.validation_errors),
+                scope_results=scope_results,
+                external_dependencies=external_dependencies,
+                closure_dimensions=closure_dimensions,
+                notes=notes,
+                upstream_corrections=upstream_corrections,
+            )
+        outputs.update(repair_packet)
+        outputs["error"] = {
+            "code": validation_exc.reason_code or PUBLISH_PAYLOAD_VALIDATION_FAILED,
+            "message": "publish payload validation failed",
+        }
+    if expected_ir_artifact_ref and actual_ir_artifact_ref and expected_ir_artifact_ref != actual_ir_artifact_ref:
+        reason_codes.append("mapping_ir_lineage_mismatch")
+        outputs["lineage_mismatch"] = {
+            "expected_ir_artifact_ref": expected_ir_artifact_ref,
+            "actual_ir_artifact_ref": actual_ir_artifact_ref,
+            "repair_hint": (
+                "Submit the expected IR for mapping, then publish the returned mapping artifact."
+            ),
+        }
+        if "error" not in outputs:
+            outputs["error"] = {
+                "code": "mapping_ir_lineage_mismatch",
+                "message": "mapping artifact was not produced from expected IR",
+            }
+    primary = reason_codes[0] if reason_codes else PUBLISH_PAYLOAD_VALIDATION_FAILED
+    return {
+        "executed": False,
+        "reason_codes": reason_codes,
+        "refusal": {
+            "reason_code": primary,
+            "retryable": True,
+            "blocked_by_invariant": False,
+            "blocked_by_budget": False,
+            "missing_inputs": [],
+        },
+        "outputs": outputs,
+    }
+
+
 def final_package_incomplete_refusal(exc: FinalPackageIncompleteError) -> dict[str, Any]:
     return {
         "executed": False,

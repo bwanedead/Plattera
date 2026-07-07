@@ -7,6 +7,7 @@ from typing import Any
 
 from .correction_lane_advisory import render_correction_lane_advisory_timeline_lines
 from .correction_posture import render_upstream_corrections_required_timeline_lines
+from .final_package_retry_projection import render_retry_package_shell_timeline_lines
 
 PREPARE_PREVIEW_OUTPUT_TOP_LEVEL_KEYS: tuple[str, ...] = (
     "final_package_preview_ref",
@@ -477,4 +478,9 @@ def render_final_package_preview_tool_output(
         body = "\n".join(lines)
         if "upstream_corrections_required:" not in body:
             lines.extend(refusal_lines)
+    shell_lines = render_retry_package_shell_timeline_lines(outputs.get("retry_package_shell"), indent=indent)
+    if shell_lines:
+        body = "\n".join(lines)
+        if "retry_package_shell:" not in body:
+            lines.extend(shell_lines)
     return lines

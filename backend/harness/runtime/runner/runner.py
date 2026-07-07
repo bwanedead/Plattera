@@ -880,8 +880,15 @@ def _build_resume_checkpoint_writer() -> Callable[[Mapping[str, Any]], None] | N
     if not cli_run_id:
         return None
     try:
+        from harness.cli.resume_paths import (
+            TURN_CHECKPOINTS_DIRNAME,
+            kernel_resume_path,
+            turn_checkpoint_path_for_next_iteration,
+        )
         from harness.cli.run_state import run_dir as cli_run_dir
-        target = cli_run_dir(cli_run_id) / "kernel_resume.json"
+
+        run_path = cli_run_dir(cli_run_id)
+        target = kernel_resume_path(run_path)
     except Exception:
         return None
 
@@ -889,17 +896,30 @@ def _build_resume_checkpoint_writer() -> Callable[[Mapping[str, Any]], None] | N
         try:
             target.parent.mkdir(parents=True, exist_ok=True)
             text = json.dumps(dict(snapshot), ensure_ascii=False, indent=2, sort_keys=True)
-            fd, tmp = tempfile.mkstemp(dir=target.parent, prefix=".tmp_resume_", suffix=".json")
-            try:
-                with os.fdopen(fd, "w", encoding="utf-8") as f:
-                    f.write(text)
-                os.replace(tmp, target)
-            except Exception:
+
+            def _atomic_write(path: Path) -> None:
+                fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".tmp_resume_", suffix=".json")
                 try:
-                    os.unlink(tmp)
-                except OSError:
-                    pass
-                raise
+                    with os.fdopen(fd, "w", encoding="utf-8") as f:
+                        f.write(text)
+                    os.replace(tmp, path)
+                except Exception:
+                    try:
+                        os.unlink(tmp)
+                    except OSError:
+                        pass
+                    raise
+
+            _atomic_write(target)
+            next_iteration = snapshot.get("next_iteration")
+            if isinstance(next_iteration, int) and next_iteration >= 2:
+                turn_dir = run_path / TURN_CHECKPOINTS_DIRNAME
+                turn_dir.mkdir(parents=True, exist_ok=True)
+                turn_path = turn_checkpoint_path_for_next_iteration(
+                    run_dir=run_path,
+                    next_iteration=next_iteration,
+                )
+                _atomic_write(turn_path)
         except Exception:
             _LOG.warning("kernel_resume checkpoint write failed", exc_info=True)
 

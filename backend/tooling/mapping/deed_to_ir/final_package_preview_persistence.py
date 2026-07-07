@@ -32,14 +32,17 @@ from .final_package_preview_projection import (
 from .final_package_validation import (
     FinalPackageIncompleteError,
     final_package_incomplete_refusal,
+    final_package_prepare_combined_refusal,
     final_package_prepare_validation_refusal,
     validate_prepare_final_package_rows,
 )
+from .final_package_retry_projection import build_retry_package_shell
 from .output_package_validation import (
     PublishPayloadValidationError,
     ResolvedMappingPackage,
     mapping_artifact_not_found_refusal,
     resolve_mapping_publish_package,
+    validate_upstream_correction_rows_only,
 )
 from .persistence_io import (
     atomic_write_json,
@@ -92,6 +95,13 @@ def prepare_deed_to_ir_final_package(
     if not str(mapping_artifact_ref or "").strip():
         return refusal("mapping_artifact_ref_required", "mapping_artifact_ref is required.")
 
+    upstream_validation_exc: PublishPayloadValidationError | None = None
+    if upstream_corrections is not None:
+        try:
+            validate_upstream_correction_rows_only(upstream_corrections)
+        except PublishPayloadValidationError as exc:
+            upstream_validation_exc = exc
+
     service = persistence or FeatureGraphPersistenceService()
     sidecars = FeatureGraphMappingSidecarService(artifacts_root=service.artifacts_root)
     try:
@@ -113,7 +123,28 @@ def prepare_deed_to_ir_final_package(
 
     expected_ir_ref = str(expected_ir_artifact_ref or "").strip()
     actual_ir_ref = str(package.selected_artifacts.ir_artifact_ref or "").strip()
-    if expected_ir_ref and actual_ir_ref != expected_ir_ref:
+    lineage_mismatch = bool(expected_ir_ref and actual_ir_ref != expected_ir_ref)
+    if upstream_validation_exc is not None and lineage_mismatch:
+        return final_package_prepare_combined_refusal(
+            validation_exc=upstream_validation_exc,
+            expected_ir_artifact_ref=expected_ir_ref,
+            actual_ir_artifact_ref=actual_ir_ref,
+            scope_results=scope_results,
+            external_dependencies=external_dependencies,
+            closure_dimensions=closure_dimensions,
+            notes=notes,
+            upstream_corrections=upstream_corrections,
+        )
+    if upstream_validation_exc is not None:
+        return final_package_prepare_validation_refusal(
+            upstream_validation_exc,
+            scope_results=scope_results,
+            external_dependencies=external_dependencies,
+            closure_dimensions=closure_dimensions,
+            notes=notes,
+            upstream_corrections=upstream_corrections,
+        )
+    if lineage_mismatch:
         return mapping_ir_lineage_mismatch_refusal(
             expected_ir_artifact_ref=expected_ir_ref,
             actual_ir_artifact_ref=actual_ir_ref,
@@ -151,7 +182,19 @@ def prepare_deed_to_ir_final_package(
         notes=note_rows,
     )
     if correction_posture.get("active") and not corrections:
-        return upstream_corrections_required_refusal(correction_posture=correction_posture)
+        retry_shell = build_retry_package_shell(
+            mapping_artifact_ref=str(mapping_artifact_ref).strip(),
+            expected_ir_artifact_ref=actual_ir_ref,
+            scope_results=scopes,
+            external_dependencies=deps,
+            closure_dimensions=closure,
+            notes=note_rows,
+            correction_posture=correction_posture,
+        )
+        return upstream_corrections_required_refusal(
+            correction_posture=correction_posture,
+            retry_package_shell=retry_shell,
+        )
 
     source_ref = str(transcript_edit_source_revision_ref or "").strip()
     if not source_ref:

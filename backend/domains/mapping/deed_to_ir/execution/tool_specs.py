@@ -393,12 +393,14 @@ def build_deed_to_ir_tool_specs() -> tuple[SemanticToolSpec, ...]:
             },
             expected_result_shape=(
                 "On success: outputs.mapping_review carries compact refs, counts, recommended_review_refs, "
-                "recommended_publish_refs, and sanity_review (feature_metrics, course_leg_tables, "
+                "recommended_publish_refs, lineage_lock (source_ir_artifact_ref, mapping_artifact_ref, "
+                "use_these_refs_for_next_preview=true), and sanity_review (feature_metrics, course_leg_tables, "
                 "endpoint_displacement_candidates, recommended_source_evidence_refs, review_questions). "
-                "Prefer mapping_review.recommended_review_refs over @this.result.artifact_refs[] for "
-                "post-submit inspection. artifact_refs still lists all persisted refs. Top-level image_evidence "
-                "carries clean/control PNG payloads. outputs also include bounded counts, coordinate_space, "
-                "world_bbox, and canonical refs without filesystem paths."
+                "After a successful remap, use mapping_review.lineage_lock or recommended_publish_refs for "
+                "the next preview — do not mix prior mapping/IR refs. Prefer mapping_review.recommended_review_refs "
+                "over @this.result.artifact_refs[] for post-submit inspection. artifact_refs still lists all "
+                "persisted refs. Top-level image_evidence carries clean/control PNG payloads. outputs also "
+                "include bounded counts, coordinate_space, world_bbox, and canonical refs without filesystem paths."
             ),
         ),
         SemanticToolSpec(
@@ -424,8 +426,10 @@ def build_deed_to_ir_tool_specs() -> tuple[SemanticToolSpec, ...]:
                 "When selected IR mechanically differs from inherited mapping operands/resolution "
                 "snapshot and upstream_corrections is empty, returns retryable "
                 "upstream_corrections_required with correction_posture, correction_contract_card "
-                "(deed_to_ir:correction_contract), candidate deltas, and repair_hint — no preview "
-                "is persisted. "
+                "(deed_to_ir:correction_contract), retry_package_shell (copyable lineage + package rows), "
+                "candidate deltas, and repair_hint — no preview is persisted. "
+                "Invalid upstream_corrections rows are validated before lineage checks; combined row + "
+                "mapping_ir_lineage_mismatch failures return bounded validation_errors plus lineage_mismatch. "
                 "Expected IR mismatch returns retryable mapping_ir_lineage_mismatch and persists nothing. "
                 "Missing mapping ref returns retryable mapping_artifact_not_found with valid_mapping_refs "
                 "and repair_hint; nothing is persisted."
@@ -446,7 +450,9 @@ def build_deed_to_ir_tool_specs() -> tuple[SemanticToolSpec, ...]:
                 "publish_ready_candidate=true "
                 "(expected_next=publish_deed_to_ir_output; hydrate_preview_optional=true). "
                 "On upstream_corrections_required refusal: correction_posture, correction_contract_card, "
-                "candidate_deltas, repair_hint — hydrate deed_to_ir:correction_contract for the full card. "
+                "retry_package_shell, candidate_deltas, repair_hint — hydrate deed_to_ir:correction_contract "
+                "for the full card. Retry by reusing retry_package_shell refs/rows and adding "
+                "upstream_corrections only. "
                 "Use recommended_publish_request for publish. Use working_preview_ref only when targeted "
                 "preview hydration is genuinely needed. This tool does not emit a derived_ref_id hydrate-next "
                 "placeholder. On validation failure: validation_errors, rejected_payload_summary "
