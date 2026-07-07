@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from .correction_lane_advisory import render_correction_lane_advisory_timeline_lines
+from .correction_posture import render_upstream_corrections_required_timeline_lines
 
 PREPARE_PREVIEW_OUTPUT_TOP_LEVEL_KEYS: tuple[str, ...] = (
     "final_package_preview_ref",
@@ -332,6 +333,9 @@ def render_final_package_validation_timeline_lines(
 ) -> list[str]:
     if not isinstance(outputs, Mapping):
         return []
+    refusal_lines = render_upstream_corrections_required_timeline_lines(outputs, indent=indent)
+    if refusal_lines:
+        return refusal_lines
     validation_errors = outputs.get("validation_errors")
     rejected_summary = outputs.get("rejected_payload_summary")
     preserve_sections = outputs.get("preserve_sections")
@@ -468,4 +472,9 @@ def render_final_package_preview_tool_output(
         body = "\n".join(lines)
         if "correction_lane_advisory:" not in body:
             lines.extend(render_correction_lane_advisory_timeline_lines(advisory, indent=indent))
+    refusal_lines = render_upstream_corrections_required_timeline_lines(outputs, indent=indent)
+    if refusal_lines:
+        body = "\n".join(lines)
+        if "upstream_corrections_required:" not in body:
+            lines.extend(refusal_lines)
     return lines

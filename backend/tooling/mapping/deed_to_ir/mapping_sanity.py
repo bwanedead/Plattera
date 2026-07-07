@@ -93,6 +93,20 @@ def _entity_value_kind(entity_id: str) -> str | None:
     return None
 
 
+def ordered_entity_ids_for_leg(
+    *,
+    source_entity_ids: list[str],
+    operand_evidence_index: dict[str, list[str]] | None,
+    leg_index: int,
+) -> list[str]:
+    """Public helper: order source entity ids for a course leg (distance before bearing)."""
+    return _ordered_entity_ids_for_leg(
+        source_entity_ids=source_entity_ids,
+        operand_evidence_index=operand_evidence_index,
+        leg_index=leg_index,
+    )
+
+
 def _ordered_entity_ids_for_leg(
     *,
     source_entity_ids: list[str],

@@ -105,6 +105,7 @@ def build_mapping_review_from_persisted_mapping(
     persistence: FeatureGraphPersistenceService,
     dossier_id: str,
     operand_evidence_index: dict[str, list[str]] | None = None,
+    resolution_state_snapshot: Mapping[str, Any] | None = None,
 ) -> dict[str, Any] | None:
     """Rebuild mapping_review from a stored mapping artifact payload."""
     if str(mapping_raw.get("artifact_type") or "") != "mapping":
@@ -147,6 +148,15 @@ def build_mapping_review_from_persisted_mapping(
             compile_artifact=compile_artifact,
             operand_evidence_index=operand_evidence_index,
         )
+        from .correction_posture import attach_correction_posture_to_mapping_review
+
+        attach_correction_posture_to_mapping_review(
+            review,
+            resolution_state_snapshot=resolution_state_snapshot,
+            ir_graph=graph,
+            compile_artifact=compile_artifact,
+            ir_artifact_ref=mapping.source_ir_artifact_ref,
+        )
     return review
 
 
@@ -169,6 +179,9 @@ def compact_mapping_review_for_projection(
     sanity_compact = compact_sanity_review_for_projection(mapping_review.get("sanity_review"))
     if sanity_compact is not None:
         compact["sanity_review"] = sanity_compact
+    correction_posture = mapping_review.get("correction_posture")
+    if isinstance(correction_posture, Mapping) and correction_posture.get("active"):
+        compact["correction_posture"] = dict(correction_posture)
     filtered = {key: value for key, value in compact.items() if value is not None}
     return filtered or None
 
@@ -212,6 +225,11 @@ def render_mapping_review_timeline_lines(
                 f"expected_ir_artifact_ref={expected_ir or ''}"
             )
     lines.extend(render_sanity_review_timeline_lines(mapping_review.get("sanity_review"), indent=indent))
+    from .correction_posture import render_correction_posture_timeline_lines
+
+    lines.extend(
+        render_correction_posture_timeline_lines(mapping_review.get("correction_posture"), indent=indent)
+    )
     return lines
 
 

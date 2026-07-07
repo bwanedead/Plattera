@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from typing import Any
 
 from domains.mapping.deed_to_ir.payloads.final_package_preview import (
@@ -18,6 +19,10 @@ from services.feature_graph.feature_graph_mapping_sidecar_service import Feature
 from services.feature_graph.feature_graph_persistence_service import FeatureGraphPersistenceService
 
 from .correction_lane_advisory import detect_correction_lane_advisory
+from .correction_posture import (
+    detect_correction_posture,
+    upstream_corrections_required_refusal,
+)
 from .final_package_preview_projection import (
     build_preview_hydration_payload,
     build_recommended_publish_request,
@@ -71,6 +76,7 @@ def prepare_deed_to_ir_final_package(
     notes: Any | None = None,
     upstream_corrections: Any | None = None,
     expected_ir_artifact_ref: str | None = None,
+    resolution_state_snapshot: Mapping[str, Any] | None = None,
     persistence: FeatureGraphPersistenceService | None = None,
 ) -> dict[str, Any]:
     if not dossier_id:
@@ -132,6 +138,20 @@ def prepare_deed_to_ir_final_package(
         )
     except FinalPackageIncompleteError as exc:
         return final_package_incomplete_refusal(exc)
+
+    correction_posture = detect_correction_posture(
+        resolution_state_snapshot=resolution_state_snapshot,
+        ir_graph=package.ir_artifact.graph,
+        compile_artifact=package.compile_artifact,
+        ir_artifact_ref=actual_ir_ref,
+        upstream_corrections=corrections,
+        scope_results=scopes,
+        external_dependencies=deps,
+        closure_dimensions=closure,
+        notes=note_rows,
+    )
+    if correction_posture.get("active") and not corrections:
+        return upstream_corrections_required_refusal(correction_posture=correction_posture)
 
     source_ref = str(transcript_edit_source_revision_ref or "").strip()
     if not source_ref:

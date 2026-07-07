@@ -20,6 +20,7 @@ from services.feature_graph.feature_graph_mapping_sidecar_service import (
 )
 from services.feature_graph.feature_graph_persistence_service import FeatureGraphPersistenceService
 
+from .correction_contract_card import CORRECTION_CONTRACT_REF, build_correction_contract_hydration_row
 from .upstream_source_evidence_hydration import hydrate_upstream_source_evidence_ref
 
 REF_PREFIXES = ARTIFACT_REF_PREFIXES
@@ -165,6 +166,9 @@ def hydrate_feature_graph_artifact_refs(
     image_evidence: list[dict[str, Any]] = []
     for ref_id in ref_ids:
         text = str(ref_id or "").strip()
+        if text == CORRECTION_CONTRACT_REF:
+            results.append(build_correction_contract_hydration_row())
+            continue
         if text.startswith("deed_to_ir:operands"):
             row, error = _hydrate_operand_suite_ref(
                 ref_id=text,
@@ -369,15 +373,19 @@ def _hydrated_row(
             from .mapping_sanity import build_operand_evidence_index
 
             operand_evidence_index = None
+            resolution_snapshot = None
             if isinstance(handoff_context, Mapping):
-                operand_evidence_index = build_operand_evidence_index(
-                    handoff_context.get("resolution_state_snapshot")
-                ) or None
+                resolution_snapshot = handoff_context.get("resolution_state_snapshot")
+                if isinstance(resolution_snapshot, Mapping):
+                    operand_evidence_index = build_operand_evidence_index(resolution_snapshot) or None
             review = build_mapping_review_from_persisted_mapping(
                 mapping_raw=artifact,
                 persistence=persistence,
                 dossier_id=dossier_id,
                 operand_evidence_index=operand_evidence_index,
+                resolution_state_snapshot=resolution_snapshot
+                if isinstance(resolution_snapshot, Mapping)
+                else None,
             )
             if review is not None:
                 row["mapping_review"] = review

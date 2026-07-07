@@ -9,7 +9,7 @@ from ..branch import DEED_TO_IR_DOMAIN_ID
 DEED_TO_IR_PROCEDURAL_GUIDANCE_SOURCE_REF = (
     "backend/domains/mapping/deed_to_ir/prompting/surfaces/procedural_guidance.py"
 )
-DEED_TO_IR_PROCEDURAL_GUIDANCE_VERSION = "v25"
+DEED_TO_IR_PROCEDURAL_GUIDANCE_VERSION = "v26"
 
 DEED_TO_IR_PROCEDURAL_GUIDANCE_TEXT = """\
 Use this guidance to orient deed-to-IR work. This is **guidance**, not a hard script.
@@ -102,6 +102,8 @@ Use this guidance to orient deed-to-IR work. This is **guidance**, not a hard sc
 - If an upstream defect was investigated but **not** used by final IR: `resolution_used_by_ir=false` (and `posture="suspected"` when still uncertain).
 - If an upstream defect was used by final IR: `resolution_used_by_ir=true` with source/evidence refs in `basis_refs`.
 - During prepare, a mechanical `correction_lane_advisory` may appear when `upstream_corrections` is empty but package text mentions correction-like language — treat it as a steering signal, not a refusal.
+- When a tool returns `correction_posture.active=true`, follow the correction contract card (`deed_to_ir:correction_contract`). Do not publish a final package with corrected IR values and empty `upstream_corrections`.
+- Prepare may retryably refuse with `upstream_corrections_required` when correction posture is active and the corrections lane is empty — add agent-authored `upstream_corrections` rows or revise the IR/package.
 - Trust transcript-edit as the normal starting point. Do not trigger transcript-edit repair repeatedly during drafting.
 - If map/geometry/deed logic exposes a concrete upstream handoff defect, investigate with targeted source evidence refs (`image:derived:*`, `image:assoc:*` via `hydrate_artifact_refs`) and transcript lanes while continuing to solve the IR/map.
 - During drafting, keep working notes local. Do not emit `upstream_corrections` as a live repair trigger.
@@ -113,7 +115,7 @@ Use this guidance to orient deed-to-IR work. This is **guidance**, not a hard sc
 - Final published output may be correct and usable even before a later transcript-edit amendment exists.
 
 ## Mapping review and hydration discipline
-- After `submit_ir_for_mapping`, inspect `outputs.mapping_review` first — mapping review is not just compile/judge pass/fail. Inspect mechanical geometry behavior in `mapping_review.sanity_review` (endpoint displacement, course leg tables, source evidence handles).
+- After `submit_ir_for_mapping`, inspect `outputs.mapping_review` first — mapping review is not just compile/judge pass/fail. Inspect mechanical geometry behavior in `mapping_review.sanity_review` (endpoint displacement, course leg tables, source evidence handles). When present, inspect `mapping_review.correction_posture` for mechanical IR-vs-inherited operand deltas.
 - Prefer `outputs.mapping_review.recommended_review_refs` over `@this.result.artifact_refs[]` for ordinary mapping review — do not bulk-hydrate every returned ref by habit. Copyable `*_ref` fields must be full canonical refs; never use truncated display fragments as refs.
 - Large unexplained endpoint displacement is a **source-sanity trigger**, not automatically a deed defect. Do not declare an open traverse limitation until you consider whether the deed description expected closure or a boundary return.
 - If one course leg looks suspicious, hydrate targeted source evidence for that leg (from `sanity_review.recommended_source_evidence_refs` or course leg `evidence_refs`) before finalizing an upstream correction or limitation.

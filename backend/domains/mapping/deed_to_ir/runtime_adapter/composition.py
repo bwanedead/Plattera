@@ -259,6 +259,7 @@ def _make_prepare_final_package_handler(
                 notes=inputs.get("notes"),
                 upstream_corrections=inputs.get("upstream_corrections"),
                 expected_ir_artifact_ref=_optional_str(inputs.get("expected_ir_artifact_ref")),
+                resolution_state_snapshot=handoff.resolution_state_snapshot,
             )
         except Exception as exc:
             return _exception_refusal(exc)

@@ -19,6 +19,7 @@ from services.feature_graph.feature_graph_persistence_service import FeatureGrap
 from .artifact_hydration import image_evidence_from_png_path, resolve_sidecar_path_for_ref
 from .mapping_review import build_mapping_review_from_mapping_artifact
 from .mapping_sanity import attach_sanity_review_to_mapping_review, build_operand_evidence_index
+from .correction_posture import attach_correction_posture_to_mapping_review
 
 
 def submit_ir_for_mapping(
@@ -94,6 +95,20 @@ def submit_ir_for_mapping(
             resolution_state_snapshot=resolution_state_snapshot,
             handoff_context=handoff_context,
         ),
+    )
+    attach_correction_posture_to_mapping_review(
+        mapping_review,
+        resolution_state_snapshot=resolution_state_snapshot
+        if isinstance(resolution_state_snapshot, Mapping)
+        else (
+            handoff_context.get("resolution_state_snapshot")
+            if isinstance(handoff_context, Mapping)
+            and isinstance(handoff_context.get("resolution_state_snapshot"), Mapping)
+            else None
+        ),
+        ir_graph=ir_artifact.graph,
+        compile_artifact=compile_outcome.artifact,
+        ir_artifact_ref=outcome.ir_artifact_ref,
     )
 
     return {
