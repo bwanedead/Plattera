@@ -197,6 +197,9 @@ def _make_patch_ir_draft_handler(
         edge_upserts = inputs.get("edge_upserts") if isinstance(inputs.get("edge_upserts"), list) else []
         node_removals = inputs.get("node_removals") if isinstance(inputs.get("node_removals"), list) else []
         edge_removals = inputs.get("edge_removals") if isinstance(inputs.get("edge_removals"), list) else []
+        course_updates = (
+            inputs.get("course_updates") if isinstance(inputs.get("course_updates"), list) else []
+        )
         try:
             return patch_ir_draft(
                 dossier_id=dossier_id,
@@ -205,6 +208,7 @@ def _make_patch_ir_draft_handler(
                 edge_upserts=edge_upserts,
                 node_removals=node_removals,
                 edge_removals=edge_removals,
+                course_updates=course_updates,
                 graph_id=_optional_str(inputs.get("graph_id")),
                 draft_workspace_id=draft_workspace_id,
                 draft_run_id=draft_run_id,

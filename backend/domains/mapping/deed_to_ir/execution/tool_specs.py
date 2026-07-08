@@ -298,12 +298,16 @@ def build_deed_to_ir_tool_specs() -> tuple[SemanticToolSpec, ...]:
             category="write",
             purpose=(
                 "Surgically patch an existing draft IR checkpoint without resubmitting the whole graph. "
-                "Loads base_draft_ref, applies id-exact node/edge upserts and optional removals, validates "
-                "the full FeatureGraph, saves the next append-only draft version on the same graph_id, and "
-                "returns the same compile/judge feedback lane as save_ir_artifact."
+                "Supports course_updates for CourseTraverse row field patches, plus id-exact node/edge "
+                "upserts and optional removals. Validates the full FeatureGraph, saves the next "
+                "append-only draft version on the same graph_id, and returns the same compile/judge "
+                "feedback lane as save_ir_artifact."
             ),
             expected_request_shape=(
                 "base_draft_ref: required feature_graph:ir:* ref for the draft to patch. "
+                "course_updates: optional array for CourseTraverse row field patches — each entry needs "
+                "node_id, 1-based course_index, field (distance|bearing|distance_raw|bearing_raw), and agent-authored "
+                "value; optional source_entity_id and basis_refs (audit metadata; not applied by the handler). "
                 "node_upserts: optional array of FeatureNode patches keyed by exact id (deep-merge dictionaries; "
                 "arrays/scalars replace; null clears a field). "
                 "edge_upserts: optional array of FeatureEdge patches keyed by source_id+target_id+edge_type. "
@@ -316,6 +320,28 @@ def build_deed_to_ir_tool_specs() -> tuple[SemanticToolSpec, ...]:
                 "properties": {
                     "base_draft_ref": {"type": "string", "minLength": 1},
                     "graph_id": {"type": ["string", "null"]},
+                    "course_updates": {
+                        "type": ["array", "null"],
+                        "items": {
+                            "type": "object",
+                            "required": ["node_id", "course_index", "field", "value"],
+                            "properties": {
+                                "node_id": {"type": "string", "minLength": 1},
+                                "course_index": {"type": "integer", "minimum": 1},
+                                "field": {
+                                    "type": "string",
+                                    "enum": ["distance", "bearing", "distance_raw", "bearing_raw"],
+                                },
+                                "value": {},
+                                "source_entity_id": {"type": ["string", "null"]},
+                                "basis_refs": {
+                                    "type": ["array", "null"],
+                                    "items": {"type": "string", "minLength": 1},
+                                },
+                            },
+                            "additionalProperties": False,
+                        },
+                    },
                     "node_upserts": {
                         "type": ["array", "null"],
                         "items": build_compact_feature_node_request_schema(),
@@ -330,23 +356,15 @@ def build_deed_to_ir_tool_specs() -> tuple[SemanticToolSpec, ...]:
                 "additionalProperties": False,
             },
             example_request={
-                "base_draft_ref": "feature_graph:ir:right_of_way_deed_ir_v0",
-                "node_upserts": [
+                "base_draft_ref": "feature_graph:ir:example_scope_draft_v0",
+                "course_updates": [
                     {
-                        "id": "parcel_1_traverse",
-                        "kind": "curve",
-                        "op_expr": {
-                            "op_name": "CourseTraverse",
-                            "operands": ["parcel_1_anchor"],
-                            "params": {"courses": []},
-                        },
-                    }
-                ],
-                "edge_upserts": [
-                    {
-                        "source_id": "parcel_1_traverse",
-                        "target_id": "parcel_1_region",
-                        "edge_type": "derived_from",
+                        "node_id": "example_traverse",
+                        "course_index": 2,
+                        "field": "distance",
+                        "value": 410,
+                        "source_entity_id": "example_call2_distance",
+                        "basis_refs": ["image:derived:example_evidence_ref"],
                     }
                 ],
             },
@@ -357,8 +375,10 @@ def build_deed_to_ir_tool_specs() -> tuple[SemanticToolSpec, ...]:
             expected_result_shape=(
                 "Same success/failure outputs as save_ir_artifact (working_draft_ref, working_compile_ref, "
                 "working_judge_ref, draft_version, current_draft_ir, draft_repair_items, compile/judge refs and gaps). "
+                "course_updates refusals are retryable (course_update_node_missing, "
+                "course_update_not_course_traverse, course_update_index_out_of_range, "
+                "course_update_field_invalid, course_update_value_invalid). "
                 "Nested op_expr.params patches preserve existing op_name/operands when omitted. "
-                "CourseTraverse course rows need numeric bearing/distance from operand-suite parsed fields. "
                 "Optional outputs.patch_warnings when removals target missing ids. "
                 "Validation failure is retryable and persists nothing."
             ),
@@ -394,8 +414,10 @@ def build_deed_to_ir_tool_specs() -> tuple[SemanticToolSpec, ...]:
             expected_result_shape=(
                 "On success: outputs.mapping_review carries compact refs, counts, recommended_review_refs, "
                 "recommended_publish_refs, lineage_lock (source_ir_artifact_ref, mapping_artifact_ref, "
-                "use_these_refs_for_next_preview=true), and sanity_review (feature_metrics, course_leg_tables, "
-                "endpoint_displacement_candidates, recommended_source_evidence_refs, review_questions). "
+                "use_these_refs_for_next_preview=true), sanity_review (feature_metrics, course_leg_tables, "
+                "endpoint_displacement_candidates, recommended_source_evidence_refs, review_questions), "
+                "draft_patch_targets (mechanical CourseTraverse patch locations from course leg source entity ids), "
+                "and optional correction_posture with matching_patch_target_id / patch_update_shells. "
                 "After a successful remap, use mapping_review.lineage_lock or recommended_publish_refs for "
                 "the next preview — do not mix prior mapping/IR refs. Prefer mapping_review.recommended_review_refs "
                 "over @this.result.artifact_refs[] for post-submit inspection. artifact_refs still lists all "
@@ -533,7 +555,8 @@ def build_deed_to_ir_tool_specs() -> tuple[SemanticToolSpec, ...]:
                 "or image:assoc:* refs. max_refs: optional cap (default 8, max 32). "
                 "working_draft_ref: optional feature_graph:ir:* ref used to label compile/judge hydration rows "
                 "with is_current_for_working_draft. Hydrating feature_graph:mapping:* returns mapping_review "
-                "(compact lineage, counts, recommended_review_refs, recommended_publish_refs). Hydrating "
+                "(compact lineage, counts, recommended_review_refs, recommended_publish_refs, sanity_review, "
+                "draft_patch_targets, and correction_posture when available). Hydrating "
                 "deed_to_ir:final_package_preview:* returns selected artifact refs, row summaries, review_summary, "
                 "publish_ready_candidate, and recommended_publish_request. Hydrating image:derived:* or "
                 "image:assoc:* returns bounded upstream source-evidence descriptors (read-only; no transcript-edit "
@@ -570,8 +593,9 @@ def build_deed_to_ir_tool_specs() -> tuple[SemanticToolSpec, ...]:
             },
             expected_result_shape=(
                 "outputs.results: hydrated artifacts or sidecars keyed by ref with bounded payloads. "
-                "Mapping rows include mapping_review with source IR, sidecar refs, counts, and "
-                "recommended_publish_refs. Preview rows include selected_artifacts, scope_summaries, "
+                "Mapping rows include mapping_review with source IR, sidecar refs, counts, "
+                "recommended_publish_refs, draft_patch_targets, and correction_posture when available. "
+                "Preview rows include selected_artifacts, scope_summaries, "
                 "review_summary, publish_ready_candidate, and recommended_publish_request. Compile/judge rows "
                 "include artifact_ref, parent_ir_ref, parent_graph_id, parent_draft_version, and optional "
                 "is_current_for_working_draft when working_draft_ref is supplied. To publish, prefer "

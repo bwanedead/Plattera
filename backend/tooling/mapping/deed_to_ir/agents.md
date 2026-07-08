@@ -10,6 +10,8 @@
 - **Persistence:** Wrap `FeatureGraphPersistenceService`; do not duplicate artifact storage logic.
 - **Ref scheme:** `feature_graph:ir:{artifact_id}` (+ compile/judge/bundle prefixes for future types).
 - **Capability contract:** Derive compact field inventories from Pydantic models and operation details from `OPERATION_REGISTRY`; keep authored examples in `feature_graph_examples.py` schema-valid and compiler-tested.
+- **Course repair:** `patch_ir_draft.course_updates` surgically edits one CourseTraverse row (1-based `course_index`); agent authors `value` — never infer corrected deed values.
+- **Draft patch targets:** `draft_patch_targets` / `patch_update_shells` are mechanical bridges from course-leg facts to patch locations; placeholders only, no corrected values.
 
 ## Commands
 - Test: `pytest backend/tooling/mapping/deed_to_ir/ -q`

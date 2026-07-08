@@ -9,7 +9,7 @@ from ..branch import DEED_TO_IR_DOMAIN_ID
 DEED_TO_IR_PROCEDURAL_GUIDANCE_SOURCE_REF = (
     "backend/domains/mapping/deed_to_ir/prompting/surfaces/procedural_guidance.py"
 )
-DEED_TO_IR_PROCEDURAL_GUIDANCE_VERSION = "v28"
+DEED_TO_IR_PROCEDURAL_GUIDANCE_VERSION = "v29"
 
 DEED_TO_IR_PROCEDURAL_GUIDANCE_TEXT = """\
 Use this guidance to orient deed-to-IR work. This is **guidance**, not a hard script.
@@ -35,7 +35,7 @@ Use this guidance to orient deed-to-IR work. This is **guidance**, not a hard sc
 - `graph_id` is the **stable logical graph id** — do not embed draft version numbers in `graph_id` (avoid `right_of_way_v1` as graph_id).
 - To continue a working draft, pass `base_draft_ref` from the prior save; the tool allocates versioned artifact refs (`feature_graph:ir:right_of_way_v0`, `..._v1`, ...).
 - `save_ir_artifact` saves a **draft checkpoint** (`draft_version` such as v0, v1, v2) — not final publication.
-- Use `patch_ir_draft` for surgical repair when `draft_repair_items` are directly actionable and operands are already available; use full `save_ir_artifact` for first draft or major rewrite.
+- Use `patch_ir_draft` for surgical repair when `draft_repair_items` are directly actionable and operands are already available; use full `save_ir_artifact` for first draft or major rewrite. For CourseTraverse row field fixes, see Mapping sanity repair.
 - Keep the current draft ref and repair feedback active while drafting; keep operand values visible via `mapping_operands` / `operand_suite_ref` as needed.
 - Use `outputs.working_draft_ref` (alias of `draft_ir_ref` / `ir_artifact_ref`) for `@this.result.working_draft_ref` hydrate-next on the same turn batch.
 - Compile/judge feedback on draft save is expected mechanical feedback — use `current_draft_ir.draft_repair_items`, `draft_quality_flags`, and node-precise `compile_gaps` to repair the **same graph_id** and save the next draft version; do not reread operation contracts unless a new primitive is genuinely needed.
@@ -131,10 +131,15 @@ Use this guidance to orient deed-to-IR work. This is **guidance**, not a hard sc
 - Large unexplained endpoint displacement is a **source-sanity trigger**, not automatically a deed defect. Do not declare an open traverse limitation until you consider whether the deed description expected closure or a boundary return.
 - If one course leg looks suspicious, hydrate targeted source evidence for that leg (from `sanity_review.recommended_source_evidence_refs` or course leg `evidence_refs`) before finalizing an upstream correction or limitation.
 - Station chains, centerlines, routes, strips, and intentionally open alignments may not close — endpoint displacement is a mechanical fact to interpret, not a universal failure.
-- Hydrate specific refs only when needed: control render for visual map review (leg/gap annotations), geometry ref for feature/coordinate inspection, mapping ref for compact lineage, counts, and sanity_review.
+- Hydrate specific refs only when needed: control render for visual map review (leg/gap annotations), geometry ref for feature/coordinate inspection, mapping ref for compact lineage, counts, sanity_review, and draft_patch_targets.
 - For upstream source repair, hydrate targeted transcript-edit evidence refs (`image:derived:*`, `image:assoc:*`) via `hydrate_artifact_refs` — do not bulk-hydrate the entire transcript-edit artifact universe.
 - After a successful remap via `submit_ir_for_mapping`, use `mapping_review.lineage_lock` or `mapping_review.recommended_publish_refs` directly for the next preview — do not mix a newer IR ref with an older mapping ref (or vice versa).
 - If any `patch_ir_draft` occurs after mapping, resubmit the patched draft for mapping before publishing — stale mapping lineage is refused retryably when `expected_ir_artifact_ref` does not match.
+
+## Mapping sanity repair (surgical course patch)
+- Normal path: inspect `mapping_review.sanity_review` → use `mapping_review.draft_patch_targets` (and `correction_posture.matching_patch_target_id` / `patch_update_shells` when present) → `patch_ir_draft` with `course_updates` → remap → preview/publish.
+- Prefer `course_updates` over reconstructing full `courses[]` for a simple bearing/distance fix. Shells may include placeholders; the agent authors the corrected `value`. Deterministic code does not choose deed truth.
+- Do **not** use `delegate_subtask` to locate IR patch targets — the parent already owns the draft/mapping surfaces and the mechanical bridges (`draft_patch_targets` / shells); delegation adds no bounded observation gain for this repair.
 
 ## Supported deed-to-IR authoring pattern
 - **ReferenceFrame** — survey/frame context such as PLSS, local stationing, plat grid, or other external coordinate basis (non-rendered descriptor; not invented ops like `public_land_survey_frame`).

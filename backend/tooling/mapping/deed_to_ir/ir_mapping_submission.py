@@ -110,6 +110,12 @@ def submit_ir_for_mapping(
         compile_artifact=compile_outcome.artifact,
         ir_artifact_ref=outcome.ir_artifact_ref,
     )
+    from .draft_patch_targets import attach_draft_patch_targets_to_mapping_review
+
+    attach_draft_patch_targets_to_mapping_review(
+        mapping_review,
+        base_draft_ref=outcome.ir_artifact_ref,
+    )
     lineage_lock = {
         "source_ir_artifact_ref": outcome.ir_artifact_ref,
         "mapping_artifact_ref": mapping.artifact_ref,

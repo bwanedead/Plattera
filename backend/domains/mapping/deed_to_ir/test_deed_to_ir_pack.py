@@ -249,7 +249,7 @@ def test_procedural_guidance_v23_upstream_corrections_discipline() -> None:
         for b in build_deed_to_ir_domain_pack().build_semantic_prompt_blocks()
         if b.block_id == "deed_to_ir_procedural_guidance"
     )
-    assert block.version == "v28"
+    assert block.version == "v29"
     text = block.text.lower()
     assert "upstream_corrections" in text
     assert "`notes` are commentary only" in block.text
@@ -274,7 +274,7 @@ def test_procedural_guidance_v24_mapping_sanity_discipline() -> None:
         for b in build_deed_to_ir_domain_pack().build_semantic_prompt_blocks()
         if b.block_id == "deed_to_ir_procedural_guidance"
     )
-    assert block.version == "v28"
+    assert block.version == "v29"
     text = block.text.lower()
     assert "sanity_review" in text
     assert "endpoint displacement" in text
@@ -290,7 +290,7 @@ def test_procedural_guidance_v25_correction_lane_discipline() -> None:
         for b in build_deed_to_ir_domain_pack().build_semantic_prompt_blocks()
         if b.block_id == "deed_to_ir_procedural_guidance"
     )
-    assert block.version == "v28"
+    assert block.version == "v29"
     text = block.text.lower()
     assert "notes are commentary only" in text or "notes` are commentary only" in block.text
     assert "correction_lane_advisory" in text
@@ -304,7 +304,7 @@ def test_procedural_guidance_v26_correction_posture_gate() -> None:
         for b in build_deed_to_ir_domain_pack().build_semantic_prompt_blocks()
         if b.block_id == "deed_to_ir_procedural_guidance"
     )
-    assert block.version == "v28"
+    assert block.version == "v29"
     text = block.text.lower()
     assert "correction_posture.active=true" in block.text or "correction_posture" in text
     assert "deed_to_ir:correction_contract" in block.text
@@ -317,7 +317,7 @@ def test_procedural_guidance_v27_retry_shell_and_lineage_lock() -> None:
         for b in build_deed_to_ir_domain_pack().build_semantic_prompt_blocks()
         if b.block_id == "deed_to_ir_procedural_guidance"
     )
-    assert block.version == "v28"
+    assert block.version == "v29"
     text = block.text.lower()
     assert "retry_package_shell" in text
     assert "lineage_lock" in text or "recommended_publish_refs" in text
@@ -329,7 +329,7 @@ def test_procedural_guidance_v28_strict_upstream_correction_row() -> None:
         for b in build_deed_to_ir_domain_pack().build_semantic_prompt_blocks()
         if b.block_id == "deed_to_ir_procedural_guidance"
     )
-    assert block.version == "v28"
+    assert block.version == "v29"
     text = block.text
     lower = text.lower()
     assert "upstream_corrections_template" in lower
@@ -341,6 +341,72 @@ def test_procedural_guidance_v28_strict_upstream_correction_row() -> None:
     assert "confirmed_from_source" in lower
     assert "summary" in lower
     assert "do not invent" in lower
+
+
+def test_procedural_guidance_v29_course_updates_and_no_delegate_repair() -> None:
+    block = next(
+        b
+        for b in build_deed_to_ir_domain_pack().build_semantic_prompt_blocks()
+        if b.block_id == "deed_to_ir_procedural_guidance"
+    )
+    assert block.version == "v29"
+    text = block.text.lower()
+    assert "course_updates" in text
+    assert "draft_patch_targets" in text
+    assert "delegate_subtask" in text
+    assert "mapping sanity repair" in text
+    assert "reconstructing full" in text and "courses[]" in text
+
+
+def test_patch_ir_draft_tool_spec_documents_course_updates_without_practice_tokens() -> None:
+    from tooling.mapping.deed_to_ir.correction_contract_card import (
+        agent_facing_example_contains_practice_deed_tokens,
+    )
+
+    specs = {spec.tool_id: spec for spec in build_deed_to_ir_tool_specs()}
+    patch = specs["patch_ir_draft"]
+    assert "course_updates" in patch.expected_request_shape
+    assert "course_updates" in patch.purpose.lower()
+    assert "coursetraverse" in patch.purpose.lower()
+    props = patch.expected_request_json_shape["properties"]
+    assert "course_updates" in props
+    example = patch.example_request
+    assert "course_updates" in example
+    assert agent_facing_example_contains_practice_deed_tokens(example) == []
+    example_text = str(example).lower()
+    for token in ("518", "618", "p1_call2_distance", "parcel_1"):
+        assert token not in example_text
+
+
+def test_startup_context_notes_no_deed_to_ir_delegate_repair_workflow() -> None:
+    from domains.mapping.deed_to_ir.prompting.surfaces.startup_context import (
+        DEED_TO_IR_STARTUP_CONTEXT_VERSION,
+        build_startup_context_block,
+    )
+    from domains.mapping.deed_to_ir.payloads.startup_handoff import (
+        DeedToIrScope,
+        DeedToIrStartupHandoff,
+        TranscriptEditSourceMetadata,
+    )
+
+    assert DEED_TO_IR_STARTUP_CONTEXT_VERSION == "v7"
+    handoff = DeedToIrStartupHandoff(
+        scope=DeedToIrScope(
+            dossier_id="d-example",
+            run_id="run-example",
+            workspace_id="ws-example",
+            transcription_id="tx-example",
+        ),
+        source=TranscriptEditSourceMetadata(
+            loaded_source_label="example",
+            source_revision_ref="transcript_edit:output:rev:0001",
+        ),
+    )
+    block = build_startup_context_block(handoff)
+    text = block.text.lower()
+    assert "delegate_subtask" in text
+    assert "course_updates" in text
+    assert "ir course repair" in text
 
 
 def test_prepare_and_publish_tool_schemas_expose_upstream_corrections() -> None:

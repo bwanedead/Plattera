@@ -157,6 +157,12 @@ def build_mapping_review_from_persisted_mapping(
             compile_artifact=compile_artifact,
             ir_artifact_ref=mapping.source_ir_artifact_ref,
         )
+        from .draft_patch_targets import attach_draft_patch_targets_to_mapping_review
+
+        attach_draft_patch_targets_to_mapping_review(
+            review,
+            base_draft_ref=mapping.source_ir_artifact_ref,
+        )
     return review
 
 
@@ -179,9 +185,20 @@ def compact_mapping_review_for_projection(
     sanity_compact = compact_sanity_review_for_projection(mapping_review.get("sanity_review"))
     if sanity_compact is not None:
         compact["sanity_review"] = sanity_compact
-    correction_posture = mapping_review.get("correction_posture")
-    if isinstance(correction_posture, Mapping) and correction_posture.get("active"):
-        compact["correction_posture"] = dict(correction_posture)
+    from .draft_patch_targets import compact_draft_patch_targets_for_projection
+
+    targets_compact = compact_draft_patch_targets_for_projection(
+        mapping_review.get("draft_patch_targets")
+    )
+    if targets_compact is not None:
+        compact["draft_patch_targets"] = targets_compact
+    from .correction_posture import compact_correction_posture_for_projection
+
+    posture_compact = compact_correction_posture_for_projection(
+        mapping_review.get("correction_posture")
+    )
+    if posture_compact is not None:
+        compact["correction_posture"] = posture_compact
     lineage_lock = mapping_review.get("lineage_lock")
     if isinstance(lineage_lock, Mapping) and lineage_lock:
         compact["lineage_lock"] = dict(lineage_lock)
@@ -228,11 +245,29 @@ def render_mapping_review_timeline_lines(
                 f"expected_ir_artifact_ref={expected_ir or ''}"
             )
     lines.extend(render_sanity_review_timeline_lines(mapping_review.get("sanity_review"), indent=indent))
+    from .draft_patch_targets import (
+        render_draft_patch_targets_timeline_lines,
+        render_patch_update_shells_timeline_lines,
+    )
     from .correction_posture import render_correction_posture_timeline_lines
 
     lines.extend(
+        render_draft_patch_targets_timeline_lines(
+            mapping_review.get("draft_patch_targets"),
+            indent=indent,
+        )
+    )
+    lines.extend(
         render_correction_posture_timeline_lines(mapping_review.get("correction_posture"), indent=indent)
     )
+    posture = mapping_review.get("correction_posture")
+    if isinstance(posture, Mapping):
+        lines.extend(
+            render_patch_update_shells_timeline_lines(
+                posture.get("patch_update_shells"),
+                indent=indent,
+            )
+        )
     lineage_lock = mapping_review.get("lineage_lock")
     if isinstance(lineage_lock, Mapping) and lineage_lock:
         lines.append(f"{indent}  lineage_lock:")

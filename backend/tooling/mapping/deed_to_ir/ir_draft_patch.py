@@ -8,6 +8,7 @@ from typing import Any
 from services.feature_graph.feature_graph_evaluation_service import FeatureGraphEvaluationService
 from services.feature_graph.feature_graph_persistence_service import FeatureGraphPersistenceService
 
+from .course_updates import apply_course_updates
 from .draft_ir_lifecycle import load_base_draft_artifact, prior_graph_id_from_artifact
 from .ir_persistence import _base_draft_refusal, _graph_id_mismatch_refusal, save_ir_artifact
 from .patch_deep_merge import deep_merge_patch
@@ -21,6 +22,7 @@ def patch_ir_draft(
     edge_upserts: Sequence[Mapping[str, Any]] | None = None,
     node_removals: Sequence[str] | None = None,
     edge_removals: Sequence[Mapping[str, Any]] | None = None,
+    course_updates: Sequence[Mapping[str, Any]] | None = None,
     graph_id: str | None = None,
     draft_workspace_id: str | None = None,
     draft_run_id: str | None = None,
@@ -62,8 +64,19 @@ def patch_ir_draft(
             actual_graph_id=graph_id.strip(),
         )
 
+    working_graph = dict(graph_raw)
+    if course_updates:
+        course_patched, course_refusal = apply_course_updates(
+            working_graph,
+            course_updates=course_updates,
+        )
+        if course_refusal is not None:
+            return course_refusal
+        if course_patched is not None:
+            working_graph = course_patched
+
     patched_graph, warnings = _apply_patch(
-        dict(graph_raw),
+        working_graph,
         node_upserts=node_upserts or (),
         edge_upserts=edge_upserts or (),
         node_removals=node_removals or (),

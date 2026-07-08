@@ -113,16 +113,31 @@ def compact_correction_posture_for_projection(posture: Mapping[str, Any] | None)
     }
     deltas = posture.get("candidate_deltas")
     if isinstance(deltas, list) and deltas:
-        compact["candidate_deltas"] = [
-            {
+        compact_deltas: list[dict[str, Any]] = []
+        for row in deltas:
+            if not isinstance(row, Mapping):
+                continue
+            compact_row: dict[str, Any] = {
                 "target_entity_id": row.get("target_entity_id"),
                 "value_kind": row.get("value_kind"),
                 "inherited_value": row.get("inherited_value"),
                 "ir_value": row.get("ir_value"),
             }
-            for row in deltas
-            if isinstance(row, Mapping)
-        ]
+            basis_refs = row.get("basis_refs")
+            if isinstance(basis_refs, list) and basis_refs:
+                compact_row["basis_refs"] = [
+                    str(ref).strip()
+                    for ref in basis_refs
+                    if isinstance(ref, str) and str(ref).strip()
+                ][:MAX_BASIS_REFS]
+            matching = row.get("matching_patch_target_id")
+            if isinstance(matching, str) and matching.strip():
+                compact_row["matching_patch_target_id"] = matching.strip()
+            compact_deltas.append(compact_row)
+        compact["candidate_deltas"] = compact_deltas
+    shells = posture.get("patch_update_shells")
+    if isinstance(shells, list) and shells:
+        compact["patch_update_shells"] = list(shells)[:MAX_CANDIDATE_DELTAS]
     return compact
 
 
