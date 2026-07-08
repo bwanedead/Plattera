@@ -411,6 +411,51 @@ python -m harness.cli.pause --run-id $runId
 python -m harness.cli.stop --run-id $runId
 ```
 
+Each run directory also contains a human-editable sidecar:
+
+```text
+<run_dir>/run_control.json
+```
+
+Initial contents:
+
+```json
+{
+  "emergency_stop": false,
+  "stop": false,
+  "pause": false,
+  "message": null
+}
+```
+
+Keep this file open while testing. `harness.cli.start` and `harness.cli.status` surface
+`run_control_file` and `run_control_state`.
+
+Cooperative controls (honored at the next safe checkpoint):
+
+```json
+{ "stop": true }
+```
+
+```json
+{ "pause": true }
+```
+
+Emergency stop (hard kill — may interrupt an in-flight model/tool call):
+
+```json
+{ "emergency_stop": true }
+```
+
+Difference:
+
+- `stop` / CLI `harness.cli.stop` → cooperative stop at the next safe boundary
+- `emergency_stop` → immediate operator escape hatch; may lose the partial in-flight turn
+
+When emergency stop fires, `done.json` / `result.json` use `reason_code`:
+`emergency_stop_requested`. Resume and fork still work when `kernel_resume.json` or
+per-turn checkpoints exist. Domain artifacts and audit turn files are not rewritten.
+
 Pause and stop are honored at safe runtime boundaries. They do not kill a model or
 tool call in progress. Once the run reaches `paused` or `stopped`, it remains
 resumable when `kernel_resume.json` exists:
@@ -466,6 +511,16 @@ latest checkpoint via `harness.cli.resume`.
 
 Forked replay is for testing current harness/domain changes against a known
 mid-run state — not for rewriting completed audit history.
+
+**Fork identity note:** A forked child receives a new CLI `run_id` and writes new
+terminal/output artifacts under that id (for example `deed_to_ir:output` in the child
+workspace). The resumed checkpoint may still carry source-run continuity such as
+`session_id` and IR refs whose workspace suffix matches the **source** run (for example
+`__ws_deed-to-ir-live-r00000027_v2`). That mixed identity is acceptable for mechanical
+fork replay today: new publishes and output packages land in the child workspace while
+checkpoint lineage preserves the mid-run state being replayed. A future pass may choose
+to fully rebase session/IR identity in the child; until then treat fork lineage in
+`state.json` (`forked_from_run_id`, `forked_from_turn`) as the operator source of truth.
 
 ### Tester-to-agent corrections
 

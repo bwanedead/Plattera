@@ -14,12 +14,14 @@ from pathlib import Path
 from time import time
 from typing import Any
 
+from harness.runtime.run_control_sidecar import write_initial_run_control_sidecar
 from .fork_spawn_argv import strip_launch_context_identity_for_fork
 from .resume_paths import RESUME_CHECKPOINT_FILENAME, turn_checkpoint_path
 from .run_id_allocator import RunIdAllocatorError, allocate_automatic_run_id
 from .run_layout import RunLayoutError
 from .run_state import new_run_state, read_state, run_dir, write_state
 from .start import _backend_cwd, _child_env, _popen_flags
+from .watchdog_spawn import spawn_run_control_watchdog
 from harness.runtime.memory.resume_snapshot import (
     load_kernel_resume_snapshot_from_path,
     parse_kernel_resume_snapshot,
@@ -117,6 +119,7 @@ def fork_run_from_turn(*, run_id: str, from_turn: int) -> dict[str, Any]:
         run_dir=allocated.run_dir,
     )
     allocated.run_dir.mkdir(parents=True, exist_ok=True)
+    write_initial_run_control_sidecar(allocated.run_dir)
     write_state(child_state)
 
     env = _child_env(
@@ -159,6 +162,7 @@ def fork_run_from_turn(*, run_id: str, from_turn: int) -> dict[str, Any]:
     child_state.pid = int(proc.pid or 0)
     child_state.status = "forked"
     write_state(child_state)
+    spawn_run_control_watchdog(worker_pid=child_state.pid, paths=child_state.paths, run_id=child_id)
 
     return {
         "status": "forked",

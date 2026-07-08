@@ -18,10 +18,12 @@ from typing import Any, Mapping
 from ._process_util import is_pid_alive
 from .run_state import read_state, run_dir, run_layout_issue, write_state
 from .start import _child_env, _popen_flags, _backend_cwd
+from .watchdog_spawn import spawn_run_control_watchdog
 from harness.runtime.control import (
     CONTROL_FILENAME,
     consume_run_control_request,
 )
+from harness.runtime.run_control_sidecar import write_initial_run_control_sidecar
 from harness.runtime.memory.resume_snapshot import (
     load_kernel_resume_snapshot_from_path,
     parse_kernel_resume_snapshot,
@@ -279,10 +281,11 @@ def resume_run(*, run_id: str) -> dict[str, Any]:
         return {"status": "refused", "run_id": run_id, "reason_code": "missing_state"}
 
     checkpoint = str(_checkpoint_path(run_id).resolve())
+    paths = state.paths
+    write_initial_run_control_sidecar(paths.run_dir)
     # Consume any pending operator control request so the resumed run does not
     # immediately honor a stale pause/stop on its first safe boundary.
     consume_run_control_request(run_dir(run_id) / CONTROL_FILENAME)
-    paths = state.paths
     model_env = state.extra.get("model") if isinstance(state.extra, dict) else None
     env = _child_env(paths=paths, run_id=run_id, loop_kind=state.loop_kind, model=model_env)
     env["HARNESS_CLI_RESUME_FILE"] = checkpoint
@@ -340,6 +343,7 @@ def resume_run(*, run_id: str) -> dict[str, Any]:
     extra["resume_events"] = resumes
     state.extra = extra
     write_state(state)
+    spawn_run_control_watchdog(worker_pid=state.pid, paths=paths, run_id=run_id)
 
     return {
         "status": "resumed",

@@ -415,3 +415,68 @@ def test_direct_publish_accepts_upstream_corrections(monkeypatch) -> None:
 
         assert published["executed"] is True
         assert published["outputs"]["upstream_correction_count"] == 1
+
+
+def _validation_messages(result: dict) -> list[str]:
+    return [str(err.get("message") or "") for err in result["outputs"]["validation_errors"]]
+
+
+def test_malformed_upstream_correction_summary_extra_returns_hint(monkeypatch) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        persistence, ir_ref, mapping_ref = _prepare_mapping(tmp)
+        ctx = _context()
+        _patch_deed_root(monkeypatch, tmp)
+        row = _sample_upstream_correction()
+        row.pop("rationale", None)
+        row["summary"] = "wrong field"
+        result = prepare_deed_to_ir_final_package(
+            dossier_id="d-preview",
+            mapping_artifact_ref=mapping_ref,
+            expected_ir_artifact_ref=ir_ref,
+            persistence=persistence,
+            **ctx,
+            **_valid_rows(),
+            upstream_corrections=[row],
+        )
+    assert result["executed"] is False
+    messages = " ".join(_validation_messages(result))
+    assert "summary is not a field" in messages
+
+
+def test_malformed_upstream_correction_inherited_value_extra_returns_hint(monkeypatch) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        persistence, ir_ref, mapping_ref = _prepare_mapping(tmp)
+        ctx = _context()
+        _patch_deed_root(monkeypatch, tmp)
+        row = _sample_upstream_correction()
+        row.pop("upstream_value", None)
+        row["inherited_value"] = "618 feet"
+        result = prepare_deed_to_ir_final_package(
+            dossier_id="d-preview",
+            mapping_artifact_ref=mapping_ref,
+            expected_ir_artifact_ref=ir_ref,
+            persistence=persistence,
+            **ctx,
+            **_valid_rows(),
+            upstream_corrections=[row],
+        )
+    messages = " ".join(_validation_messages(result))
+    assert "Use upstream_value" in messages
+
+
+def test_malformed_upstream_correction_posture_confirmed_returns_hint(monkeypatch) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        persistence, ir_ref, mapping_ref = _prepare_mapping(tmp)
+        ctx = _context()
+        _patch_deed_root(monkeypatch, tmp)
+        result = prepare_deed_to_ir_final_package(
+            dossier_id="d-preview",
+            mapping_artifact_ref=mapping_ref,
+            expected_ir_artifact_ref=ir_ref,
+            persistence=persistence,
+            **ctx,
+            **_valid_rows(),
+            upstream_corrections=[_sample_upstream_correction(posture="confirmed")],
+        )
+    messages = " ".join(_validation_messages(result))
+    assert "confirmed_from_source" in messages

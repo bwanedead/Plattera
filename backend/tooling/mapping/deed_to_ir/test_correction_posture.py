@@ -14,12 +14,16 @@ from tooling.mapping.deed_to_ir.artifact_hydration import hydrate_artifact_refs
 from tooling.mapping.deed_to_ir.correction_contract_card import (
     CORRECTION_CONTRACT_REF,
     build_correction_contract_card,
+    build_upstream_correction_row_template_from_delta,
+    agent_facing_example_contains_practice_deed_tokens,
     upstream_correction_row_contract_fields,
 )
 from tooling.mapping.deed_to_ir.correction_posture import (
     REASON_IR_DIFFERS,
     detect_correction_posture,
     render_correction_posture_timeline_lines,
+    render_upstream_corrections_required_timeline_lines,
+    upstream_corrections_required_refusal,
 )
 from tooling.mapping.deed_to_ir.final_package_preview_persistence import prepare_deed_to_ir_final_package
 from tooling.mapping.deed_to_ir.final_package_preview_projection import (
@@ -37,8 +41,8 @@ from tooling.mapping.deed_to_ir.test_final_package_preview import (
     _patch_deed_root,
     _valid_rows,
 )
-from tooling.mapping.deed_to_ir.test_upstream_corrections import _sample_upstream_correction
 
+from tooling.mapping.deed_to_ir.test_upstream_corrections import _sample_upstream_correction
 _PRACTICE_CORRECT_DISTANCE = 518.0
 _PRACTICE_CORRUPTED_DISTANCE = 618.0
 
@@ -143,8 +147,8 @@ def test_contract_card_uses_generic_example_only() -> None:
     dumped = json.dumps(card)
     assert "618" not in dumped
     assert "518" not in dumped
-    assert card["example_row"]["upstream_value"] == "410 feet"
-    assert card["example_row"]["corrected_value"] == "438 feet"
+    assert card["example_row"]["upstream_value"] == "430 feet"
+    assert card["example_row"]["corrected_value"] == "410 feet"
 
 
 def test_contract_card_row_fields_match_pydantic_model() -> None:
@@ -225,15 +229,41 @@ def test_prepare_run25_shape_refuses_with_empty_corrections(monkeypatch) -> None
     assert result["refusal"]["retryable"] is True
     outputs = result["outputs"]
     assert outputs["correction_posture"]["active"] is True
+    assert outputs["correction_contract_ref"] == CORRECTION_CONTRACT_REF
     assert outputs["correction_contract_card"]["contract_ref"] == CORRECTION_CONTRACT_REF
-    assert "upstream_corrections rows" in outputs["repair_hint"]
+    assert "retry_package_shell" in outputs["repair_hint"]
+    assert isinstance(outputs.get("candidate_deltas"), list)
+    assert outputs.get("forbidden_fields")
+    assert outputs.get("field_mapping_hints")
+    assert outputs.get("valid_postures") == [
+        "suspected",
+        "confirmed_from_source",
+        "needs_hitl",
+    ]
+    assert "confirmed" not in outputs["valid_postures"]
     shell = outputs.get("retry_package_shell")
     assert isinstance(shell, dict)
     assert shell.get("mapping_artifact_ref") == mapping_ref
     assert shell.get("expected_ir_artifact_ref") == ir_ref
     assert shell.get("missing_section") == "upstream_corrections"
     assert isinstance(shell.get("scope_results"), list) and shell["scope_results"]
-    assert "correction_id" in (shell.get("required_upstream_correction_fields") or [])
+    templates = outputs.get("upstream_corrections_template")
+    assert isinstance(templates, list) and templates
+    template = templates[0]
+    assert template["posture"] == "confirmed_from_source"
+    assert "rationale" in template
+    assert "upstream_value" in template
+    assert "corrected_value" in template
+    assert "inherited_value" not in template
+    assert "ir_value" not in template
+    assert "summary" not in template
+    UpstreamCorrectionRow.model_validate(
+        {
+            **template,
+            "correction_id": "test_correction_row",
+            "rationale": "Source evidence supports the corrected value used by the final IR.",
+        }
+    )
 
 
 def test_prepare_run25_shape_succeeds_with_correction_row(monkeypatch) -> None:
@@ -330,17 +360,32 @@ def test_timeline_renders_correction_posture_and_refusal() -> None:
     assert "ir_value_differs_from_inherited_operand" in body
     assert "contract_ref: deed_to_ir:correction_contract" in body
 
-    refusal_outputs = {
-        "error": {"code": "upstream_corrections_required", "message": "required"},
-        "correction_posture": posture,
-        "correction_contract_card": build_correction_contract_card(),
-        "repair_hint": "Add upstream_corrections rows.",
-    }
+    refusal = upstream_corrections_required_refusal(
+        correction_posture=posture,
+        retry_package_shell={
+            "mapping_artifact_ref": "feature_graph:mapping:example",
+            "expected_ir_artifact_ref": "feature_graph:ir:example",
+            "missing_section": "upstream_corrections",
+            "scope_results": [{"scope_id": "s1", "status": "complete"}],
+        },
+    )
+    refusal_outputs = refusal["outputs"]
+    timeline_lines = render_upstream_corrections_required_timeline_lines(refusal_outputs)
+    timeline_body = "\n".join(timeline_lines)
+    assert "upstream_corrections_required:" in timeline_body
+    assert "missing_section: upstream_corrections" in timeline_body
+    assert "template_rows:" in timeline_body
+    assert "forbidden_fields:" in timeline_body
+    assert "retry_package_shell: present" in timeline_body
+    assert "618 feet" not in timeline_body
+    assert "518 feet" not in timeline_body
+
     validation_lines = render_final_package_validation_timeline_lines(refusal_outputs)
     assert "upstream_corrections_required:" in "\n".join(validation_lines)
 
     tool_lines = render_final_package_preview_tool_output(refusal_outputs)
-    assert "correction_posture:" in "\n".join(tool_lines)
+    tool_body = "\n".join(tool_lines)
+    assert "upstream_corrections_required:" in tool_body
 
     turn = {
         "tool_result_raw": {
@@ -349,7 +394,34 @@ def test_timeline_renders_correction_posture_and_refusal() -> None:
         }
     }
     rendered = "\n".join(_render_tool_result(turn))
-    assert "correction_posture:" in rendered or "upstream_corrections_required:" in rendered
+    assert "upstream_corrections_required:" in rendered
+
+
+def test_generic_contract_example_avoids_practice_deed_tokens() -> None:
+    card = build_correction_contract_card()
+    assert agent_facing_example_contains_practice_deed_tokens(card.get("example_row")) == []
+    generic_template = build_upstream_correction_row_template_from_delta({})
+    assert generic_template["upstream_value"] == "430 feet"
+    assert generic_template["corrected_value"] == "410 feet"
+    assert generic_template["target_entity_id"] == "example_call_2_distance"
+    assert agent_facing_example_contains_practice_deed_tokens(generic_template) == []
+
+
+def test_upstream_corrections_template_fields_match_model() -> None:
+    template = build_upstream_correction_row_template_from_delta(
+        {
+            "target_entity_id": "p1_call2_distance",
+            "inherited_value": "618 feet",
+            "ir_value": "518 feet",
+            "basis_refs": ["feature_graph:ir:example"],
+        }
+    )
+    row = dict(template)
+    row["correction_id"] = "practice_distance_correction"
+    row["rationale"] = "Source image confirms 518 feet."
+    validated = UpstreamCorrectionRow.model_validate(row)
+    assert validated.upstream_value == "618 feet"
+    assert validated.corrected_value == "518 feet"
 
 
 def test_detector_does_not_author_upstream_correction_rows() -> None:

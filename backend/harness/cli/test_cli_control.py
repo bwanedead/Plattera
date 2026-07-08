@@ -298,6 +298,7 @@ def test_resume_clears_pending_control_before_respawn(isolated_harness_root, mon
 
     monkeypatch.setattr(subprocess, "Popen", fake_popen)
 
+    monkeypatch.setattr("harness.cli.resume.spawn_run_control_watchdog", lambda **kwargs: None)
     out = resume_run(run_id=rid)
     assert out["status"] == "resumed"
     assert not ctl.exists(), "resume must consume the stale control.json"

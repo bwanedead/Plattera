@@ -13,6 +13,11 @@ from typing import Any
 from .run_id_allocator import RunIdAllocatorError, allocate_automatic_run_id
 from .run_layout import RunLayoutError, normalize_run_id
 from .run_state import new_run_state, read_state, write_state
+from .watchdog_spawn import spawn_run_control_watchdog
+from harness.runtime.run_control_sidecar import (
+    summarize_run_control_sidecar,
+    write_initial_run_control_sidecar,
+)
 
 
 def _backend_cwd() -> str:
@@ -98,6 +103,7 @@ def start_run(
     paths = state.paths
     human_timeline_path = str((Path(paths.run_dir) / "audit" / "human" / "timeline.md").resolve())
     Path(paths.run_dir).mkdir(parents=True, exist_ok=True)
+    run_control_file = write_initial_run_control_sidecar(paths.run_dir)
 
     env = _child_env(paths=paths, run_id=run_id, loop_kind=loop_kind, model=model)
     if child_env_extra:
@@ -129,6 +135,7 @@ def start_run(
             "run_collection": state.run_collection,
             "run_dir": paths.run_dir,
             "human_timeline_path": human_timeline_path,
+            "run_control_file": str(run_control_file.resolve()),
             "done_file": paths.done_file,
             "result_file": paths.result_file,
             "log_file": paths.stdout_log,
@@ -156,12 +163,16 @@ def start_run(
         state.status = "started"
         write_state(state)
 
+    spawn_run_control_watchdog(worker_pid=int(state.pid or 0), paths=paths, run_id=run_id)
+
     return {
         "run_id": run_id,
         "pid": state.pid,
         "run_collection": state.run_collection,
         "run_dir": paths.run_dir,
         "human_timeline_path": human_timeline_path,
+        "run_control_file": str(run_control_file.resolve()),
+        "run_control_state": summarize_run_control_sidecar(run_control_file),
         "done_file": paths.done_file,
         "result_file": paths.result_file,
         "log_file": paths.stdout_log,

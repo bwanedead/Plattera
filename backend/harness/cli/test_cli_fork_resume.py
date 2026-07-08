@@ -103,9 +103,10 @@ def test_fork_creates_child_run_with_lineage(tmp_path, monkeypatch) -> None:
         human_timeline_path = child_path / "audit" / "human" / "timeline.md"
 
     with patch("harness.cli.fork_resume.allocate_automatic_run_id", return_value=_Allocated()):
-        with patch("harness.cli.fork_resume.subprocess.Popen") as popen:
-            popen.return_value.pid = 4242
-            result = cli_fork.fork_run_from_turn(run_id=source_id, from_turn=14)
+        with patch("harness.cli.fork_resume.spawn_run_control_watchdog", return_value=None):
+            with patch("harness.cli.fork_resume.subprocess.Popen") as popen:
+                popen.return_value.pid = 4242
+                result = cli_fork.fork_run_from_turn(run_id=source_id, from_turn=14)
 
     assert result["status"] == "forked"
     assert result["run_id"] == child_id

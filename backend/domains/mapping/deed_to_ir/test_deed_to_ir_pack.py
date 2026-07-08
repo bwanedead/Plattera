@@ -249,7 +249,7 @@ def test_procedural_guidance_v23_upstream_corrections_discipline() -> None:
         for b in build_deed_to_ir_domain_pack().build_semantic_prompt_blocks()
         if b.block_id == "deed_to_ir_procedural_guidance"
     )
-    assert block.version == "v27"
+    assert block.version == "v28"
     text = block.text.lower()
     assert "upstream_corrections" in text
     assert "`notes` are commentary only" in block.text
@@ -274,7 +274,7 @@ def test_procedural_guidance_v24_mapping_sanity_discipline() -> None:
         for b in build_deed_to_ir_domain_pack().build_semantic_prompt_blocks()
         if b.block_id == "deed_to_ir_procedural_guidance"
     )
-    assert block.version == "v27"
+    assert block.version == "v28"
     text = block.text.lower()
     assert "sanity_review" in text
     assert "endpoint displacement" in text
@@ -290,7 +290,7 @@ def test_procedural_guidance_v25_correction_lane_discipline() -> None:
         for b in build_deed_to_ir_domain_pack().build_semantic_prompt_blocks()
         if b.block_id == "deed_to_ir_procedural_guidance"
     )
-    assert block.version == "v27"
+    assert block.version == "v28"
     text = block.text.lower()
     assert "notes are commentary only" in text or "notes` are commentary only" in block.text
     assert "correction_lane_advisory" in text
@@ -304,7 +304,7 @@ def test_procedural_guidance_v26_correction_posture_gate() -> None:
         for b in build_deed_to_ir_domain_pack().build_semantic_prompt_blocks()
         if b.block_id == "deed_to_ir_procedural_guidance"
     )
-    assert block.version == "v27"
+    assert block.version == "v28"
     text = block.text.lower()
     assert "correction_posture.active=true" in block.text or "correction_posture" in text
     assert "deed_to_ir:correction_contract" in block.text
@@ -317,10 +317,30 @@ def test_procedural_guidance_v27_retry_shell_and_lineage_lock() -> None:
         for b in build_deed_to_ir_domain_pack().build_semantic_prompt_blocks()
         if b.block_id == "deed_to_ir_procedural_guidance"
     )
-    assert block.version == "v27"
+    assert block.version == "v28"
     text = block.text.lower()
     assert "retry_package_shell" in text
     assert "lineage_lock" in text or "recommended_publish_refs" in text
+
+
+def test_procedural_guidance_v28_strict_upstream_correction_row() -> None:
+    block = next(
+        b
+        for b in build_deed_to_ir_domain_pack().build_semantic_prompt_blocks()
+        if b.block_id == "deed_to_ir_procedural_guidance"
+    )
+    assert block.version == "v28"
+    text = block.text
+    lower = text.lower()
+    assert "upstream_corrections_template" in lower
+    assert "strict machine rows" in lower or "strict machine row" in lower
+    assert "rationale" in lower
+    assert "upstream_value" in lower
+    assert "corrected_value" in lower
+    assert "inherited_value" in lower
+    assert "confirmed_from_source" in lower
+    assert "summary" in lower
+    assert "do not invent" in lower
 
 
 def test_prepare_and_publish_tool_schemas_expose_upstream_corrections() -> None:

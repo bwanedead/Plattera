@@ -362,7 +362,9 @@ def validate_agent_output_rows(
             )
 
     if errors:
-        raise PublishPayloadValidationError(tuple(_bound_errors(errors)))
+        raise PublishPayloadValidationError(
+            tuple(_bound_errors(_apply_upstream_correction_repair_hints(errors, correction_list)))
+        )
 
     return validated_scopes, validated_deps, validated_closure, validated_notes, validated_corrections
 
@@ -402,7 +404,9 @@ def validate_upstream_correction_rows_only(
         errors=errors,
     )
     if errors:
-        raise PublishPayloadValidationError(tuple(_bound_errors(errors)))
+        raise PublishPayloadValidationError(
+            tuple(_bound_errors(_apply_upstream_correction_repair_hints(errors, correction_list)))
+        )
     return validated_corrections
 
 
@@ -518,6 +522,72 @@ def _cap_error(*, path: str, code: str, message: str) -> dict[str, str]:
     if len(safe_message) > 240:
         safe_message = safe_message[:239].rstrip() + "…"
     return {"path": safe_path, "code": code[:64], "message": safe_message}
+
+
+def _apply_upstream_correction_repair_hints(
+    errors: list[dict[str, str]],
+    correction_rows: list[Any],
+) -> list[dict[str, str]]:
+    """Add correction-row-specific repair hints without relaxing schema validation."""
+    enriched: list[dict[str, str]] = []
+    for err in errors:
+        path = str(err.get("path") or "")
+        message = str(err.get("message") or "")
+        hint = _upstream_correction_field_hint(path=path, code=str(err.get("code") or ""), message=message)
+        if hint and hint not in message:
+            err = dict(err)
+            err["message"] = f"{message} {hint}".strip()
+        enriched.append(err)
+
+    for index, row in enumerate(correction_rows):
+        if not isinstance(row, dict):
+            continue
+        if "summary" in row:
+            summary_path = f"upstream_corrections[{index}].summary"
+            if not any(str(item.get("path") or "") == summary_path for item in enriched):
+                enriched.append(
+                    _cap_error(
+                        path=summary_path,
+                        code="extra_forbidden",
+                        message="Use rationale; summary is not a field on upstream_corrections.",
+                    )
+                )
+        if "summary" in row and "rationale" not in row:
+            rationale_path = f"upstream_corrections[{index}].rationale"
+            if not any(str(item.get("path") or "") == rationale_path for item in enriched):
+                enriched.append(
+                    _cap_error(
+                        path=rationale_path,
+                        code="missing",
+                        message="Use rationale; summary is not a field on upstream_corrections.",
+                    )
+                )
+    return enriched
+
+
+def _upstream_correction_field_hint(*, path: str, code: str, message: str) -> str | None:
+    if not path.startswith("upstream_corrections["):
+        return None
+    field = path.rsplit(".", 1)[-1] if "." in path else ""
+    if field == "summary" or ".summary" in path:
+        return "Use rationale; summary is not a field on upstream_corrections."
+    if field == "inherited_value" or ".inherited_value" in path:
+        return "Use upstream_value."
+    if field == "ir_value" or ".ir_value" in path:
+        return "Use corrected_value."
+    if field == "affected_scope" or ".affected_scope" in path:
+        return "Remove affected_scope; it is not a field on upstream_corrections."
+    if field == "value_kind" or ".value_kind" in path:
+        return "Remove value_kind; it is not a field on upstream_corrections."
+    if field == "posture":
+        lower = message.lower()
+        if "confirmed" in lower and "confirmed_from_source" not in lower:
+            return "Use confirmed_from_source."
+        if "resolved" in lower:
+            return "Use confirmed_from_source."
+    if field == "recommended_action" and code == "missing":
+        return "Use recommended_action transcript_amendment when source evidence confirmed the IR value."
+    return None
 
 
 def _safe_validation_path(path: str) -> str:

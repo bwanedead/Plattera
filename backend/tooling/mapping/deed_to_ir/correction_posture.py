@@ -12,7 +12,11 @@ from feature_graph.models import FeatureGraph, FeatureNode
 from .correction_contract_card import (
     CORRECTION_CONTRACT_REF,
     CORRECTION_REPAIR_HINT,
+    FORBIDDEN_UPSTREAM_CORRECTION_FIELDS,
+    UPSTREAM_CORRECTION_FIELD_MAPPING_HINTS,
+    VALID_UPSTREAM_CORRECTION_POSTURES,
     build_correction_contract_card,
+    build_upstream_corrections_template,
     upstream_correction_row_contract_fields,
 )
 from .correction_lane_advisory import detect_correction_lane_advisory
@@ -129,6 +133,12 @@ def upstream_corrections_required_refusal(
 ) -> dict[str, Any]:
     """Retryable prepare refusal when correction posture is active and corrections lane is empty."""
     card = build_correction_contract_card()
+    candidate_deltas = (
+        list(correction_posture.get("candidate_deltas") or [])
+        if isinstance(correction_posture.get("candidate_deltas"), list)
+        else []
+    )
+    templates = build_upstream_corrections_template(candidate_deltas=candidate_deltas)
     outputs: dict[str, Any] = {
         "error": {
             "code": _UPSTREAM_CORRECTIONS_REQUIRED,
@@ -139,6 +149,11 @@ def upstream_corrections_required_refusal(
         },
         "correction_posture": dict(correction_posture),
         "correction_contract_card": card,
+        "correction_contract_ref": CORRECTION_CONTRACT_REF,
+        "candidate_deltas": candidate_deltas,
+        "forbidden_fields": list(FORBIDDEN_UPSTREAM_CORRECTION_FIELDS),
+        "field_mapping_hints": dict(UPSTREAM_CORRECTION_FIELD_MAPPING_HINTS),
+        "valid_postures": list(VALID_UPSTREAM_CORRECTION_POSTURES),
         "repair_hint": CORRECTION_REPAIR_HINT,
         "required_upstream_correction_fields": list(
             upstream_correction_row_contract_fields().get("required_row_fields") or []
@@ -146,6 +161,8 @@ def upstream_corrections_required_refusal(
     }
     if isinstance(retry_package_shell, Mapping) and retry_package_shell:
         outputs["retry_package_shell"] = dict(retry_package_shell)
+    if templates:
+        outputs["upstream_corrections_template"] = templates
     return {
         "executed": False,
         "reason_codes": [_UPSTREAM_CORRECTIONS_REQUIRED],
@@ -203,26 +220,32 @@ def render_upstream_corrections_required_timeline_lines(
     error = outputs.get("error")
     if not isinstance(error, Mapping) or error.get("code") != _UPSTREAM_CORRECTIONS_REQUIRED:
         return []
+
+    shell = outputs.get("retry_package_shell")
+    missing_section = shell.get("missing_section") if isinstance(shell, Mapping) else None
+    posture = outputs.get("correction_posture")
+    delta_count = len(posture.get("candidate_deltas") or []) if isinstance(posture, Mapping) else 0
+    templates = outputs.get("upstream_corrections_template")
+    template_count = len(templates) if isinstance(templates, list) else 0
+    forbidden = outputs.get("forbidden_fields")
+    if not isinstance(forbidden, list):
+        forbidden = (outputs.get("correction_contract_card") or {}).get("forbidden_fields")
+    forbidden_text = ", ".join(str(item) for item in forbidden) if isinstance(forbidden, list) else ""
+
     lines = [f"{indent}upstream_corrections_required:"]
+    if missing_section:
+        lines.append(f"{indent}  missing_section: {missing_section}")
+    lines.append(f"{indent}  candidate_deltas: {delta_count}")
+    contract_ref = outputs.get("correction_contract_ref") or CORRECTION_CONTRACT_REF
+    lines.append(f"{indent}  contract_ref: {contract_ref}")
+    lines.append(f"{indent}  template_rows: {template_count}")
+    if forbidden_text:
+        lines.append(f"{indent}  forbidden_fields: {forbidden_text}")
+    if isinstance(shell, Mapping) and shell:
+        lines.append(f"{indent}  retry_package_shell: present")
     repair_hint = outputs.get("repair_hint")
     if isinstance(repair_hint, str) and repair_hint.strip():
         lines.append(f"{indent}  repair_hint: {repair_hint.strip()}")
-    lines.extend(
-        render_correction_posture_timeline_lines(outputs.get("correction_posture"), indent=indent)
-    )
-    from .final_package_retry_projection import render_retry_package_shell_timeline_lines
-
-    lines.extend(
-        render_retry_package_shell_timeline_lines(outputs.get("retry_package_shell"), indent=indent)
-    )
-    from .correction_contract_card import render_correction_contract_card_timeline_lines
-
-    lines.extend(
-        render_correction_contract_card_timeline_lines(
-            outputs.get("correction_contract_card"),
-            indent=indent,
-        )
-    )
     return lines
 
 

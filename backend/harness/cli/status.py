@@ -11,11 +11,16 @@ from typing import Any
 from harness.runtime.control import read_run_control_request
 from harness.runtime.hitl.watch import hitl_pending_path
 from harness.runtime.model_failure_classifier import resume_hint_for_reason_code
+from harness.runtime.run_control_sidecar import summarize_run_control_sidecar
 
 from ._process_util import is_pid_alive
 from .run_state import read_state, run_dir, run_layout_issue
 
-_OPERATOR_INTERRUPT_REASON_CODES = {"paused_by_operator", "stopped_by_operator"}
+_OPERATOR_INTERRUPT_REASON_CODES = {
+    "paused_by_operator",
+    "stopped_by_operator",
+    "emergency_stop_requested",
+}
 
 
 def _print_json(obj: dict[str, Any]) -> None:
@@ -130,6 +135,15 @@ def status_run(*, run_id: str) -> dict[str, Any]:
         out["interrupted"] = interrupted_classification
     if control_classification is not None:
         out["control"] = control_classification
+
+    sidecar_summary = summarize_run_control_sidecar(run_dir(run_id))
+    out["run_control_file"] = sidecar_summary.get("run_control_file")
+    out["run_control_state"] = sidecar_summary
+    if sidecar_summary.get("emergency_stop"):
+        out["emergency_stop_requested"] = True
+    elif sidecar_summary.get("present"):
+        out["emergency_stop_requested"] = False
+
     if result_payload is not None:
         if bool(result_payload.get("resumable")):
             out["resumable"] = True

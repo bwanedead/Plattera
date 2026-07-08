@@ -34,7 +34,10 @@ from harness.runtime.composition import ComposedTurnInput, DefaultTurnComposer, 
 from harness.runtime.control import (
     CONTROL_FILENAME,
     RunControlRequest,
-    build_run_control_reader_for_path,
+)
+from harness.runtime.run_control_sidecar import (
+    build_sidecar_aware_run_control_reader,
+    run_control_path,
 )
 from harness.runtime.memory.resume_snapshot import (
     hydrate_session_manager_from_resume_payload,
@@ -927,16 +930,20 @@ def _build_resume_checkpoint_writer() -> Callable[[Mapping[str, Any]], None] | N
 
 
 def _build_run_control_reader() -> Callable[[], RunControlRequest | None] | None:
-    """Return a reader for ``<cli_run_dir>/control.json`` or ``None`` outside a CLI run."""
+    """Return a reader for CLI control transport + human ``run_control.json`` sidecar."""
     cli_run_id = os.environ.get("HARNESS_CLI_RUN_ID", "").strip()
     if not cli_run_id:
         return None
     try:
         from harness.cli.run_state import run_dir as cli_run_dir
-        path = cli_run_dir(cli_run_id) / CONTROL_FILENAME
+
+        run_path = cli_run_dir(cli_run_id)
     except Exception:
         return None
-    return build_run_control_reader_for_path(path)
+    return build_sidecar_aware_run_control_reader(
+        cli_command_path=run_path / CONTROL_FILENAME,
+        sidecar_path=run_control_path(run_path),
+    )
 
 
 def _maybe_update_cli_run_state(status: str) -> None:

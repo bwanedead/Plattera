@@ -9,7 +9,7 @@ from ..branch import DEED_TO_IR_DOMAIN_ID
 DEED_TO_IR_PROCEDURAL_GUIDANCE_SOURCE_REF = (
     "backend/domains/mapping/deed_to_ir/prompting/surfaces/procedural_guidance.py"
 )
-DEED_TO_IR_PROCEDURAL_GUIDANCE_VERSION = "v27"
+DEED_TO_IR_PROCEDURAL_GUIDANCE_VERSION = "v28"
 
 DEED_TO_IR_PROCEDURAL_GUIDANCE_TEXT = """\
 Use this guidance to orient deed-to-IR work. This is **guidance**, not a hard script.
@@ -105,6 +105,16 @@ Use this guidance to orient deed-to-IR work. This is **guidance**, not a hard sc
 - When a tool returns `correction_posture.active=true`, follow the correction contract card (`deed_to_ir:correction_contract`). Do not publish a final package with corrected IR values and empty `upstream_corrections`.
 - Prepare may retryably refuse with `upstream_corrections_required` when correction posture is active and the corrections lane is empty — add agent-authored `upstream_corrections` rows or revise the IR/package.
 - On `upstream_corrections_required`, copy `retry_package_shell` from the refusal: reuse the same `mapping_artifact_ref`, `expected_ir_artifact_ref`, and package rows; add `upstream_corrections` only — do not rebuild refs from memory or mix prior mapping/IR pairs.
+- On `upstream_corrections_required`, also copy `upstream_corrections_template` when provided — edit the template row in place; do not invent alternate field names.
+
+### Upstream correction strict row contract
+- `upstream_corrections` rows are **strict machine rows**, not prose summaries.
+- Use exact schema field names only: `correction_id`, `posture`, `resolution_used_by_ir`, `recommended_action`, `basis_refs`, `rationale`, `target_entity_id`, `target_entity_type`, `upstream_value`, `corrected_value` (plus optional `title`).
+- **Do not invent** `summary`, `affected_scope`, `value_kind`, `inherited_value`, or `ir_value` on correction rows.
+- Use **`rationale`**, not `summary`.
+- Use **`upstream_value` / `corrected_value`**, not `inherited_value` / `ir_value`.
+- Valid `posture` values are exactly: `suspected`, `confirmed_from_source`, `needs_hitl`.
+- When source evidence confirmed the value used by final IR, prefer: `posture: confirmed_from_source`, `resolution_used_by_ir: true`, `recommended_action: transcript_amendment`.
 - Trust transcript-edit as the normal starting point. Do not trigger transcript-edit repair repeatedly during drafting.
 - If map/geometry/deed logic exposes a concrete upstream handoff defect, investigate with targeted source evidence refs (`image:derived:*`, `image:assoc:*` via `hydrate_artifact_refs`) and transcript lanes while continuing to solve the IR/map.
 - During drafting, keep working notes local. Do not emit `upstream_corrections` as a live repair trigger.
