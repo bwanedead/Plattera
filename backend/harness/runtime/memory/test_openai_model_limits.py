@@ -28,5 +28,13 @@ def test_resolve_known_model_no_fallback() -> None:
     assert used_fb is False
 
 
+def test_resolve_gpt56_terra_and_luna_no_fallback() -> None:
+    for model_id in ("gpt-5.6-terra", "gpt-5.6-luna"):
+        assert model_id in OpenAIService.models
+        cw, used_fb = resolve_context_window_tokens(model_id)
+        assert cw == OpenAIService.models[model_id]["context_window_tokens"]
+        assert used_fb is False
+
+
 def test_estimate_prompt_tokens_from_chars_is_documented_heuristic() -> None:
     assert estimate_prompt_tokens_from_chars(400) == 100

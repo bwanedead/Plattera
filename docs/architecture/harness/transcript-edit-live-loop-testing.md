@@ -113,6 +113,16 @@ Optional model override from CLI:
 python -m harness.cli.start --run-id $runId --loop-kind transcript_edit --model gpt-5.4-mini --python-module harness.runtime.runner.entrypoint --module-arg=--domain-id --module-arg=transcript_edit --module-arg=--launch-context-json --module-arg=$ctx
 ```
 
+GPT-5.6 opt-in overrides (same `--model` flag; default unchanged):
+
+```powershell
+--model gpt-5.6-terra
+```
+
+```powershell
+--model gpt-5.6-luna
+```
+
 Guidance:
 
 - use a fresh unique `run_id` for every live run
@@ -126,6 +136,9 @@ Guidance:
   harness default model
 - the harness default remains `gpt-5.4`
 - for cheaper exploratory runs, prefer `harness.cli.start --model gpt-5.4-mini`
+  or `--model gpt-5.6-luna`; for stronger GPT-5.6 live runs use `--model gpt-5.6-terra`
+- `gpt-5.6-terra` / `gpt-5.6-luna` are opt-in live-test overrides only — this
+  doc does not prescribe model-comparison runs
 - if both launch context `model` and CLI `--model` are set, launch context
   wins; CLI `--model` is a convenience fallback for runs where the context JSON
   omits `model`

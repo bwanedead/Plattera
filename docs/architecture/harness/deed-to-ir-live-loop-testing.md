@@ -250,6 +250,19 @@ Guidance:
   child process from `resolution_state_snapshot_path`
 - prefer `max_iterations: 100` for roomier live testing
 - automatic ids look like `deed-to-ir-live-r00000001` and increase per collection
+- the harness default model remains `gpt-5.4`; omit `--model` unless you want an
+  opt-in override. Examples:
+
+```powershell
+--model gpt-5.6-terra
+```
+
+```powershell
+--model gpt-5.6-luna
+```
+
+- `gpt-5.6-terra` / `gpt-5.6-luna` are selectable OpenAI registry options for live
+  harness experiments; this brief/doc does not run model-comparison tests
 
 ### 5b. Corrupted handoff repair tests
 

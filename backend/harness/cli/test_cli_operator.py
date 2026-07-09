@@ -403,3 +403,29 @@ def test_cli_start_module_invocation_accepts_model_override(isolated_harness_roo
     assert meta["run_id"] == rid
     assert meta["status"] == "started"
     assert meta["model"] == "gpt-5.4-mini"
+
+
+def test_cli_start_module_invocation_accepts_gpt56_luna_model_override(isolated_harness_root):
+    rid = f"cli-model-luna-{uuid.uuid4().hex[:8]}"
+    proc = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "harness.cli.start",
+            "--run-id",
+            rid,
+            "--stub",
+            "--model",
+            "gpt-5.6-luna",
+        ],
+        cwd=Path(__file__).resolve().parents[2],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        env={**os.environ, "PYTHONUTF8": "1"},
+    )
+    assert proc.returncode == 0, proc.stderr
+    meta = json.loads(proc.stdout.strip())
+    assert meta["run_id"] == rid
+    assert meta["status"] == "started"
+    assert meta["model"] == "gpt-5.6-luna"

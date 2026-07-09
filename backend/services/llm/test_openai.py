@@ -120,6 +120,76 @@ def test_gpt54_model_entry_exists_in_registry() -> None:
     assert "gpt-5.4-mini" in OpenAIService.models
 
 
+def test_gpt56_terra_and_luna_registered_with_exact_api_names() -> None:
+    for model_id, expected_name, cost_tier in (
+        ("gpt-5.6-terra", "GPT-5.6 Terra", "standard"),
+        ("gpt-5.6-luna", "GPT-5.6 Luna", "budget"),
+    ):
+        assert model_id in OpenAIService.models
+        entry = OpenAIService.models[model_id]
+        assert entry["name"] == expected_name
+        assert entry["provider"] == "openai"
+        assert entry["cost_tier"] == cost_tier
+        assert entry.get("api_model_name") == model_id
+        assert entry.get("verification_required") is False
+        assert entry.get("default_max_tokens") == 16000
+        assert "text" in entry["capabilities"]
+        assert "vision" in entry["capabilities"]
+    # Default harness model must remain gpt-5.4 (registry presence only; no default flip).
+    assert "gpt-5.4" in OpenAIService.models
+
+
+def test_call_text_uses_max_completion_tokens_for_gpt56_terra_and_luna() -> None:
+    for model_id in ("gpt-5.6-terra", "gpt-5.6-luna"):
+        service, completions = _service_with_fake_client(
+            _FakeChatCompletions(model_name=model_id)
+        )
+        result = service.call_text("prompt", model_id)
+        assert result["success"] is True
+        assert completions.last_kwargs is not None
+        assert "max_completion_tokens" in completions.last_kwargs
+        assert "max_tokens" not in completions.last_kwargs
+        assert completions.last_kwargs["max_completion_tokens"] == 16_000
+
+
+def test_call_text_expanded_budget_for_gpt56_choose_action_phase() -> None:
+    service, completions = _service_with_fake_client(
+        _FakeChatCompletions(model_name="gpt-5.6-terra")
+    )
+    result = service.call_text(
+        "prompt",
+        "gpt-5.6-terra",
+        call_options=LlmCallOptions(output_mode="json_object", phase="choose_action"),
+    )
+    assert result["success"] is True
+    assert completions.last_kwargs["max_completion_tokens"] == 32_000
+    assert completions.last_kwargs["reasoning_effort"] == "medium"
+
+
+def test_call_structured_pydantic_accepts_gpt56_family_models() -> None:
+    schema = {
+        "type": "object",
+        "properties": {"ok": {"type": "boolean"}},
+        "required": ["ok"],
+        "additionalProperties": False,
+    }
+    for model_id in ("gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.4", "gpt-5.4-mini"):
+        service, completions = _service_with_fake_client(
+            _FakeChatCompletions(model_name=model_id, content='{"ok": true}')
+        )
+        result = service.call_structured_pydantic(
+            "prompt",
+            "input",
+            model_id,
+            schema=schema,
+        )
+        assert "Invalid GPT-5 model" not in str(result.get("error") or "")
+        assert completions.last_kwargs is not None
+        assert completions.last_kwargs["model"] == model_id
+        assert "max_completion_tokens" in completions.last_kwargs
+        assert "max_tokens" not in completions.last_kwargs
+
+
 def test_call_text_keeps_default_budget_for_non_action_phase() -> None:
     service, completions = _service_with_fake_client()
 

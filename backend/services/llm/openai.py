@@ -273,6 +273,33 @@ class OpenAIService(LLMService):
             "context_window_tokens": 400_000,
             "max_output_tokens": 128_000,
         },
+        # GPT-5.6 Terra/Luna: opt-in harness overrides only (default remains gpt-5.4).
+        # context_window_tokens / max_output_tokens match gpt-5.4 until an official OpenAI
+        # model card is wired here; public preview listings report larger Terra windows.
+        "gpt-5.6-terra": {
+            "name": "GPT-5.6 Terra",
+            "provider": "openai",
+            "cost_tier": "standard",
+            "capabilities": ["text", "vision"],
+            "description": "Strong GPT-5.6 model for live harness runs",
+            "verification_required": False,
+            "api_model_name": "gpt-5.6-terra",
+            "default_max_tokens": 16000,
+            "context_window_tokens": 400_000,
+            "max_output_tokens": 128_000,
+        },
+        "gpt-5.6-luna": {
+            "name": "GPT-5.6 Luna",
+            "provider": "openai",
+            "cost_tier": "budget",
+            "capabilities": ["text", "vision"],
+            "description": "Cheaper GPT-5.6 model for live harness experiments",
+            "verification_required": False,
+            "api_model_name": "gpt-5.6-luna",
+            "default_max_tokens": 16000,
+            "context_window_tokens": 400_000,
+            "max_output_tokens": 128_000,
+        },
         "gpt-5.2": {
             "name": "GPT-5.2",
             "provider": "openai",
@@ -1002,6 +1029,8 @@ class OpenAIService(LLMService):
                     "gpt-5-mini",
                     "gpt-5.4",
                     "gpt-5.4-mini",
+                    "gpt-5.6-terra",
+                    "gpt-5.6-luna",
                     "gpt-5-nano",
                 }, f"Invalid GPT-5 model: {api_model_name}"
             
