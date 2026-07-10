@@ -121,7 +121,10 @@ def compact_correction_posture_for_projection(posture: Mapping[str, Any] | None)
                 "target_entity_id": row.get("target_entity_id"),
                 "value_kind": row.get("value_kind"),
                 "inherited_value": row.get("inherited_value"),
-                "ir_value": row.get("ir_value"),
+                "selected_ir_value": row.get("selected_ir_value"),
+                "selected_ir_display_value": row.get("selected_ir_display_value"),
+                # Compatibility alias — must stay aligned with typed selected display.
+                "ir_value": row.get("selected_ir_display_value") or row.get("ir_value"),
             }
             basis_refs = row.get("basis_refs")
             if isinstance(basis_refs, list) and basis_refs:
@@ -212,10 +215,12 @@ def render_correction_posture_timeline_lines(
             target = row.get("target_entity_id")
             value_kind = row.get("value_kind")
             inherited = row.get("inherited_value")
-            ir_value = row.get("ir_value")
+            selected = row.get("selected_ir_display_value") or row.get("ir_value")
+            selected_typed = row.get("selected_ir_value")
+            typed_suffix = f" typed={selected_typed}" if selected_typed is not None else ""
             lines.append(
                 f"{indent}    - {target or ''} ({value_kind or ''}): "
-                f"inherited={inherited or ''} ir={ir_value or ''}"
+                f"inherited={inherited or ''} selected_ir={selected or ''}{typed_suffix}"
             )
     elif posture.get("candidate_delta_count") is not None:
         lines.append(f"{indent}  candidate_deltas: {posture.get('candidate_delta_count')}")
@@ -386,29 +391,44 @@ def _parse_course_leg_values(
     *,
     basis_refs: list[str],
 ) -> dict[str, dict[str, Any]]:
+    """Project typed IR course values for correction comparison/display.
+
+    Agent-facing selected IR values must come from typed numeric fields, never from
+    retained ``distance_raw`` / ``bearing_raw`` provenance text (which can lag a
+    surgical typed repair).
+    """
     row: dict[str, dict[str, Any]] = {}
     distance = raw_course.get("distance")
     bearing = raw_course.get("bearing")
     distance_raw = raw_course.get("distance_raw")
     bearing_raw = raw_course.get("bearing_raw")
-    if isinstance(distance, (int, float)):
-        row["distance"] = {
+    if isinstance(distance, (int, float)) and not isinstance(distance, bool):
+        typed = float(distance)
+        entry: dict[str, Any] = {
             "value_kind": "distance",
-            "numeric_feet": float(distance),
-            "display_value": str(distance_raw).strip()
-            if isinstance(distance_raw, str) and distance_raw.strip()
-            else f"{float(distance):g} feet",
+            "numeric_feet": typed,
+            "selected_ir_value": typed,
+            "selected_ir_display_value": f"{typed:g} feet",
+            # Compatibility alias: must mirror typed selected display, never stale raw.
+            "display_value": f"{typed:g} feet",
             "basis_refs": list(basis_refs),
         }
-    if isinstance(bearing, (int, float)):
-        row["bearing"] = {
+        if isinstance(distance_raw, str) and distance_raw.strip():
+            entry["raw_provenance"] = distance_raw.strip()
+        row["distance"] = entry
+    if isinstance(bearing, (int, float)) and not isinstance(bearing, bool):
+        typed = float(bearing)
+        entry = {
             "value_kind": "bearing",
-            "numeric_degrees": float(bearing),
-            "display_value": str(bearing_raw).strip()
-            if isinstance(bearing_raw, str) and bearing_raw.strip()
-            else f"{float(bearing):g} degrees",
+            "numeric_degrees": typed,
+            "selected_ir_value": typed,
+            "selected_ir_display_value": f"{typed:g} degrees",
+            "display_value": f"{typed:g} degrees",
             "basis_refs": list(basis_refs),
         }
+        if isinstance(bearing_raw, str) and bearing_raw.strip():
+            entry["raw_provenance"] = bearing_raw.strip()
+        row["bearing"] = entry
     return row
 
 
@@ -461,15 +481,25 @@ def _compare_inherited_to_ir(
             merged_refs.append(ref)
             if len(merged_refs) >= MAX_BASIS_REFS:
                 break
-        deltas.append(
-            {
-                "target_entity_id": operand_id,
-                "value_kind": value_kind,
-                "inherited_value": inherited_row.get("display_value") or inherited_row.get("determined_value"),
-                "ir_value": ir_row.get("display_value"),
-                "basis_refs": merged_refs,
-            }
-        )
+        selected_value = ir_row.get("selected_ir_value")
+        selected_display = ir_row.get("selected_ir_display_value") or ir_row.get("display_value")
+        if selected_value is None or not isinstance(selected_display, str) or not selected_display.strip():
+            # Incomplete typed projection — omit rather than fabricate a correction value.
+            continue
+        delta: dict[str, Any] = {
+            "target_entity_id": operand_id,
+            "value_kind": value_kind,
+            "inherited_value": inherited_row.get("display_value") or inherited_row.get("determined_value"),
+            "selected_ir_value": selected_value,
+            "selected_ir_display_value": selected_display.strip(),
+            # Compatibility alias: always the typed selected display, never inherited/raw.
+            "ir_value": selected_display.strip(),
+            "basis_refs": merged_refs,
+        }
+        raw_provenance = ir_row.get("raw_provenance")
+        if isinstance(raw_provenance, str) and raw_provenance.strip():
+            delta["ir_raw_provenance"] = raw_provenance.strip()
+        deltas.append(delta)
     return deltas
 
 

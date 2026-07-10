@@ -30,6 +30,9 @@ def submit_ir_for_mapping(
     submission: FeatureGraphMappingSubmissionService | None = None,
     resolution_state_snapshot: Mapping[str, Any] | None = None,
     handoff_context: Mapping[str, Any] | None = None,
+    transcription_id: str | None = None,
+    workspace_id: str | None = None,
+    run_id: str | None = None,
 ) -> dict[str, Any]:
     if not dossier_id:
         raise ValueError("dossier_id_required")
@@ -116,36 +119,73 @@ def submit_ir_for_mapping(
         mapping_review,
         base_draft_ref=outcome.ir_artifact_ref,
     )
-    lineage_lock = {
+    from .mapping_lineage import (
+        attach_current_mapping_lineage_to_mapping_review,
+        build_current_mapping_lineage,
+        compact_current_mapping_lineage_for_projection,
+        lineage_lock_from_current,
+        write_current_mapping_lineage,
+    )
+
+    current_lineage = build_current_mapping_lineage(
+        mapping_artifact_ref=mapping.artifact_ref,
+        source_ir_artifact_ref=outcome.ir_artifact_ref,
+        compile_gap_count=len(compile_outcome.artifact.gaps),
+        judge_gap_count=len(judge_outcome.artifact.report.gaps),
+        correction_posture=mapping_review.get("correction_posture")
+        if isinstance(mapping_review.get("correction_posture"), Mapping)
+        else None,
+    )
+    # Persist when workspace identity is available (domain-owned sidecar).
+    tid = transcription_id
+    wid = workspace_id
+    rid = run_id
+    if isinstance(handoff_context, Mapping):
+        scope = handoff_context.get("scope")
+        if isinstance(scope, Mapping):
+            tid = tid or scope.get("transcription_id")
+            wid = wid or scope.get("workspace_id")
+            rid = rid or scope.get("run_id")
+    persisted = write_current_mapping_lineage(
+        dossier_id=dossier_id,
+        transcription_id=str(tid).strip() if tid else None,
+        workspace_id=str(wid).strip() if wid else None,
+        run_id=str(rid).strip() if rid else None,
+        lineage=current_lineage,
+    )
+    lineage_for_review = persisted or current_lineage
+    attach_current_mapping_lineage_to_mapping_review(mapping_review, lineage=lineage_for_review)
+    lineage_lock = lineage_lock_from_current(lineage_for_review) or {
         "source_ir_artifact_ref": outcome.ir_artifact_ref,
         "mapping_artifact_ref": mapping.artifact_ref,
         "use_these_refs_for_next_preview": True,
     }
-    mapping_review["lineage_lock"] = lineage_lock
 
+    outputs: dict[str, Any] = {
+        "mapping_artifact_ref": mapping.artifact_ref,
+        "compile_artifact_ref": compile_outcome.artifact_ref,
+        "judge_artifact_ref": judge_outcome.artifact_ref,
+        "geometry_ref": artifact.geometry.ref,
+        "clean_render_ref": artifact.clean_render.ref,
+        "control_render_ref": artifact.control_render.ref,
+        "graph_id": mapping.graph_id,
+        "compiled_feature_count": compile_outcome.compiled_feature_count,
+        "rendered_feature_count": mapping.rendered_feature_count,
+        "skipped_feature_count": mapping.skipped_feature_count,
+        "compile_gap_count": len(compile_outcome.artifact.gaps),
+        "judge_gap_count": len(judge_outcome.artifact.report.gaps),
+        "warning_count": mapping.warning_count,
+        "coordinate_space": artifact.coordinate_space,
+        "world_bbox": artifact.world_bbox.model_dump(mode="json"),
+        "mapping_review": mapping_review,
+        "lineage_lock": lineage_lock,
+        "current_mapping_lineage": compact_current_mapping_lineage_for_projection(lineage_for_review),
+    }
     return {
         "executed": True,
         "artifact_refs": artifact_refs,
         "image_evidence": image_evidence,
-        "outputs": {
-            "mapping_artifact_ref": mapping.artifact_ref,
-            "compile_artifact_ref": compile_outcome.artifact_ref,
-            "judge_artifact_ref": judge_outcome.artifact_ref,
-            "geometry_ref": artifact.geometry.ref,
-            "clean_render_ref": artifact.clean_render.ref,
-            "control_render_ref": artifact.control_render.ref,
-            "graph_id": mapping.graph_id,
-            "compiled_feature_count": compile_outcome.compiled_feature_count,
-            "rendered_feature_count": mapping.rendered_feature_count,
-            "skipped_feature_count": mapping.skipped_feature_count,
-            "compile_gap_count": len(compile_outcome.artifact.gaps),
-            "judge_gap_count": len(judge_outcome.artifact.report.gaps),
-            "warning_count": mapping.warning_count,
-            "coordinate_space": artifact.coordinate_space,
-            "world_bbox": artifact.world_bbox.model_dump(mode="json"),
-            "mapping_review": mapping_review,
-            "lineage_lock": lineage_lock,
-        },
+        "outputs": outputs,
     }
 
 

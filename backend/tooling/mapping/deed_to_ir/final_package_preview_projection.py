@@ -18,6 +18,14 @@ PREPARE_PREVIEW_OUTPUT_TOP_LEVEL_KEYS: tuple[str, ...] = (
     "publish_ready_candidate",
 )
 
+# Present on intent-first prepare success; not required on the explicit path.
+INTENT_FIRST_PREPARE_OUTPUT_KEYS: tuple[str, ...] = (
+    "finalization_status",
+    "selected_lineage",
+    "correction_summary",
+    "current_mapping_lineage",
+)
+
 
 def build_recommended_publish_request(*, preview_revision_ref: str) -> dict[str, str]:
     return {"final_package_preview_ref": preview_revision_ref}
@@ -334,9 +342,19 @@ def render_final_package_validation_timeline_lines(
 ) -> list[str]:
     if not isinstance(outputs, Mapping):
         return []
+    from .intent_first_prepare import render_intent_first_prepare_timeline_lines
+
+    intent_lines = render_intent_first_prepare_timeline_lines(outputs, indent=indent)
     refusal_lines = render_upstream_corrections_required_timeline_lines(outputs, indent=indent)
     if refusal_lines:
-        return refusal_lines
+        return intent_lines + refusal_lines if intent_lines else refusal_lines
+    # Intent-first missing-decision / lineage refusals (no classic validation_errors).
+    if intent_lines and (
+        outputs.get("missing_finalization_decisions")
+        or outputs.get("current_mapping_lineage")
+        or outputs.get("missing_correction_targets")
+    ):
+        return intent_lines
     validation_errors = outputs.get("validation_errors")
     rejected_summary = outputs.get("rejected_payload_summary")
     preserve_sections = outputs.get("preserve_sections")
@@ -351,9 +369,10 @@ def render_final_package_validation_timeline_lines(
                     f"{indent}  missing_closure_dimensions: {', '.join(str(item) for item in missing_closure)}"
                 )
             return lines
-        return []
-
-    lines = [f"{indent}final_package_validation:"]
+        return intent_lines
+    # Classic validation rendering — keep intent lines first when present.
+    lines = list(intent_lines)
+    lines.append(f"{indent}final_package_validation:")
     if isinstance(validation_errors, list) and validation_errors:
         lines.append(f"{indent}  errors:")
         for err in validation_errors[:12]:
@@ -410,7 +429,19 @@ def render_final_package_preview_tool_output(
     """Render final package preview from prepare outputs or hydrate result rows."""
     if not isinstance(outputs, Mapping):
         return []
+    from .intent_first_prepare import render_intent_first_prepare_timeline_lines
+    from .mapping_lineage import render_current_mapping_lineage_timeline_lines
+
     lines: list[str] = []
+    lines.extend(render_intent_first_prepare_timeline_lines(outputs, indent=indent))
+    lines.extend(
+        render_current_mapping_lineage_timeline_lines(
+            outputs.get("current_mapping_lineage")
+            if isinstance(outputs.get("current_mapping_lineage"), Mapping)
+            else None,
+            indent=indent,
+        )
+    )
     top_level = {
         key: outputs.get(key)
         for key in (
@@ -431,6 +462,9 @@ def render_final_package_preview_tool_output(
             "publish_ready_candidate",
             "preview_ready_summary",
             "recommended_publish_request",
+            "finalization_status",
+            "selected_lineage",
+            "correction_summary",
         )
         if outputs.get(key) is not None
     }

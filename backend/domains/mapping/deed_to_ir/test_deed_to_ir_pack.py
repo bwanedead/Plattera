@@ -178,8 +178,8 @@ def test_publish_tool_spec_exposes_row_contracts_from_models() -> None:
 
     prepare = {spec.tool_id: spec for spec in build_deed_to_ir_tool_specs()}["prepare_deed_to_ir_final_package"]
     prepare_example = prepare.example_request
-    assert prepare_example["expected_ir_artifact_ref"].startswith("feature_graph:ir:")
-    assert prepare_example["scope_results"][0]["basis_refs"]
+    assert prepare_example["use_current_mapping_lineage"] is True
+    assert prepare_example["correction_decisions"][0]["target_entity_id"]
     dumped = json.dumps(prepare_example).lower()
     for forbidden in ("parcel_1", "parcel_2", "range 74", "range 75", "canal"):
         assert forbidden not in dumped
@@ -211,7 +211,7 @@ def test_procedural_guidance_covers_hydration_discipline() -> None:
     )
     assert "mapping_review" in guidance
     assert "recommended_review_refs" in guidance
-    assert "recommended_publish_refs" in guidance
+    assert "current_mapping_lineage" in guidance or "lineage_lock" in guidance
     assert "expected_ir_artifact_ref" in guidance
     assert "patch_ir_draft" in guidance
     assert "resubmit" in guidance
@@ -249,7 +249,7 @@ def test_procedural_guidance_v23_upstream_corrections_discipline() -> None:
         for b in build_deed_to_ir_domain_pack().build_semantic_prompt_blocks()
         if b.block_id == "deed_to_ir_procedural_guidance"
     )
-    assert block.version == "v29"
+    assert block.version == "v30"
     text = block.text.lower()
     assert "upstream_corrections" in text
     assert "`notes` are commentary only" in block.text
@@ -274,7 +274,7 @@ def test_procedural_guidance_v24_mapping_sanity_discipline() -> None:
         for b in build_deed_to_ir_domain_pack().build_semantic_prompt_blocks()
         if b.block_id == "deed_to_ir_procedural_guidance"
     )
-    assert block.version == "v29"
+    assert block.version == "v30"
     text = block.text.lower()
     assert "sanity_review" in text
     assert "endpoint displacement" in text
@@ -290,7 +290,7 @@ def test_procedural_guidance_v25_correction_lane_discipline() -> None:
         for b in build_deed_to_ir_domain_pack().build_semantic_prompt_blocks()
         if b.block_id == "deed_to_ir_procedural_guidance"
     )
-    assert block.version == "v29"
+    assert block.version == "v30"
     text = block.text.lower()
     assert "notes are commentary only" in text or "notes` are commentary only" in block.text
     assert "correction_lane_advisory" in text
@@ -304,7 +304,7 @@ def test_procedural_guidance_v26_correction_posture_gate() -> None:
         for b in build_deed_to_ir_domain_pack().build_semantic_prompt_blocks()
         if b.block_id == "deed_to_ir_procedural_guidance"
     )
-    assert block.version == "v29"
+    assert block.version == "v30"
     text = block.text.lower()
     assert "correction_posture.active=true" in block.text or "correction_posture" in text
     assert "deed_to_ir:correction_contract" in block.text
@@ -317,7 +317,7 @@ def test_procedural_guidance_v27_retry_shell_and_lineage_lock() -> None:
         for b in build_deed_to_ir_domain_pack().build_semantic_prompt_blocks()
         if b.block_id == "deed_to_ir_procedural_guidance"
     )
-    assert block.version == "v29"
+    assert block.version == "v30"
     text = block.text.lower()
     assert "retry_package_shell" in text
     assert "lineage_lock" in text or "recommended_publish_refs" in text
@@ -329,10 +329,10 @@ def test_procedural_guidance_v28_strict_upstream_correction_row() -> None:
         for b in build_deed_to_ir_domain_pack().build_semantic_prompt_blocks()
         if b.block_id == "deed_to_ir_procedural_guidance"
     )
-    assert block.version == "v29"
+    assert block.version == "v30"
     text = block.text
     lower = text.lower()
-    assert "upstream_corrections_template" in lower
+    assert "correction_decisions" in lower or "upstream_corrections_template" in lower
     assert "strict machine rows" in lower or "strict machine row" in lower
     assert "rationale" in lower
     assert "upstream_value" in lower
@@ -349,13 +349,26 @@ def test_procedural_guidance_v29_course_updates_and_no_delegate_repair() -> None
         for b in build_deed_to_ir_domain_pack().build_semantic_prompt_blocks()
         if b.block_id == "deed_to_ir_procedural_guidance"
     )
-    assert block.version == "v29"
+    assert block.version == "v30"
     text = block.text.lower()
     assert "course_updates" in text
     assert "draft_patch_targets" in text
     assert "delegate_subtask" in text
     assert "mapping sanity repair" in text
     assert "reconstructing full" in text and "courses[]" in text
+
+
+def test_procedural_guidance_v30_intent_first_finalization() -> None:
+    block = next(
+        b
+        for b in build_deed_to_ir_domain_pack().build_semantic_prompt_blocks()
+        if b.block_id == "deed_to_ir_procedural_guidance"
+    )
+    assert block.version == "v30"
+    text = block.text.lower()
+    assert "current mapping lineage" in text
+    assert "intent-first" in text
+    assert "correction decision" in text
 
 
 def test_patch_ir_draft_tool_spec_documents_course_updates_without_practice_tokens() -> None:
@@ -419,7 +432,18 @@ def test_prepare_and_publish_tool_schemas_expose_upstream_corrections() -> None:
 
     prepare_shape = build_prepare_deed_to_ir_final_package_request_json_shape()
     publish_shape = build_publish_deed_to_ir_output_request_json_shape()
-    prepare_items = prepare_shape["properties"]["upstream_corrections"]["items"]
+    assert "oneOf" in prepare_shape
+    explicit = next(
+        branch
+        for branch in prepare_shape["oneOf"]
+        if "mapping_artifact_ref" in branch.get("properties", {})
+    )
+    intent = next(
+        branch
+        for branch in prepare_shape["oneOf"]
+        if "use_current_mapping_lineage" in branch.get("properties", {})
+    )
+    prepare_items = explicit["properties"]["upstream_corrections"]["items"]
     publish_items = publish_shape["properties"]["upstream_corrections"]["items"]
     for items in (prepare_items, publish_items):
         required = set(items["required"])
@@ -427,6 +451,10 @@ def test_prepare_and_publish_tool_schemas_expose_upstream_corrections() -> None:
         assert items["additionalProperties"] is False
         assert "posture" in items["properties"]
         assert "recommended_action" in items["properties"]
+    assert intent["properties"]["use_current_mapping_lineage"]["const"] is True
+    assert "correction_decisions" in intent["properties"]
+    assert "scope_dispositions" in intent["properties"]
+    assert "closure_dispositions" in intent["properties"]
 
 
 def test_startup_context_marks_operand_suite_as_core_anchor() -> None:
@@ -501,10 +529,10 @@ def test_procedural_guidance_covers_final_package_row_contract() -> None:
 
 def test_prepare_example_places_operand_delta_in_upstream_corrections_not_notes() -> None:
     from domains.mapping.deed_to_ir.payloads.final_package_example import (
-        build_prepare_deed_to_ir_final_package_example_request,
+        build_prepare_deed_to_ir_final_package_explicit_example_request,
     )
 
-    example = build_prepare_deed_to_ir_final_package_example_request()
+    example = build_prepare_deed_to_ir_final_package_explicit_example_request()
     correction = example["upstream_corrections"][0]
     note_text = json.dumps(example["notes"]).lower()
     correction_text = json.dumps(correction).lower()
@@ -517,6 +545,7 @@ def test_prepare_example_places_operand_delta_in_upstream_corrections_not_notes(
     assert correction["upstream_value"] not in note_text
     assert correction["corrected_value"] not in note_text
     assert "mapping sanity" in correction["rationale"].lower() or "source evidence" in correction["rationale"].lower()
+    assert correction_text  # keep used
 
 
 def test_prepare_and_publish_tool_specs_state_correction_lane_discipline() -> None:
@@ -533,21 +562,34 @@ def test_prepare_and_publish_tool_specs_state_correction_lane_discipline() -> No
 def test_prepare_tool_spec_example_is_complete_and_generic() -> None:
     from domains.mapping.deed_to_ir.payloads.final_package_example import (
         build_prepare_deed_to_ir_final_package_example_request,
+        build_prepare_deed_to_ir_final_package_explicit_example_request,
     )
 
     prepare = {spec.tool_id: spec for spec in build_deed_to_ir_tool_specs()}["prepare_deed_to_ir_final_package"]
     example = prepare.example_request
     canonical = build_prepare_deed_to_ir_final_package_example_request()
     assert example == canonical
-    assert len(example["scope_results"]) == 2
-    assert len(example["external_dependencies"]) == 1
-    assert len(example["closure_dimensions"]) == 4
-    assert len(example["notes"]) == 1
-    assert len(example["upstream_corrections"]) == 1
-    assert example["upstream_corrections"][0]["correction_id"] == "example_call_2_distance_source_repair"
+    assert example["use_current_mapping_lineage"] is True
+    assert "reuse_agent_authored_finalization_state" not in example
+    assert len(example["correction_decisions"]) == 1
+    decision = example["correction_decisions"][0]
+    assert decision["target_entity_id"] == "example_call_2_distance"
+    assert decision["recommended_action"] == "transcript_amendment"
+    assert len(example["scope_dispositions"]) == 2
+    assert len(example["closure_dispositions"]) == 4
+    assert all(row.get("status") for row in example["scope_dispositions"])
+    assert all(row.get("status") for row in example["closure_dispositions"])
     dumped = json.dumps(example).lower()
     for forbidden in ("parcel_1", "parcel_2", "range 74", "canal", "518", "542"):
         assert forbidden not in dumped
+
+    explicit = build_prepare_deed_to_ir_final_package_explicit_example_request()
+    assert len(explicit["scope_results"]) == 2
+    assert len(explicit["external_dependencies"]) == 1
+    assert len(explicit["closure_dimensions"]) == 4
+    assert len(explicit["notes"]) == 1
+    assert len(explicit["upstream_corrections"]) == 1
+    assert explicit["upstream_corrections"][0]["correction_id"] == "example_call_2_distance_source_repair"
 
 
 def test_prepare_and_publish_tool_specs_mention_final_package_preview() -> None:

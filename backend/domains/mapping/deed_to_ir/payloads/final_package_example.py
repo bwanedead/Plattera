@@ -8,6 +8,36 @@ from .published_output import ALLOWED_CLOSURE_DIMENSION_IDS
 
 
 def build_prepare_deed_to_ir_final_package_example_request() -> dict[str, Any]:
+    """Preferred intent-first example (fresh-run compact dispositions)."""
+    return {
+        "use_current_mapping_lineage": True,
+        "correction_decisions": [
+            {
+                "target_entity_id": "example_call_2_distance",
+                "posture": "confirmed_from_source",
+                "resolution_used_by_ir": True,
+                "recommended_action": "transcript_amendment",
+                "rationale": (
+                    "Targeted source evidence supports the corrected course distance "
+                    "and the repaired mapping is the intended scoped handoff."
+                ),
+            }
+        ],
+        "scope_dispositions": [
+            {"scope_id": "example_scope_alpha", "status": "handoffable"},
+            {"scope_id": "example_scope_beta", "status": "blocked"},
+        ],
+        "closure_dispositions": [
+            {
+                "dimension_id": dimension_id,
+                "status": "partial" if dimension_id.endswith("scoped_completion") else "closed",
+            }
+            for dimension_id in sorted(ALLOWED_CLOSURE_DIMENSION_IDS)
+        ],
+    }
+
+
+def build_prepare_deed_to_ir_final_package_explicit_example_request() -> dict[str, Any]:
     return {
         "mapping_artifact_ref": "feature_graph:mapping:mapping_example_bundle_ab12cd34",
         "expected_ir_artifact_ref": "feature_graph:ir:example_bundle_v1",

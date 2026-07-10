@@ -95,6 +95,7 @@ def _tool_handler_entries(
                 dossier_id=dossier_id,
                 draft_workspace_id=handoff.scope.workspace_id,
                 draft_run_id=handoff.scope.run_id,
+                transcription_id=handoff.scope.transcription_id,
             ),
         ),
         (
@@ -103,6 +104,7 @@ def _tool_handler_entries(
                 dossier_id=dossier_id,
                 draft_workspace_id=handoff.scope.workspace_id,
                 draft_run_id=handoff.scope.run_id,
+                transcription_id=handoff.scope.transcription_id,
             ),
         ),
         (
@@ -161,6 +163,7 @@ def _make_save_ir_handler(
     dossier_id: str,
     draft_workspace_id: str | None = None,
     draft_run_id: str | None = None,
+    transcription_id: str | None = None,
 ) -> Callable[[Any], Any]:
     def handler(request: Any) -> dict[str, Any]:
         inputs = _extract_inputs(request)
@@ -175,6 +178,7 @@ def _make_save_ir_handler(
                 created_by=_optional_str(inputs.get("created_by")),
                 draft_workspace_id=draft_workspace_id,
                 draft_run_id=draft_run_id,
+                transcription_id=transcription_id,
             )
         except Exception as exc:
             return _exception_refusal(exc)
@@ -187,6 +191,7 @@ def _make_patch_ir_draft_handler(
     dossier_id: str,
     draft_workspace_id: str | None = None,
     draft_run_id: str | None = None,
+    transcription_id: str | None = None,
 ) -> Callable[[Any], Any]:
     def handler(request: Any) -> dict[str, Any]:
         inputs = _extract_inputs(request)
@@ -212,6 +217,7 @@ def _make_patch_ir_draft_handler(
                 graph_id=_optional_str(inputs.get("graph_id")),
                 draft_workspace_id=draft_workspace_id,
                 draft_run_id=draft_run_id,
+                transcription_id=transcription_id,
             )
         except Exception as exc:
             return _exception_refusal(exc)
@@ -234,6 +240,10 @@ def _make_submit_ir_handler(
                 dossier_id=dossier_id,
                 ir_artifact_ref=ir_artifact_ref,
                 resolution_state_snapshot=handoff.resolution_state_snapshot,
+                handoff_context=_handoff_tool_context(handoff),
+                transcription_id=handoff.scope.transcription_id,
+                workspace_id=handoff.scope.workspace_id,
+                run_id=handoff.scope.run_id,
             )
         except Exception as exc:
             return _exception_refusal(exc)
@@ -256,7 +266,7 @@ def _make_prepare_final_package_handler(
                 run_id=handoff.scope.run_id,
                 transcript_edit_source_revision_ref=handoff.source.source_revision_ref,
                 resolution_state_ref=handoff.resolution_state_ref,
-                mapping_artifact_ref=_optional_str(inputs.get("mapping_artifact_ref")) or "",
+                mapping_artifact_ref=_optional_str(inputs.get("mapping_artifact_ref")),
                 scope_results=inputs.get("scope_results"),
                 external_dependencies=inputs.get("external_dependencies"),
                 closure_dimensions=inputs.get("closure_dimensions"),
@@ -264,6 +274,13 @@ def _make_prepare_final_package_handler(
                 upstream_corrections=inputs.get("upstream_corrections"),
                 expected_ir_artifact_ref=_optional_str(inputs.get("expected_ir_artifact_ref")),
                 resolution_state_snapshot=handoff.resolution_state_snapshot,
+                use_current_mapping_lineage=bool(inputs.get("use_current_mapping_lineage")),
+                reuse_agent_authored_finalization_state=bool(
+                    inputs.get("reuse_agent_authored_finalization_state")
+                ),
+                correction_decisions=inputs.get("correction_decisions"),
+                scope_dispositions=inputs.get("scope_dispositions"),
+                closure_dispositions=inputs.get("closure_dispositions"),
             )
         except Exception as exc:
             return _exception_refusal(exc)

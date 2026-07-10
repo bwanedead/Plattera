@@ -9,7 +9,7 @@ from ..branch import DEED_TO_IR_DOMAIN_ID
 DEED_TO_IR_PROCEDURAL_GUIDANCE_SOURCE_REF = (
     "backend/domains/mapping/deed_to_ir/prompting/surfaces/procedural_guidance.py"
 )
-DEED_TO_IR_PROCEDURAL_GUIDANCE_VERSION = "v29"
+DEED_TO_IR_PROCEDURAL_GUIDANCE_VERSION = "v30"
 
 DEED_TO_IR_PROCEDURAL_GUIDANCE_TEXT = """\
 Use this guidance to orient deed-to-IR work. This is **guidance**, not a hard script.
@@ -44,10 +44,15 @@ Use this guidance to orient deed-to-IR work. This is **guidance**, not a hard sc
 - Use `unknown` only when the feature kind itself is unknown. A known blocked, partial, or dependency-pending scope is not unknown; represent it as an `annotation` with source/provenance links and handoff notes. Do not fabricate geometry for blocked scope.
 - Do not treat `unknown` nodes with deed prose parked in `graph.metadata` as sufficient map IR.
 - `submit_ir_for_mapping` is the deliberate mapping attempt once structural readiness is honest enough for inspection.
-- `prepare_deed_to_ir_final_package` builds a confirmable preview checkpoint — agent-authored rows plus mechanically derived lineage.
+- `prepare_deed_to_ir_final_package` builds a confirmable preview checkpoint — agent-authored correction/scope/closure decisions plus mechanically assembled rows and lineage. Prefer intent-first (`use_current_mapping_lineage`); full package rows are advanced/compatibility.
 - `publish_deed_to_ir_output` is final scoped handoff only; prefer publishing with `final_package_preview_ref` from the preview.
 
 ## Final package preview flow
+- After a clean repaired remap, use the **current mapping lineage**. If correction posture is active, author the correction decision and any genuinely missing scope, dependency, or closure disposition. Do not reread operands, historic mappings, or broad artifact refs unless the current lineage or correction packet is missing, contradictory, or incomplete.
+- Preferred endgame after repair: remap → intent-first `prepare_deed_to_ir_final_package` (`use_current_mapping_lineage=true`, `correction_decisions`, `scope_dispositions`, `closure_dispositions`) → publish → complete.
+- Prefer intent-first preview. Author compact dispositions with statuses; deterministic code expands them into strict rows. Reuse of a prior agent-authored preview is optional. Use explicit full package rows only for advanced/manual overrides.
+- Never treat mechanical mapping facts (compile/judge counts, renders, lineage_current) as semantic closure.
+- Do not rebuild package details from memory when current lineage and correction candidates already carry the refs and typed values.
 - Normal end flow: save/patch draft IR → submit for mapping → inspect mapping review → prepare final package preview → publish from preview → complete (with final state patch only if still needed).
 - A ready preview is a **publish launchpad**. When `prepare_deed_to_ir_final_package` returns `publish_ready_candidate=true` with valid lineage, scope counts, dependency count, and closure statuses, normally publish from `recommended_publish_request` on the next artifact-writing turn.
 - Do not hydrate the preview just to reread the same summary. Use `working_preview_ref` only when targeted preview hydration is genuinely needed.
@@ -76,6 +81,7 @@ Use this guidance to orient deed-to-IR work. This is **guidance**, not a hard sc
 - Publish refusals include `publish_gate_category` and `repair_hint` — distinguish preview invalidity from mapping lineage, storage failure, and posture/audit gates before rebuilding artifacts.
 
 ## Final package rows
+- Intent-first prepare reuses or assembles these rows; author full rows only on the advanced/explicit path.
 - `scope_results`: one row per scope/parcel/object being handed off.
   - Required: `scope_id`, `status`
   - Optional: `title`, `summary`, `basis_refs`, `blocker_refs`, `dependency_refs`
@@ -97,18 +103,18 @@ Use this guidance to orient deed-to-IR work. This is **guidance**, not a hard sc
 
 ## Upstream correction report (final package only)
 - **`notes` are commentary only** — non-corrective context, handoff reminders, or audit color. They are not the machine-readable correction lane.
-- **`upstream_corrections` is the machine-readable lane** for final IR divergence from inherited transcript-edit output, resolution state, or mapping operands.
-- If the final IR uses a value that differs from the inherited handoff because source/map sanity established a better value, the final package **must** include an `upstream_corrections` row — not only a note.
+- **Preferred:** when `correction_posture.active=true`, author `correction_decisions[]` on intent-first prepare (`target_entity_id`, `posture`, `resolution_used_by_ir`, `recommended_action`, `rationale`). Deterministic code assembles strict `upstream_corrections` rows from the typed candidate + decision.
+- **Advanced/compatibility:** supply full `upstream_corrections` rows on the explicit prepare path. Use exact schema field names only — do not invent `summary`, `inherited_value`, or `ir_value`.
+- If the final IR uses a value that differs from the inherited handoff because source/map sanity established a better value, the final package **must** document that delta — via intent-first decisions or explicit correction rows, not only a note.
 - If an upstream defect was investigated but **not** used by final IR: `resolution_used_by_ir=false` (and `posture="suspected"` when still uncertain).
-- If an upstream defect was used by final IR: `resolution_used_by_ir=true` with source/evidence refs in `basis_refs`.
+- If an upstream defect was used by final IR: `resolution_used_by_ir=true` with source/evidence refs in `basis_refs` (assembled mechanically on intent-first).
 - During prepare, a mechanical `correction_lane_advisory` may appear when `upstream_corrections` is empty but package text mentions correction-like language — treat it as a steering signal, not a refusal.
-- When a tool returns `correction_posture.active=true`, follow the correction contract card (`deed_to_ir:correction_contract`). Do not publish a final package with corrected IR values and empty `upstream_corrections`.
-- Prepare may retryably refuse with `upstream_corrections_required` when correction posture is active and the corrections lane is empty — add agent-authored `upstream_corrections` rows or revise the IR/package.
-- On `upstream_corrections_required`, copy `retry_package_shell` from the refusal: reuse the same `mapping_artifact_ref`, `expected_ir_artifact_ref`, and package rows; add `upstream_corrections` only — do not rebuild refs from memory or mix prior mapping/IR pairs.
-- On `upstream_corrections_required`, also copy `upstream_corrections_template` when provided — edit the template row in place; do not invent alternate field names.
+- When a tool returns `correction_posture.active=true`, follow the correction contract card (`deed_to_ir:correction_contract`). Do not publish a final package with corrected IR values and an empty correction lane.
+- Intent-first may retryably refuse with `correction_decisions_required` / `missing_finalization_decisions` — author only the missing decisions; do not rebuild refs from memory.
+- Explicit path may still refuse with `upstream_corrections_required` — copy `retry_package_shell` and add `upstream_corrections`, or switch to intent-first `correction_decisions`.
 
 ### Upstream correction strict row contract
-- `upstream_corrections` rows are **strict machine rows**, not prose summaries.
+- Assembled or explicit `upstream_corrections` rows are **strict machine rows**, not prose summaries.
 - Use exact schema field names only: `correction_id`, `posture`, `resolution_used_by_ir`, `recommended_action`, `basis_refs`, `rationale`, `target_entity_id`, `target_entity_type`, `upstream_value`, `corrected_value` (plus optional `title`).
 - **Do not invent** `summary`, `affected_scope`, `value_kind`, `inherited_value`, or `ir_value` on correction rows.
 - Use **`rationale`**, not `summary`.
@@ -133,8 +139,9 @@ Use this guidance to orient deed-to-IR work. This is **guidance**, not a hard sc
 - Station chains, centerlines, routes, strips, and intentionally open alignments may not close — endpoint displacement is a mechanical fact to interpret, not a universal failure.
 - Hydrate specific refs only when needed: control render for visual map review (leg/gap annotations), geometry ref for feature/coordinate inspection, mapping ref for compact lineage, counts, sanity_review, and draft_patch_targets.
 - For upstream source repair, hydrate targeted transcript-edit evidence refs (`image:derived:*`, `image:assoc:*`) via `hydrate_artifact_refs` — do not bulk-hydrate the entire transcript-edit artifact universe.
-- After a successful remap via `submit_ir_for_mapping`, use `mapping_review.lineage_lock` or `mapping_review.recommended_publish_refs` directly for the next preview — do not mix a newer IR ref with an older mapping ref (or vice versa).
-- If any `patch_ir_draft` occurs after mapping, resubmit the patched draft for mapping before publishing — stale mapping lineage is refused retryably when `expected_ir_artifact_ref` does not match.
+- After a successful remap via `submit_ir_for_mapping`, use `mapping_review.current_mapping_lineage` (or compatibility `lineage_lock`) directly for the next intent-first preview — do not treat older mappings as equally eligible, and do not mix a newer IR ref with an older mapping ref (or vice versa).
+- When hydrating a mapping ref, inspect `lineage_status` (`current` vs `superseded`) — a superseded historical mapping remains auditable but is not the intent-first finalization candidate.
+- If any `patch_ir_draft` occurs after mapping, resubmit the patched draft for mapping before publishing — stale mapping lineage is refused retryably for intent-first preview and when `expected_ir_artifact_ref` does not match.
 
 ## Mapping sanity repair (surgical course patch)
 - Normal path: inspect `mapping_review.sanity_review` → use `mapping_review.draft_patch_targets` (and `correction_posture.matching_patch_target_id` / `patch_update_shells` when present) → `patch_ir_draft` with `course_updates` → remap → preview/publish.

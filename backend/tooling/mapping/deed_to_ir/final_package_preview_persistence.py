@@ -37,6 +37,18 @@ from .final_package_validation import (
     validate_prepare_final_package_rows,
 )
 from .final_package_retry_projection import build_retry_package_shell
+from .intent_first_prepare import (
+    assemble_upstream_corrections_from_decisions,
+    build_intent_first_correction_summary,
+    build_missing_finalization_decisions_shell,
+    expand_compact_dispositions,
+    extract_agent_authored_finalization_state,
+    missing_finalization_decisions_refusal,
+)
+from .mapping_lineage import (
+    compact_current_mapping_lineage_for_projection,
+    resolve_intent_first_mapping_lineage,
+)
 from .output_package_validation import (
     PublishPayloadValidationError,
     ResolvedMappingPackage,
@@ -72,7 +84,7 @@ def prepare_deed_to_ir_final_package(
     run_id: str | None,
     transcript_edit_source_revision_ref: str | None,
     resolution_state_ref: str | None,
-    mapping_artifact_ref: str,
+    mapping_artifact_ref: str | None = None,
     scope_results: Any | None = None,
     external_dependencies: Any | None = None,
     closure_dimensions: Any | None = None,
@@ -81,6 +93,11 @@ def prepare_deed_to_ir_final_package(
     expected_ir_artifact_ref: str | None = None,
     resolution_state_snapshot: Mapping[str, Any] | None = None,
     persistence: FeatureGraphPersistenceService | None = None,
+    use_current_mapping_lineage: bool = False,
+    reuse_agent_authored_finalization_state: bool = False,
+    correction_decisions: Any | None = None,
+    scope_dispositions: Any | None = None,
+    closure_dispositions: Any | None = None,
 ) -> dict[str, Any]:
     if not dossier_id:
         raise ValueError("dossier_id_required")
@@ -92,7 +109,67 @@ def prepare_deed_to_ir_final_package(
             "workspace_identity_required",
             "Provide workspace_id or run_id to scope deed-to-IR preview storage.",
         )
-    if not str(mapping_artifact_ref or "").strip():
+
+    intent_first = bool(use_current_mapping_lineage)
+    resolved_mapping_ref = str(mapping_artifact_ref or "").strip()
+    resolved_expected_ir = str(expected_ir_artifact_ref or "").strip()
+    current_lineage_compact: dict[str, Any] | None = None
+
+    if intent_first:
+        lineage_resolution = resolve_intent_first_mapping_lineage(
+            dossier_id=dossier_id,
+            transcription_id=transcription_id,
+            workspace_id=workspace_id,
+            run_id=run_id,
+        )
+        if lineage_resolution.get("executed") is not True:
+            return lineage_resolution
+        resolved_mapping_ref = str(lineage_resolution["mapping_artifact_ref"]).strip()
+        resolved_expected_ir = str(lineage_resolution["expected_ir_artifact_ref"]).strip()
+        current_lineage_compact = compact_current_mapping_lineage_for_projection(
+            lineage_resolution.get("current_mapping_lineage")
+            if isinstance(lineage_resolution.get("current_mapping_lineage"), Mapping)
+            else None
+        )
+
+        # Prefer compact agent-authored dispositions for fresh-run endgame.
+        has_compact = isinstance(scope_dispositions, list) or isinstance(closure_dispositions, list)
+        if scope_results is None and closure_dimensions is None and has_compact:
+            expanded = expand_compact_dispositions(
+                scope_dispositions=scope_dispositions if isinstance(scope_dispositions, list) else None,
+                closure_dispositions=closure_dispositions if isinstance(closure_dispositions, list) else None,
+                mapping_artifact_ref=resolved_mapping_ref,
+                ir_artifact_ref=resolved_expected_ir,
+            )
+            if expanded.get("executed") is not True:
+                return expanded
+            scope_results = expanded["scope_results"]
+            closure_dimensions = expanded["closure_dimensions"]
+        elif scope_results is None or closure_dimensions is None:
+            if reuse_agent_authored_finalization_state:
+                prior = load_final_package_preview(
+                    dossier_id=dossier_id,
+                    transcription_id=str(transcription_id).strip(),
+                    workspace_id=workspace_key,
+                )
+                reused = extract_agent_authored_finalization_state(prior)
+                if reused is None:
+                    return missing_finalization_decisions_refusal(
+                        missing_shell=build_missing_finalization_decisions_shell(),
+                    )
+                if scope_results is None:
+                    scope_results = reused["scope_results"]
+                if external_dependencies is None:
+                    external_dependencies = reused["external_dependencies"]
+                if closure_dimensions is None:
+                    closure_dimensions = reused["closure_dimensions"]
+                if notes is None:
+                    notes = reused["notes"]
+            else:
+                return missing_finalization_decisions_refusal(
+                    missing_shell=build_missing_finalization_decisions_shell(),
+                )
+    elif not resolved_mapping_ref:
         return refusal("mapping_artifact_ref_required", "mapping_artifact_ref is required.")
 
     upstream_validation_exc: PublishPayloadValidationError | None = None
@@ -107,7 +184,7 @@ def prepare_deed_to_ir_final_package(
     try:
         package = resolve_mapping_publish_package(
             dossier_id=dossier_id,
-            mapping_artifact_ref=str(mapping_artifact_ref).strip(),
+            mapping_artifact_ref=resolved_mapping_ref,
             persistence=service,
             sidecars=sidecars,
         )
@@ -117,11 +194,11 @@ def prepare_deed_to_ir_final_package(
             return mapping_artifact_not_found_refusal(
                 persistence=service,
                 dossier_id=dossier_id,
-                requested_ref=str(mapping_artifact_ref).strip(),
+                requested_ref=resolved_mapping_ref,
             )
         return refusal(code, code)
 
-    expected_ir_ref = str(expected_ir_artifact_ref or "").strip()
+    expected_ir_ref = resolved_expected_ir
     actual_ir_ref = str(package.selected_artifacts.ir_artifact_ref or "").strip()
     lineage_mismatch = bool(expected_ir_ref and actual_ir_ref != expected_ir_ref)
     if upstream_validation_exc is not None and lineage_mismatch:
@@ -149,6 +226,23 @@ def prepare_deed_to_ir_final_package(
             expected_ir_artifact_ref=expected_ir_ref,
             actual_ir_artifact_ref=actual_ir_ref,
         )
+
+    if intent_first and upstream_corrections is None:
+        correction_posture_early = detect_correction_posture(
+            resolution_state_snapshot=resolution_state_snapshot,
+            ir_graph=package.ir_artifact.graph,
+            compile_artifact=package.compile_artifact,
+            ir_artifact_ref=actual_ir_ref,
+        )
+        assembled = assemble_upstream_corrections_from_decisions(
+            correction_decisions=correction_decisions if isinstance(correction_decisions, list) else None,
+            correction_posture=correction_posture_early,
+            mapping_artifact_ref=resolved_mapping_ref,
+            ir_artifact_ref=actual_ir_ref,
+        )
+        if assembled.get("executed") is not True:
+            return assembled
+        upstream_corrections = list(assembled.get("rows") or [])
 
     try:
         scopes, deps, closure, note_rows, corrections = validate_prepare_final_package_rows(
@@ -182,8 +276,16 @@ def prepare_deed_to_ir_final_package(
         notes=note_rows,
     )
     if correction_posture.get("active") and not corrections:
+        if intent_first:
+            # Intent-first already assembled above; empty corrections means decisions were missing.
+            return assemble_upstream_corrections_from_decisions(
+                correction_decisions=correction_decisions if isinstance(correction_decisions, list) else [],
+                correction_posture=correction_posture,
+                mapping_artifact_ref=resolved_mapping_ref,
+                ir_artifact_ref=actual_ir_ref,
+            )
         retry_shell = build_retry_package_shell(
-            mapping_artifact_ref=str(mapping_artifact_ref).strip(),
+            mapping_artifact_ref=resolved_mapping_ref,
             expected_ir_artifact_ref=actual_ir_ref,
             scope_results=scopes,
             external_dependencies=deps,
@@ -296,29 +398,42 @@ def prepare_deed_to_ir_final_package(
         selected.mapping_artifact_ref,
         selected.ir_artifact_ref,
     ]
+    base_outputs: dict[str, Any] = {
+        "mapping_artifact_ref": selected.mapping_artifact_ref,
+        "ir_artifact_ref": selected.ir_artifact_ref,
+        "compile_artifact_ref": selected.compile_artifact_ref,
+        "judge_artifact_ref": selected.judge_artifact_ref,
+        "geometry_ref": selected.geometry_ref,
+        "clean_render_ref": selected.clean_render_ref,
+        "control_render_ref": selected.control_render_ref,
+        "review_summary": preview.mechanical_review_summary.model_dump(mode="json"),
+        "lineage_summary": preview.lineage_summary.model_dump(mode="json"),
+        "publish_ready_candidate": True,
+        **row_summaries,
+        "scope_status_counts": status_counts(scopes),
+        **(
+            {"correction_lane_advisory": correction_lane_advisory}
+            if correction_lane_advisory is not None
+            else {}
+        ),
+    }
+    if intent_first:
+        base_outputs["finalization_status"] = "preview_ready"
+        base_outputs["selected_lineage"] = {
+            "mapping_artifact_ref": selected.mapping_artifact_ref,
+            "expected_ir_artifact_ref": actual_ir_ref,
+        }
+        base_outputs["correction_summary"] = build_intent_first_correction_summary(
+            rows=corrections,
+            correction_posture=correction_posture,
+        )
+        if current_lineage_compact is not None:
+            base_outputs["current_mapping_lineage"] = current_lineage_compact
     return {
         "executed": True,
         "artifact_refs": artifact_refs,
         "outputs": enrich_prepare_preview_tool_outputs(
-            {
-                "mapping_artifact_ref": selected.mapping_artifact_ref,
-                "ir_artifact_ref": selected.ir_artifact_ref,
-                "compile_artifact_ref": selected.compile_artifact_ref,
-                "judge_artifact_ref": selected.judge_artifact_ref,
-                "geometry_ref": selected.geometry_ref,
-                "clean_render_ref": selected.clean_render_ref,
-                "control_render_ref": selected.control_render_ref,
-                "review_summary": preview.mechanical_review_summary.model_dump(mode="json"),
-                "lineage_summary": preview.lineage_summary.model_dump(mode="json"),
-                "publish_ready_candidate": True,
-                **row_summaries,
-                "scope_status_counts": status_counts(scopes),
-                **(
-                    {"correction_lane_advisory": correction_lane_advisory}
-                    if correction_lane_advisory is not None
-                    else {}
-                ),
-            },
+            base_outputs,
             preview_revision_ref=revision_ref,
             preview_ref=PREVIEW_REF,
         ),

@@ -70,3 +70,12 @@ def deed_to_ir_preview_revision_path(
 ) -> Path:
     rev = require_safe_revision_digits(revision_digits)
     return deed_to_ir_preview_dir(dossier_id, transcription_id, workspace_id) / f"rev_{rev}.json"
+
+
+def deed_to_ir_current_mapping_lineage_path(
+    dossier_id: str,
+    transcription_id: str,
+    workspace_id: str,
+) -> Path:
+    """Workspace-root sidecar for the canonical current mapping/IR lineage."""
+    return deed_to_ir_workspace_root(dossier_id, transcription_id, workspace_id) / "current_mapping_lineage.json"

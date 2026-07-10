@@ -116,7 +116,12 @@ def build_upstream_correction_row_template_from_delta(delta: Mapping[str, Any]) 
     if target_entity_id:
         row["target_entity_id"] = target_entity_id
     upstream = str(delta.get("inherited_value") or "").strip()
-    corrected = str(delta.get("ir_value") or "").strip()
+    # Prefer typed selected IR display; never fall back to stale raw provenance.
+    corrected = str(
+        delta.get("selected_ir_display_value")
+        or delta.get("ir_value")
+        or ""
+    ).strip()
     if upstream:
         row["upstream_value"] = upstream
     if corrected:

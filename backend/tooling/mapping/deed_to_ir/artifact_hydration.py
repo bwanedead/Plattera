@@ -254,6 +254,9 @@ def hydrate_feature_graph_artifact_refs(
                 persistence=service,
                 working_draft_ref=working_draft_ref,
                 handoff_context=handoff_context,
+                transcription_id=transcription_id,
+                workspace_id=workspace_id,
+                run_id=run_id,
             )
         )
     payload: dict[str, Any] = {
@@ -278,6 +281,9 @@ def _hydrated_row(
     persistence: FeatureGraphPersistenceService | None = None,
     working_draft_ref: str | None = None,
     handoff_context: Mapping[str, Any] | None = None,
+    transcription_id: str | None = None,
+    workspace_id: str | None = None,
+    run_id: str | None = None,
 ) -> dict[str, Any]:
     artifact_type = str(artifact.get("artifact_type") or "")
     row: dict[str, Any] = {
@@ -388,6 +394,49 @@ def _hydrated_row(
                 else None,
             )
             if review is not None:
+                from .mapping_lineage import (
+                    annotate_mapping_lineage_freshness,
+                    compact_current_mapping_lineage_for_projection,
+                    read_current_mapping_lineage,
+                )
+
+                tid = transcription_id
+                wid = workspace_id
+                rid = run_id
+                if isinstance(handoff_context, Mapping):
+                    scope = handoff_context.get("scope")
+                    if isinstance(scope, Mapping):
+                        tid = tid or scope.get("transcription_id")
+                        wid = wid or scope.get("workspace_id")
+                        rid = rid or scope.get("run_id")
+                current_lineage = read_current_mapping_lineage(
+                    dossier_id=dossier_id,
+                    transcription_id=str(tid).strip() if tid else None,
+                    workspace_id=str(wid).strip() if wid else None,
+                    run_id=str(rid).strip() if rid else None,
+                )
+                freshness = annotate_mapping_lineage_freshness(
+                    mapping_artifact_ref=ref_id,
+                    current_lineage=current_lineage,
+                )
+                if freshness is not None:
+                    review["lineage_status"] = freshness.get("lineage_status")
+                    review["lineage_current"] = freshness.get("lineage_current")
+                    if freshness.get("current_mapping_artifact_ref"):
+                        review["current_mapping_artifact_ref"] = freshness[
+                            "current_mapping_artifact_ref"
+                        ]
+                    if freshness.get("superseded_reason"):
+                        review["superseded_reason"] = freshness["superseded_reason"]
+                    compact = compact_current_mapping_lineage_for_projection(current_lineage)
+                    if compact is not None:
+                        review["current_mapping_lineage"] = compact
+                    row["lineage_status"] = freshness.get("lineage_status")
+                    row["lineage_current"] = freshness.get("lineage_current")
+                    if freshness.get("current_mapping_artifact_ref"):
+                        row["current_mapping_artifact_ref"] = freshness[
+                            "current_mapping_artifact_ref"
+                        ]
                 row["mapping_review"] = review
     return _strip_paths(row)
 

@@ -26,6 +26,7 @@ def patch_ir_draft(
     graph_id: str | None = None,
     draft_workspace_id: str | None = None,
     draft_run_id: str | None = None,
+    transcription_id: str | None = None,
     persistence: FeatureGraphPersistenceService | None = None,
     evaluation: FeatureGraphEvaluationService | None = None,
 ) -> dict[str, Any]:
@@ -91,6 +92,7 @@ def patch_ir_draft(
         base_draft_ref=base_ref,
         draft_workspace_id=draft_workspace_id,
         draft_run_id=draft_run_id,
+        transcription_id=transcription_id,
         persistence=service,
         evaluation=evaluation,
     )

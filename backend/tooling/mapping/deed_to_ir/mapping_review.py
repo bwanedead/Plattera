@@ -202,6 +202,21 @@ def compact_mapping_review_for_projection(
     lineage_lock = mapping_review.get("lineage_lock")
     if isinstance(lineage_lock, Mapping) and lineage_lock:
         compact["lineage_lock"] = dict(lineage_lock)
+    from .mapping_lineage import compact_current_mapping_lineage_for_projection
+
+    current_lineage = compact_current_mapping_lineage_for_projection(
+        mapping_review.get("current_mapping_lineage")
+    )
+    if current_lineage is not None:
+        compact["current_mapping_lineage"] = current_lineage
+    if mapping_review.get("lineage_status"):
+        compact["lineage_status"] = mapping_review.get("lineage_status")
+    if mapping_review.get("lineage_current") is not None:
+        compact["lineage_current"] = mapping_review.get("lineage_current")
+    if mapping_review.get("current_mapping_artifact_ref"):
+        compact["current_mapping_artifact_ref"] = mapping_review.get("current_mapping_artifact_ref")
+    if mapping_review.get("superseded_reason"):
+        compact["superseded_reason"] = mapping_review.get("superseded_reason")
     filtered = {key: value for key, value in compact.items() if value is not None}
     return filtered or None
 
@@ -268,8 +283,29 @@ def render_mapping_review_timeline_lines(
                 indent=indent,
             )
         )
+    from .mapping_lineage import render_current_mapping_lineage_timeline_lines
+
+    current = mapping_review.get("current_mapping_lineage")
     lineage_lock = mapping_review.get("lineage_lock")
-    if isinstance(lineage_lock, Mapping) and lineage_lock:
+    lineage_status = mapping_review.get("lineage_status")
+    if lineage_status:
+        current_ref = mapping_review.get("current_mapping_artifact_ref")
+        if lineage_status == "current":
+            lines.append(f"{indent}  lineage_status: current")
+        else:
+            suffix = f" current={current_ref}" if current_ref else ""
+            reason = mapping_review.get("superseded_reason")
+            reason_suffix = f" reason={reason}" if reason else ""
+            lines.append(f"{indent}  lineage_status: superseded{suffix}{reason_suffix}")
+    if isinstance(current, Mapping) and current:
+        lines.extend(
+            render_current_mapping_lineage_timeline_lines(
+                current,
+                indent=f"{indent}  ",
+            )
+        )
+    elif isinstance(lineage_lock, Mapping) and lineage_lock:
+        # Compatibility: render lineage_lock only when current lineage is absent.
         lines.append(f"{indent}  lineage_lock:")
         source_ir = lineage_lock.get("source_ir_artifact_ref")
         mapping_ref = lineage_lock.get("mapping_artifact_ref")

@@ -49,6 +49,7 @@ def save_ir_artifact(
     created_by: str | None = None,
     draft_workspace_id: str | None = None,
     draft_run_id: str | None = None,
+    transcription_id: str | None = None,
     persistence: FeatureGraphPersistenceService | None = None,
     evaluation: FeatureGraphEvaluationService | None = None,
 ) -> dict[str, Any]:
@@ -195,6 +196,23 @@ def save_ir_artifact(
     }
     if evaluation_warning:
         outputs["evaluation_warning"] = evaluation_warning
+
+    # Newer IR without remap supersedes prior current mapping lineage for intent-first preview.
+    from .mapping_lineage import mark_current_mapping_lineage_stale_for_ir_write
+
+    stale_lineage = mark_current_mapping_lineage_stale_for_ir_write(
+        dossier_id=dossier_id,
+        transcription_id=transcription_id,
+        workspace_id=draft_workspace_id,
+        run_id=draft_run_id,
+        new_ir_artifact_ref=ir_ref,
+    )
+    if stale_lineage is not None:
+        from .mapping_lineage import compact_current_mapping_lineage_for_projection
+
+        compact = compact_current_mapping_lineage_for_projection(stale_lineage)
+        if compact is not None:
+            outputs["current_mapping_lineage"] = compact
 
     return {
         "executed": True,

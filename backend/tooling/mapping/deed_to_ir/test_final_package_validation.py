@@ -6,7 +6,7 @@ import json
 import tempfile
 
 from domains.mapping.deed_to_ir.payloads.final_package_example import (
-    build_prepare_deed_to_ir_final_package_example_request,
+    build_prepare_deed_to_ir_final_package_explicit_example_request,
 )
 from domains.mapping.deed_to_ir.payloads.published_output import ALLOWED_CLOSURE_DIMENSION_IDS
 from tooling.mapping.deed_to_ir.final_package_preview_persistence import prepare_deed_to_ir_final_package
@@ -267,7 +267,11 @@ def test_timeline_renders_compact_validation_failure_details() -> None:
 
 
 def test_prepare_example_contains_all_sections_without_practice_tokens() -> None:
-    example = build_prepare_deed_to_ir_final_package_example_request()
+    from domains.mapping.deed_to_ir.payloads.final_package_example import (
+        build_prepare_deed_to_ir_final_package_explicit_example_request,
+    )
+
+    example = build_prepare_deed_to_ir_final_package_explicit_example_request()
     assert len(example["scope_results"]) == 2
     assert len(example["external_dependencies"]) == 1
     assert len(example["closure_dimensions"]) == 4

@@ -54,10 +54,17 @@ def _closure_dimensions() -> list[dict]:
     ]
 
 
-def _source_repair_graph(*, leg2_distance: float) -> FeatureGraph:
+def _source_repair_graph(
+    *,
+    leg2_distance: float,
+    leg2_distance_raw: str | None = None,
+) -> FeatureGraph:
+    course2: dict = {"bearing": 267.583333, "distance": leg2_distance}
+    if leg2_distance_raw is not None:
+        course2["distance_raw"] = leg2_distance_raw
     courses = [
         {"bearing": 68.5, "distance": 542.0},
-        {"bearing": 267.583333, "distance": leg2_distance},
+        course2,
         {"bearing": 176.0, "distance": 180.0},
     ]
     return FeatureGraph(
@@ -140,6 +147,42 @@ def test_detector_active_for_run25_shaped_delta() -> None:
     assert distance_delta["value_kind"] == "distance"
     assert "618" in str(distance_delta["inherited_value"])
     assert "518" in str(distance_delta["ir_value"])
+    assert distance_delta["selected_ir_value"] == _PRACTICE_CORRECT_DISTANCE
+
+
+def test_detector_uses_typed_ir_value_when_raw_provenance_lags() -> None:
+    """Live failure shape: typed distance repaired to 518 while distance_raw still says 618 feet."""
+    graph = _source_repair_graph(
+        leg2_distance=_PRACTICE_CORRECT_DISTANCE,
+        leg2_distance_raw="618 feet",
+    )
+    posture = detect_correction_posture(
+        resolution_state_snapshot=_resolution_snapshot(),
+        ir_graph=graph,
+        ir_artifact_ref="feature_graph:ir:example",
+    )
+    assert posture["active"] is True
+    distance_delta = next(
+        row for row in posture["candidate_deltas"] if row.get("target_entity_id") == "p1_call2_distance"
+    )
+    assert distance_delta["selected_ir_value"] == _PRACTICE_CORRECT_DISTANCE
+    assert distance_delta["selected_ir_display_value"] == "518 feet"
+    assert distance_delta["ir_value"] == "518 feet"
+    assert "618" in str(distance_delta["inherited_value"])
+    assert distance_delta.get("ir_raw_provenance") == "618 feet"
+    # Agent-facing selected IR must never present the stale raw as the selected value.
+    assert distance_delta["ir_value"] != "618 feet"
+    assert "618" not in str(distance_delta["selected_ir_display_value"])
+
+    template = build_upstream_correction_row_template_from_delta(distance_delta)
+    assert "518" in str(template["corrected_value"])
+    assert "618" not in str(template["corrected_value"])
+
+    timeline = "\n".join(render_correction_posture_timeline_lines(posture))
+    assert "selected_ir=518 feet" in timeline
+    assert "typed=518" in timeline
+    assert "618 → 618" not in timeline
+    assert "inherited=618" in timeline or "618 feet" in timeline
 
 
 def test_contract_card_uses_generic_example_only() -> None:
