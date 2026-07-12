@@ -17,7 +17,7 @@ from .correction_contract_card import (
     build_upstream_correction_row_template_from_delta,
 )
 from .dependency_decisions import render_missing_dependency_decision_lines
-from .persistence_io import refusal
+from .persistence_io import retryable_refusal
 
 VALID_RECOMMENDED_ACTIONS = frozenset(
     {
@@ -55,13 +55,14 @@ def missing_finalization_decisions_refusal(
     *,
     missing_shell: Mapping[str, Any],
 ) -> dict[str, Any]:
-    payload = refusal(
+    payload = retryable_refusal(
         "missing_finalization_decisions",
         "Intent-first prepare needs agent-authored scope and closure dispositions. "
         "Supply statuses (and any required rationale) for the listed decision shells; "
         "deterministic code will not invent them.",
     )
     payload["outputs"] = {
+        **payload["outputs"],
         "missing_finalization_decisions": dict(missing_shell),
         "repair_hint": (
             "Author status on each scope_dispositions and closure_dispositions entry "
@@ -87,14 +88,14 @@ def expand_compact_dispositions(
     """
     if not isinstance(scope_dispositions, list) or not scope_dispositions:
         return {
-            **refusal(
+            **retryable_refusal(
                 "scope_dispositions_required",
                 "Intent-first prepare requires scope_dispositions with agent-authored status.",
             ),
         }
     if not isinstance(closure_dispositions, list) or not closure_dispositions:
         return {
-            **refusal(
+            **retryable_refusal(
                 "closure_dispositions_required",
                 "Intent-first prepare requires closure_dispositions with agent-authored status.",
             ),
@@ -109,19 +110,19 @@ def expand_compact_dispositions(
     scope_results: list[dict[str, Any]] = []
     for index, row in enumerate(scope_dispositions):
         if not isinstance(row, Mapping):
-            return refusal(
+            return retryable_refusal(
                 "scope_disposition_invalid",
                 f"scope_dispositions[{index}] must be an object.",
             )
         scope_id = str(row.get("scope_id") or "").strip()
         status = str(row.get("status") or "").strip()
         if not scope_id:
-            return refusal(
+            return retryable_refusal(
                 "scope_disposition_scope_id_required",
                 f"scope_dispositions[{index}].scope_id is required.",
             )
         if not status:
-            return refusal(
+            return retryable_refusal(
                 "scope_disposition_status_required",
                 f"scope_dispositions[{index}].status is required (agent-authored).",
             )
@@ -145,24 +146,24 @@ def expand_compact_dispositions(
     present_ids: set[str] = set()
     for index, row in enumerate(closure_dispositions):
         if not isinstance(row, Mapping):
-            return refusal(
+            return retryable_refusal(
                 "closure_disposition_invalid",
                 f"closure_dispositions[{index}] must be an object.",
             )
         dimension_id = str(row.get("dimension_id") or "").strip()
         status = str(row.get("status") or "").strip()
         if not dimension_id:
-            return refusal(
+            return retryable_refusal(
                 "closure_disposition_dimension_id_required",
                 f"closure_dispositions[{index}].dimension_id is required.",
             )
         if dimension_id not in ALLOWED_CLOSURE_DIMENSION_IDS:
-            return refusal(
+            return retryable_refusal(
                 "closure_disposition_dimension_id_invalid",
                 f"closure_dispositions[{index}].dimension_id is not a supported closure layer.",
             )
         if not status:
-            return refusal(
+            return retryable_refusal(
                 "closure_disposition_status_required",
                 f"closure_dispositions[{index}].status is required (agent-authored).",
             )
@@ -184,18 +185,18 @@ def expand_compact_dispositions(
 
     missing_dims = sorted(ALLOWED_CLOSURE_DIMENSION_IDS - present_ids)
     if missing_dims:
-        return {
-            **refusal(
-                "closure_dispositions_incomplete",
-                "All four closure dimensions require agent-authored status.",
-            ),
-            "outputs": {
-                "missing_finalization_decisions": {
-                    "closure_dispositions": [{"dimension_id": dim} for dim in missing_dims],
-                },
-                "repair_hint": "Author status for each missing closure_dispositions entry.",
+        payload = retryable_refusal(
+            "closure_dispositions_incomplete",
+            "All four closure dimensions require agent-authored status.",
+        )
+        payload["outputs"] = {
+            **payload["outputs"],
+            "missing_finalization_decisions": {
+                "closure_dispositions": [{"dimension_id": dim} for dim in missing_dims],
             },
+            "repair_hint": "Author status for each missing closure_dispositions entry.",
         }
+        return payload
 
     return {
         "executed": True,
@@ -257,24 +258,24 @@ def assemble_upstream_corrections_from_decisions(
     decisions = list(correction_decisions or [])
 
     if active and not decisions:
-        return {
-            **refusal(
-                "correction_decisions_required",
-                "Correction posture is active. Author correction_decisions for each "
-                "candidate target (posture, resolution_used_by_ir, recommended_action, rationale).",
-            ),
-            "outputs": {
-                "correction_posture": {
-                    "active": True,
-                    "candidate_deltas": deltas,
-                    "reason_codes": list(posture.get("reason_codes") or []),
-                },
-                "repair_hint": (
-                    "Provide correction_decisions keyed by target_entity_id; "
-                    "do not rebuild full upstream_corrections rows."
-                ),
+        payload = retryable_refusal(
+            "correction_decisions_required",
+            "Correction posture is active. Author correction_decisions for each "
+            "candidate target (posture, resolution_used_by_ir, recommended_action, rationale).",
+        )
+        payload["outputs"] = {
+            **payload["outputs"],
+            "correction_posture": {
+                "active": True,
+                "candidate_deltas": deltas,
+                "reason_codes": list(posture.get("reason_codes") or []),
             },
+            "repair_hint": (
+                "Provide correction_decisions keyed by target_entity_id; "
+                "do not rebuild full upstream_corrections rows."
+            ),
         }
+        return payload
 
     if not decisions:
         return {"executed": True, "rows": []}
@@ -290,38 +291,38 @@ def assemble_upstream_corrections_from_decisions(
     rows: list[dict[str, Any]] = []
     for index, decision in enumerate(decisions):
         if not isinstance(decision, Mapping):
-            return refusal(
+            return retryable_refusal(
                 "correction_decision_invalid",
                 f"correction_decisions[{index}] must be an object.",
             )
         target = str(decision.get("target_entity_id") or "").strip()
         if not target:
-            return refusal(
+            return retryable_refusal(
                 "correction_decision_target_required",
                 f"correction_decisions[{index}].target_entity_id is required.",
             )
         posture_value = str(decision.get("posture") or "").strip()
         if posture_value not in VALID_UPSTREAM_CORRECTION_POSTURES:
-            return refusal(
+            return retryable_refusal(
                 "correction_decision_posture_invalid",
                 f"correction_decisions[{index}].posture must be one of "
                 f"{', '.join(VALID_UPSTREAM_CORRECTION_POSTURES)}.",
             )
         recommended = str(decision.get("recommended_action") or "").strip()
         if recommended not in VALID_RECOMMENDED_ACTIONS:
-            return refusal(
+            return retryable_refusal(
                 "correction_decision_recommended_action_required",
                 f"correction_decisions[{index}].recommended_action is required and must be "
                 f"agent-authored ({', '.join(sorted(VALID_RECOMMENDED_ACTIONS))}).",
             )
         rationale = str(decision.get("rationale") or "").strip()
         if not rationale:
-            return refusal(
+            return retryable_refusal(
                 "correction_decision_rationale_required",
                 f"correction_decisions[{index}].rationale is required.",
             )
         if "resolution_used_by_ir" not in decision:
-            return refusal(
+            return retryable_refusal(
                 "correction_decision_resolution_used_by_ir_required",
                 f"correction_decisions[{index}].resolution_used_by_ir is required.",
             )
@@ -329,7 +330,7 @@ def assemble_upstream_corrections_from_decisions(
 
         delta = delta_by_target.get(target)
         if delta is None and active:
-            return refusal(
+            return retryable_refusal(
                 "correction_decision_target_unknown",
                 f"No correction candidate for target_entity_id={target}.",
             )
@@ -340,7 +341,7 @@ def assemble_upstream_corrections_from_decisions(
             corrected = str(decision.get("corrected_value") or "").strip()
             basis = decision.get("basis_refs")
             if not upstream or not corrected or not isinstance(basis, list) or not basis:
-                return refusal(
+                return retryable_refusal(
                     "correction_decision_values_required",
                     f"Without an active candidate for {target}, supply upstream_value, "
                     "corrected_value, and basis_refs explicitly.",
@@ -405,16 +406,16 @@ def assemble_upstream_corrections_from_decisions(
             and str(delta.get("target_entity_id") or "").strip() not in decided_targets
         ]
         if missing:
-            return {
-                **refusal(
-                    "correction_decisions_incomplete",
-                    "Correction posture is active but some candidate targets lack decisions.",
-                ),
-                "outputs": {
-                    "missing_correction_targets": missing,
-                    "repair_hint": "Author correction_decisions for each missing target_entity_id.",
-                },
+            payload = retryable_refusal(
+                "correction_decisions_incomplete",
+                "Correction posture is active but some candidate targets lack decisions.",
+            )
+            payload["outputs"] = {
+                **payload["outputs"],
+                "missing_correction_targets": missing,
+                "repair_hint": "Author correction_decisions for each missing target_entity_id.",
             }
+            return payload
 
     return {"executed": True, "rows": rows}
 

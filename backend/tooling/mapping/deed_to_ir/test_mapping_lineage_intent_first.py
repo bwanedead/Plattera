@@ -440,10 +440,72 @@ def test_intent_first_missing_finalization_state_returns_shell(monkeypatch) -> N
         )
         assert result["executed"] is False
         assert result["refusal"]["reason_code"] == "missing_finalization_decisions"
+        assert result["refusal"]["retryable"] is True
+        assert result["refusal"]["blocked_by_invariant"] is False
         shell = result["outputs"]["missing_finalization_decisions"]
         assert "scope_dispositions" in shell
         assert "closure_dispositions" in shell
         assert len(shell["closure_dispositions"]) == 4
+        assert result["outputs"].get("repair_hint")
+
+
+def test_intent_first_missing_scope_dispositions_are_retryable(monkeypatch) -> None:
+    from tooling.mapping.deed_to_ir.intent_first_prepare import expand_compact_dispositions
+
+    result = expand_compact_dispositions(
+        scope_dispositions=[],
+        closure_dispositions=_compact_dispositions()["closure_dispositions"],
+    )
+    assert result["executed"] is False
+    assert result["refusal"]["reason_code"] == "scope_dispositions_required"
+    assert result["refusal"]["retryable"] is True
+    assert result["refusal"]["blocked_by_invariant"] is False
+
+
+def test_intent_first_missing_closure_dispositions_are_retryable() -> None:
+    from tooling.mapping.deed_to_ir.intent_first_prepare import expand_compact_dispositions
+
+    result = expand_compact_dispositions(
+        scope_dispositions=_compact_dispositions()["scope_dispositions"],
+        closure_dispositions=[],
+    )
+    assert result["executed"] is False
+    assert result["refusal"]["reason_code"] == "closure_dispositions_required"
+    assert result["refusal"]["retryable"] is True
+    assert result["refusal"]["blocked_by_invariant"] is False
+
+
+def test_intent_first_incomplete_closure_dispositions_are_retryable() -> None:
+    from tooling.mapping.deed_to_ir.intent_first_prepare import expand_compact_dispositions
+
+    first_dim = sorted(ALLOWED_CLOSURE_DIMENSION_IDS)[0]
+    result = expand_compact_dispositions(
+        scope_dispositions=_compact_dispositions()["scope_dispositions"],
+        closure_dispositions=[
+            {"dimension_id": first_dim, "status": "closed"},
+        ],
+    )
+    assert result["executed"] is False
+    assert result["refusal"]["reason_code"] == "closure_dispositions_incomplete"
+    assert result["refusal"]["retryable"] is True
+    assert result["refusal"]["blocked_by_invariant"] is False
+    shell = result["outputs"]["missing_finalization_decisions"]["closure_dispositions"]
+    missing_ids = {row["dimension_id"] for row in shell}
+    assert first_dim not in missing_ids
+    assert len(missing_ids) == 3
+
+
+def test_intent_first_malformed_disposition_missing_status_is_retryable() -> None:
+    from tooling.mapping.deed_to_ir.intent_first_prepare import expand_compact_dispositions
+
+    result = expand_compact_dispositions(
+        scope_dispositions=[{"scope_id": "parcel_1"}],
+        closure_dispositions=_compact_dispositions()["closure_dispositions"],
+    )
+    assert result["executed"] is False
+    assert result["refusal"]["reason_code"] == "scope_disposition_status_required"
+    assert result["refusal"]["retryable"] is True
+    assert result["refusal"]["blocked_by_invariant"] is False
 
 
 def test_intent_first_missing_correction_decision_refuses(monkeypatch) -> None:
@@ -465,6 +527,92 @@ def test_intent_first_missing_correction_decision_refuses(monkeypatch) -> None:
         )
         assert result["executed"] is False
         assert result["refusal"]["reason_code"] == "correction_decisions_required"
+        assert result["refusal"]["retryable"] is True
+        assert result["refusal"]["blocked_by_invariant"] is False
+        assert result["outputs"].get("repair_hint")
+        assert result["outputs"].get("correction_posture", {}).get("active") is True
+
+
+def test_intent_first_malformed_correction_decision_is_retryable() -> None:
+    from tooling.mapping.deed_to_ir.intent_first_prepare import (
+        assemble_upstream_corrections_from_decisions,
+    )
+
+    result = assemble_upstream_corrections_from_decisions(
+        correction_decisions=[
+            {
+                "target_entity_id": "p1_call2_distance",
+                "posture": "confirmed_from_source",
+                "resolution_used_by_ir": True,
+                "recommended_action": "transcript_amendment",
+                # rationale omitted — malformed
+            }
+        ],
+        correction_posture={
+            "active": True,
+            "candidate_deltas": [
+                {
+                    "target_entity_id": "p1_call2_distance",
+                    "upstream_value": "618 feet",
+                    "selected_ir_display_value": "518 feet",
+                    "selected_ir_value": 518.0,
+                }
+            ],
+            "reason_codes": ["ir_differs_from_inherited"],
+        },
+        mapping_artifact_ref="artifact:mapping:test",
+        ir_artifact_ref="artifact:ir:test",
+    )
+    assert result["executed"] is False
+    assert result["refusal"]["reason_code"] == "correction_decision_rationale_required"
+    assert result["refusal"]["retryable"] is True
+    assert result["refusal"]["blocked_by_invariant"] is False
+
+
+def test_intent_first_incomplete_correction_decisions_are_retryable() -> None:
+    from tooling.mapping.deed_to_ir.intent_first_prepare import (
+        assemble_upstream_corrections_from_decisions,
+    )
+
+    result = assemble_upstream_corrections_from_decisions(
+        correction_decisions=[
+            {
+                "target_entity_id": "target_a",
+                "posture": "confirmed_from_source",
+                "resolution_used_by_ir": True,
+                "recommended_action": "transcript_amendment",
+                "rationale": "Accept target_a repair.",
+            }
+        ],
+        correction_posture={
+            "active": True,
+            "candidate_deltas": [
+                {
+                    "target_entity_id": "target_a",
+                    "upstream_value": "100",
+                    "selected_ir_display_value": "90",
+                    "selected_ir_value": 90.0,
+                    "basis_refs": ["artifact:ir:test"],
+                },
+                {
+                    "target_entity_id": "target_b",
+                    "upstream_value": "200",
+                    "selected_ir_display_value": "180",
+                    "selected_ir_value": 180.0,
+                    "basis_refs": ["artifact:ir:test"],
+                },
+            ],
+            "reason_codes": ["ir_differs_from_inherited"],
+        },
+        mapping_artifact_ref="artifact:mapping:test",
+        ir_artifact_ref="artifact:ir:test",
+    )
+    assert result["executed"] is False
+    assert result["refusal"]["reason_code"] == "correction_decisions_incomplete"
+    assert result["refusal"]["retryable"] is True
+    assert result["refusal"]["blocked_by_invariant"] is False
+    assert result["outputs"]["missing_correction_targets"] == ["target_b"]
+    assert result["outputs"].get("repair_hint")
 
 
 def test_explicit_prepare_still_works(monkeypatch) -> None:

@@ -135,6 +135,26 @@ def refusal(code: str, message: str) -> dict[str, Any]:
     }
 
 
+def retryable_refusal(code: str, message: str) -> dict[str, Any]:
+    """Serialize a retryable action-contract refusal (agent can correct next turn).
+
+    Use for missing/malformed agent-authored request fields that do not imply a
+    broken invariant. Genuine invariant failures must continue to use ``refusal``.
+    """
+    return {
+        "executed": False,
+        "reason_codes": [code],
+        "refusal": {
+            "reason_code": code,
+            "retryable": True,
+            "blocked_by_invariant": False,
+            "blocked_by_budget": False,
+            "missing_inputs": [],
+        },
+        "outputs": {"error": {"code": code, "message": message}},
+    }
+
+
 def mapping_ir_lineage_mismatch_refusal(
     *,
     expected_ir_artifact_ref: str,

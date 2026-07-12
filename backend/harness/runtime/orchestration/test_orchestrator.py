@@ -1854,6 +1854,134 @@ def test_retryable_refusal_info_is_visible_in_next_turn_step_records() -> None:
     assert pack._turn2_saw_repair_hint, "Turn 2 did not see the repair_hint in the prior refused step outputs"
 
 
+class _RetryableDecisionShellRefuseOnceSessionManager(ExecutionSessionManager):
+    """First step returns a retryable action-contract refusal; later steps execute."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.steps: list[ExecutionStepRequest] = []
+        self._calls = 0
+
+    def step(self, request: ExecutionStepRequest) -> ExecutionStepResult:  # type: ignore[override]
+        self.steps.append(request)
+        self._calls += 1
+        if self._calls == 1:
+            from harness.execution.contracts import ActionDispatchResult, SessionExecutionRecord
+
+            dispatch_result = ActionDispatchResult(
+                action_id=request.action_id,
+                executed=False,
+                outputs={
+                    "error": {
+                        "code": "missing_action_decisions",
+                        "message": "Author the missing decision fields and retry.",
+                    },
+                    "repair_hint": "Supply the missing decision fields, then retry.",
+                },
+                refusal=ExecutionRefusal(
+                    reason_code="missing_action_decisions",
+                    retryable=True,
+                    blocked_by_invariant=False,
+                    blocked_by_budget=False,
+                ),
+            )
+            rec = SessionExecutionRecord(
+                session_id=request.session_id,
+                run_id=request.run_id or "",
+                request=request,
+                result=dispatch_result,
+            )
+            return ExecutionStepResult(
+                session_id=request.session_id,
+                idempotency_key=request.idempotency_key,
+                execution_state=ExecutionState.REFUSED,
+                dashboard=_dashboard(),
+                refusal=dispatch_result.refusal,
+                record=rec,
+            )
+        return ExecutionStepResult(
+            session_id=request.session_id,
+            idempotency_key=request.idempotency_key,
+            execution_state=ExecutionState.EXECUTED,
+            dashboard=_dashboard(),
+        )
+
+
+class _RetryableDecisionShellRecoverPack:
+    """Turn 1: retryable decision refusal. Turn 2: retry succeeds. Turn 3: complete."""
+
+    def initialize(self, context: OrchestratorContext) -> None:
+        pass
+
+    def sync(self, context: OrchestratorContext) -> SharedStateProjection:
+        return SharedStateProjection(
+            mission_state=new_mission_state(mission_id="m-decision-retry", loop_family="orchestration_kernel"),
+            resolution_state=new_resolution_state(),
+        )
+
+    def evaluate_terminal(self, context: OrchestratorContext, projection: SharedStateProjection | None) -> TerminalEvaluation | None:
+        return None
+
+    def choose_action(self, context: OrchestratorContext, projection: SharedStateProjection | None) -> ActionPlan:
+        it = context.loop_memory.iterations
+        if it == 1:
+            return ActionPlan(
+                action_type="noop",
+                action_inputs={},
+                idempotency_key="ik-decision-missing",
+                continuity_journal_entry={"step": "first attempt missing decisions"},
+            )
+        if it == 2:
+            return ActionPlan(
+                action_type="noop",
+                action_inputs={},
+                idempotency_key="ik-decision-retry",
+                continuity_journal_entry={"step": "retry after decision shell"},
+            )
+        return ActionPlan(
+            complete_run=True,
+            idempotency_key="ik-decision-complete",
+            rationale="decision shell recovered",
+            continuity_journal_entry={"step": "done"},
+            state_patch={"mission": {"work_universe_posture": "audited"}},
+        )
+
+
+def test_retryable_missing_decision_refusal_does_not_terminate_loop() -> None:
+    """A retryable action-contract refusal must not terminal-fail; agent gets another turn."""
+    sm = _RetryableDecisionShellRefuseOnceSessionManager()
+    result = run_orchestration_kernel_loop(
+        orchestration_adapter=_RetryableDecisionShellRecoverPack(),
+        session_manager=sm,
+        session_id="sess-decision-retry",
+        run_artifact_ref=None,
+        request_id_prefix="req-decision-retry",
+        opaque_run_context={},
+        max_iterations=5,
+    )
+
+    assert result.terminal_class == "completed", (
+        f"Expected completed, got terminal_class={result.terminal_class!r} reason_code={result.reason_code!r}"
+    )
+    assert result.reason_code == "complete_run"
+    assert len(sm.steps) == 2
+
+    refused_events = [
+        e
+        for e in result.trace_events
+        if e.get("event_kind") == "tool_execution"
+        and (e.get("payload") or {}).get("execution_state") == "refused"
+    ]
+    assert refused_events, "Expected a refused tool_execution event"
+    assert refused_events[0].get("reason_code")
+    # Generic contract only: retryable + not invariant-blocked is what keeps the loop alive.
+    refusal_payload = refused_events[0].get("payload") or {}
+    refusal = refusal_payload.get("refusal") or {}
+    if refusal:
+        assert refusal.get("retryable") is True
+        assert refusal.get("blocked_by_invariant") is False
+
+
 def test_image_evidence_empty_list_when_no_evidence() -> None:
     """When image_evidence is empty, tool_result_raw.image_evidence_summary should be None."""
     observer = _TurnCompletionRecorder()
