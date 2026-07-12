@@ -12,6 +12,10 @@ from .operand_value_parsing import (
     parse_bearing_operand,
     parse_distance_operand,
 )
+from .resolution_scope import (
+    infer_scope_id_from_identifiers,
+    is_resolution_scope_blocker,
+)
 
 MAX_MAPPING_OPERANDS = 64
 MAX_OPERAND_TITLE_CHARS = 160
@@ -20,7 +24,6 @@ MAX_OPERAND_CANDIDATE_VALUES = 8
 MAX_OPERAND_CANDIDATE_VALUE_CHARS = 120
 MAX_OPERAND_EVIDENCE_REFS = 8
 
-_PARCEL_ID_FROM_ITEM = re.compile(r"^parcel_(\d+)(?:_|$)")
 _CALL_OPERAND_ID = re.compile(
     r"^p(?P<parcel_num>\d+)_call(?P<call_index>\d+)_(?P<value_kind>bearing|distance)$",
     re.IGNORECASE,
@@ -400,11 +403,7 @@ def _unit_is_mapping_operand(unit: Mapping[str, Any]) -> bool:
 
 
 def _is_scope_blocker_item(item: Mapping[str, Any]) -> bool:
-    if item.get("blocking") is True:
-        return True
-    if item.get("no_further_progress") is True:
-        return True
-    return str(item.get("status") or "").lower() == "blocked"
+    return is_resolution_scope_blocker(item)
 
 
 def _is_item_level_operand(item: Mapping[str, Any]) -> bool:
@@ -417,18 +416,7 @@ def _is_item_level_operand(item: Mapping[str, Any]) -> bool:
 
 
 def _infer_parcel_id(*, unit_id: str, parent_item_id: str) -> str | None:
-    for source in (parent_item_id, unit_id):
-        if not source:
-            continue
-        match = _PARCEL_ID_FROM_ITEM.match(source)
-        if match:
-            return f"parcel_{match.group(1)}"
-        if source.startswith("p1_"):
-            return "parcel_1"
-        if source.startswith("p2_"):
-            return "parcel_2"
-    return None
-
+    return infer_scope_id_from_identifiers(parent_item_id, unit_id)
 
 def _evidence_locator_count(row: Mapping[str, Any]) -> int:
     locators = row.get("evidence_locators")

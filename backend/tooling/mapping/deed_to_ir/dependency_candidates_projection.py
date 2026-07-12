@@ -9,41 +9,46 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from .mapping_operands_projection import _infer_parcel_id, _is_scope_blocker_item
+from .resolution_scope import (
+    SCOPE_SIGNALS_CONFLICT_CODE,
+    collect_resolution_scope_signals,
+    is_resolution_scope_blocker,
+    resolve_unambiguous_scope_id,
+)
 
 MAX_DEPENDENCY_CANDIDATES = 16
 MAX_DESCRIPTION_CHARS = 512
 MAX_AVAILABLE_REFS = 8
+MAX_SCOPE_DIAGNOSTICS = 16
 
 
-def build_known_dependency_candidates(
+def project_known_dependency_candidates(
     *,
     resolution_state_snapshot: Mapping[str, Any] | None,
     issues: Sequence[Mapping[str, Any]] | None = None,
     resolution_state_ref: str | None = None,
-) -> list[dict[str, Any]]:
-    """Project known inherited dependency candidates from explicit upstream facts.
+) -> dict[str, Any]:
+    """Project candidates plus mechanical diagnostics from explicit upstream facts.
 
-    Sources (copy-only joins):
-    - resolution items that are scope blockers with missing-source / blocks / mapping-blocking issue
-    - ``blocks`` relations for affected-scope linkage
-    - mapping-blocking issues for description text
+    Returns ``{"candidates": [...], "diagnostics": [...]}``.
+    Diagnostics are observability only — never dependency rows or blockers.
     """
     if not isinstance(resolution_state_snapshot, Mapping):
-        return []
+        return {"candidates": [], "diagnostics": []}
 
     items = resolution_state_snapshot.get("items")
     if not isinstance(items, list):
-        return []
+        return {"candidates": [], "diagnostics": []}
 
     blocking_issues = _index_mapping_blocking_issues(issues)
     blocks_targets = _index_blocks_targets(resolution_state_snapshot.get("relations"))
 
     candidates: list[dict[str, Any]] = []
+    diagnostics: list[dict[str, Any]] = []
     for item in items:
         if not isinstance(item, Mapping):
             continue
-        if not _is_scope_blocker_item(item):
+        if not is_resolution_scope_blocker(item):
             continue
         item_id = str(item.get("item_id") or "").strip()
         if not item_id:
@@ -54,18 +59,31 @@ def build_known_dependency_candidates(
         if kind != "missing_source_scope" and not has_blocks and not has_blocking_issue:
             continue
 
-        affected_scope = _resolve_affected_scope(
-            item_id=item_id,
-            block_targets=blocks_targets.get(item_id) or [],
-            issue=blocking_issues.get(item_id),
+        issue = blocking_issues.get(item_id)
+        block_targets = blocks_targets.get(item_id) or []
+        signals = collect_resolution_scope_signals(
+            item=item,
+            issue=issue if isinstance(issue, Mapping) else None,
+            block_targets=block_targets,
+            identifier_sources=[item_id, *block_targets],
         )
+        resolved = resolve_unambiguous_scope_id(signals)
+        if resolved.get("conflict") is True:
+            if len(diagnostics) < MAX_SCOPE_DIAGNOSTICS:
+                diagnostics.append(
+                    {
+                        "code": SCOPE_SIGNALS_CONFLICT_CODE,
+                        "candidate_id": item_id,
+                        "observed_scope_ids": list(resolved.get("observed_scope_ids") or []),
+                    }
+                )
+            continue
+
+        affected_scope = resolved.get("scope_id")
         if not affected_scope:
             continue
 
-        description = _resolve_description(
-            item=item,
-            issue=blocking_issues.get(item_id),
-        )
+        description = _resolve_description(item=item, issue=issue if isinstance(issue, Mapping) else None)
         if not description:
             continue
 
@@ -82,7 +100,8 @@ def build_known_dependency_candidates(
         candidates.append(candidate)
         if len(candidates) >= MAX_DEPENDENCY_CANDIDATES:
             break
-    return candidates
+
+    return {"candidates": candidates, "diagnostics": diagnostics}
 
 
 def compact_known_dependency_candidates_for_projection(
@@ -104,6 +123,30 @@ def compact_known_dependency_candidates_for_projection(
         }
         if row.get("description"):
             entry["description"] = row.get("description")
+        compact.append(entry)
+    return compact
+
+
+def compact_dependency_candidate_diagnostics_for_projection(
+    diagnostics: Sequence[Mapping[str, Any]] | None,
+) -> list[dict[str, Any]]:
+    if not isinstance(diagnostics, list):
+        return []
+    compact: list[dict[str, Any]] = []
+    for row in diagnostics:
+        if not isinstance(row, Mapping):
+            continue
+        code = str(row.get("code") or "").strip()
+        if not code:
+            continue
+        entry: dict[str, Any] = {"code": code}
+        if row.get("candidate_id"):
+            entry["candidate_id"] = row.get("candidate_id")
+        observed = row.get("observed_scope_ids")
+        if isinstance(observed, list):
+            entry["observed_scope_ids"] = [
+                str(item).strip() for item in observed if str(item or "").strip()
+            ]
         compact.append(entry)
     return compact
 
@@ -142,32 +185,6 @@ def _index_blocks_targets(relations: Any) -> dict[str, list[str]]:
         if target not in indexed[source]:
             indexed[source].append(target)
     return indexed
-
-
-def _resolve_affected_scope(
-    *,
-    item_id: str,
-    block_targets: Sequence[str],
-    issue: Mapping[str, Any] | None,
-) -> str | None:
-    for target in block_targets:
-        parcel = _infer_parcel_id(unit_id=target, parent_item_id=target)
-        if parcel:
-            return parcel
-    parcel = _infer_parcel_id(unit_id=item_id, parent_item_id=item_id)
-    if parcel:
-        return parcel
-    if isinstance(issue, Mapping):
-        scope_text = str(issue.get("scope") or "").strip().lower()
-        match = _infer_parcel_id(unit_id=scope_text.replace(" ", "_"), parent_item_id=scope_text)
-        if match:
-            return match
-        # Common prose: "Parcel 2 after ..."
-        if "parcel 2" in scope_text or "parcel_2" in scope_text:
-            return "parcel_2"
-        if "parcel 1" in scope_text or "parcel_1" in scope_text:
-            return "parcel_1"
-    return None
 
 
 def _resolve_description(

@@ -355,6 +355,7 @@ def render_final_package_validation_timeline_lines(
         or outputs.get("missing_correction_targets")
         or outputs.get("missing_dependency_decisions")
         or outputs.get("known_dependency_candidates")
+        or outputs.get("dependency_candidate_diagnostics")
     ):
         return intent_lines
     validation_errors = outputs.get("validation_errors")

@@ -37,6 +37,11 @@ from .final_package_validation import (
     validate_prepare_final_package_rows,
 )
 from .final_package_retry_projection import build_retry_package_shell
+from .dependency_candidates_projection import (
+    compact_dependency_candidate_diagnostics_for_projection,
+    project_known_dependency_candidates,
+)
+from .dependency_decisions import resolve_intent_first_external_dependencies
 from .intent_first_prepare import (
     assemble_upstream_corrections_from_decisions,
     build_intent_first_correction_summary,
@@ -44,10 +49,6 @@ from .intent_first_prepare import (
     expand_compact_dispositions,
     extract_agent_authored_finalization_state,
     missing_finalization_decisions_refusal,
-    resolve_intent_first_external_dependencies,
-)
-from .dependency_candidates_projection import (
-    build_known_dependency_candidates,
 )
 from .mapping_lineage import (
     compact_current_mapping_lineage_for_projection,
@@ -120,6 +121,7 @@ def prepare_deed_to_ir_final_package(
     resolved_mapping_ref = str(mapping_artifact_ref or "").strip()
     resolved_expected_ir = str(expected_ir_artifact_ref or "").strip()
     current_lineage_compact: dict[str, Any] | None = None
+    dependency_candidate_diagnostics: list[dict[str, Any]] = []
 
     if intent_first:
         lineage_resolution = resolve_intent_first_mapping_lineage(
@@ -177,11 +179,13 @@ def prepare_deed_to_ir_final_package(
                 )
 
         # Known dependency candidates require explicit include/decline on intent-first.
-        known_candidates = build_known_dependency_candidates(
+        projected = project_known_dependency_candidates(
             resolution_state_snapshot=resolution_state_snapshot,
             issues=issues if isinstance(issues, list) else None,
             resolution_state_ref=resolution_state_ref,
         )
+        known_candidates = list(projected.get("candidates") or [])
+        candidate_diagnostics = list(projected.get("diagnostics") or [])
         resolved_deps = resolve_intent_first_external_dependencies(
             known_candidates=known_candidates,
             external_dependencies=external_dependencies
@@ -190,10 +194,17 @@ def prepare_deed_to_ir_final_package(
             dependency_decisions=dependency_decisions
             if isinstance(dependency_decisions, list)
             else None,
+            diagnostics=candidate_diagnostics,
         )
         if resolved_deps.get("executed") is not True:
             return resolved_deps
         external_dependencies = list(resolved_deps.get("rows") or [])
+        # Carry mechanical diagnostics on success for timeline/observability only.
+        dependency_candidate_diagnostics = compact_dependency_candidate_diagnostics_for_projection(
+            resolved_deps.get("diagnostics")
+            if isinstance(resolved_deps.get("diagnostics"), list)
+            else candidate_diagnostics
+        )
     elif not resolved_mapping_ref:
         return refusal("mapping_artifact_ref_required", "mapping_artifact_ref is required.")
 
@@ -454,6 +465,8 @@ def prepare_deed_to_ir_final_package(
         )
         if current_lineage_compact is not None:
             base_outputs["current_mapping_lineage"] = current_lineage_compact
+        if dependency_candidate_diagnostics:
+            base_outputs["dependency_candidate_diagnostics"] = dependency_candidate_diagnostics
     return {
         "executed": True,
         "artifact_refs": artifact_refs,
