@@ -13,9 +13,95 @@ from .dependency_candidates_projection import (
     compact_dependency_candidate_diagnostics_for_projection,
     compact_known_dependency_candidates_for_projection,
 )
-from .persistence_io import refusal
+from .persistence_io import retryable_refusal
 
 VALID_DEPENDENCY_DISPOSITIONS = frozenset({"include", "not_applicable"})
+
+
+def _build_candidate_lookup(
+    candidates: Sequence[Mapping[str, Any]],
+) -> tuple[dict[str, Mapping[str, Any]], dict[str, str]]:
+    """Index known candidates by canonical candidate_id and identifier aliases."""
+    by_candidate_id: dict[str, Mapping[str, Any]] = {}
+    identifier_to_candidate_id: dict[str, str] = {}
+    for row in candidates:
+        candidate_id = str(row.get("candidate_id") or "").strip()
+        if not candidate_id:
+            continue
+        by_candidate_id[candidate_id] = row
+        identifier_to_candidate_id[candidate_id] = candidate_id
+        dependency_id = str(row.get("dependency_id") or candidate_id).strip()
+        if dependency_id:
+            identifier_to_candidate_id.setdefault(dependency_id, candidate_id)
+    return by_candidate_id, identifier_to_candidate_id
+
+
+def _resolve_identifier_to_candidate_id(
+    raw: str,
+    *,
+    identifier_to_candidate_id: Mapping[str, str],
+) -> str | None:
+    candidate_id = identifier_to_candidate_id.get(raw)
+    return candidate_id if candidate_id else None
+
+
+def _resolve_decision_candidate_id(
+    decision: Mapping[str, Any],
+    *,
+    identifier_to_candidate_id: Mapping[str, str],
+    index: int,
+) -> dict[str, Any]:
+    """Resolve a decision reference to a known candidate_id or return a refusal."""
+    candidate_id_field = str(decision.get("candidate_id") or "").strip()
+    dependency_id_field = str(decision.get("dependency_id") or "").strip()
+
+    if candidate_id_field and dependency_id_field:
+        resolved_from_candidate = _resolve_identifier_to_candidate_id(
+            candidate_id_field,
+            identifier_to_candidate_id=identifier_to_candidate_id,
+        )
+        resolved_from_dependency = _resolve_identifier_to_candidate_id(
+            dependency_id_field,
+            identifier_to_candidate_id=identifier_to_candidate_id,
+        )
+        if resolved_from_candidate != resolved_from_dependency:
+            return retryable_refusal(
+                "dependency_decision_identifier_conflict",
+                (
+                    f"dependency_decisions[{index}] supplies conflicting identifiers: "
+                    f"candidate_id={candidate_id_field}, dependency_id={dependency_id_field}."
+                ),
+            )
+        if not resolved_from_candidate:
+            return retryable_refusal(
+                "dependency_decision_candidate_unknown",
+                (
+                    f"No known dependency candidate for candidate_id={candidate_id_field} "
+                    f"or dependency_id={dependency_id_field}."
+                ),
+            )
+        return {"candidate_id": resolved_from_candidate}
+
+    identifier = candidate_id_field or dependency_id_field
+    if not identifier:
+        return retryable_refusal(
+            "dependency_decision_candidate_id_required",
+            (
+                f"dependency_decisions[{index}] requires candidate_id or dependency_id "
+                "referencing a known projected candidate."
+            ),
+        )
+
+    resolved = _resolve_identifier_to_candidate_id(
+        identifier,
+        identifier_to_candidate_id=identifier_to_candidate_id,
+    )
+    if not resolved:
+        return retryable_refusal(
+            "dependency_decision_candidate_unknown",
+            f"No known dependency candidate for identifier={identifier}.",
+        )
+    return {"candidate_id": resolved}
 
 
 def build_dependency_decision_shell(
@@ -174,11 +260,7 @@ def assemble_external_dependencies_from_decisions(
     or a refusal payload.
     """
     candidate_list = [row for row in (candidates or []) if isinstance(row, Mapping)]
-    by_id: dict[str, Mapping[str, Any]] = {}
-    for row in candidate_list:
-        candidate_id = str(row.get("candidate_id") or "").strip()
-        if candidate_id:
-            by_id[candidate_id] = row
+    by_id, identifier_to_candidate_id = _build_candidate_lookup(candidate_list)
 
     decisions = list(dependency_decisions or [])
     if candidate_list and not decisions:
@@ -190,25 +272,37 @@ def assemble_external_dependencies_from_decisions(
 
     for index, decision in enumerate(decisions):
         if not isinstance(decision, Mapping):
-            return refusal(
+            return retryable_refusal(
                 "dependency_decision_invalid",
                 f"dependency_decisions[{index}] must be an object.",
             )
-        candidate_id = str(decision.get("candidate_id") or "").strip()
-        if not candidate_id:
-            return refusal(
-                "dependency_decision_candidate_id_required",
-                f"dependency_decisions[{index}].candidate_id is required.",
-            )
+        candidate_id_field = str(decision.get("candidate_id") or "").strip()
+        dependency_id_field = str(decision.get("dependency_id") or "").strip()
         disposition = str(decision.get("disposition") or "").strip()
         if disposition not in VALID_DEPENDENCY_DISPOSITIONS:
-            return refusal(
+            return retryable_refusal(
                 "dependency_decision_disposition_invalid",
                 f"dependency_decisions[{index}].disposition must be include or not_applicable.",
             )
+
+        resolved = _resolve_decision_candidate_id(
+            decision,
+            identifier_to_candidate_id=identifier_to_candidate_id,
+            index=index,
+        )
+        if "candidate_id" in resolved:
+            candidate_id = resolved["candidate_id"]
+        elif disposition == "not_applicable":
+            fallback = candidate_id_field or dependency_id_field
+            if not fallback:
+                return resolved
+            candidate_id = fallback
+        else:
+            return resolved
+
         candidate = by_id.get(candidate_id)
         if candidate is None and disposition == "include":
-            return refusal(
+            return retryable_refusal(
                 "dependency_decision_candidate_unknown",
                 f"No known dependency candidate for candidate_id={candidate_id}.",
             )
@@ -217,7 +311,7 @@ def assemble_external_dependencies_from_decisions(
         if disposition == "not_applicable":
             rationale = str(decision.get("rationale") or "").strip()
             if not rationale:
-                return refusal(
+                return retryable_refusal(
                     "dependency_decision_rationale_required",
                     f"dependency_decisions[{index}].rationale is required when disposition=not_applicable.",
                 )
@@ -226,7 +320,7 @@ def assemble_external_dependencies_from_decisions(
 
         status = str(decision.get("status") or "").strip()
         if not status:
-            return refusal(
+            return retryable_refusal(
                 "dependency_decision_status_required",
                 f"dependency_decisions[{index}].status is required when disposition=include.",
             )
@@ -242,7 +336,7 @@ def assemble_external_dependencies_from_decisions(
             "available_refs": list(candidate.get("available_refs") or []),
         }
         if not row["affected_scope"] or not row["description"]:
-            return refusal(
+            return retryable_refusal(
                 "dependency_candidate_incomplete",
                 f"Known candidate {candidate_id} is missing affected_scope or description.",
             )
