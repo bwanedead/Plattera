@@ -132,6 +132,24 @@ def _disposition_item_schema(*, id_field: str, id_enum: list[str] | None = None)
     }
 
 
+def _dependency_decision_item_schema() -> dict[str, Any]:
+    return {
+        "type": "object",
+        "required": ["candidate_id", "disposition"],
+        "properties": {
+            "candidate_id": {"type": "string", "minLength": 1},
+            "disposition": {
+                "type": "string",
+                "enum": ["include", "not_applicable"],
+            },
+            "status": {"type": "string", "minLength": 1},
+            "rationale": {"type": "string", "minLength": 1},
+            "dependency_id": {"type": "string", "minLength": 1},
+        },
+        "additionalProperties": False,
+    }
+
+
 def build_prepare_deed_to_ir_final_package_intent_first_request_json_shape() -> dict[str, Any]:
     """Preferred minimal intent-first prepare request."""
     return {
@@ -143,6 +161,10 @@ def build_prepare_deed_to_ir_final_package_intent_first_request_json_shape() -> 
             "correction_decisions": {
                 "type": "array",
                 "items": _correction_decision_item_schema(),
+            },
+            "dependency_decisions": {
+                "type": "array",
+                "items": _dependency_decision_item_schema(),
             },
             "scope_dispositions": {
                 "type": "array",

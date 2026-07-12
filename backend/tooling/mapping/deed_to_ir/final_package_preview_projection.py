@@ -353,6 +353,8 @@ def render_final_package_validation_timeline_lines(
         outputs.get("missing_finalization_decisions")
         or outputs.get("current_mapping_lineage")
         or outputs.get("missing_correction_targets")
+        or outputs.get("missing_dependency_decisions")
+        or outputs.get("known_dependency_candidates")
     ):
         return intent_lines
     validation_errors = outputs.get("validation_errors")

@@ -23,6 +23,13 @@ def build_prepare_deed_to_ir_final_package_example_request() -> dict[str, Any]:
                 ),
             }
         ],
+        "dependency_decisions": [
+            {
+                "candidate_id": "example_scope_beta_continuation_source",
+                "disposition": "include",
+                "status": "missing",
+            }
+        ],
         "scope_dispositions": [
             {"scope_id": "example_scope_alpha", "status": "handoffable"},
             {"scope_id": "example_scope_beta", "status": "blocked"},

@@ -41,6 +41,44 @@ def _compact_dispositions() -> dict:
     }
 
 
+def _correction_decision() -> dict:
+    return {
+        "target_entity_id": "p1_call2_distance",
+        "posture": "confirmed_from_source",
+        "resolution_used_by_ir": True,
+        "recommended_action": "transcript_amendment",
+        "rationale": (
+            "Targeted source evidence supports 518 feet and the repaired "
+            "mapping is the intended scoped handoff."
+        ),
+    }
+
+
+def _dependency_decision_include() -> dict:
+    return {
+        "candidate_id": "parcel_2_continuation_scope",
+        "disposition": "include",
+        "status": "blocked",
+    }
+
+
+def _load_latest_preview(*, tmp: str, ctx: dict) -> dict:
+    preview_dir = (
+        Path(tmp)
+        / "artifacts"
+        / "deed_to_ir"
+        / "d-preview"
+        / ctx["transcription_id"]
+        / ctx["workspace_id"]
+        / "final_package_preview"
+    )
+    revs = sorted(preview_dir.glob("rev_*.json"))
+    assert revs, f"expected preview revisions under {preview_dir}"
+    import json
+
+    return json.loads(revs[-1].read_text(encoding="utf-8"))
+
+
 def _submit_with_lineage(tmp: str, *, leg2_distance: float, monkeypatch):
     _patch_deed_root(monkeypatch, tmp)
     from tooling.mapping.deed_to_ir.test_final_package_preview import _services
@@ -131,7 +169,7 @@ def test_save_marks_current_mapping_lineage_stale(monkeypatch) -> None:
 
 
 def test_intent_first_prepare_fresh_workspace_no_prior_preview(monkeypatch) -> None:
-    """Fresh corrupted-source repair: no prior preview; compact dispositions succeed."""
+    """Fresh corrupted-source repair: compact dispositions + dependency include succeed."""
     with tempfile.TemporaryDirectory() as tmp:
         persistence, ir_ref, mapping_ref, submitted, ctx = _submit_with_lineage(
             tmp,
@@ -153,18 +191,8 @@ def test_intent_first_prepare_fresh_workspace_no_prior_preview(monkeypatch) -> N
             dossier_id="d-preview",
             persistence=persistence,
             use_current_mapping_lineage=True,
-            correction_decisions=[
-                {
-                    "target_entity_id": "p1_call2_distance",
-                    "posture": "confirmed_from_source",
-                    "resolution_used_by_ir": True,
-                    "recommended_action": "transcript_amendment",
-                    "rationale": (
-                        "Targeted source evidence supports 518 feet and the repaired "
-                        "mapping is the intended scoped handoff."
-                    ),
-                }
-            ],
+            correction_decisions=[_correction_decision()],
+            dependency_decisions=[_dependency_decision_include()],
             resolution_state_snapshot=_resolution_snapshot(),
             **ctx,
             **_compact_dispositions(),
@@ -176,6 +204,7 @@ def test_intent_first_prepare_fresh_workspace_no_prior_preview(monkeypatch) -> N
         assert outputs["selected_lineage"]["mapping_artifact_ref"] == submitted["outputs"][
             "mapping_artifact_ref"
         ]
+        assert outputs["external_dependency_count"] == 1
         summary = outputs["correction_summary"]
         assert summary["active"] is True
         assert summary["rows_created"] == 1
@@ -186,6 +215,203 @@ def test_intent_first_prepare_fresh_workspace_no_prior_preview(monkeypatch) -> N
         assert target["resolution_used_by_ir"] is True
         assert outputs["recommended_publish_request"]["final_package_preview_ref"]
         assert any(preview_dir.glob("rev_*.json"))
+
+        preview = _load_latest_preview(tmp=tmp, ctx=ctx)
+        scopes = {row["scope_id"]: row["status"] for row in preview["scope_results"]}
+        assert scopes["parcel_1"] == "handoffable"
+        assert scopes["parcel_2"] == "blocked"
+        deps = preview["external_dependencies"]
+        assert len(deps) == 1
+        assert deps[0]["dependency_id"] == "parcel_2_continuation_scope"
+        assert deps[0]["affected_scope"] == "parcel_2"
+        assert deps[0]["status"] == "blocked"
+        assert deps[0]["description"]
+        corrections = preview["upstream_corrections"]
+        assert len(corrections) == 1
+        assert "618" in str(corrections[0].get("upstream_value") or "")
+        assert "518" in str(corrections[0].get("corrected_value") or "") or (
+            corrections[0].get("selected_ir_value") == _PRACTICE_CORRECT_DISTANCE
+        )
+
+
+def test_intent_first_prepare_dependency_decisions_required(monkeypatch) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        persistence, ir_ref, mapping_ref, submitted, ctx = _submit_with_lineage(
+            tmp,
+            leg2_distance=_PRACTICE_CORRECT_DISTANCE,
+            monkeypatch=monkeypatch,
+        )
+        result = prepare_deed_to_ir_final_package(
+            dossier_id="d-preview",
+            persistence=persistence,
+            use_current_mapping_lineage=True,
+            correction_decisions=[_correction_decision()],
+            resolution_state_snapshot=_resolution_snapshot(),
+            **ctx,
+            **_compact_dispositions(),
+        )
+        assert result["executed"] is False
+        assert result["refusal"]["reason_code"] == "dependency_decisions_required"
+        assert result["refusal"].get("retryable") is True or result.get("retryable") is True
+        outputs = result["outputs"]
+        missing = outputs["missing_dependency_decisions"]
+        assert missing[0]["candidate_id"] == "parcel_2_continuation_scope"
+        assert missing[0]["affected_scope"] == "parcel_2"
+        shell = outputs["dependency_decision_shell"]
+        assert shell[0]["candidate_id"] == "parcel_2_continuation_scope"
+        assert "disposition" in shell[0]
+        assert "status" in shell[0]
+
+
+def test_intent_first_prepare_dependency_not_applicable_produces_no_row(
+    monkeypatch,
+) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        persistence, ir_ref, mapping_ref, submitted, ctx = _submit_with_lineage(
+            tmp,
+            leg2_distance=_PRACTICE_CORRECT_DISTANCE,
+            monkeypatch=monkeypatch,
+        )
+        result = prepare_deed_to_ir_final_package(
+            dossier_id="d-preview",
+            persistence=persistence,
+            use_current_mapping_lineage=True,
+            correction_decisions=[_correction_decision()],
+            dependency_decisions=[
+                {
+                    "candidate_id": "parcel_2_continuation_scope",
+                    "disposition": "not_applicable",
+                    "rationale": "Continuation is already represented elsewhere in this handoff.",
+                }
+            ],
+            resolution_state_snapshot=_resolution_snapshot(),
+            **ctx,
+            **_compact_dispositions(),
+        )
+        assert result["executed"] is True
+        assert result["outputs"]["external_dependency_count"] == 0
+        preview = _load_latest_preview(tmp=tmp, ctx=ctx)
+        scopes = {row["scope_id"]: row["status"] for row in preview["scope_results"]}
+        assert scopes["parcel_2"] == "blocked"
+        assert preview["external_dependencies"] == []
+
+
+def test_intent_first_prepare_no_candidates_skips_dependency_decisions(
+    monkeypatch,
+) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        persistence, ir_ref, mapping_ref, submitted, ctx = _submit_with_lineage(
+            tmp,
+            leg2_distance=_PRACTICE_CORRECT_DISTANCE,
+            monkeypatch=monkeypatch,
+        )
+        snap = _resolution_snapshot()
+        # Drop continuation blocker so no known dependency candidates project.
+        snap["items"] = [
+            item
+            for item in snap.get("items", [])
+            if item.get("item_id") != "parcel_2_continuation_scope"
+        ]
+        snap["relations"] = [
+            rel
+            for rel in snap.get("relations", [])
+            if rel.get("source_item_id") != "parcel_2_continuation_scope"
+        ]
+        result = prepare_deed_to_ir_final_package(
+            dossier_id="d-preview",
+            persistence=persistence,
+            use_current_mapping_lineage=True,
+            correction_decisions=[_correction_decision()],
+            resolution_state_snapshot=snap,
+            **ctx,
+            **_compact_dispositions(),
+        )
+        assert result["executed"] is True
+        assert result.get("refusal") is None
+        assert result["outputs"]["external_dependency_count"] == 0
+
+
+def test_intent_first_prepare_reuse_covers_candidates_without_new_rows(
+    monkeypatch,
+) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        persistence, ir_ref, mapping_ref, submitted, ctx = _submit_with_lineage(
+            tmp,
+            leg2_distance=_PRACTICE_CORRECT_DISTANCE,
+            monkeypatch=monkeypatch,
+        )
+        first = prepare_deed_to_ir_final_package(
+            dossier_id="d-preview",
+            persistence=persistence,
+            use_current_mapping_lineage=True,
+            correction_decisions=[_correction_decision()],
+            dependency_decisions=[_dependency_decision_include()],
+            resolution_state_snapshot=_resolution_snapshot(),
+            **ctx,
+            **_compact_dispositions(),
+        )
+        assert first["executed"] is True
+        assert first["outputs"]["external_dependency_count"] == 1
+
+        reused = prepare_deed_to_ir_final_package(
+            dossier_id="d-preview",
+            persistence=persistence,
+            use_current_mapping_lineage=True,
+            reuse_agent_authored_finalization_state=True,
+            correction_decisions=[_correction_decision()],
+            resolution_state_snapshot=_resolution_snapshot(),
+            **ctx,
+        )
+        assert reused["executed"] is True
+        assert reused["outputs"]["external_dependency_count"] == 1
+        preview = _load_latest_preview(tmp=tmp, ctx=ctx)
+        deps = preview["external_dependencies"]
+        assert len(deps) == 1
+        assert deps[0]["dependency_id"] == "parcel_2_continuation_scope"
+
+
+def test_intent_first_prepare_decline_strips_reused_dependency_row(
+    monkeypatch,
+) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        persistence, ir_ref, mapping_ref, submitted, ctx = _submit_with_lineage(
+            tmp,
+            leg2_distance=_PRACTICE_CORRECT_DISTANCE,
+            monkeypatch=monkeypatch,
+        )
+        first = prepare_deed_to_ir_final_package(
+            dossier_id="d-preview",
+            persistence=persistence,
+            use_current_mapping_lineage=True,
+            correction_decisions=[_correction_decision()],
+            dependency_decisions=[_dependency_decision_include()],
+            resolution_state_snapshot=_resolution_snapshot(),
+            **ctx,
+            **_compact_dispositions(),
+        )
+        assert first["executed"] is True
+        assert first["outputs"]["external_dependency_count"] == 1
+
+        declined = prepare_deed_to_ir_final_package(
+            dossier_id="d-preview",
+            persistence=persistence,
+            use_current_mapping_lineage=True,
+            reuse_agent_authored_finalization_state=True,
+            correction_decisions=[_correction_decision()],
+            dependency_decisions=[
+                {
+                    "candidate_id": "parcel_2_continuation_scope",
+                    "disposition": "not_applicable",
+                    "rationale": "Agent declines the previously included continuation dependency.",
+                }
+            ],
+            resolution_state_snapshot=_resolution_snapshot(),
+            **ctx,
+        )
+        assert declined["executed"] is True
+        assert declined["outputs"]["external_dependency_count"] == 0
+        preview = _load_latest_preview(tmp=tmp, ctx=ctx)
+        assert preview["external_dependencies"] == []
 
 
 def test_intent_first_missing_finalization_state_returns_shell(monkeypatch) -> None:
@@ -232,6 +458,7 @@ def test_intent_first_missing_correction_decision_refuses(monkeypatch) -> None:
             persistence=persistence,
             use_current_mapping_lineage=True,
             correction_decisions=[],
+            dependency_decisions=[_dependency_decision_include()],
             resolution_state_snapshot=_resolution_snapshot(),
             **ctx,
             **_compact_dispositions(),

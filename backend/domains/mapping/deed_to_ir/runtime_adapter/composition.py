@@ -281,6 +281,8 @@ def _make_prepare_final_package_handler(
                 correction_decisions=inputs.get("correction_decisions"),
                 scope_dispositions=inputs.get("scope_dispositions"),
                 closure_dispositions=inputs.get("closure_dispositions"),
+                dependency_decisions=inputs.get("dependency_decisions"),
+                issues=list(handoff.issues) if handoff.issues else None,
             )
         except Exception as exc:
             return _exception_refusal(exc)

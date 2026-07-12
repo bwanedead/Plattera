@@ -44,6 +44,10 @@ from .intent_first_prepare import (
     expand_compact_dispositions,
     extract_agent_authored_finalization_state,
     missing_finalization_decisions_refusal,
+    resolve_intent_first_external_dependencies,
+)
+from .dependency_candidates_projection import (
+    build_known_dependency_candidates,
 )
 from .mapping_lineage import (
     compact_current_mapping_lineage_for_projection,
@@ -98,6 +102,8 @@ def prepare_deed_to_ir_final_package(
     correction_decisions: Any | None = None,
     scope_dispositions: Any | None = None,
     closure_dispositions: Any | None = None,
+    dependency_decisions: Any | None = None,
+    issues: Any | None = None,
 ) -> dict[str, Any]:
     if not dossier_id:
         raise ValueError("dossier_id_required")
@@ -169,6 +175,25 @@ def prepare_deed_to_ir_final_package(
                 return missing_finalization_decisions_refusal(
                     missing_shell=build_missing_finalization_decisions_shell(),
                 )
+
+        # Known dependency candidates require explicit include/decline on intent-first.
+        known_candidates = build_known_dependency_candidates(
+            resolution_state_snapshot=resolution_state_snapshot,
+            issues=issues if isinstance(issues, list) else None,
+            resolution_state_ref=resolution_state_ref,
+        )
+        resolved_deps = resolve_intent_first_external_dependencies(
+            known_candidates=known_candidates,
+            external_dependencies=external_dependencies
+            if isinstance(external_dependencies, list)
+            else None,
+            dependency_decisions=dependency_decisions
+            if isinstance(dependency_decisions, list)
+            else None,
+        )
+        if resolved_deps.get("executed") is not True:
+            return resolved_deps
+        external_dependencies = list(resolved_deps.get("rows") or [])
     elif not resolved_mapping_ref:
         return refusal("mapping_artifact_ref_required", "mapping_artifact_ref is required.")
 

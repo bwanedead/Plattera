@@ -9,7 +9,7 @@ from ..branch import DEED_TO_IR_DOMAIN_ID
 DEED_TO_IR_PROCEDURAL_GUIDANCE_SOURCE_REF = (
     "backend/domains/mapping/deed_to_ir/prompting/surfaces/procedural_guidance.py"
 )
-DEED_TO_IR_PROCEDURAL_GUIDANCE_VERSION = "v30"
+DEED_TO_IR_PROCEDURAL_GUIDANCE_VERSION = "v31"
 
 DEED_TO_IR_PROCEDURAL_GUIDANCE_TEXT = """\
 Use this guidance to orient deed-to-IR work. This is **guidance**, not a hard script.
@@ -49,8 +49,9 @@ Use this guidance to orient deed-to-IR work. This is **guidance**, not a hard sc
 
 ## Final package preview flow
 - After a clean repaired remap, use the **current mapping lineage**. If correction posture is active, author the correction decision and any genuinely missing scope, dependency, or closure disposition. Do not reread operands, historic mappings, or broad artifact refs unless the current lineage or correction packet is missing, contradictory, or incomplete.
-- Preferred endgame after repair: remap → intent-first `prepare_deed_to_ir_final_package` (`use_current_mapping_lineage=true`, `correction_decisions`, `scope_dispositions`, `closure_dispositions`) → publish → complete.
+- Preferred endgame after repair: remap → intent-first `prepare_deed_to_ir_final_package` (`use_current_mapping_lineage=true`, `correction_decisions`, `scope_dispositions`, `closure_dispositions`, and `dependency_decisions` when candidates exist) → publish → complete.
 - Prefer intent-first preview. Author compact dispositions with statuses; deterministic code expands them into strict rows. Reuse of a prior agent-authored preview is optional. Use explicit full package rows only for advanced/manual overrides.
+- When known dependency candidates are projected for the current handoff, author `dependency_decisions`: `disposition=include` with `status`, or `disposition=not_applicable` with `rationale`. Candidates are evidence only; blocked scope posture is not itself a Layer 3 dependency row — include or decline so the external-dependency handoff stays agent-authored and machine-readable.
 - Never treat mechanical mapping facts (compile/judge counts, renders, lineage_current) as semantic closure.
 - Do not rebuild package details from memory when current lineage and correction candidates already carry the refs and typed values.
 - Normal end flow: save/patch draft IR → submit for mapping → inspect mapping review → prepare final package preview → publish from preview → complete (with final state patch only if still needed).

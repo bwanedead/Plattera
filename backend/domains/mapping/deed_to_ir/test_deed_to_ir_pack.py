@@ -180,6 +180,7 @@ def test_publish_tool_spec_exposes_row_contracts_from_models() -> None:
     prepare_example = prepare.example_request
     assert prepare_example["use_current_mapping_lineage"] is True
     assert prepare_example["correction_decisions"][0]["target_entity_id"]
+    assert prepare_example["dependency_decisions"][0]["disposition"] == "include"
     dumped = json.dumps(prepare_example).lower()
     for forbidden in ("parcel_1", "parcel_2", "range 74", "range 75", "canal"):
         assert forbidden not in dumped
@@ -249,7 +250,7 @@ def test_procedural_guidance_v23_upstream_corrections_discipline() -> None:
         for b in build_deed_to_ir_domain_pack().build_semantic_prompt_blocks()
         if b.block_id == "deed_to_ir_procedural_guidance"
     )
-    assert block.version == "v30"
+    assert block.version == "v31"
     text = block.text.lower()
     assert "upstream_corrections" in text
     assert "`notes` are commentary only" in block.text
@@ -274,7 +275,7 @@ def test_procedural_guidance_v24_mapping_sanity_discipline() -> None:
         for b in build_deed_to_ir_domain_pack().build_semantic_prompt_blocks()
         if b.block_id == "deed_to_ir_procedural_guidance"
     )
-    assert block.version == "v30"
+    assert block.version == "v31"
     text = block.text.lower()
     assert "sanity_review" in text
     assert "endpoint displacement" in text
@@ -290,7 +291,7 @@ def test_procedural_guidance_v25_correction_lane_discipline() -> None:
         for b in build_deed_to_ir_domain_pack().build_semantic_prompt_blocks()
         if b.block_id == "deed_to_ir_procedural_guidance"
     )
-    assert block.version == "v30"
+    assert block.version == "v31"
     text = block.text.lower()
     assert "notes are commentary only" in text or "notes` are commentary only" in block.text
     assert "correction_lane_advisory" in text
@@ -304,7 +305,7 @@ def test_procedural_guidance_v26_correction_posture_gate() -> None:
         for b in build_deed_to_ir_domain_pack().build_semantic_prompt_blocks()
         if b.block_id == "deed_to_ir_procedural_guidance"
     )
-    assert block.version == "v30"
+    assert block.version == "v31"
     text = block.text.lower()
     assert "correction_posture.active=true" in block.text or "correction_posture" in text
     assert "deed_to_ir:correction_contract" in block.text
@@ -317,7 +318,7 @@ def test_procedural_guidance_v27_retry_shell_and_lineage_lock() -> None:
         for b in build_deed_to_ir_domain_pack().build_semantic_prompt_blocks()
         if b.block_id == "deed_to_ir_procedural_guidance"
     )
-    assert block.version == "v30"
+    assert block.version == "v31"
     text = block.text.lower()
     assert "retry_package_shell" in text
     assert "lineage_lock" in text or "recommended_publish_refs" in text
@@ -329,7 +330,7 @@ def test_procedural_guidance_v28_strict_upstream_correction_row() -> None:
         for b in build_deed_to_ir_domain_pack().build_semantic_prompt_blocks()
         if b.block_id == "deed_to_ir_procedural_guidance"
     )
-    assert block.version == "v30"
+    assert block.version == "v31"
     text = block.text
     lower = text.lower()
     assert "correction_decisions" in lower or "upstream_corrections_template" in lower
@@ -349,7 +350,7 @@ def test_procedural_guidance_v29_course_updates_and_no_delegate_repair() -> None
         for b in build_deed_to_ir_domain_pack().build_semantic_prompt_blocks()
         if b.block_id == "deed_to_ir_procedural_guidance"
     )
-    assert block.version == "v30"
+    assert block.version == "v31"
     text = block.text.lower()
     assert "course_updates" in text
     assert "draft_patch_targets" in text
@@ -358,17 +359,24 @@ def test_procedural_guidance_v29_course_updates_and_no_delegate_repair() -> None
     assert "reconstructing full" in text and "courses[]" in text
 
 
-def test_procedural_guidance_v30_intent_first_finalization() -> None:
+def test_procedural_guidance_v31_intent_first_dependency_decisions() -> None:
     block = next(
         b
         for b in build_deed_to_ir_domain_pack().build_semantic_prompt_blocks()
         if b.block_id == "deed_to_ir_procedural_guidance"
     )
-    assert block.version == "v30"
+    assert block.version == "v31"
     text = block.text.lower()
     assert "current mapping lineage" in text
     assert "intent-first" in text
     assert "correction decision" in text
+    assert "dependency_decisions" in text or "known dependency candidate" in text
+    assert "blocked scope" in text and "dependency row" in text
+    assert "not_applicable" in text or "include" in text
+
+
+def test_procedural_guidance_v30_intent_first_finalization() -> None:
+    test_procedural_guidance_v31_intent_first_dependency_decisions()
 
 
 def test_patch_ir_draft_tool_spec_documents_course_updates_without_practice_tokens() -> None:
@@ -453,8 +461,12 @@ def test_prepare_and_publish_tool_schemas_expose_upstream_corrections() -> None:
         assert "recommended_action" in items["properties"]
     assert intent["properties"]["use_current_mapping_lineage"]["const"] is True
     assert "correction_decisions" in intent["properties"]
+    assert "dependency_decisions" in intent["properties"]
     assert "scope_dispositions" in intent["properties"]
     assert "closure_dispositions" in intent["properties"]
+    dep_item = intent["properties"]["dependency_decisions"]["items"]
+    assert set(dep_item["required"]) == {"candidate_id", "disposition"}
+    assert dep_item["properties"]["disposition"]["enum"] == ["include", "not_applicable"]
 
 
 def test_startup_context_marks_operand_suite_as_core_anchor() -> None:
