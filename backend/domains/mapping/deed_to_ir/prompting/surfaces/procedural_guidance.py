@@ -9,7 +9,7 @@ from ..branch import DEED_TO_IR_DOMAIN_ID
 DEED_TO_IR_PROCEDURAL_GUIDANCE_SOURCE_REF = (
     "backend/domains/mapping/deed_to_ir/prompting/surfaces/procedural_guidance.py"
 )
-DEED_TO_IR_PROCEDURAL_GUIDANCE_VERSION = "v32"
+DEED_TO_IR_PROCEDURAL_GUIDANCE_VERSION = "v33"
 
 DEED_TO_IR_PROCEDURAL_GUIDANCE_TEXT = """\
 Use this guidance to orient deed-to-IR work. This is **guidance**, not a hard script.
@@ -141,8 +141,9 @@ Use this guidance to orient deed-to-IR work. This is **guidance**, not a hard sc
 - Station chains, centerlines, routes, strips, and intentionally open alignments may not close — endpoint displacement is a mechanical fact to interpret, not a universal failure.
 - Hydrate specific refs only when needed: control render for visual map review (leg/gap annotations), geometry ref for feature/coordinate inspection, mapping ref for compact lineage, counts, sanity_review, and draft_patch_targets.
 - For upstream source repair, hydrate targeted transcript-edit evidence refs (`image:derived:*`, `image:assoc:*`) via `hydrate_artifact_refs` — do not bulk-hydrate the entire transcript-edit artifact universe.
-- After a successful remap via `submit_ir_for_mapping`, use `mapping_review.current_mapping_lineage` (or compatibility `lineage_lock`) directly for the next intent-first preview — do not treat older mappings as equally eligible, and do not mix a newer IR ref with an older mapping ref (or vice versa).
-- When hydrating a mapping ref, inspect `lineage_status` (`current` vs `superseded`) — a superseded historical mapping remains auditable but is not the intent-first finalization candidate.
+- After a successful remap via `submit_ir_for_mapping`, use `mapping_review.active_handoff_context` (or `current_mapping_lineage` / compatibility `lineage_lock`) as the **sole hot mapping/IR candidate** for the next intent-first preview — do not treat older mappings in `latest_refs` as equally eligible, and do not mix a newer IR ref with an older mapping ref (or vice versa). When hydrating a mapping ref, inspect `lineage_status` (`current` vs `superseded`); a superseded historical mapping remains auditable but is not the intent-first finalization candidate.
+- Work items whose explicit `evidence_refs` cite only superseded mapping/IR refs are **historical lineage context**: auditable, but they do not establish a defect in the current mapping and must not reopen otherwise accepted current handoff work.
+- When a source limitation is represented in current IR/mapping as a scoped blocked continuation, treat it as a **durable package limitation** — not an instruction to reopen otherwise accepted current work. Do not create or preserve a global `blocks → final_handoff` relation solely because a source continuation is unavailable. A material defect in current lineage may still block handoff; that distinction remains agent-authored.
 - If any `patch_ir_draft` occurs after mapping, resubmit the patched draft for mapping before publishing — stale mapping lineage is refused retryably for intent-first preview and when `expected_ir_artifact_ref` does not match.
 
 ## Mapping sanity repair (surgical course patch)

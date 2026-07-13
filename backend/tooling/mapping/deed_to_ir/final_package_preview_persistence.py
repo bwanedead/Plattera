@@ -489,6 +489,11 @@ def prepare_deed_to_ir_final_package(
         )
         if current_lineage_compact is not None:
             base_outputs["current_mapping_lineage"] = current_lineage_compact
+            from .active_handoff_projection import build_active_handoff_context
+
+            active_handoff = build_active_handoff_context(current_lineage_compact)
+            if active_handoff is not None:
+                base_outputs["active_handoff_context"] = active_handoff
         if dependency_candidate_diagnostics:
             base_outputs["dependency_candidate_diagnostics"] = dependency_candidate_diagnostics
     return {

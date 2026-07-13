@@ -303,3 +303,8 @@ def attach_current_mapping_lineage_to_mapping_review(
     lock = lineage_lock_from_current(lineage)
     if lock is not None:
         mapping_review["lineage_lock"] = lock
+    from .active_handoff_projection import build_active_handoff_context
+
+    active = build_active_handoff_context(lineage)
+    if active is not None:
+        mapping_review["active_handoff_context"] = active

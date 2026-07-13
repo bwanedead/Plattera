@@ -75,7 +75,7 @@ def test_procedural_guidance_discourages_preview_rehydration_when_ready():
         for b in build_deed_to_ir_domain_pack().build_semantic_prompt_blocks()
         if b.block_id == "deed_to_ir_procedural_guidance"
     )
-    assert block.version == "v32"
+    assert block.version == "v33"
     text = block.text.lower()
     assert "publish launchpad" in text
     assert "do not hydrate the preview just to reread the same summary" in text

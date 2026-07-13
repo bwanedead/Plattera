@@ -209,6 +209,9 @@ def compact_mapping_review_for_projection(
     )
     if current_lineage is not None:
         compact["current_mapping_lineage"] = current_lineage
+    active_handoff = mapping_review.get("active_handoff_context")
+    if isinstance(active_handoff, Mapping) and active_handoff:
+        compact["active_handoff_context"] = dict(active_handoff)
     if mapping_review.get("lineage_status"):
         compact["lineage_status"] = mapping_review.get("lineage_status")
     if mapping_review.get("lineage_current") is not None:
@@ -315,6 +318,16 @@ def render_mapping_review_timeline_lines(
             lines.append(f"{indent}    mapping: {mapping_ref}")
         if lineage_lock.get("use_these_refs_for_next_preview") is True:
             lines.append(f"{indent}    use_these_refs_for_next_preview: true")
+    from .active_handoff_projection import render_lineage_aware_handoff_prompt_lines
+
+    active_only = mapping_review.get("active_handoff_context")
+    if isinstance(active_only, Mapping) and active_only:
+        lines.extend(
+            render_lineage_aware_handoff_prompt_lines(
+                {"active_handoff_context": active_only},
+                indent=f"{indent}  ",
+            )
+        )
     return lines
 
 

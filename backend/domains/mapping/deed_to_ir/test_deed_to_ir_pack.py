@@ -250,7 +250,7 @@ def test_procedural_guidance_v23_upstream_corrections_discipline() -> None:
         for b in build_deed_to_ir_domain_pack().build_semantic_prompt_blocks()
         if b.block_id == "deed_to_ir_procedural_guidance"
     )
-    assert block.version == "v32"
+    assert block.version == "v33"
     text = block.text.lower()
     assert "upstream_corrections" in text
     assert "`notes` are commentary only" in block.text
@@ -275,7 +275,7 @@ def test_procedural_guidance_v24_mapping_sanity_discipline() -> None:
         for b in build_deed_to_ir_domain_pack().build_semantic_prompt_blocks()
         if b.block_id == "deed_to_ir_procedural_guidance"
     )
-    assert block.version == "v32"
+    assert block.version == "v33"
     text = block.text.lower()
     assert "sanity_review" in text
     assert "endpoint displacement" in text
@@ -291,7 +291,7 @@ def test_procedural_guidance_v25_correction_lane_discipline() -> None:
         for b in build_deed_to_ir_domain_pack().build_semantic_prompt_blocks()
         if b.block_id == "deed_to_ir_procedural_guidance"
     )
-    assert block.version == "v32"
+    assert block.version == "v33"
     text = block.text.lower()
     assert "notes are commentary only" in text or "notes` are commentary only" in block.text
     assert "correction_lane_advisory" in text
@@ -305,7 +305,7 @@ def test_procedural_guidance_v26_correction_posture_gate() -> None:
         for b in build_deed_to_ir_domain_pack().build_semantic_prompt_blocks()
         if b.block_id == "deed_to_ir_procedural_guidance"
     )
-    assert block.version == "v32"
+    assert block.version == "v33"
     text = block.text.lower()
     assert "correction_posture.active=true" in block.text or "correction_posture" in text
     assert "deed_to_ir:correction_contract" in block.text
@@ -318,7 +318,7 @@ def test_procedural_guidance_v27_retry_shell_and_lineage_lock() -> None:
         for b in build_deed_to_ir_domain_pack().build_semantic_prompt_blocks()
         if b.block_id == "deed_to_ir_procedural_guidance"
     )
-    assert block.version == "v32"
+    assert block.version == "v33"
     text = block.text.lower()
     assert "retry_package_shell" in text
     assert "lineage_lock" in text or "recommended_publish_refs" in text
@@ -330,7 +330,7 @@ def test_procedural_guidance_v28_strict_upstream_correction_row() -> None:
         for b in build_deed_to_ir_domain_pack().build_semantic_prompt_blocks()
         if b.block_id == "deed_to_ir_procedural_guidance"
     )
-    assert block.version == "v32"
+    assert block.version == "v33"
     text = block.text
     lower = text.lower()
     assert "correction_decisions" in lower or "upstream_corrections_template" in lower
@@ -350,7 +350,7 @@ def test_procedural_guidance_v29_course_updates_and_no_delegate_repair() -> None
         for b in build_deed_to_ir_domain_pack().build_semantic_prompt_blocks()
         if b.block_id == "deed_to_ir_procedural_guidance"
     )
-    assert block.version == "v32"
+    assert block.version == "v33"
     text = block.text.lower()
     assert "course_updates" in text
     assert "draft_patch_targets" in text
@@ -359,13 +359,13 @@ def test_procedural_guidance_v29_course_updates_and_no_delegate_repair() -> None
     assert "reconstructing full" in text and "courses[]" in text
 
 
-def test_procedural_guidance_v32_intent_first_preflight() -> None:
+def test_procedural_guidance_v33_intent_first_preflight() -> None:
     block = next(
         b
         for b in build_deed_to_ir_domain_pack().build_semantic_prompt_blocks()
         if b.block_id == "deed_to_ir_procedural_guidance"
     )
-    assert block.version == "v32"
+    assert block.version == "v33"
     text = block.text.lower()
     assert "current mapping lineage" in text
     assert "intent-first" in text
@@ -374,10 +374,17 @@ def test_procedural_guidance_v32_intent_first_preflight() -> None:
     assert "blocked scope" in text and "dependency row" in text
     assert "not_applicable" in text or "include" in text
     assert "finalization decision card" in text or "all required decision lanes together" in text
+    assert "active_handoff_context" in text
+    assert "scoped blocked continuation" in text
+    assert "durable package limitation" in text
+
+
+def test_procedural_guidance_v32_intent_first_preflight() -> None:
+    test_procedural_guidance_v33_intent_first_preflight()
 
 
 def test_procedural_guidance_v30_intent_first_finalization() -> None:
-    test_procedural_guidance_v32_intent_first_preflight()
+    test_procedural_guidance_v33_intent_first_preflight()
 
 
 def test_patch_ir_draft_tool_spec_documents_course_updates_without_practice_tokens() -> None:

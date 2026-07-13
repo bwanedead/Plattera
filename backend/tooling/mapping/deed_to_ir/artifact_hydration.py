@@ -431,6 +431,13 @@ def _hydrated_row(
                     compact = compact_current_mapping_lineage_for_projection(current_lineage)
                     if compact is not None:
                         review["current_mapping_lineage"] = compact
+                    if freshness.get("lineage_status") == "current":
+                        from .active_handoff_projection import build_active_handoff_context
+
+                        active_handoff = build_active_handoff_context(current_lineage)
+                        if active_handoff is not None:
+                            review["active_handoff_context"] = active_handoff
+                            row["active_handoff_context"] = active_handoff
                     row["lineage_status"] = freshness.get("lineage_status")
                     row["lineage_current"] = freshness.get("lineage_current")
                     if freshness.get("current_mapping_artifact_ref"):

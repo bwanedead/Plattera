@@ -181,6 +181,10 @@ def submit_ir_for_mapping(
         "lineage_lock": lineage_lock,
         "current_mapping_lineage": compact_current_mapping_lineage_for_projection(lineage_for_review),
     }
+    # Prefer the copy already attached onto mapping_review; fall back if absent.
+    attached = mapping_review.get("active_handoff_context")
+    if isinstance(attached, Mapping) and attached:
+        outputs["active_handoff_context"] = dict(attached)
     return {
         "executed": True,
         "artifact_refs": artifact_refs,
