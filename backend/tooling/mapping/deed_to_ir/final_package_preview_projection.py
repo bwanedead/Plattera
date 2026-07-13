@@ -342,6 +342,9 @@ def render_final_package_validation_timeline_lines(
 ) -> list[str]:
     if not isinstance(outputs, Mapping):
         return []
+    # Unified decision card is rendered once via prepare preview output.
+    if outputs.get("finalization_decision_card"):
+        return []
     from .intent_first_prepare import render_intent_first_prepare_timeline_lines
 
     intent_lines = render_intent_first_prepare_timeline_lines(outputs, indent=indent)
@@ -356,6 +359,7 @@ def render_final_package_validation_timeline_lines(
         or outputs.get("missing_dependency_decisions")
         or outputs.get("known_dependency_candidates")
         or outputs.get("dependency_candidate_diagnostics")
+        or outputs.get("finalization_decision_card")
     ):
         return intent_lines
     validation_errors = outputs.get("validation_errors")

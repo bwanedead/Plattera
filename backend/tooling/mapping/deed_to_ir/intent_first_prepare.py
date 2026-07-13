@@ -464,6 +464,13 @@ def render_missing_finalization_decisions_timeline_lines(
 ) -> list[str]:
     if not isinstance(outputs, Mapping):
         return []
+    from .intent_first_preflight import render_finalization_decision_card_timeline_lines
+
+    card_lines = render_finalization_decision_card_timeline_lines(outputs, indent=indent)
+    if card_lines:
+        # Unified card is the sole shell section — do not duplicate under other headings.
+        return card_lines
+
     lines: list[str] = []
     shell = outputs.get("missing_finalization_decisions")
     if isinstance(shell, Mapping):

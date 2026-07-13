@@ -42,13 +42,12 @@ from .dependency_candidates_projection import (
     project_known_dependency_candidates,
 )
 from .dependency_decisions import resolve_intent_first_external_dependencies
+from .intent_first_preflight import evaluate_intent_first_decision_preflight
 from .intent_first_prepare import (
     assemble_upstream_corrections_from_decisions,
     build_intent_first_correction_summary,
-    build_missing_finalization_decisions_shell,
     expand_compact_dispositions,
     extract_agent_authored_finalization_state,
-    missing_finalization_decisions_refusal,
 )
 from .mapping_lineage import (
     compact_current_mapping_lineage_for_projection,
@@ -140,31 +139,23 @@ def prepare_deed_to_ir_final_package(
             else None
         )
 
-        # Prefer compact agent-authored dispositions for fresh-run endgame.
-        has_compact = isinstance(scope_dispositions, list) or isinstance(closure_dispositions, list)
-        if scope_results is None and closure_dimensions is None and has_compact:
-            expanded = expand_compact_dispositions(
-                scope_dispositions=scope_dispositions if isinstance(scope_dispositions, list) else None,
-                closure_dispositions=closure_dispositions if isinstance(closure_dispositions, list) else None,
-                mapping_artifact_ref=resolved_mapping_ref,
-                ir_artifact_ref=resolved_expected_ir,
+        # Optional reuse of prior agent-authored rows (not a substitute for preflight).
+        has_compact = isinstance(scope_dispositions, list) or isinstance(
+            closure_dispositions, list
+        )
+        if (
+            scope_results is None
+            and closure_dimensions is None
+            and not has_compact
+            and reuse_agent_authored_finalization_state
+        ):
+            prior = load_final_package_preview(
+                dossier_id=dossier_id,
+                transcription_id=str(transcription_id).strip(),
+                workspace_id=workspace_key,
             )
-            if expanded.get("executed") is not True:
-                return expanded
-            scope_results = expanded["scope_results"]
-            closure_dimensions = expanded["closure_dimensions"]
-        elif scope_results is None or closure_dimensions is None:
-            if reuse_agent_authored_finalization_state:
-                prior = load_final_package_preview(
-                    dossier_id=dossier_id,
-                    transcription_id=str(transcription_id).strip(),
-                    workspace_id=workspace_key,
-                )
-                reused = extract_agent_authored_finalization_state(prior)
-                if reused is None:
-                    return missing_finalization_decisions_refusal(
-                        missing_shell=build_missing_finalization_decisions_shell(),
-                    )
+            reused = extract_agent_authored_finalization_state(prior)
+            if reused is not None:
                 if scope_results is None:
                     scope_results = reused["scope_results"]
                 if external_dependencies is None:
@@ -173,38 +164,6 @@ def prepare_deed_to_ir_final_package(
                     closure_dimensions = reused["closure_dimensions"]
                 if notes is None:
                     notes = reused["notes"]
-            else:
-                return missing_finalization_decisions_refusal(
-                    missing_shell=build_missing_finalization_decisions_shell(),
-                )
-
-        # Known dependency candidates require explicit include/decline on intent-first.
-        projected = project_known_dependency_candidates(
-            resolution_state_snapshot=resolution_state_snapshot,
-            issues=issues if isinstance(issues, list) else None,
-            resolution_state_ref=resolution_state_ref,
-        )
-        known_candidates = list(projected.get("candidates") or [])
-        candidate_diagnostics = list(projected.get("diagnostics") or [])
-        resolved_deps = resolve_intent_first_external_dependencies(
-            known_candidates=known_candidates,
-            external_dependencies=external_dependencies
-            if isinstance(external_dependencies, list)
-            else None,
-            dependency_decisions=dependency_decisions
-            if isinstance(dependency_decisions, list)
-            else None,
-            diagnostics=candidate_diagnostics,
-        )
-        if resolved_deps.get("executed") is not True:
-            return resolved_deps
-        external_dependencies = list(resolved_deps.get("rows") or [])
-        # Carry mechanical diagnostics on success for timeline/observability only.
-        dependency_candidate_diagnostics = compact_dependency_candidate_diagnostics_for_projection(
-            resolved_deps.get("diagnostics")
-            if isinstance(resolved_deps.get("diagnostics"), list)
-            else candidate_diagnostics
-        )
     elif not resolved_mapping_ref:
         return refusal("mapping_artifact_ref_required", "mapping_artifact_ref is required.")
 
@@ -263,22 +222,87 @@ def prepare_deed_to_ir_final_package(
             actual_ir_artifact_ref=actual_ir_ref,
         )
 
-    if intent_first and upstream_corrections is None:
+    if intent_first:
         correction_posture_early = detect_correction_posture(
             resolution_state_snapshot=resolution_state_snapshot,
             ir_graph=package.ir_artifact.graph,
             compile_artifact=package.compile_artifact,
             ir_artifact_ref=actual_ir_ref,
         )
-        assembled = assemble_upstream_corrections_from_decisions(
-            correction_decisions=correction_decisions if isinstance(correction_decisions, list) else None,
-            correction_posture=correction_posture_early,
-            mapping_artifact_ref=resolved_mapping_ref,
-            ir_artifact_ref=actual_ir_ref,
+        projected = project_known_dependency_candidates(
+            resolution_state_snapshot=resolution_state_snapshot,
+            issues=issues if isinstance(issues, list) else None,
+            resolution_state_ref=resolution_state_ref,
         )
-        if assembled.get("executed") is not True:
-            return assembled
-        upstream_corrections = list(assembled.get("rows") or [])
+        known_candidates = list(projected.get("candidates") or [])
+        candidate_diagnostics = list(projected.get("diagnostics") or [])
+
+        preflight = evaluate_intent_first_decision_preflight(
+            scope_dispositions=scope_dispositions,
+            closure_dispositions=closure_dispositions,
+            correction_decisions=correction_decisions,
+            dependency_decisions=dependency_decisions,
+            scope_results=scope_results,
+            closure_dimensions=closure_dimensions,
+            external_dependencies=external_dependencies,
+            upstream_corrections=upstream_corrections,
+            correction_posture=correction_posture_early,
+            known_dependency_candidates=known_candidates,
+        )
+        if preflight.get("complete") is not True:
+            return preflight
+
+        # Strict expansion only after all required lanes are present.
+        has_compact = isinstance(scope_dispositions, list) or isinstance(
+            closure_dispositions, list
+        )
+        if scope_results is None and closure_dimensions is None and has_compact:
+            expanded = expand_compact_dispositions(
+                scope_dispositions=scope_dispositions
+                if isinstance(scope_dispositions, list)
+                else None,
+                closure_dispositions=closure_dispositions
+                if isinstance(closure_dispositions, list)
+                else None,
+                mapping_artifact_ref=resolved_mapping_ref,
+                ir_artifact_ref=resolved_expected_ir,
+            )
+            if expanded.get("executed") is not True:
+                return expanded
+            scope_results = expanded["scope_results"]
+            closure_dimensions = expanded["closure_dimensions"]
+
+        resolved_deps = resolve_intent_first_external_dependencies(
+            known_candidates=known_candidates,
+            external_dependencies=external_dependencies
+            if isinstance(external_dependencies, list)
+            else None,
+            dependency_decisions=dependency_decisions
+            if isinstance(dependency_decisions, list)
+            else None,
+            diagnostics=candidate_diagnostics,
+        )
+        if resolved_deps.get("executed") is not True:
+            return resolved_deps
+        external_dependencies = list(resolved_deps.get("rows") or [])
+        dependency_candidate_diagnostics = compact_dependency_candidate_diagnostics_for_projection(
+            resolved_deps.get("diagnostics")
+            if isinstance(resolved_deps.get("diagnostics"), list)
+            else candidate_diagnostics
+        )
+
+        if upstream_corrections is None:
+            assembled = assemble_upstream_corrections_from_decisions(
+                correction_decisions=correction_decisions
+                if isinstance(correction_decisions, list)
+                else None,
+                correction_posture=correction_posture_early,
+                mapping_artifact_ref=resolved_mapping_ref,
+                ir_artifact_ref=actual_ir_ref,
+            )
+            if assembled.get("executed") is not True:
+                return assembled
+            upstream_corrections = list(assembled.get("rows") or [])
 
     try:
         scopes, deps, closure, note_rows, corrections = validate_prepare_final_package_rows(

@@ -21,6 +21,7 @@
 - `resolution_state_snapshot_path` loads JSON mechanically and pairs with `resolution_state_ref`; mutually exclusive with inline `resolution_state_snapshot`.
 - Scope helpers live in `resolution_scope.py`: operands use first-match `infer_scope_id_from_identifiers`; dependency candidates use conflict-aware `resolve_unambiguous_scope_id` (conflict → omit candidate + diagnostic only).
 - Dependency include/decline mechanics live in `dependency_decisions.py`, not `intent_first_prepare.py`.
+- Unified missing-lane detection lives in `intent_first_preflight.py`; prepare expands rows only after all required lanes are present.
 
 ## Links
 - Domain pack: `backend/domains/mapping/deed_to_ir/`

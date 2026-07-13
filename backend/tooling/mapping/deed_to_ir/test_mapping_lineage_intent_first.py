@@ -251,16 +251,16 @@ def test_intent_first_prepare_dependency_decisions_required(monkeypatch) -> None
             **_compact_dispositions(),
         )
         assert result["executed"] is False
-        assert result["refusal"]["reason_code"] == "dependency_decisions_required"
-        assert result["refusal"].get("retryable") is True or result.get("retryable") is True
-        outputs = result["outputs"]
-        missing = outputs["missing_dependency_decisions"]
-        assert missing[0]["candidate_id"] == "parcel_2_continuation_scope"
-        assert missing[0]["affected_scope"] == "parcel_2"
-        shell = outputs["dependency_decision_shell"]
-        assert shell[0]["candidate_id"] == "parcel_2_continuation_scope"
-        assert "disposition" in shell[0]
-        assert "status" in shell[0]
+        assert result["refusal"]["reason_code"] == "missing_finalization_decisions"
+        assert result["refusal"]["retryable"] is True
+        assert result["refusal"]["blocked_by_invariant"] is False
+        card = result["outputs"]["finalization_decision_card"]
+        assert card["required_lanes"] == ["dependency_decisions"]
+        assert card["dependency_decisions"][0]["candidate_id"] == "parcel_2_continuation_scope"
+        assert card["dependency_decisions"][0]["affected_scope"] == "parcel_2"
+        template = result["outputs"]["retry_request_template"]
+        assert template["correction_decisions"][0]["target_entity_id"] == "p1_call2_distance"
+        assert template["scope_dispositions"]
 
 
 def test_intent_first_prepare_dependency_not_applicable_produces_no_row(
@@ -415,6 +415,7 @@ def test_intent_first_prepare_decline_strips_reused_dependency_row(
 
 
 def test_intent_first_missing_finalization_state_returns_shell(monkeypatch) -> None:
+    """Fresh lineage with only a correction decision → one unified card for remaining lanes."""
     with tempfile.TemporaryDirectory() as tmp:
         persistence, ir_ref, mapping_ref, submitted, ctx = _submit_with_lineage(
             tmp,
@@ -425,16 +426,7 @@ def test_intent_first_missing_finalization_state_returns_shell(monkeypatch) -> N
             dossier_id="d-preview",
             persistence=persistence,
             use_current_mapping_lineage=True,
-            reuse_agent_authored_finalization_state=True,
-            correction_decisions=[
-                {
-                    "target_entity_id": "p1_call2_distance",
-                    "posture": "confirmed_from_source",
-                    "resolution_used_by_ir": True,
-                    "recommended_action": "transcript_amendment",
-                    "rationale": "Evidence supports 518 feet.",
-                }
-            ],
+            correction_decisions=[_correction_decision()],
             resolution_state_snapshot=_resolution_snapshot(),
             **ctx,
         )
@@ -442,11 +434,119 @@ def test_intent_first_missing_finalization_state_returns_shell(monkeypatch) -> N
         assert result["refusal"]["reason_code"] == "missing_finalization_decisions"
         assert result["refusal"]["retryable"] is True
         assert result["refusal"]["blocked_by_invariant"] is False
-        shell = result["outputs"]["missing_finalization_decisions"]
-        assert "scope_dispositions" in shell
-        assert "closure_dispositions" in shell
-        assert len(shell["closure_dispositions"]) == 4
+        card = result["outputs"]["finalization_decision_card"]
+        assert set(card["required_lanes"]) == {
+            "scope_dispositions",
+            "closure_dispositions",
+            "dependency_decisions",
+        }
+        assert card["scope_dispositions"] == []
+        assert len(card["closure_dispositions"]) == 4
+        assert card["dependency_decisions"][0]["candidate_id"] == "parcel_2_continuation_scope"
+        assert card["dependency_decisions"][0]["affected_scope"] == "parcel_2"
+        template = result["outputs"]["retry_request_template"]
+        assert template["correction_decisions"][0]["target_entity_id"] == "p1_call2_distance"
+        assert template["correction_decisions"][0]["rationale"]
         assert result["outputs"].get("repair_hint")
+
+
+def test_intent_first_fresh_request_returns_complete_decision_card(monkeypatch) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        persistence, ir_ref, mapping_ref, submitted, ctx = _submit_with_lineage(
+            tmp,
+            leg2_distance=_PRACTICE_CORRECT_DISTANCE,
+            monkeypatch=monkeypatch,
+        )
+        result = prepare_deed_to_ir_final_package(
+            dossier_id="d-preview",
+            persistence=persistence,
+            use_current_mapping_lineage=True,
+            resolution_state_snapshot=_resolution_snapshot(),
+            **ctx,
+        )
+        assert result["executed"] is False
+        assert result["refusal"]["reason_code"] == "missing_finalization_decisions"
+        assert result["refusal"]["retryable"] is True
+        card = result["outputs"]["finalization_decision_card"]
+        assert set(card["required_lanes"]) == {
+            "scope_dispositions",
+            "closure_dispositions",
+            "correction_decisions",
+            "dependency_decisions",
+        }
+        assert card["scope_dispositions"] == []
+        assert len(card["closure_dispositions"]) == 4
+        assert card["correction_decisions"][0]["target_entity_id"] == "p1_call2_distance"
+        assert "status" not in card["correction_decisions"][0]
+        assert card["dependency_decisions"][0]["candidate_id"] == "parcel_2_continuation_scope"
+        assert card["dependency_decisions"][0]["dependency_id"] == "parcel_2_continuation_scope"
+
+
+def test_intent_first_resubmit_from_decision_card_succeeds_directly(monkeypatch) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        persistence, ir_ref, mapping_ref, submitted, ctx = _submit_with_lineage(
+            tmp,
+            leg2_distance=_PRACTICE_CORRECT_DISTANCE,
+            monkeypatch=monkeypatch,
+        )
+        first = prepare_deed_to_ir_final_package(
+            dossier_id="d-preview",
+            persistence=persistence,
+            use_current_mapping_lineage=True,
+            correction_decisions=[_correction_decision()],
+            resolution_state_snapshot=_resolution_snapshot(),
+            **ctx,
+        )
+        assert first["executed"] is False
+        template = first["outputs"]["retry_request_template"]
+        retry = prepare_deed_to_ir_final_package(
+            dossier_id="d-preview",
+            persistence=persistence,
+            use_current_mapping_lineage=True,
+            correction_decisions=template["correction_decisions"],
+            dependency_decisions=[_dependency_decision_include()],
+            resolution_state_snapshot=_resolution_snapshot(),
+            **ctx,
+            **_compact_dispositions(),
+        )
+        assert retry["executed"] is True
+        assert retry["outputs"]["finalization_status"] == "preview_ready"
+        assert retry["outputs"]["external_dependency_count"] == 1
+        preview = _load_latest_preview(tmp=tmp, ctx=ctx)
+        scopes = {row["scope_id"]: row["status"] for row in preview["scope_results"]}
+        assert scopes["parcel_1"] == "handoffable"
+        assert scopes["parcel_2"] == "blocked"
+
+
+def test_intent_first_decision_card_timeline_is_single_section(monkeypatch) -> None:
+    from harness.audit.human_timeline import _render_tool_result
+
+    with tempfile.TemporaryDirectory() as tmp:
+        persistence, ir_ref, mapping_ref, submitted, ctx = _submit_with_lineage(
+            tmp,
+            leg2_distance=_PRACTICE_CORRECT_DISTANCE,
+            monkeypatch=monkeypatch,
+        )
+        result = prepare_deed_to_ir_final_package(
+            dossier_id="d-preview",
+            persistence=persistence,
+            use_current_mapping_lineage=True,
+            resolution_state_snapshot=_resolution_snapshot(),
+            **ctx,
+        )
+        turn = {
+            "tool_result_raw": {
+                "execution_state": "refused",
+                "refusal": result["refusal"],
+                "outputs": result["outputs"],
+            }
+        }
+        rendered = "\n".join(_render_tool_result(turn))
+        assert rendered.count("finalization_decision_card:") == 1
+        assert "required_lanes:" in rendered
+        assert "correction_targets:" in rendered
+        assert "dependency_candidates:" in rendered
+        assert rendered.count("missing_finalization_decisions:") == 0
 
 
 def test_intent_first_missing_scope_dispositions_are_retryable(monkeypatch) -> None:
@@ -526,11 +626,16 @@ def test_intent_first_missing_correction_decision_refuses(monkeypatch) -> None:
             **_compact_dispositions(),
         )
         assert result["executed"] is False
-        assert result["refusal"]["reason_code"] == "correction_decisions_required"
+        assert result["refusal"]["reason_code"] == "missing_finalization_decisions"
         assert result["refusal"]["retryable"] is True
         assert result["refusal"]["blocked_by_invariant"] is False
+        card = result["outputs"]["finalization_decision_card"]
+        assert card["required_lanes"] == ["correction_decisions"]
+        assert card["correction_decisions"][0]["target_entity_id"] == "p1_call2_distance"
         assert result["outputs"].get("repair_hint")
-        assert result["outputs"].get("correction_posture", {}).get("active") is True
+        template = result["outputs"]["retry_request_template"]
+        assert template["dependency_decisions"][0]["candidate_id"] == "parcel_2_continuation_scope"
+        assert template["scope_dispositions"]
 
 
 def test_intent_first_malformed_correction_decision_is_retryable() -> None:
