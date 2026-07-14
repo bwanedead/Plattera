@@ -55,6 +55,28 @@ def test_stale_or_unselected_lineage_omits_active_handoff() -> None:
     assert build_active_handoff_context(unselected) is None
 
 
+def test_no_usable_current_lineage_does_not_force_historical() -> None:
+    """Without a current baseline, do not mark every mapping/IR-tied item historical."""
+    items = [
+        {
+            "item_id": "old_map_obligation",
+            "status": "open",
+            "evidence_refs": [SUPERSEDED_MAPPING, SUPERSEDED_IR],
+        }
+    ]
+    # No lineage at all.
+    empty = project_lineage_aware_handoff_context(lineage=None, work_items=items)
+    assert empty == {}
+    assert classify_work_item_lineage_epoch(items[0], current_refs=frozenset()) is None
+
+    # Stale / unusable lineage still provides no classification baseline.
+    stale = _usable_lineage(stale=True, lineage_current=False, use_for_next_preview=False)
+    projected = project_lineage_aware_handoff_context(lineage=stale, work_items=items)
+    assert "active_handoff_context" not in projected
+    assert "historical_lineage_context" not in projected
+    assert "current_lineage_work_items" not in projected
+
+
 def test_superseded_only_work_is_historical_not_hot() -> None:
     lineage = _usable_lineage()
     items = [

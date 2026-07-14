@@ -1156,6 +1156,10 @@ def _with_domain_policy_context(
         work_graph_policy = getattr(manifest, "work_graph_policy", None)
         if work_graph_policy is not None and "domain_work_graph_policy" not in merged:
             merged["domain_work_graph_policy"] = _jsonable(work_graph_policy)
+        projection_module_ref = str(getattr(manifest, "projection_module_ref", "") or "").strip()
+        if projection_module_ref and "domain_prompt_runtime_projection_module" not in merged:
+            # Opaque host hook: module must export build_prompt_runtime_projection(...).
+            merged["domain_prompt_runtime_projection_module"] = projection_module_ref
     enrich = getattr(adapter, "enrich_launch_context", None)
     if callable(enrich):
         try:

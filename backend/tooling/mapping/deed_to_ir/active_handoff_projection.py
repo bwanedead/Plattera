@@ -110,8 +110,12 @@ def classify_work_item_lineage_epoch(
     Returns:
       - ``\"current\"`` when the item cites any current lineage ref (including mixed)
       - ``\"historical\"`` when it cites only non-current mapping/IR refs
-      - ``None`` when it carries no explicit lineage artifact refs (unchanged)
+      - ``None`` when it carries no explicit lineage artifact refs, or when
+        ``current_refs`` is empty (no usable current baseline — do not treat
+        all lineage evidence as historical)
     """
+    if not current_refs:
+        return None
     item_refs = collect_item_lineage_artifact_refs(item)
     if not item_refs:
         return None
@@ -128,14 +132,22 @@ def project_lineage_aware_handoff_context(
     """Project active handoff + historical lineage audit context.
 
     Does not mutate ``work_items`` or invent semantic handoff readiness from
-    blocked scopes.
+    blocked scopes. Without a usable current lineage baseline, work items are
+    left unclassified (not forced to historical).
     """
     projection: dict[str, Any] = {}
     active = build_active_handoff_context(lineage)
     if active is not None:
         projection["active_handoff_context"] = active
 
-    current_refs = current_lineage_artifact_refs(lineage) if active is not None else frozenset()
+    # Classification requires a usable current baseline. Empty current_refs
+    # must not mark every mapping/IR-tied item historical.
+    if active is None:
+        return projection
+    current_refs = current_lineage_artifact_refs(lineage)
+    if not current_refs:
+        return projection
+
     historical_rows: list[dict[str, Any]] = []
     current_rows: list[dict[str, Any]] = []
 

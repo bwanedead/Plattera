@@ -44,6 +44,8 @@ _HIDDEN_LAUNCH_CONTEXT_KEYS = frozenset(
         "kernel_resume_snapshot_path",
         UPSTREAM_RUN_LINEAGE_LAUNCH_KEY,
         "domain_work_graph_policy",
+        # Host mechanic: module path for optional per-turn domain projection.
+        "domain_prompt_runtime_projection_module",
     }
 )
 _PROMPT_VISIBLE_DOMAIN_CLOSURE_POLICY_KEYS = frozenset(
@@ -71,6 +73,71 @@ def domain_closure_policy_for_ref_projection(
     return dict(raw)
 
 
+def _union_hot_artifact_refs(
+    hot_refs: frozenset[str],
+    domain_runtime_projection: Mapping[str, Any],
+) -> frozenset[str]:
+    """Mechanically union optional domain-declared hot artifact refs (opaque list)."""
+    raw = domain_runtime_projection.get("hot_artifact_refs")
+    if not isinstance(raw, list):
+        return hot_refs
+    extra = {str(ref).strip() for ref in raw if str(ref or "").strip()}
+    if not extra:
+        return hot_refs
+    return frozenset(set(hot_refs) | extra)
+
+
+def _resolution_items_for_domain_projection(
+    context: OrchestratorContext,
+    projection: SharedStateProjection | None,
+) -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
+    source_items = ()
+    if projection is not None:
+        source_items = projection.resolution_state.items
+    else:
+        source_items = context.loop_memory.continuity.resolution_state.items
+    for item in source_items:
+        payload = jsonable(item)
+        if isinstance(payload, dict):
+            items.append(payload)
+    return items
+
+
+def _build_domain_runtime_projection(
+    *,
+    opaque_launch_context: Mapping[str, Any],
+    context: OrchestratorContext,
+    projection: SharedStateProjection | None,
+) -> dict[str, Any] | None:
+    """Load optional domain projection module and invoke its opaque builder.
+
+    Harness never interprets domain contents — only transports the mapping and
+    optionally unions declared ``hot_artifact_refs`` into exact-ref windowing.
+    """
+    module_ref = str(
+        opaque_launch_context.get("domain_prompt_runtime_projection_module") or ""
+    ).strip()
+    if not module_ref:
+        return None
+    try:
+        import importlib
+
+        module = importlib.import_module(module_ref)
+        builder = getattr(module, "build_prompt_runtime_projection", None)
+        if not callable(builder):
+            return None
+        result = builder(
+            launch_context=dict(opaque_launch_context),
+            resolution_items=_resolution_items_for_domain_projection(context, projection),
+        )
+    except Exception:
+        return None
+    if not isinstance(result, Mapping) or not result:
+        return None
+    return dict(result)
+
+
 def _claim_inventory_pressure_from_launch_context(
     opaque_launch_context: Mapping[str, Any] | None,
 ) -> bool:
@@ -94,6 +161,13 @@ def build_turn_prompt_document(
         projection,
         domain_closure_policy=domain_closure_policy_for_ref_projection(opaque_launch_context),
     )
+    domain_runtime_projection = _build_domain_runtime_projection(
+        opaque_launch_context=opaque_launch_context,
+        context=context,
+        projection=projection,
+    )
+    if isinstance(domain_runtime_projection, Mapping):
+        hot_refs = _union_hot_artifact_refs(hot_refs, domain_runtime_projection)
     return _assemble_prompt_document(
         mode=mode,
         doctrine_blocks=doctrine_blocks_document(composed_input),
@@ -104,6 +178,7 @@ def build_turn_prompt_document(
             projection,
             hot_refs=hot_refs,
             hot_latest_ref_keys=hot_latest_ref_keys,
+            domain_runtime_projection=domain_runtime_projection,
         ),
         structured_state=_build_structured_state(
             context,
@@ -197,6 +272,7 @@ def _build_run_context(
     *,
     hot_refs: frozenset[str],
     hot_latest_ref_keys: frozenset[str],
+    domain_runtime_projection: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     cont = context.loop_memory.continuity
     hitl_pend, hitl_ans, hitl_st = hitl_prompt_visible_slice(context.loop_memory.hitl)
@@ -220,6 +296,9 @@ def _build_run_context(
             hot_latest_ref_keys=hot_latest_ref_keys,
         ),
     }
+    if isinstance(domain_runtime_projection, Mapping) and domain_runtime_projection:
+        # Opaque domain lane — harness does not interpret contents.
+        run_context["domain_runtime_projection"] = dict(domain_runtime_projection)
     contract_feedback = jsonable(context.loop_memory.contract_feedback)
     if contract_feedback:
         run_context["contract_feedback"] = contract_feedback
