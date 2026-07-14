@@ -46,8 +46,8 @@ _FULL_RUN_CONTEXT_FIELDS = (
     "hitl_state",
     "pending_hitl_requests",
     "answered_hitl_responses",
-    "projection",
     "domain_runtime_projection",
+    "projection",
 )
 _STATE_REPAIR_RUN_CONTEXT_FIELDS = (
     "iteration",
@@ -62,8 +62,8 @@ _STATE_REPAIR_RUN_CONTEXT_FIELDS = (
     "hitl_state",
     "pending_hitl_requests",
     "answered_hitl_responses",
-    "projection",
     "domain_runtime_projection",
+    "projection",
 )
 _FULL_STRUCTURED_STATE_FIELDS = (
     "compacted_continuity_summary",
@@ -96,8 +96,8 @@ _RESUME_RUN_CONTEXT_FIELDS = (
     "hitl_state",
     "pending_hitl_requests",
     "answered_hitl_responses",
-    "projection",
     "domain_runtime_projection",
+    "projection",
 )
 _RESUME_STRUCTURED_STATE_FIELDS = (
     "compacted_continuity_summary",

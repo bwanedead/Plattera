@@ -20,8 +20,9 @@ SUPERSEDED_MAPPING = "feature_graph:mapping:mapping_old_xyz"
 
 def test_manifest_declares_prompt_runtime_projection_module() -> None:
     manifest = build_deed_to_ir_manifest()
+    assert manifest.projection_module_ref == ""
     assert (
-        manifest.projection_module_ref
+        manifest.prompt_runtime_projection_module_ref
         == "domains.mapping.deed_to_ir.state.prompt_runtime_projection"
     )
 
@@ -72,6 +73,7 @@ def test_prompt_runtime_projection_classifies_historical_work_items(tmp_path, mo
     assert projected["schema"] == PROJECTION_SCHEMA
     assert projected["active_handoff_context"]["mapping_artifact_ref"] == CURRENT_MAPPING
     assert projected["hot_artifact_refs"] == [CURRENT_MAPPING, CURRENT_IR]
+    assert projected["cold_artifact_refs"] == [SUPERSEDED_MAPPING]
     hist_ids = {row["item_id"] for row in projected["historical_lineage_context"]["items"]}
     assert hist_ids == {"stale_mapping_review"}
     cur_ids = {row["item_id"] for row in projected["current_lineage_work_items"]}

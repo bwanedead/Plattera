@@ -22,7 +22,10 @@ class DeedToIrManifest:
     startup_context_source_ref: str = "domains.mapping.deed_to_ir.prompting.surfaces.startup_context"
     tool_specs_module_ref: str = "domains.mapping.deed_to_ir.execution.tool_specs"
     state_contracts_module_ref: str = "domains.mapping.deed_to_ir.state.contracts"
-    projection_module_ref: str = "domains.mapping.deed_to_ir.state.prompt_runtime_projection"
+    projection_module_ref: str = ""
+    prompt_runtime_projection_module_ref: str = (
+        "domains.mapping.deed_to_ir.state.prompt_runtime_projection"
+    )
     closure_module_ref: str = "domains.mapping.deed_to_ir.semantics.closure"
     handoff_module_ref: str = "domains.mapping.deed_to_ir.semantics.handoff"
     closure_policy: DomainClosurePolicy = field(default_factory=build_deed_to_ir_closure_policy)

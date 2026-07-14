@@ -1,9 +1,9 @@
 """Per-turn deed-to-IR prompt runtime projection (domain-owned).
 
-Harness loads this module via ``manifest.projection_module_ref`` and calls
-``build_prompt_runtime_projection`` with opaque mechanical inputs. Deterministic
-code projects lineage-aware handoff context only — it does not mutate work-item
-status, relations, or blockers.
+Harness loads this module via ``manifest.prompt_runtime_projection_module_ref``
+and calls ``build_prompt_runtime_projection`` with opaque mechanical inputs.
+Deterministic code projects lineage-aware handoff context only — it does not
+mutate work-item status, relations, or blockers.
 """
 
 from __future__ import annotations
@@ -60,7 +60,34 @@ def build_prompt_runtime_projection(
         if hot_refs:
             # Mechanical hint only: harness may union these into exact-ref windowing.
             out["hot_artifact_refs"] = hot_refs
+
+    cold_refs = _cold_refs_from_historical(projected.get("historical_lineage_context"))
+    if cold_refs:
+        # Historical mapping/IR refs must be demoted from generic exact-ref windowing.
+        out["cold_artifact_refs"] = cold_refs
     return out
+
+
+def _cold_refs_from_historical(historical: object) -> list[str]:
+    if not isinstance(historical, Mapping):
+        return []
+    items = historical.get("items")
+    if not isinstance(items, list):
+        return []
+    cold: list[str] = []
+    seen: set[str] = set()
+    for item in items:
+        if not isinstance(item, Mapping):
+            continue
+        tied = item.get("tied_artifact_refs")
+        if not isinstance(tied, list):
+            continue
+        for raw in tied:
+            ref = str(raw or "").strip()
+            if ref and ref not in seen:
+                seen.add(ref)
+                cold.append(ref)
+    return cold
 
 
 def _optional_text(value: object) -> str | None:

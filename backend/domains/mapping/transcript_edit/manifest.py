@@ -23,6 +23,7 @@ class TranscriptEditManifest:
     tool_specs_module_ref: str = "domains.mapping.transcript_edit.execution.tool_specs"
     state_contracts_module_ref: str = "domains.mapping.transcript_edit.state.contracts"
     projection_module_ref: str = "domains.mapping.transcript_edit.state.projection"
+    prompt_runtime_projection_module_ref: str = ""
     closure_module_ref: str = "domains.mapping.transcript_edit.semantics.closure"
     handoff_module_ref: str = "domains.mapping.transcript_edit.semantics.handoff"
     closure_policy: DomainClosurePolicy = field(default_factory=build_transcript_edit_closure_policy)

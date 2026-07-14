@@ -22,8 +22,12 @@
 - Scope helpers live in `resolution_scope.py`: operands use first-match `infer_scope_id_from_identifiers`; dependency candidates use conflict-aware `resolve_unambiguous_scope_id` (conflict → omit candidate + diagnostic only).
 - Dependency include/decline mechanics live in `dependency_decisions.py`, not `intent_first_prepare.py`.
 - Unified missing-lane detection lives in `intent_first_preflight.py`; prepare expands rows only after all required lanes are present.
-- Active handoff: `active_handoff_projection.py` builds usable current lineage into `active_handoff_context`.
-- Live prompt seam: `domains.mapping.deed_to_ir.state.prompt_runtime_projection` (via manifest `projection_module_ref`) projects active + historical lineage into `run_context.domain_runtime_projection` each choose_action turn. Historical classification uses only work-item `evidence_refs` mapping/IR refs; no status mutation.
+- Live prompt seam: `manifest.prompt_runtime_projection_module_ref` →
+  `domains.mapping.deed_to_ir.state.prompt_runtime_projection` projects active + historical
+  lineage into `run_context.domain_runtime_projection` each choose_action turn. Emits
+  `hot_artifact_refs` / `cold_artifact_refs` for mechanical exact-ref windowing. Historical
+  classification uses only work-item `evidence_refs` mapping/IR refs; no status mutation.
+- `projection_module_ref` remains the normal state-projection module slot (unused for deed-to-IR).
 - Without usable current lineage, work items are left unclassified (never forced historical).
 
 

@@ -1145,6 +1145,8 @@ def _with_domain_policy_context(
     adapter: RuntimeAdapter,
 ) -> dict[str, Any]:
     merged = dict(launch_context)
+    # Never trust an externally supplied import path for prompt projection.
+    merged.pop("domain_prompt_runtime_projection_module", None)
     manifest = getattr(adapter, "manifest", None)
     if manifest is not None:
         domain_id = str(getattr(manifest, "domain_id", "") or "").strip()
@@ -1156,10 +1158,6 @@ def _with_domain_policy_context(
         work_graph_policy = getattr(manifest, "work_graph_policy", None)
         if work_graph_policy is not None and "domain_work_graph_policy" not in merged:
             merged["domain_work_graph_policy"] = _jsonable(work_graph_policy)
-        projection_module_ref = str(getattr(manifest, "projection_module_ref", "") or "").strip()
-        if projection_module_ref and "domain_prompt_runtime_projection_module" not in merged:
-            # Opaque host hook: module must export build_prompt_runtime_projection(...).
-            merged["domain_prompt_runtime_projection_module"] = projection_module_ref
     enrich = getattr(adapter, "enrich_launch_context", None)
     if callable(enrich):
         try:
@@ -1170,4 +1168,12 @@ def _with_domain_policy_context(
             for key, value in enriched.items():
                 if key not in merged:
                     merged[key] = value
+    # Seal after enrich: only the trusted manifest may author this hook.
+    merged.pop("domain_prompt_runtime_projection_module", None)
+    if manifest is not None:
+        prompt_hook = str(
+            getattr(manifest, "prompt_runtime_projection_module_ref", "") or ""
+        ).strip()
+        if prompt_hook:
+            merged["domain_prompt_runtime_projection_module"] = prompt_hook
     return merged
