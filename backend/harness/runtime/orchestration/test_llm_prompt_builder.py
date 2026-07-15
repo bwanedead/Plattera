@@ -789,3 +789,162 @@ def test_full_choose_action_prompt_doctrine_mentions_hydrate_next() -> None:
     assert '"hydrate_next":["@this.result.derived_ref_id"]' in doc.prompt_text
     assert "removes predictable hydrate-only turns" in doc.prompt_text
     assert "verify saved payload shape before publish" in doc.prompt_text
+
+
+def test_choose_action_prompt_preserves_complete_prompt_carry_forward() -> None:
+    """Dedicated carry-forward lane is complete in the next prompt despite long prose."""
+    from harness.runtime.memory.prompt_carry_forward import PROMPT_CARRY_FORWARD_SCHEMA_VERSION
+
+    payload = {
+        "action_type": "demo_tool",
+        "reason_code": "missing_decisions",
+        "decision_card": {"required": ["a", "b"], "ids": ["id_1", "id_2"]},
+        "retry_request_template": {"rows": [{"id": "id_1", "status": "ok"}]},
+    }
+    loop_memory = LoopMemoryState()
+    loop_memory.iterations = 2
+    loop_memory.continuity.kernel_step_result_records.append(
+        {
+            "kernel_turn_index": 1,
+            "action_type": "demo_tool",
+            "execution_state": "refused",
+            "execution_reason_code": "missing_decisions",
+            "artifact_refs": [],
+            "latest_refs_snapshot": {},
+            "outputs_for_continuity": {
+                "error": {"message": "e" * 5000},
+                "repair_hint": ("Use the returned card. " * 300),
+                "prompt_carry_forward": {
+                    "schema_version": PROMPT_CARRY_FORWARD_SCHEMA_VERSION,
+                    "payload": payload,
+                },
+            },
+            "result_truncated": False,
+        }
+    )
+    context = OrchestratorContext(
+        session_manager=ExecutionSessionManager(),
+        session_id="sess-carry",
+        loop_memory=loop_memory,
+        request_id_prefix="req-carry",
+        opaque_run_context={},
+        prompt_event_observer=None,
+        raw_llm_io_observer=None,
+    )
+    doc = build_choose_action_prompt_document(
+        composed_input=_composed_input(),
+        opaque_launch_context={"run_id": "r-carry"},
+        context=context,
+        projection=_projection(),
+        journal_verbatim_keep_n=2,
+    )
+    slices = doc.prompt_body["structured_state"]["recent_tool_result_slices"]
+    assert slices
+    carry = slices[-1]["prompt_carry_forward"]
+    assert carry["payload"] == payload
+    # Truncated excerpt must not be the only home for structured IDs.
+    assert slices[-1].get("outputs_excerpt_truncated") is True
+    assert "id_1" in json.dumps(carry)
+    assert "id_2" in json.dumps(carry)
+
+
+def test_choose_action_prompt_pipeline_storage_to_carry_forward() -> None:
+    """Tool outputs → continuity record → slice → choose-action prompt."""
+    from harness.runtime.memory.continuity_journal import build_kernel_step_result_record
+    from harness.runtime.memory.prompt_carry_forward import PROMPT_CARRY_FORWARD_SCHEMA_VERSION
+
+    payload = {
+        "action_type": "demo_tool",
+        "reason_code": "missing_decisions",
+        "finalization_decision_card": {
+            "required_lanes": ["dependency_decisions"],
+            "dependency_decisions": [{"candidate_id": "parcel_2_continuation_scope"}],
+        },
+        "retry_request_template": {
+            "correction_decisions": [{"target_entity_id": "p1_call2_distance"}],
+        },
+    }
+    record = build_kernel_step_result_record(
+        kernel_turn_index=1,
+        action_type="demo_tool",
+        execution_state="refused",
+        execution_reason_code="missing_decisions",
+        latest_refs_snapshot={},
+        outputs={
+            "repair_hint": ("Use the returned card. " * 200),
+            "error": {"message": "e" * 3000},
+            "prompt_carry_forward": {
+                "schema_version": PROMPT_CARRY_FORWARD_SCHEMA_VERSION,
+                "payload": payload,
+            },
+        },
+        artifact_refs=[],
+    )
+    loop_memory = LoopMemoryState()
+    loop_memory.iterations = 2
+    loop_memory.continuity.kernel_step_result_records.append(record)
+    context = OrchestratorContext(
+        session_manager=ExecutionSessionManager(),
+        session_id="sess-carry-pipe",
+        loop_memory=loop_memory,
+        request_id_prefix="req-carry-pipe",
+        opaque_run_context={},
+        prompt_event_observer=None,
+        raw_llm_io_observer=None,
+    )
+    doc = build_choose_action_prompt_document(
+        composed_input=_composed_input(),
+        opaque_launch_context={"run_id": "r-carry-pipe"},
+        context=context,
+        projection=_projection(),
+        journal_verbatim_keep_n=2,
+    )
+    slices = doc.prompt_body["structured_state"]["recent_tool_result_slices"]
+    carry = slices[-1]["prompt_carry_forward"]
+    assert carry["payload"] == payload
+    blob = json.dumps(doc.prompt_body, ensure_ascii=False, default=str)
+    assert "p1_call2_distance" in blob
+    assert "parcel_2_continuation_scope" in blob
+
+
+def test_choose_action_prompt_surfaces_storage_omission_marker() -> None:
+    from harness.runtime.memory.continuity_journal import build_kernel_step_result_record
+    from harness.runtime.memory.prompt_carry_forward import PROMPT_CARRY_FORWARD_SCHEMA_VERSION
+
+    record = build_kernel_step_result_record(
+        kernel_turn_index=1,
+        action_type="demo_tool",
+        execution_state="refused",
+        execution_reason_code="missing_decisions",
+        latest_refs_snapshot={},
+        outputs={
+            "repair_hint": "h" * 80,
+            "prompt_carry_forward": {
+                "schema_version": PROMPT_CARRY_FORWARD_SCHEMA_VERSION,
+                "payload": {"blob": "z" * 9000},
+            },
+        },
+        artifact_refs=[],
+    )
+    loop_memory = LoopMemoryState()
+    loop_memory.iterations = 2
+    loop_memory.continuity.kernel_step_result_records.append(record)
+    context = OrchestratorContext(
+        session_manager=ExecutionSessionManager(),
+        session_id="sess-carry-omit",
+        loop_memory=loop_memory,
+        request_id_prefix="req-carry-omit",
+        opaque_run_context={},
+        prompt_event_observer=None,
+        raw_llm_io_observer=None,
+    )
+    doc = build_choose_action_prompt_document(
+        composed_input=_composed_input(),
+        opaque_launch_context={"run_id": "r-carry-omit"},
+        context=context,
+        projection=_projection(),
+        journal_verbatim_keep_n=2,
+    )
+    row = doc.prompt_body["structured_state"]["recent_tool_result_slices"][-1]
+    assert "prompt_carry_forward" not in row
+    assert row["prompt_carry_forward_omitted"]["reason"] == "oversized"

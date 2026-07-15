@@ -22,6 +22,10 @@
 - Scope helpers live in `resolution_scope.py`: operands use first-match `infer_scope_id_from_identifiers`; dependency candidates use conflict-aware `resolve_unambiguous_scope_id` (conflict → omit candidate + diagnostic only).
 - Dependency include/decline mechanics live in `dependency_decisions.py`, not `intent_first_prepare.py`.
 - Unified missing-lane detection lives in `intent_first_preflight.py`; prepare expands rows only after all required lanes are present.
+- Retry continuity: `missing_finalization_decisions` refusals emit opaque
+  `outputs.prompt_carry_forward` (card + retry template). Generic harness
+  transports that lane into next-turn `recent_tool_result_slices` without
+  inspecting deed fields — do not rely on `outputs_excerpt` for structured IDs.
 - Live prompt seam: `manifest.prompt_runtime_projection_module_ref` →
   `domains.mapping.deed_to_ir.state.prompt_runtime_projection` projects active + historical
   lineage into `run_context.domain_runtime_projection` each choose_action turn. Emits

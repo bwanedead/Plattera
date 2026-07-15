@@ -15,14 +15,23 @@ from __future__ import annotations
 
 import json
 import threading
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 from .continuity_journal import CLIP_SENTINEL_KEY  # paired: see continuity_journal._clip_large_text_fields
 from .point_crop_set_projection import project_point_crop_set_summary
+from .prompt_carry_forward import (
+    PROMPT_CARRY_FORWARD_KEY,
+    PROMPT_CARRY_FORWARD_OMITTED_KEY,
+    attach_prompt_carry_forward_fields,
+    omit_prompt_carry_forward_for_budget,
+    project_prompt_carry_forward,
+)
 
 DEFAULT_MAX_RECORDS = 3
 DEFAULT_MAX_CHARS_PER_RESULT = 2500
+# Hard combined cap on the serialized prompt slice collection (base row fields
+# + dedicated prompt_carry_forward). Carry is all-or-nothing within this bound.
 DEFAULT_MAX_TOTAL_CHARS = 7000
 DEFAULT_MAX_CHARS_PER_SLICE_ROW = 2500
 _SLICE_ROW_METADATA_RESERVE = 160
@@ -284,6 +293,9 @@ def _collect_text_fields(
         for key, value in stripped.items():
             if len(summaries) >= _MAX_TEXT_FIELDS or lane_remaining[0] <= 0:
                 break
+            # Opaque structured carry-forward has its own dedicated projection lane.
+            if str(key) == PROMPT_CARRY_FORWARD_KEY:
+                continue
             child_path = str(key) if not path else f"{path}.{key}"
             _collect_text_fields(
                 value, summaries,
@@ -596,6 +608,121 @@ def _slice_row_char_length(slice_row: Mapping[str, Any]) -> int:
     return len(_serialize_slice_row(slice_row))
 
 
+def _serialize_slice_collection(slices: Sequence[Mapping[str, Any]]) -> str:
+    """Compact JSON serialization of the emitted slice list (includes list framing)."""
+    try:
+        return json.dumps(
+            list(slices),
+            ensure_ascii=False,
+            default=str,
+            separators=(",", ":"),
+        )
+    except (TypeError, ValueError):
+        return str(list(slices))
+
+
+def _slice_collection_char_length(slices: Sequence[Mapping[str, Any]]) -> int:
+    """Serialized collection length including ``[``, ``]``, and inter-row commas."""
+    return len(_serialize_slice_collection(slices))
+
+
+def _resettle_slice_char_length(slice_row: dict[str, Any]) -> int:
+    """Recompute a self-consistent ``slice_char_length`` after in-place mutation."""
+    slice_row.pop("slice_char_length", None)
+    content_len = _slice_row_char_length(slice_row)
+    slice_row["slice_char_length"] = content_len
+    for _ in range(8):
+        full_len = _slice_row_char_length(slice_row)
+        slice_row["slice_char_length"] = full_len
+        if _slice_row_char_length(slice_row) == full_len:
+            break
+    return int(slice_row["slice_char_length"])
+
+
+def _max_added_row_chars_for_collection(
+    existing: Sequence[Mapping[str, Any]],
+    *,
+    max_total_chars: int,
+) -> int:
+    """Max compact-serialized size for one additional row under the collection cap."""
+    if not existing:
+        return max(0, max_total_chars - 2)  # "[" + row + "]"
+    # "[...existing...]" + "," + row  => existing_len + 1 + row_len
+    return max(0, max_total_chars - _slice_collection_char_length(existing) - 1)
+
+
+def _fit_slice_row_to_collection_budget(
+    slice_row: dict[str, Any],
+    *,
+    existing: Sequence[Mapping[str, Any]],
+    max_total_chars: int,
+) -> bool:
+    """Shrink ``slice_row`` until ``existing + [row]`` fits; False if impossible.
+
+    Carry must already be omitted (all-or-nothing) before calling this helper.
+    """
+    drop_keys = (
+        "feature_graph_capabilities",
+        "mapping_operands",
+        "mapping_review",
+        "point_crop_set_summary",
+        "current_draft_ir",
+        "evidence_artifact_summary",
+        "source_window",
+        "text_field_summaries",
+        "first_draft_authoring_card",
+        "outputs_structural_metadata",
+        "outputs_excerpt",
+    )
+    reasons: list[str] = []
+    for _ in range(256):
+        trial = list(existing) + [slice_row]
+        if _slice_collection_char_length(trial) <= max_total_chars:
+            _resettle_slice_char_length(slice_row)
+            return True
+        target = _max_added_row_chars_for_collection(
+            existing, max_total_chars=max_total_chars
+        )
+        if target <= 0:
+            return False
+        progressed = False
+        while _enforce_slice_row_budget(
+            slice_row,
+            max_row_chars=max(32, target),
+            reasons=reasons,
+        ):
+            progressed = True
+            if _slice_collection_char_length(list(existing) + [slice_row]) <= max_total_chars:
+                _resettle_slice_char_length(slice_row)
+                return True
+        _enforce_full_slice_row(
+            slice_row,
+            max_row_chars=max(32, min(target, DEFAULT_MAX_CHARS_PER_SLICE_ROW)),
+            reasons=reasons,
+        )
+        if _slice_collection_char_length(list(existing) + [slice_row]) <= max_total_chars:
+            _resettle_slice_char_length(slice_row)
+            return True
+        for key in drop_keys:
+            if key not in slice_row:
+                continue
+            if key == "outputs_excerpt":
+                if slice_row.get("outputs_excerpt") not in ("", "{}", None):
+                    slice_row["outputs_excerpt"] = "{}"
+                    slice_row["outputs_excerpt_truncated"] = True
+                    progressed = True
+                    break
+                continue
+            slice_row.pop(key, None)
+            progressed = True
+            break
+        if not progressed:
+            _resettle_slice_char_length(slice_row)
+            return _slice_collection_char_length(list(existing) + [slice_row]) <= max_total_chars
+    _resettle_slice_char_length(slice_row)
+    return _slice_collection_char_length(list(existing) + [slice_row]) <= max_total_chars
+
+
 def _cap_structural_metadata(metadata: dict[str, Any] | None) -> dict[str, Any] | None:
     if not metadata:
         return None
@@ -624,9 +751,22 @@ def _content_budget(max_row_chars: int) -> int:
     return max(32, max_row_chars - reserve)
 
 
+def _without_carry_forward_fields(row: Mapping[str, Any]) -> dict[str, Any]:
+    """Copy row fields excluding the dedicated opaque carry-forward lane."""
+    return {
+        key: value
+        for key, value in row.items()
+        if str(key) not in {PROMPT_CARRY_FORWARD_KEY, PROMPT_CARRY_FORWARD_OMITTED_KEY}
+    }
+
+
 def _content_row_length(row: Mapping[str, Any]) -> int:
     return _slice_row_char_length(
-        {key: value for key, value in row.items() if not str(key).startswith("slice_")}
+        {
+            key: value
+            for key, value in _without_carry_forward_fields(row).items()
+            if not str(key).startswith("slice_")
+        }
     )
 
 
@@ -757,7 +897,11 @@ def _enforce_slice_row_budget(
 ) -> bool:
     """Mechanically shrink base row fields until the content fits ``max_row_chars``."""
     working_len = _slice_row_char_length(
-        {key: value for key, value in slice_row.items() if key != "slice_char_length"}
+        {
+            key: value
+            for key, value in _without_carry_forward_fields(slice_row).items()
+            if key != "slice_char_length"
+        }
     )
     if working_len <= max_row_chars:
         return False
@@ -883,12 +1027,19 @@ def _row_fits_budget(row: Mapping[str, Any], *, max_row_chars: int) -> bool:
 
 
 def _effective_row_length(slice_row: Mapping[str, Any]) -> int:
-    """Estimate serialized row length including a self-consistent ``slice_char_length``."""
-    if "slice_char_length" in slice_row:
-        return _slice_row_char_length(slice_row)
+    """Estimate serialized row length including a self-consistent ``slice_char_length``.
+
+    Opaque ``prompt_carry_forward`` is excluded from the budget-fit estimate.
+    """
     content_only = {
-        key: value for key, value in slice_row.items() if key != "slice_char_length"
+        key: value
+        for key, value in _without_carry_forward_fields(slice_row).items()
+        if key != "slice_char_length"
     }
+    if "slice_char_length" in slice_row:
+        trial = dict(content_only)
+        trial["slice_char_length"] = slice_row["slice_char_length"]
+        return _slice_row_char_length(trial)
     content_len = _slice_row_char_length(content_only)
     trial = dict(content_only)
     trial["slice_char_length"] = content_len
@@ -900,7 +1051,17 @@ def _row_fits_full_budget(row: Mapping[str, Any], *, max_row_chars: int) -> bool
 
 
 def _attach_slice_char_length(slice_row: dict[str, Any], *, max_row_chars: int) -> None:
-    """Attach a self-consistent ``slice_char_length`` without exceeding the row budget."""
+    """Attach a self-consistent ``slice_char_length`` without exceeding the row budget.
+
+    Opaque ``prompt_carry_forward`` is peeled during budget enforcement so the
+    dedicated lane is not crushed. When reattached, reported length may exceed
+    ``max_row_chars`` by the carry-forward size only.
+    """
+    carry_fields = {
+        key: slice_row.pop(key)
+        for key in (PROMPT_CARRY_FORWARD_KEY, PROMPT_CARRY_FORWARD_OMITTED_KEY)
+        if key in slice_row
+    }
     for _ in range(16):
         slice_row.pop("slice_char_length", None)
         if _effective_row_length(slice_row) > max_row_chars:
@@ -930,16 +1091,35 @@ def _attach_slice_char_length(slice_row: dict[str, Any], *, max_row_chars: int) 
             if full_len <= max_row_chars:
                 slice_row["slice_char_length"] = full_len
                 if _slice_row_char_length(slice_row) == full_len:
-                    return
+                    break
             break
+        else:
+            continue
         break
-    slice_row.pop("slice_char_length", None)
-    slice_row["slice_char_length"] = min(
-        max_row_chars,
-        _slice_row_char_length(
+    else:
+        slice_row.pop("slice_char_length", None)
+        slice_row["slice_char_length"] = min(
+            max_row_chars,
+            _slice_row_char_length(
+                {
+                    key: value
+                    for key, value in slice_row.items()
+                    if key != "slice_char_length"
+                }
+            ),
+        )
+    if carry_fields:
+        slice_row.update(carry_fields)
+        slice_row.pop("slice_char_length", None)
+        content_len = _slice_row_char_length(
             {key: value for key, value in slice_row.items() if key != "slice_char_length"}
-        ),
-    )
+        )
+        slice_row["slice_char_length"] = content_len
+        for _ in range(8):
+            full_len = _slice_row_char_length(slice_row)
+            slice_row["slice_char_length"] = full_len
+            if _slice_row_char_length(slice_row) == full_len:
+                break
 
 
 def _finalize_slice_row_metrics(
@@ -1031,6 +1211,13 @@ def _build_bounded_slice_row(
     max_row_chars: int,
     max_excerpt_chars: int,
 ) -> dict[str, Any]:
+    from .prompt_carry_forward import peel_prompt_carry_forward
+
+    carry_forward, carry_omitted = project_prompt_carry_forward(outputs)
+    excerpt_source = outputs
+    if isinstance(outputs, Mapping):
+        _, excerpt_source = peel_prompt_carry_forward(outputs)
+
     text_field_summaries = _cap_text_field_summaries(_extract_text_field_summaries(outputs))
     evidence_artifact_summary = _extract_evidence_artifact_summary(outputs)
     point_crop_set_summary = _extract_point_crop_set_summary(outputs)
@@ -1040,7 +1227,7 @@ def _build_bounded_slice_row(
     first_draft_authoring_card = _extract_first_draft_authoring_card(outputs)
     feature_graph_capabilities_summary = _extract_feature_graph_capabilities_summary(outputs)
     if text_field_summaries:
-        excerpt, excerpt_truncated = _bounded_outputs_excerpt(outputs, max_chars=256)
+        excerpt, excerpt_truncated = _bounded_outputs_excerpt(excerpt_source, max_chars=256)
     elif (
         point_crop_set_summary is not None
         or evidence_artifact_summary is not None
@@ -1049,10 +1236,14 @@ def _build_bounded_slice_row(
         or mapping_operands_summary is not None
         or first_draft_authoring_card is not None
         or feature_graph_capabilities_summary is not None
+        or carry_forward is not None
+        or carry_omitted is not None
     ):
-        excerpt, excerpt_truncated = _bounded_outputs_excerpt(outputs, max_chars=256)
+        excerpt, excerpt_truncated = _bounded_outputs_excerpt(excerpt_source, max_chars=256)
     else:
-        excerpt, excerpt_truncated = _bounded_outputs_excerpt(outputs, max_chars=max_excerpt_chars)
+        excerpt, excerpt_truncated = _bounded_outputs_excerpt(
+            excerpt_source, max_chars=max_excerpt_chars
+        )
     include_structural_metadata = (
         (excerpt_truncated or bool(row.get("result_truncated", False)))
         and point_crop_set_summary is None
@@ -1130,7 +1321,9 @@ def _build_bounded_slice_row(
         if text_field_summaries and excerpt_budget <= 256:
             break
         excerpt_budget = max(256, int(excerpt_budget * 0.7))
-        excerpt, excerpt_truncated = _bounded_outputs_excerpt(outputs, max_chars=excerpt_budget)
+        excerpt, excerpt_truncated = _bounded_outputs_excerpt(
+            excerpt_source, max_chars=excerpt_budget
+        )
         slice_row["outputs_excerpt"] = excerpt
         slice_row["outputs_excerpt_truncated"] = True
         if fitted_summaries is not None:
@@ -1155,6 +1348,11 @@ def _build_bounded_slice_row(
         original_candidate[key] = value
     if text_field_summaries is not None:
         original_candidate["text_field_summaries"] = text_field_summaries
+    attach_prompt_carry_forward_fields(
+        original_candidate,
+        carry_forward=carry_forward,
+        omitted=carry_omitted,
+    )
     original_size = _slice_row_char_length(original_candidate)
 
     reasons: list[str] = []
@@ -1176,6 +1374,11 @@ def _build_bounded_slice_row(
             slice_row["text_field_summaries"] = refitted
             reasons.extend(refit_reasons)
 
+    attach_prompt_carry_forward_fields(
+        slice_row,
+        carry_forward=carry_forward,
+        omitted=carry_omitted,
+    )
     return _finalize_slice_row_metrics(
         slice_row,
         original_size=original_size,
@@ -1196,6 +1399,12 @@ def build_recent_tool_result_slices(
     Selection is by ``kernel_turn_index`` order only. No semantic ranking.
     Binary/image payload keys are stripped. Each slice row is bounded as a whole
     so sibling results from the same turn are not crowded out by one oversized row.
+
+    ``max_total_chars`` is a hard combined cap on the compact-serialized emitted
+    collection — including JSON list brackets and inter-row commas — covering
+    base fields + ``prompt_carry_forward``. The first row is not exempt: if a
+    valid carry cannot fit the remaining combined budget it is omitted wholesale
+    with ``prompt_carry_forward_omitted.reason == "prompt_budget"``.
     """
     if not step_result_records or max_records <= 0:
         return []
@@ -1207,11 +1416,12 @@ def build_recent_tool_result_slices(
     kept = rows[-max_records:]
 
     slices: list[dict[str, Any]] = []
-    total_chars = 0
     for row in reversed(kept):
         turn = _turn_index(row)
         if turn is None:
             continue
+        if _slice_collection_char_length(slices) >= max_total_chars:
+            break
         outputs = row.get("outputs_for_continuity", {})
         raw_refs = row.get("artifact_refs") or []
         if isinstance(raw_refs, list):
@@ -1226,10 +1436,30 @@ def build_recent_tool_result_slices(
             max_row_chars=max_row_chars,
             max_excerpt_chars=max_chars_per_result,
         )
-        row_chars = int(slice_row.get("slice_char_length") or _slice_row_char_length(slice_row))
-        if slices and total_chars + row_chars > max_total_chars:
-            break
+        trial = list(slices) + [slice_row]
+        trial_len = _slice_collection_char_length(trial)
+        if trial_len > max_total_chars and PROMPT_CARRY_FORWARD_KEY in slice_row:
+            remaining = max(0, max_total_chars - _slice_collection_char_length(slices))
+            omit_prompt_carry_forward_for_budget(slice_row, remaining_chars=remaining)
+            _resettle_slice_char_length(slice_row)
+            if not str(slice_row.get("slice_truncation_reason") or "").strip():
+                slice_row["slice_truncated"] = True
+                slice_row["slice_truncation_reason"] = "prompt_budget"
+            elif "prompt_budget" not in str(slice_row.get("slice_truncation_reason")):
+                slice_row["slice_truncated"] = True
+                slice_row["slice_truncation_reason"] = (
+                    f"{slice_row['slice_truncation_reason']},prompt_budget"
+                )
+            trial = list(slices) + [slice_row]
+            trial_len = _slice_collection_char_length(trial)
+        if trial_len > max_total_chars:
+            if not _fit_slice_row_to_collection_budget(
+                slice_row,
+                existing=slices,
+                max_total_chars=max_total_chars,
+            ):
+                # Combined budget is honest: never emit a collection that exceeds the cap.
+                break
         slices.append(slice_row)
-        total_chars += row_chars
     slices.reverse()
     return slices

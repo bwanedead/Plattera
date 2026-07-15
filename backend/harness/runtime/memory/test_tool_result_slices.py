@@ -923,3 +923,255 @@ def test_first_draft_authoring_card_slice_survives_large_capability_output() -> 
     serialized = json.dumps(slices[0])
     assert "first_draft_authoring_card" in serialized
     assert "CourseTraverse" in serialized
+
+
+def test_prompt_carry_forward_survives_long_repair_hint_truncation() -> None:
+    """Structured carry-forward is complete even when outputs_excerpt is truncated."""
+    from harness.runtime.memory.prompt_carry_forward import PROMPT_CARRY_FORWARD_SCHEMA_VERSION
+
+    payload = {
+        "action_type": "demo_tool",
+        "reason_code": "missing_decisions",
+        "decision_card": {
+            "required_lanes": ["corrections", "dependencies"],
+            "correction_ids": ["corr_a", "corr_b"],
+            "dependency_ids": ["dep_x"],
+        },
+        "retry_request_template": {
+            "corrections": [{"id": "corr_a", "status": "confirmed"}],
+            "dependencies": [],
+        },
+    }
+    outputs = {
+        "error": {"code": "missing_decisions", "message": "x" * 4000},
+        "repair_hint": ("Resubmit the returned card. " * 200),
+        "prompt_carry_forward": {
+            "schema_version": PROMPT_CARRY_FORWARD_SCHEMA_VERSION,
+            "payload": payload,
+        },
+        "other_blob": {"noise": "y" * 3000},
+    }
+    slices = build_recent_tool_result_slices(
+        [_result_record(1, outputs=outputs, action_type="demo_tool")],
+        max_chars_per_result=2500,
+    )
+    assert len(slices) == 1
+    row = slices[0]
+    assert row.get("outputs_excerpt_truncated") is True
+    carry = row.get("prompt_carry_forward")
+    assert isinstance(carry, dict)
+    assert carry["schema_version"] == PROMPT_CARRY_FORWARD_SCHEMA_VERSION
+    assert carry["payload"] == payload
+    assert "prompt_carry_forward_omitted" not in row
+
+
+def test_prompt_carry_forward_within_bound_preserved_completely() -> None:
+    from harness.runtime.memory.prompt_carry_forward import (
+        DEFAULT_MAX_PROMPT_CARRY_FORWARD_CHARS,
+        PROMPT_CARRY_FORWARD_SCHEMA_VERSION,
+        project_prompt_carry_forward,
+    )
+
+    envelope = {
+        "schema_version": PROMPT_CARRY_FORWARD_SCHEMA_VERSION,
+        "payload": {"ids": [f"id_{i}" for i in range(20)], "note": "compact"},
+    }
+    carry, omitted = project_prompt_carry_forward(
+        {"prompt_carry_forward": envelope},
+        max_chars=DEFAULT_MAX_PROMPT_CARRY_FORWARD_CHARS,
+    )
+    assert omitted is None
+    assert carry == envelope
+
+
+def test_prompt_carry_forward_oversized_is_explicitly_omitted() -> None:
+    from harness.runtime.memory.prompt_carry_forward import (
+        PROMPT_CARRY_FORWARD_SCHEMA_VERSION,
+        project_prompt_carry_forward,
+    )
+
+    envelope = {
+        "schema_version": PROMPT_CARRY_FORWARD_SCHEMA_VERSION,
+        "payload": {"blob": "z" * 12000},
+    }
+    carry, omitted = project_prompt_carry_forward(
+        {"prompt_carry_forward": envelope},
+        max_chars=500,
+    )
+    assert carry is None
+    assert isinstance(omitted, dict)
+    assert omitted["reason"] == "oversized"
+    slices = build_recent_tool_result_slices(
+        [_result_record(1, outputs={"prompt_carry_forward": envelope, "repair_hint": "h" * 100})],
+        max_chars_per_result=2500,
+    )
+    assert "prompt_carry_forward" not in slices[0]
+    assert slices[0]["prompt_carry_forward_omitted"]["reason"] == "oversized"
+
+
+def test_prompt_carry_forward_invalid_shape_never_partial_object() -> None:
+    from harness.runtime.memory.prompt_carry_forward import project_prompt_carry_forward
+
+    # Prefix-truncated JSON string must not be treated as a usable carry-forward.
+    carry, omitted = project_prompt_carry_forward(
+        {"prompt_carry_forward": '{"schema_version":"prompt_carry_forward.v1","paylo'}
+    )
+    assert carry is None
+    assert omitted is not None
+    assert omitted["reason"] == "invalid_shape"
+
+
+def test_combined_total_budget_omits_carry_rather_than_exceeding_cap() -> None:
+    """max_total_chars is a hard combined cap; first row is not exempt."""
+    from harness.runtime.memory.prompt_carry_forward import PROMPT_CARRY_FORWARD_SCHEMA_VERSION
+    from harness.runtime.memory.tool_result_slices import DEFAULT_MAX_TOTAL_CHARS
+
+    envelope = {
+        "schema_version": PROMPT_CARRY_FORWARD_SCHEMA_VERSION,
+        # Under dedicated 8k object bound, but large enough that base+carry > 7k total.
+        "payload": {"blob": "z" * 6800, "ids": ["keep_me"]},
+    }
+    outputs = {
+        "repair_hint": ("Resubmit the returned card. " * 40),
+        "prompt_carry_forward": envelope,
+    }
+    slices = build_recent_tool_result_slices(
+        [_result_record(1, outputs=outputs, action_type="demo_tool")],
+        max_chars_per_result=2500,
+        max_total_chars=DEFAULT_MAX_TOTAL_CHARS,
+    )
+    assert len(slices) == 1
+    serialized = json.dumps(slices, ensure_ascii=False, default=str, separators=(",", ":"))
+    assert len(serialized) <= DEFAULT_MAX_TOTAL_CHARS
+    assert "prompt_carry_forward" not in slices[0]
+    assert slices[0]["prompt_carry_forward_omitted"]["reason"] == "prompt_budget"
+
+
+def test_near_limit_carry_fits_within_documented_total_budget() -> None:
+    from harness.runtime.memory.prompt_carry_forward import PROMPT_CARRY_FORWARD_SCHEMA_VERSION
+    from harness.runtime.memory.tool_result_slices import DEFAULT_MAX_TOTAL_CHARS
+
+    envelope = {
+        "schema_version": PROMPT_CARRY_FORWARD_SCHEMA_VERSION,
+        "payload": {"ids": ["a", "b", "c"], "note": "compact"},
+    }
+    slices = build_recent_tool_result_slices(
+        [
+            _result_record(
+                1,
+                outputs={
+                    "repair_hint": "short hint",
+                    "prompt_carry_forward": envelope,
+                },
+            )
+        ],
+        max_total_chars=DEFAULT_MAX_TOTAL_CHARS,
+    )
+    assert slices[0]["prompt_carry_forward"] == envelope
+    serialized = json.dumps(slices, ensure_ascii=False, default=str, separators=(",", ":"))
+    assert len(serialized) <= DEFAULT_MAX_TOTAL_CHARS
+
+
+def test_collection_framing_counts_toward_total_budget(monkeypatch) -> None:
+    """A 6999-char row still cannot yield a >7000-char serialized collection."""
+    from harness.runtime.memory import tool_result_slices as mod
+    from harness.runtime.memory.prompt_carry_forward import PROMPT_CARRY_FORWARD_SCHEMA_VERSION
+
+    max_total = 7000
+
+    def _fake_build(*, row, outputs, max_row_chars, max_excerpt_chars):
+        del row, outputs, max_row_chars, max_excerpt_chars
+        slice_row = {
+            "kernel_turn_index": 1,
+            "action_type": "demo_tool",
+            "execution_state": "refused",
+            "execution_reason_code": "missing_decisions",
+            "result_truncated": False,
+            "latest_artifact_ref": None,
+            "artifact_refs": [],
+            "outputs_excerpt": "{}",
+            "outputs_excerpt_truncated": True,
+            "prompt_carry_forward": {
+                "schema_version": PROMPT_CARRY_FORWARD_SCHEMA_VERSION,
+                "payload": {"blob": ""},
+            },
+        }
+        # Grow the opaque payload until self-consistent serialization is exactly 6999.
+        blob_len = 6800
+        for _ in range(40):
+            slice_row["prompt_carry_forward"]["payload"]["blob"] = "z" * blob_len
+            length = mod._resettle_slice_char_length(slice_row)
+            delta = 6999 - length
+            if delta == 0:
+                break
+            blob_len = max(0, blob_len + delta)
+        assert int(slice_row["slice_char_length"]) == 6999
+        assert len(mod._serialize_slice_row(slice_row)) == 6999
+        return slice_row
+
+    monkeypatch.setattr(mod, "_build_bounded_slice_row", _fake_build)
+    slices = mod.build_recent_tool_result_slices(
+        [_result_record(1, outputs={"prompt_carry_forward": {"x": 1}})],
+        max_total_chars=max_total,
+    )
+    serialized = json.dumps(slices, ensure_ascii=False, default=str, separators=(",", ":"))
+    assert len(serialized) <= max_total
+    # Framing alone would push [row] to 7001; carry must be omitted or row excluded.
+    if slices:
+        assert "prompt_carry_forward" not in slices[0]
+        assert slices[0]["prompt_carry_forward_omitted"]["reason"] == "prompt_budget"
+        assert len(mod._serialize_slice_row(slices[0])) < 6999
+
+
+def test_storage_then_slice_preserves_oversized_carry_omission_marker() -> None:
+    """Oversized carry must not become silently absent after continuity storage."""
+    from harness.runtime.memory.continuity_journal import build_kernel_step_result_record
+    from harness.runtime.memory.prompt_carry_forward import PROMPT_CARRY_FORWARD_SCHEMA_VERSION
+
+    envelope = {
+        "schema_version": PROMPT_CARRY_FORWARD_SCHEMA_VERSION,
+        "payload": {"blob": "z" * 9000},
+    }
+    record = build_kernel_step_result_record(
+        kernel_turn_index=1,
+        action_type="demo_tool",
+        execution_state="refused",
+        execution_reason_code="missing_decisions",
+        latest_refs_snapshot={},
+        outputs={
+            "repair_hint": "h" * 80,
+            "prompt_carry_forward": envelope,
+        },
+        artifact_refs=[],
+    )
+    stored = record["outputs_for_continuity"]
+    assert isinstance(stored, dict)
+    assert "prompt_carry_forward" not in stored
+    assert stored["prompt_carry_forward_omitted"]["reason"] == "oversized"
+    assert record["result_truncated"] is True
+
+    slices = build_recent_tool_result_slices([record])
+    assert "prompt_carry_forward" not in slices[0]
+    assert slices[0]["prompt_carry_forward_omitted"]["reason"] == "oversized"
+
+
+def test_storage_then_slice_preserves_invalid_carry_omission_marker() -> None:
+    from harness.runtime.memory.continuity_journal import build_kernel_step_result_record
+
+    record = build_kernel_step_result_record(
+        kernel_turn_index=1,
+        action_type="demo_tool",
+        execution_state="refused",
+        execution_reason_code="missing_decisions",
+        latest_refs_snapshot={},
+        outputs={
+            "repair_hint": "h" * 80,
+            "prompt_carry_forward": "not-an-object",
+        },
+        artifact_refs=[],
+    )
+    stored = record["outputs_for_continuity"]
+    assert stored["prompt_carry_forward_omitted"]["reason"] == "invalid_shape"
+    assert record["result_truncated"] is True
+    slices = build_recent_tool_result_slices([record])
+    assert slices[0]["prompt_carry_forward_omitted"]["reason"] == "invalid_shape"

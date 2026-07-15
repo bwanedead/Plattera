@@ -270,6 +270,98 @@ def test_roundtrip_kernel_step_result_records() -> None:
     assert mem2.continuity.kernel_step_result_records[0]["outputs_for_continuity"] == {"out": True}
 
 
+def test_roundtrip_preserves_prompt_carry_forward() -> None:
+    from harness.runtime.memory.continuity_journal import build_kernel_step_result_record
+    from harness.runtime.memory.prompt_carry_forward import PROMPT_CARRY_FORWARD_SCHEMA_VERSION
+    from harness.runtime.memory.tool_result_slices import build_recent_tool_result_slices
+
+    executor = ExecutionExecutor()
+    sm = ExecutionSessionManager(executor=executor)
+    sm.start_session(ExecutionSessionStartRequest(run_id="run-cf", session_id="sess-cf"))
+    lm = LoopMemoryState()
+    lm.continuity.mission_state = new_mission_state(mission_id="m1", loop_family="orchestration_kernel")
+    lm.continuity.resolution_state = new_resolution_state()
+    carry_payload = {
+        "action_type": "demo_tool",
+        "reason_code": "missing_decisions",
+        "retry_request_template": {"rows": [{"id": "kept_row", "status": "confirmed"}]},
+    }
+    record = build_kernel_step_result_record(
+        kernel_turn_index=3,
+        action_type="demo_tool",
+        execution_state="refused",
+        execution_reason_code="missing_decisions",
+        latest_refs_snapshot={},
+        outputs={
+            "repair_hint": "h" * 100,
+            "prompt_carry_forward": {
+                "schema_version": PROMPT_CARRY_FORWARD_SCHEMA_VERSION,
+                "payload": carry_payload,
+            },
+        },
+        artifact_refs=[],
+    )
+    lm.continuity.kernel_step_result_records.append(record)
+    snap = build_kernel_resume_snapshot(
+        loop_memory=lm,
+        session_manager=sm,
+        session_id="sess-cf",
+        next_iteration=4,
+    )
+    mem2, next_it, err = parse_kernel_resume_snapshot(snap)
+    assert err is None
+    assert next_it == 4
+    stored = mem2.continuity.kernel_step_result_records[0]["outputs_for_continuity"]
+    assert stored["prompt_carry_forward"]["payload"] == carry_payload
+    slices = build_recent_tool_result_slices(mem2.continuity.kernel_step_result_records)
+    assert slices[0]["prompt_carry_forward"]["payload"]["retry_request_template"]["rows"][0][
+        "id"
+    ] == "kept_row"
+
+
+def test_roundtrip_preserves_prompt_carry_forward_omission_marker() -> None:
+    from harness.runtime.memory.continuity_journal import build_kernel_step_result_record
+    from harness.runtime.memory.prompt_carry_forward import PROMPT_CARRY_FORWARD_SCHEMA_VERSION
+    from harness.runtime.memory.tool_result_slices import build_recent_tool_result_slices
+
+    executor = ExecutionExecutor()
+    sm = ExecutionSessionManager(executor=executor)
+    sm.start_session(ExecutionSessionStartRequest(run_id="run-cf-omit", session_id="sess-cf-omit"))
+    lm = LoopMemoryState()
+    lm.continuity.mission_state = new_mission_state(mission_id="m1", loop_family="orchestration_kernel")
+    lm.continuity.resolution_state = new_resolution_state()
+    record = build_kernel_step_result_record(
+        kernel_turn_index=3,
+        action_type="demo_tool",
+        execution_state="refused",
+        execution_reason_code="missing_decisions",
+        latest_refs_snapshot={},
+        outputs={
+            "repair_hint": "h" * 100,
+            "prompt_carry_forward": {
+                "schema_version": PROMPT_CARRY_FORWARD_SCHEMA_VERSION,
+                "payload": {"blob": "z" * 9000},
+            },
+        },
+        artifact_refs=[],
+    )
+    lm.continuity.kernel_step_result_records.append(record)
+    snap = build_kernel_resume_snapshot(
+        loop_memory=lm,
+        session_manager=sm,
+        session_id="sess-cf-omit",
+        next_iteration=4,
+    )
+    mem2, next_it, err = parse_kernel_resume_snapshot(snap)
+    assert err is None
+    assert next_it == 4
+    stored = mem2.continuity.kernel_step_result_records[0]["outputs_for_continuity"]
+    assert stored["prompt_carry_forward_omitted"]["reason"] == "oversized"
+    assert "prompt_carry_forward" not in stored
+    slices = build_recent_tool_result_slices(mem2.continuity.kernel_step_result_records)
+    assert slices[0]["prompt_carry_forward_omitted"]["reason"] == "oversized"
+
+
 def test_roundtrip_hitl_pending_and_answered_lists() -> None:
     executor = ExecutionExecutor()
     sm = ExecutionSessionManager(executor=executor)

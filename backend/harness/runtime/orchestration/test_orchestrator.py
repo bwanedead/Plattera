@@ -1982,6 +1982,227 @@ def test_retryable_missing_decision_refusal_does_not_terminate_loop() -> None:
         assert refusal.get("blocked_by_invariant") is False
 
 
+class _FinalizationCarryForwardRefuseOnceSessionManager(ExecutionSessionManager):
+    """First prepare returns a retryable card+carry-forward; second prepare executes."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.steps: list[ExecutionStepRequest] = []
+        self._calls = 0
+        self._carry_payload = {
+            "action_type": "prepare_deed_to_ir_final_package",
+            "reason_code": "missing_finalization_decisions",
+            "finalization_decision_card": {
+                "required_lanes": ["dependency_decisions"],
+                "scope_dispositions": [],
+                "closure_dispositions": [],
+                "correction_decisions": [{"target_entity_id": "p1_call2_distance"}],
+                "dependency_decisions": [
+                    {
+                        "candidate_id": "parcel_2_continuation_scope",
+                        "dependency_id": "parcel_2_continuation_scope",
+                        "affected_scope": "parcel_2",
+                    }
+                ],
+            },
+            "retry_request_template": {
+                "use_current_mapping_lineage": True,
+                "scope_dispositions": [{"scope_id": "parcel_1", "status": "handoffable"}],
+                "closure_dispositions": [],
+                "correction_decisions": [
+                    {
+                        "target_entity_id": "p1_call2_distance",
+                        "posture": "confirmed_from_source",
+                    }
+                ],
+                "dependency_decisions": [],
+            },
+        }
+
+    def step(self, request: ExecutionStepRequest) -> ExecutionStepResult:  # type: ignore[override]
+        self.steps.append(request)
+        self._calls += 1
+        if self._calls == 1:
+            from harness.execution.contracts import ActionDispatchResult, SessionExecutionRecord
+
+            dispatch_result = ActionDispatchResult(
+                action_id=request.action_id,
+                executed=False,
+                outputs={
+                    "error": {
+                        "code": "missing_finalization_decisions",
+                        "message": "Author the missing finalization decisions. " + ("x" * 2000),
+                    },
+                    "repair_hint": ("Resubmit retry_request_template plus missing decisions. " * 80),
+                    "finalization_decision_card": self._carry_payload["finalization_decision_card"],
+                    "retry_request_template": self._carry_payload["retry_request_template"],
+                    "prompt_carry_forward": {
+                        "schema_version": "prompt_carry_forward.v1",
+                        "payload": self._carry_payload,
+                    },
+                },
+                refusal=ExecutionRefusal(
+                    reason_code="missing_finalization_decisions",
+                    retryable=True,
+                    blocked_by_invariant=False,
+                    blocked_by_budget=False,
+                ),
+            )
+            rec = SessionExecutionRecord(
+                session_id=request.session_id,
+                run_id=request.run_id or "",
+                request=request,
+                result=dispatch_result,
+            )
+            return ExecutionStepResult(
+                session_id=request.session_id,
+                idempotency_key=request.idempotency_key,
+                execution_state=ExecutionState.REFUSED,
+                dashboard=_dashboard(),
+                refusal=dispatch_result.refusal,
+                record=rec,
+            )
+        return ExecutionStepResult(
+            session_id=request.session_id,
+            idempotency_key=request.idempotency_key,
+            execution_state=ExecutionState.EXECUTED,
+            dashboard=_dashboard(),
+        )
+
+
+class _FinalizationCarryForwardRecoverPack:
+    """Refuse → see exact card in prompt projection → resubmit without hydration → complete."""
+
+    def __init__(self) -> None:
+        self.turn2_saw_exact_card = False
+        self.turn2_resubmitted_from_template = False
+        self.turn2_used_hydrate = False
+
+    def initialize(self, context: OrchestratorContext) -> None:
+        pass
+
+    def sync(self, context: OrchestratorContext) -> SharedStateProjection:
+        return SharedStateProjection(
+            mission_state=new_mission_state(
+                mission_id="m-finalization-carry", loop_family="orchestration_kernel"
+            ),
+            resolution_state=new_resolution_state(),
+        )
+
+    def evaluate_terminal(
+        self, context: OrchestratorContext, projection: SharedStateProjection | None
+    ) -> TerminalEvaluation | None:
+        return None
+
+    def choose_action(
+        self, context: OrchestratorContext, projection: SharedStateProjection | None
+    ) -> ActionPlan:
+        from harness.runtime.composition.contracts import ComposedTurnInput, TurnBlock
+        from harness.runtime.orchestration.llm_prompt_builder import (
+            build_choose_action_prompt_document,
+        )
+
+        it = context.loop_memory.iterations
+        if it == 1:
+            return ActionPlan(
+                action_type="prepare_deed_to_ir_final_package",
+                action_inputs={"use_current_mapping_lineage": True},
+                idempotency_key="ik-prepare-1",
+                continuity_journal_entry={"step": "first prepare missing decisions"},
+            )
+        if it == 2:
+            composed = ComposedTurnInput(
+                blocks=(
+                    TurnBlock(
+                        content="doctrine",
+                        metadata={
+                            "harness.prompt_block": {
+                                "layer": "harness_trunk",
+                                "block_id": "harness_trunk",
+                            }
+                        },
+                    ),
+                ),
+                surface_payloads={"domain": {"tool_specs": []}},
+                tool_handlers={},
+            )
+            doc = build_choose_action_prompt_document(
+                composed_input=composed,
+                opaque_launch_context={"run_id": "r-finalization-carry"},
+                context=context,
+                projection=projection,
+                journal_verbatim_keep_n=2,
+            )
+            slices = doc.prompt_body["structured_state"]["recent_tool_result_slices"]
+            carry = slices[-1]["prompt_carry_forward"]
+            payload = carry["payload"]
+            card = payload["finalization_decision_card"]
+            template = payload["retry_request_template"]
+            self.turn2_saw_exact_card = (
+                card["dependency_decisions"][0]["candidate_id"]
+                == "parcel_2_continuation_scope"
+                and template["correction_decisions"][0]["target_entity_id"]
+                == "p1_call2_distance"
+            )
+            # Resubmit template plus the missing dependency decision — no hydrate.
+            action_inputs = {
+                "use_current_mapping_lineage": template["use_current_mapping_lineage"],
+                "scope_dispositions": template["scope_dispositions"],
+                "closure_dispositions": template["closure_dispositions"],
+                "correction_decisions": template["correction_decisions"],
+                "dependency_decisions": [
+                    {
+                        "candidate_id": "parcel_2_continuation_scope",
+                        "disposition": "include",
+                        "status": "blocked",
+                    }
+                ],
+            }
+            self.turn2_resubmitted_from_template = True
+            self.turn2_used_hydrate = False
+            return ActionPlan(
+                action_type="prepare_deed_to_ir_final_package",
+                action_inputs=action_inputs,
+                idempotency_key="ik-prepare-2",
+                continuity_journal_entry={"step": "retry from carry-forward card"},
+            )
+        return ActionPlan(
+            complete_run=True,
+            idempotency_key="ik-finalization-done",
+            rationale="finalization recovered from carry-forward",
+            continuity_journal_entry={"step": "done"},
+            state_patch={"mission": {"work_universe_posture": "audited"}},
+        )
+
+
+def test_finalization_carry_forward_recovery_without_hydration() -> None:
+    """Refusal card remains exact in next prompt; retry resubmits without hydrate."""
+    pack = _FinalizationCarryForwardRecoverPack()
+    sm = _FinalizationCarryForwardRefuseOnceSessionManager()
+    result = run_orchestration_kernel_loop(
+        orchestration_adapter=pack,
+        session_manager=sm,
+        session_id="sess-finalization-carry",
+        run_artifact_ref=None,
+        request_id_prefix="req-finalization-carry",
+        opaque_run_context={},
+        max_iterations=5,
+    )
+    assert result.terminal_class == "completed"
+    assert len(sm.steps) == 2
+    assert pack.turn2_saw_exact_card
+    assert pack.turn2_resubmitted_from_template
+    assert pack.turn2_used_hydrate is False
+    assert sm.steps[0].action_id == "prepare_deed_to_ir_final_package"
+    assert sm.steps[1].action_id == "prepare_deed_to_ir_final_package"
+    assert sm.steps[1].inputs["dependency_decisions"][0]["candidate_id"] == (
+        "parcel_2_continuation_scope"
+    )
+    assert sm.steps[1].inputs["correction_decisions"][0]["target_entity_id"] == (
+        "p1_call2_distance"
+    )
+
+
 def test_image_evidence_empty_list_when_no_evidence() -> None:
     """When image_evidence is empty, tool_result_raw.image_evidence_summary should be None."""
     observer = _TurnCompletionRecorder()

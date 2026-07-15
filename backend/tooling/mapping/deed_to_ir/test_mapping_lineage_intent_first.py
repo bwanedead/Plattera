@@ -817,3 +817,191 @@ def test_hydrate_mapping_annotates_current_and_superseded(monkeypatch) -> None:
         assert current_row["lineage_status"] == "current"
         assert current_row["lineage_current"] is True
         assert current_row["mapping_review"]["lineage_status"] == "current"
+
+
+def _assert_prompt_contains_finalization_ids(prompt_blob: str) -> None:
+    for token in (
+        "p1_call2_distance",
+        "parcel_2_continuation_scope",
+        "parcel_1",
+        "parcel_2",
+        "layer_1_deed_meaning_to_ir_fidelity",
+        "layer_2_ir_geometry_integrity",
+        "layer_3_external_dependency_representability_completeness",
+        "layer_4_map_handoffability_scoped_completion",
+    ):
+        assert token in prompt_blob, f"missing {token} in next-turn prompt projection"
+
+
+def test_intent_first_decision_card_survives_next_turn_prompt_projection(monkeypatch) -> None:
+    """Exact card/template IDs must appear in the next choose-action prompt document."""
+    import json
+
+    from harness.execution.session import ExecutionSessionManager
+    from harness.mission_state import new_mission_state, new_resolution_state
+    from harness.runtime.composition.contracts import ComposedTurnInput, TurnBlock
+    from harness.runtime.memory import LoopMemoryState
+    from harness.runtime.memory.continuity_journal import build_kernel_step_result_record
+    from harness.runtime.orchestration.contracts import OrchestratorContext, SharedStateProjection
+    from harness.runtime.orchestration.llm_prompt_builder import build_choose_action_prompt_document
+
+    with tempfile.TemporaryDirectory() as tmp:
+        persistence, ir_ref, mapping_ref, submitted, ctx = _submit_with_lineage(
+            tmp,
+            leg2_distance=_PRACTICE_CORRECT_DISTANCE,
+            monkeypatch=monkeypatch,
+        )
+        result = prepare_deed_to_ir_final_package(
+            dossier_id="d-preview",
+            persistence=persistence,
+            use_current_mapping_lineage=True,
+            # Carry authored scopes so parcel_1/parcel_2 appear in retry_request_template.
+            scope_dispositions=_compact_dispositions()["scope_dispositions"],
+            resolution_state_snapshot=_resolution_snapshot(),
+            **ctx,
+        )
+        assert result["executed"] is False
+        assert result["refusal"]["reason_code"] == "missing_finalization_decisions"
+        assert "prompt_carry_forward" in result["outputs"]
+
+        record = build_kernel_step_result_record(
+            kernel_turn_index=1,
+            action_type="prepare_deed_to_ir_final_package",
+            execution_state="refused",
+            execution_reason_code="missing_finalization_decisions",
+            latest_refs_snapshot={},
+            outputs=result["outputs"],
+            artifact_refs=[],
+        )
+        loop_memory = LoopMemoryState()
+        loop_memory.iterations = 2
+        loop_memory.continuity.kernel_step_result_records.append(record)
+        context = OrchestratorContext(
+            session_manager=ExecutionSessionManager(),
+            session_id="sess-d2ir-carry",
+            loop_memory=loop_memory,
+            request_id_prefix="req-d2ir-carry",
+            opaque_run_context={},
+            prompt_event_observer=None,
+            raw_llm_io_observer=None,
+        )
+        composed = ComposedTurnInput(
+            blocks=(
+                TurnBlock(
+                    content="doctrine",
+                    metadata={
+                        "harness.prompt_block": {
+                            "layer": "harness_trunk",
+                            "block_id": "harness_trunk",
+                        }
+                    },
+                ),
+            ),
+            surface_payloads={"domain": {"tool_specs": []}},
+            tool_handlers={},
+        )
+        doc = build_choose_action_prompt_document(
+            composed_input=composed,
+            opaque_launch_context={"run_id": "r-d2ir-carry"},
+            context=context,
+            projection=SharedStateProjection(
+                mission_state=new_mission_state(
+                    mission_id="m-d2ir", loop_family="orchestration_kernel"
+                ),
+                resolution_state=new_resolution_state(),
+            ),
+            journal_verbatim_keep_n=2,
+        )
+        prompt_blob = json.dumps(doc.prompt_body, ensure_ascii=False, default=str)
+        _assert_prompt_contains_finalization_ids(prompt_blob)
+        slices = doc.prompt_body["structured_state"]["recent_tool_result_slices"]
+        carry = slices[-1]["prompt_carry_forward"]
+        assert carry["payload"]["reason_code"] == "missing_finalization_decisions"
+        assert carry["payload"]["finalization_decision_card"]["required_lanes"]
+
+
+def test_intent_first_retry_template_preserves_authored_correction_row(monkeypatch) -> None:
+    """Carried correction rows in retry_request_template remain intact in the next prompt."""
+    import json
+
+    from harness.execution.session import ExecutionSessionManager
+    from harness.mission_state import new_mission_state, new_resolution_state
+    from harness.runtime.composition.contracts import ComposedTurnInput, TurnBlock
+    from harness.runtime.memory import LoopMemoryState
+    from harness.runtime.memory.continuity_journal import build_kernel_step_result_record
+    from harness.runtime.orchestration.contracts import OrchestratorContext, SharedStateProjection
+    from harness.runtime.orchestration.llm_prompt_builder import build_choose_action_prompt_document
+
+    correction = _correction_decision()
+    with tempfile.TemporaryDirectory() as tmp:
+        persistence, ir_ref, mapping_ref, submitted, ctx = _submit_with_lineage(
+            tmp,
+            leg2_distance=_PRACTICE_CORRECT_DISTANCE,
+            monkeypatch=monkeypatch,
+        )
+        result = prepare_deed_to_ir_final_package(
+            dossier_id="d-preview",
+            persistence=persistence,
+            use_current_mapping_lineage=True,
+            correction_decisions=[correction],
+            resolution_state_snapshot=_resolution_snapshot(),
+            **ctx,
+            **_compact_dispositions(),
+        )
+        assert result["executed"] is False
+        template = result["outputs"]["retry_request_template"]
+        assert template["correction_decisions"][0] == correction
+
+        record = build_kernel_step_result_record(
+            kernel_turn_index=1,
+            action_type="prepare_deed_to_ir_final_package",
+            execution_state="refused",
+            execution_reason_code="missing_finalization_decisions",
+            latest_refs_snapshot={},
+            outputs=result["outputs"],
+            artifact_refs=[],
+        )
+        loop_memory = LoopMemoryState()
+        loop_memory.iterations = 2
+        loop_memory.continuity.kernel_step_result_records.append(record)
+        context = OrchestratorContext(
+            session_manager=ExecutionSessionManager(),
+            session_id="sess-d2ir-row",
+            loop_memory=loop_memory,
+            request_id_prefix="req-d2ir-row",
+            opaque_run_context={},
+            prompt_event_observer=None,
+            raw_llm_io_observer=None,
+        )
+        composed = ComposedTurnInput(
+            blocks=(
+                TurnBlock(
+                    content="doctrine",
+                    metadata={
+                        "harness.prompt_block": {
+                            "layer": "harness_trunk",
+                            "block_id": "harness_trunk",
+                        }
+                    },
+                ),
+            ),
+            surface_payloads={"domain": {"tool_specs": []}},
+            tool_handlers={},
+        )
+        doc = build_choose_action_prompt_document(
+            composed_input=composed,
+            opaque_launch_context={"run_id": "r-d2ir-row"},
+            context=context,
+            projection=SharedStateProjection(
+                mission_state=new_mission_state(
+                    mission_id="m-d2ir", loop_family="orchestration_kernel"
+                ),
+                resolution_state=new_resolution_state(),
+            ),
+            journal_verbatim_keep_n=2,
+        )
+        carry = doc.prompt_body["structured_state"]["recent_tool_result_slices"][-1][
+            "prompt_carry_forward"
+        ]
+        assert carry["payload"]["retry_request_template"]["correction_decisions"][0] == correction
+        assert "p1_call2_distance" in json.dumps(doc.prompt_body, default=str)

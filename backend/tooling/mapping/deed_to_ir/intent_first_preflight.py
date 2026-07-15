@@ -18,6 +18,7 @@ from .dependency_decisions import dependency_ids_covering_candidates
 from .persistence_io import retryable_refusal
 
 _PREFLIGHT_REASON = "missing_finalization_decisions"
+_PROMPT_CARRY_FORWARD_SCHEMA = "prompt_carry_forward.v1"
 
 
 def evaluate_intent_first_decision_preflight(
@@ -123,6 +124,15 @@ def evaluate_intent_first_decision_preflight(
         "missing_finalization_decisions": missing_shell,
         "finalization_decision_card": card,
         "retry_request_template": retry_template,
+        "prompt_carry_forward": {
+            "schema_version": _PROMPT_CARRY_FORWARD_SCHEMA,
+            "payload": {
+                "action_type": "prepare_deed_to_ir_final_package",
+                "reason_code": _PREFLIGHT_REASON,
+                "finalization_decision_card": card,
+                "retry_request_template": retry_template,
+            },
+        },
         "repair_hint": (
             "At the first intent-first preview attempt, submit all required decision "
             "lanes together. If a finalization decision card is returned, resubmit "
