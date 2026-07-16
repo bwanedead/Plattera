@@ -5,16 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from domains.mapping.deed_to_ir.payloads.final_package_example import (
-    build_prepare_deed_to_ir_final_package_example_request,
-)
 from domains.mapping.deed_to_ir.payloads.finalize_current_output_tool_schema import (
     build_finalize_current_deed_to_ir_output_example_request,
     build_finalize_current_deed_to_ir_output_request_json_shape,
-)
-from domains.mapping.deed_to_ir.payloads.final_package_preview_tool_schema import (
-    build_prepare_deed_to_ir_final_package_request_json_shape,
-    build_publish_deed_to_ir_output_request_json_shape_with_preview,
 )
 from tooling.mapping.deed_to_ir.feature_graph_contract_projection import (
     build_compact_feature_node_request_schema,
@@ -417,15 +410,15 @@ def build_deed_to_ir_tool_specs() -> tuple[SemanticToolSpec, ...]:
             },
             expected_result_shape=(
                 "On success: outputs.mapping_review carries compact refs, counts, recommended_review_refs, "
-                "recommended_publish_refs, active_handoff_context (sole hot mapping/IR candidate when lineage "
-                "is current and selected for next preview), current_mapping_lineage (canonical current "
-                "mapping/IR pair with lineage_current / use_for_next_preview), lineage_lock (compatibility "
+                "recommended_publish_refs (inspection handles only), active_handoff_context (sole hot "
+                "mapping/IR candidate when lineage is current), current_mapping_lineage (canonical current "
+                "mapping/IR pair with lineage_current), lineage_lock (compatibility "
                 "projection of the same pair), sanity_review (feature_metrics, course_leg_tables, "
                 "endpoint_displacement_candidates, recommended_source_evidence_refs, review_questions), "
                 "draft_patch_targets (mechanical CourseTraverse patch locations from course leg source entity ids), "
                 "and optional correction_posture with matching_patch_target_id / patch_update_shells. "
                 "After a successful remap, use active_handoff_context / current_mapping_lineage (or lineage_lock) "
-                "for the next intent-first preview — do not mix prior mapping/IR refs. Prefer "
+                "as the sole hot mapping/IR candidate for the next finalization — do not mix prior mapping/IR refs. Prefer "
                 "mapping_review.recommended_review_refs "
                 "over @this.result.artifact_refs[] for post-submit inspection. artifact_refs still lists all "
                 "persisted refs. Top-level image_evidence carries clean/control PNG payloads. outputs also "
@@ -471,138 +464,6 @@ def build_deed_to_ir_tool_specs() -> tuple[SemanticToolSpec, ...]:
             ),
         ),
         SemanticToolSpec(
-            tool_id="prepare_deed_to_ir_final_package",
-            category="write",
-            purpose=(
-                "Prepare one confirmable final package preview before publish. Preferred path is intent-first: "
-                "use the current mapping lineage and agent-authored correction decisions; deterministic code "
-                "assembles strict correction rows and derives mechanical artifact lineage. Advanced path still "
-                "accepts explicit mapping refs and full package rows. Does not write final output pointers."
-            ),
-            expected_request_shape=(
-                "Preferred (intent-first): use_current_mapping_lineage=true; "
-                "scope_dispositions[] and closure_dispositions[] with agent-authored status "
-                "(expanded mechanically into strict rows — statuses are never inferred); "
-                "correction_decisions[] with target_entity_id, posture, resolution_used_by_ir, "
-                "recommended_action, and rationale when correction posture is active; "
-                "dependency_decisions[] when known dependency candidates exist "
-                "(disposition include + status, or not_applicable + rationale). "
-                "Optional reuse_agent_authored_finalization_state=true reuses a prior agent-authored "
-                "preview when one already exists — not required for a fresh-run first preview. "
-                "Do not restate mapping/IR/compile/judge/render refs, inherited/selected typed values, "
-                "correction IDs, or basis refs already on the candidate. "
-                "If any required decision lanes are absent, returns one retryable "
-                "missing_finalization_decisions response with finalization_decision_card "
-                "(all currently required lanes together) and retry_request_template "
-                "(inert carry-forward of already supplied compact rows). Resubmit the "
-                "template plus missing agent-authored decisions directly — do not hydrate "
-                "artifacts merely to recover facts already on the card. "
-                "Malformed or incomplete supplied rows may still return narrow retryable "
-                "refusals after lanes are present. "
-                "A blocked scope alone is not a dependency row. "
-                "If current lineage is missing/stale, returns retryable current_mapping_lineage_missing or "
-                "current_mapping_lineage_stale. "
-                "Advanced/compatibility: mapping_artifact_ref required; expected_ir_artifact_ref optional; "
-                "scope_results, external_dependencies, closure_dimensions, notes, and upstream_corrections as "
-                "strict final-package rows. notes are commentary only; upstream_corrections is the machine-readable "
-                "lane when final IR intentionally differs from inherited handoff/resolution/mapping operands. "
-                "When final IR differs from inherited values and that difference is intentional, "
-                "report it in upstream_corrections — not only in notes. "
-                "scope_results and all four closure_dimensions are required on the explicit path. "
-                "Invalid rows return retryable validation_errors plus rejected_payload_summary, "
-                "row_contract_summary, preserve_sections, and repair_hint. "
-                "When selected IR mechanically differs from inherited mapping operands/resolution "
-                "snapshot and upstream_corrections is empty (explicit path), returns retryable "
-                "upstream_corrections_required with correction_posture, correction_contract_card "
-                "(deed_to_ir:correction_contract), retry_package_shell (copyable lineage + package rows), "
-                "upstream_corrections_template (copyable strict row with rationale/upstream_value/corrected_value), "
-                "candidate deltas, and repair_hint — no preview is persisted. "
-                "Invalid upstream_corrections rows are validated before lineage checks; combined row + "
-                "mapping_ir_lineage_mismatch failures return bounded validation_errors plus lineage_mismatch. "
-                "Expected IR mismatch returns retryable mapping_ir_lineage_mismatch and persists nothing. "
-                "Missing mapping ref (explicit path) returns retryable mapping_artifact_not_found with "
-                "valid_mapping_refs and repair_hint; nothing is persisted."
-            ),
-            expected_request_json_shape=build_prepare_deed_to_ir_final_package_request_json_shape(),
-            example_request=build_prepare_deed_to_ir_final_package_example_request(),
-            batching={
-                "allowed": False,
-                "side_effect_class": "write",
-            },
-            expected_result_shape=(
-                "On success: final_package_preview_ref, final_package_preview_revision_ref, working_preview_ref "
-                "(alias of revision ref), derived selected artifact refs, review_summary (compile/judge/render "
-                "counts, coordinate space, world bbox), bounded row summaries, publish_ready_candidate "
-                "(mechanical only — not semantic correctness), optional correction_lane_advisory (non-blocking "
-                "steering when upstream_corrections is empty but package text mentions correction language), "
-                "recommended_publish_request with final_package_preview_ref, and preview_ready_summary when "
-                "publish_ready_candidate=true "
-                "(expected_next=publish_deed_to_ir_output; hydrate_preview_optional=true). "
-                "Intent-first success also returns finalization_status=preview_ready, selected_lineage, "
-                "correction_summary (typed selected_ir_value when available), and current_mapping_lineage. "
-                "On upstream_corrections_required refusal: correction_posture, correction_contract_card, "
-                "retry_package_shell, upstream_corrections_template, forbidden_fields, field_mapping_hints, "
-                "candidate_deltas, repair_hint — hydrate deed_to_ir:correction_contract "
-                "for the full card. Retry by reusing retry_package_shell refs/rows, copying "
-                "upstream_corrections_template with exact field names (no summary/inherited_value/ir_value), and adding "
-                "upstream_corrections only — or prefer intent-first correction_decisions. "
-                "Use recommended_publish_request for publish. Use working_preview_ref only when targeted "
-                "preview hydration is genuinely needed. This tool does not emit a derived_ref_id hydrate-next "
-                "placeholder. On validation failure: validation_errors, rejected_payload_summary "
-                "(counts/keys only), row_contract_summary, preserve_sections, repair_hint. On incomplete "
-                "package: missing_sections, missing_closure_dimensions, repair_hint. No filesystem paths or "
-                "image bytes."
-            ),
-        ),
-        SemanticToolSpec(
-            tool_id="publish_deed_to_ir_output",
-            category="write",
-            purpose=(
-                "Publish one agent-authored deed-to-IR handoff package. Preferred path: pass "
-                "final_package_preview_ref only — rows are frozen from the preview. Direct mapping_artifact_ref "
-                "publish remains supported for backward compatibility but is advanced."
-            ),
-            expected_request_shape=(
-                "Preferred after preview: copy recommended_publish_request from prepare_deed_to_ir_final_package, "
-                "or pass final_package_preview_ref only — do not pass row fields; prepare a new preview to change "
-                "scope/dependency/closure/notes. When preview_ready_summary.expected_next=publish_deed_to_ir_output, "
-                "publish is the normal next artifact-writing move. Do not wait for perfect local posture if the "
-                "preview is valid and remaining local state patch is only audit mirroring. "
-                "Direct (advanced): mapping_artifact_ref plus agent-authored scope_results, external_dependencies, "
-                "closure_dimensions, notes, optional upstream_corrections, and optional expected_ir_artifact_ref. "
-                "upstream_corrections document upstream handoff/transcript/resolution deltas the final IR relied "
-                "on — not ordinary external dependencies and not live transcript repair. Set "
-                "resolution_used_by_ir=true when the final IR used the corrected value; do not report the same "
-                "delta only in notes. "
-                "Publish revalidates preview identity and mapping lineage; stale preview returns retryable "
-                "final_package_preview_stale or mapping_ir_lineage_mismatch."
-            ),
-            expected_request_json_shape=build_publish_deed_to_ir_output_request_json_shape_with_preview(),
-            example_request={
-                "final_package_preview_ref": "deed_to_ir:final_package_preview:rev:0001",
-            },
-            batching={
-                "allowed": False,
-                "side_effect_class": "write",
-            },
-            expected_result_shape=(
-                "On success: artifact_refs begin with deed_to_ir:output and revision ref, then mapping package "
-                "and render refs. outputs include output_ref, output_revision_ref, selected artifact refs, "
-                "bounded scope/dependency/closure counts, upstream_correction_count and compact correction summaries "
-                "when present, final_output_summary "
-                "(ready_for_completion_candidate=true means the final package is mechanically ready for "
-                "completion review; hydrate_output_ref_optional=true means hydration is normally unnecessary). "
-                "Normal next move after successful publish: inspect the returned summary and, if it matches "
-                "intent, call complete_run — do not do posture-only state repair. "
-                "Without filesystem paths or image bytes. Hydrating deed_to_ir:output after publish is optional "
-                "unless deeper package inspection is needed. On refusal: publish_gate_category, "
-                "publish_gate_reason_code, preview_still_valid when applicable, and repair_hint. "
-                "Posture/audit gate refusals do not invalidate a prepared preview — retry the same "
-                "final_package_preview_ref after patching posture. When expected_ir_artifact_ref mismatches "
-                "the mapping source IR, publish refuses retryably with mapping_ir_lineage_mismatch."
-            ),
-        ),
-        SemanticToolSpec(
             tool_id="hydrate_artifact_refs",
             category="read",
             purpose=(
@@ -623,14 +484,14 @@ def build_deed_to_ir_tool_specs() -> tuple[SemanticToolSpec, ...]:
                 "or image:assoc:* refs. max_refs: optional cap (default 8, max 32). "
                 "working_draft_ref: optional feature_graph:ir:* ref used to label compile/judge hydration rows "
                 "with is_current_for_working_draft. Hydrating feature_graph:mapping:* returns mapping_review "
-                "(compact lineage, counts, recommended_review_refs, recommended_publish_refs, sanity_review, "
-                "draft_patch_targets, and correction_posture when available). Hydrating "
+                "(compact lineage, counts, recommended_review_refs, recommended_publish_refs as inspection "
+                "handles, sanity_review, draft_patch_targets, and correction_posture when available). Hydrating "
                 "deed_to_ir:final_package_preview:* returns selected artifact refs, row summaries, review_summary, "
-                "publish_ready_candidate, and recommended_publish_request. Hydrating image:derived:* or "
-                "image:assoc:* returns bounded upstream source-evidence descriptors (read-only; no transcript-edit "
-                "mutation). Prefer mapping/preview ref hydration over bulk artifact hydration; hydrate control/"
-                "geometry sidecars or targeted source evidence only when visual, coordinate, or source inspection "
-                "is needed."
+                "and publish_ready_candidate for read-only audit of an already prepared preview. Hydrating "
+                "image:derived:* or image:assoc:* returns bounded upstream source-evidence descriptors "
+                "(read-only; no transcript-edit mutation). Prefer mapping/preview ref hydration over bulk "
+                "artifact hydration; hydrate control/geometry sidecars or targeted source evidence only when "
+                "visual, coordinate, or source inspection is needed."
             ),
             expected_request_json_shape={
                 "type": "object",
@@ -662,12 +523,12 @@ def build_deed_to_ir_tool_specs() -> tuple[SemanticToolSpec, ...]:
             expected_result_shape=(
                 "outputs.results: hydrated artifacts or sidecars keyed by ref with bounded payloads. "
                 "Mapping rows include mapping_review with source IR, sidecar refs, counts, "
-                "recommended_publish_refs, draft_patch_targets, and correction_posture when available. "
-                "Preview rows include selected_artifacts, scope_summaries, "
-                "review_summary, publish_ready_candidate, and recommended_publish_request. Compile/judge rows "
+                "recommended_publish_refs (inspection handles only), draft_patch_targets, and "
+                "correction_posture when available. Preview rows include selected_artifacts, scope_summaries, "
+                "review_summary, and publish_ready_candidate for audit — publication is owned by "
+                "finalize_current_deed_to_ir_output, not by copying preview request shells. Compile/judge rows "
                 "include artifact_ref, parent_ir_ref, parent_graph_id, parent_draft_version, and optional "
-                "is_current_for_working_draft when working_draft_ref is supplied. To publish, prefer "
-                "recommended_publish_request.final_package_preview_ref from a prepared preview. "
+                "is_current_for_working_draft when working_draft_ref is supplied. "
                 "PNG sidecars return top-level image_evidence. outputs.errors: per-ref not_found, prefix, or scope errors."
             ),
         ),

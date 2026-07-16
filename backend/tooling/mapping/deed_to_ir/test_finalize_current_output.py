@@ -637,6 +637,9 @@ def test_publication_failure_retains_same_preview_ref(monkeypatch) -> None:
         result = _finalize(persistence, ctx, **_complete_request())
         assert result["executed"] is False
         assert result["refusal"]["reason_code"] == "publication_in_progress"
+        assert result["refusal"]["retryable"] is True
+        assert result["refusal"]["blocked_by_invariant"] is False
+        assert result["outputs"]["next_required_action"] == "finalize_current_deed_to_ir_output"
         disk = read_finalization_session(
             dossier_id="d-preview",
             transcription_id=ctx["transcription_id"],
@@ -886,16 +889,17 @@ def test_pending_preview_ready_and_published_prompt_projections() -> None:
     assert compact_finalization_session_for_prompt(stale) is None
 
 
-def test_legacy_prepare_and_publish_remain_callable() -> None:
+def test_prepare_and_publish_absent_from_agent_surface_but_callable_internally() -> None:
     from domains.mapping.deed_to_ir.execution.tool_specs import build_deed_to_ir_tool_specs
+    from tooling.mapping.deed_to_ir.final_package_preview_persistence import prepare_deed_to_ir_final_package
+    from tooling.mapping.deed_to_ir.output_persistence import publish_deed_to_ir_output
 
     ids = [spec.tool_id for spec in build_deed_to_ir_tool_specs()]
     assert "finalize_current_deed_to_ir_output" in ids
-    assert "prepare_deed_to_ir_final_package" in ids
-    assert "publish_deed_to_ir_output" in ids
-    assert ids.index("finalize_current_deed_to_ir_output") < ids.index(
-        "prepare_deed_to_ir_final_package"
-    )
+    assert "prepare_deed_to_ir_final_package" not in ids
+    assert "publish_deed_to_ir_output" not in ids
+    assert callable(prepare_deed_to_ir_final_package)
+    assert callable(publish_deed_to_ir_output)
 
 
 def test_no_deterministic_statuses_or_dispositions_before_agent_decisions() -> None:
@@ -1215,5 +1219,7 @@ def test_prepare_without_immutable_revision_ref_refuses_publish(monkeypatch) -> 
                 result["refusal"]["reason_code"]
                 == "final_package_preview_revision_ref_missing"
             )
-            assert result["refusal"]["retryable"] is False
+            assert result["refusal"]["retryable"] is True
+            assert result["refusal"]["blocked_by_invariant"] is False
+            assert result["outputs"]["next_required_action"] == "submit_ir_for_mapping"
             publish_mock.assert_not_called()

@@ -45,9 +45,21 @@
   Prompt projects compact `active_finalization_session` for pending_decisions,
   preview_ready, and published (stale excluded). Decisions never migrate across
   lineages; empty scope inventory persists `scope_inventory_unavailable`.
-  Compact finalizer: `finalize_current_deed_to_ir_output`
-  (`finalization_decisions.py` + `finalize_current_output.py`); prepare/publish
-  remain advanced compatibility paths.
+  Sole live finalization action: `finalize_current_deed_to_ir_output`
+  (`finalization_decisions.py` + `finalize_current_output.py`). Lower-level
+  prepare/publish functions are internal compatibility primitives only.
+  Partial finalizer calls are not generic pre-dispatch publish attempts;
+  successful finalizer publication is the completion-anchor event.
+  Finalizer agent-visible results are normalized by `finalizer_result_boundary.py`:
+  reason-aware next-action routing (finalize vs submit_ir_for_mapping vs HITL/none);
+  never invent a next tool for unknown refusals; preserve reason-specific repair
+  prerequisites while scrubbing retired prepare/publish IDs/prose.
+  Canonically recoverable publisher refusals (`publication_in_progress`,
+  `final_pointer_write_failed`, unusable-preview codes) are reclassified to
+  retryable at this boundary even when internal publish emitted invariant refusals.
+  Agent-facing preview hydration omits `working_preview_ref`,
+  `recommended_publish_request`, and `preview_ready_summary` (internal prepare
+  outputs may still emit them).
 - `projection_module_ref` remains the normal state-projection module slot (unused for deed-to-IR).
 - Without usable current lineage, work items are left unclassified (never forced historical).
 

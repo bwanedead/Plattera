@@ -57,7 +57,6 @@ def detect_correction_posture(
         "active": False,
         "reason_codes": [],
         "candidate_deltas": [],
-        "contract_ref": CORRECTION_CONTRACT_REF,
     }
     if not isinstance(resolution_state_snapshot, Mapping):
         return inactive
@@ -97,7 +96,6 @@ def detect_correction_posture(
         "active": True,
         "reason_codes": reason_codes,
         "candidate_deltas": candidate_deltas[:MAX_CANDIDATE_DELTAS],
-        "contract_ref": CORRECTION_CONTRACT_REF,
     }
 
 
@@ -108,7 +106,6 @@ def compact_correction_posture_for_projection(posture: Mapping[str, Any] | None)
     compact: dict[str, Any] = {
         "active": True,
         "reason_codes": list(posture.get("reason_codes") or []),
-        "contract_ref": posture.get("contract_ref") or CORRECTION_CONTRACT_REF,
         "candidate_delta_count": len(posture.get("candidate_deltas") or []),
     }
     deltas = posture.get("candidate_deltas")

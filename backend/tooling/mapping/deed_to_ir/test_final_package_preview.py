@@ -350,6 +350,9 @@ def test_preview_hydration_returns_bounded_summaries(monkeypatch) -> None:
             **_valid_rows(),
         )
         preview_ref = prepared["outputs"]["final_package_preview_revision_ref"]
+        # Internal prepare outputs may still carry legacy publish-launchpad fields.
+        assert prepared["outputs"]["recommended_publish_request"]["final_package_preview_ref"] == preview_ref
+        assert prepared["outputs"]["working_preview_ref"] == preview_ref
 
         hydrated = hydrate_artifact_refs(
             dossier_id="d-preview",
@@ -362,13 +365,54 @@ def test_preview_hydration_returns_bounded_summaries(monkeypatch) -> None:
         row = hydrated["outputs"]["results"][0]
         assert row["artifact_type"] == "deed_to_ir_final_package_preview"
         assert row["publish_ready_candidate"] is True
-        assert row["recommended_publish_request"]["final_package_preview_ref"] == preview_ref
+        assert row["final_package_preview_revision_ref"] == preview_ref
+        assert "working_preview_ref" not in row
+        assert "recommended_publish_request" not in row
+        assert "preview_ready_summary" not in row
+        assert "prepare_deed_to_ir_final_package" not in json.dumps(row)
+        assert "publish_deed_to_ir_output" not in json.dumps(row)
         assert row["selected_artifacts"]["ir_artifact_ref"] == ir_ref
         assert row["scope_summaries"]
         assert row["review_summary"] is not None
         dumped = json.dumps(hydrated)
         assert "\\\\" not in dumped
         assert ".png" not in dumped or "artifact://" in dumped
+
+
+def test_build_preview_hydration_payload_omits_retired_publish_workflow() -> None:
+    from tooling.mapping.deed_to_ir.final_package_preview_projection import (
+        build_preview_hydration_payload,
+    )
+
+    preview_ref = "deed_to_ir:final_package_preview:rev:0001"
+    payload = build_preview_hydration_payload(
+        ref_id=preview_ref,
+        preview={
+            "schema_version": 1,
+            "selected_artifacts": {
+                "ir_artifact_ref": "feature_graph:ir:example",
+                "mapping_artifact_ref": "feature_graph:mapping:example",
+            },
+            "scope_results": [{"scope_id": "s1", "status": "complete"}],
+            "external_dependencies": [],
+            "closure_dimensions": [],
+            "notes": [],
+            "upstream_corrections": [],
+            "mechanical_review_summary": {"ok": True},
+            "lineage_summary": {"mapping_artifact_ref": "feature_graph:mapping:example"},
+            "publish_ready_candidate": True,
+        },
+        preview_revision_ref=preview_ref,
+    )
+    assert payload["final_package_preview_revision_ref"] == preview_ref
+    assert payload["publish_ready_candidate"] is True
+    assert payload["lineage_summary"]["mapping_artifact_ref"] == "feature_graph:mapping:example"
+    assert "working_preview_ref" not in payload
+    assert "recommended_publish_request" not in payload
+    assert "preview_ready_summary" not in payload
+    dumped = json.dumps(payload)
+    assert "publish_deed_to_ir_output" not in dumped
+    assert "prepare_deed_to_ir_final_package" not in dumped
 
 
 def test_timeline_renders_final_package_preview() -> None:

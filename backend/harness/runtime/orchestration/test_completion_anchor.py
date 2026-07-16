@@ -41,7 +41,7 @@ def _publish_result_record(
         outputs["final_package_preview_ref"] = preview_ref
     return {
         "kernel_turn_index": turn,
-        "action_type": "publish_deed_to_ir_output",
+        "action_type": "finalize_current_deed_to_ir_output",
         "execution_state": "executed",
         "artifact_refs": [
             "deed_to_ir:output",
@@ -77,7 +77,7 @@ def test_completion_anchor_satisfied_when_publish_and_refs_present():
     assert anchor["preview_ref"] == _PREVIEW_REF
 
 
-def test_completion_anchor_missing_when_publish_not_ready():
+def test_unsuccessful_finalize_does_not_satisfy_anchor():
     record = _publish_result_record()
     record["outputs_for_continuity"]["final_output_summary"] = {
         "ready_for_completion_candidate": False,
@@ -238,7 +238,7 @@ def test_timeline_renders_completion_anchor_from_observability():
     assert "deed_to_ir:output" in body
 
 
-def test_timeline_publish_result_renders_expected_next():
+def test_timeline_finalize_result_renders_expected_next():
     turn = {
         "tool_result_raw": {
             "execution_state": "executed",
@@ -249,31 +249,31 @@ def test_timeline_publish_result_renders_expected_next():
                 "final_output_summary": build_final_output_summary(publish_succeeded=True),
             },
         },
-        "tool_request": {"action_type": "publish_deed_to_ir_output"},
-        "parsed_action_plan": {"action_type": "publish_deed_to_ir_output"},
+        "tool_request": {"action_type": "finalize_current_deed_to_ir_output"},
+        "parsed_action_plan": {"action_type": "finalize_current_deed_to_ir_output"},
     }
     body = "\n".join(_render_tool_result(turn))
     assert "expected_next: complete_run" in body
 
 
-def test_timeline_renders_closure_enforcement_blocked_publish_gate():
+def test_timeline_renders_closure_enforcement_blocked_finalize_gate():
     from harness.audit.human_timeline import _render_closure_enforcement_block
 
     turn = {
         "terminal_decision": "closure_enforcement_blocked",
         "closure_enforcement_block": {
-            "blocked_action_id": "publish_deed_to_ir_output",
+            "blocked_action_id": "finalize_current_deed_to_ir_output",
             "closure_enforcement_reason_code": "work_universe_publish_not_audited",
             "publish_gate_category": "publish_posture_audit_gate",
             "preview_still_valid": True,
-            "next_repair_action": "Patch posture, then retry publish.",
+            "next_repair_action": "Patch posture, then retry finalize.",
         },
-        "tool_request": {"action_type": "publish_deed_to_ir_output"},
-        "parsed_action_plan": {"action_type": "publish_deed_to_ir_output"},
+        "tool_request": {"action_type": "finalize_current_deed_to_ir_output"},
+        "parsed_action_plan": {"action_type": "finalize_current_deed_to_ir_output"},
     }
     body = "\n".join(_render_closure_enforcement_block(turn))
     assert "Closure Enforcement Block" in body
-    assert "publish_deed_to_ir_output" in body
+    assert "finalize_current_deed_to_ir_output" in body
     assert "work_universe_publish_not_audited" in body
     assert "preview_still_valid: true" in body
 
@@ -285,3 +285,41 @@ def test_is_posture_mirror_blocker_classification():
     assert is_posture_mirror_blocker("work_universe_not_audited:partial", policy=policy)
     assert not is_posture_mirror_blocker("items_require_hitl:2", policy=policy)
     assert not is_posture_mirror_blocker("closure_requires_hitl", policy=policy)
+
+
+def test_historical_publish_action_does_not_satisfy_anchor():
+    historical_record = {
+        "kernel_turn_index": 5,
+        "action_type": "publish_deed_to_ir_output",
+        "execution_state": "executed",
+        "artifact_refs": [
+            "deed_to_ir:output",
+            "deed_to_ir:output:rev:0001",
+            _MAPPING_B,
+        ],
+        "outputs_for_continuity": {
+            "output_ref": "deed_to_ir:output",
+            "output_revision_ref": "deed_to_ir:output:rev:0001",
+            "mapping_artifact_ref": _MAPPING_B,
+            "ir_artifact_ref": "feature_graph:ir:example_scope_v1",
+            "final_package_preview_ref": _PREVIEW_REF,
+            "final_output_summary": build_final_output_summary(publish_succeeded=True),
+        },
+    }
+    anchor = evaluate_completion_anchor(
+        closure_policy=_closure_policy_dict(),
+        latest_refs=_latest_refs(),
+        step_result_records=[historical_record],
+    )
+    assert anchor is not None
+    assert anchor["satisfied"] is False
+
+
+def test_domain_surface_preview_bypass_false_and_empty_prepare_ids():
+    from domains.mapping.deed_to_ir import build_deed_to_ir_domain_pack
+
+    payload = build_deed_to_ir_domain_pack().build_surface_payload()
+    anchor_policy = payload["closure_policy"]["completion_anchor"]
+    assert anchor_policy["preview_ready_publish_bypass"] is False
+    assert anchor_policy["preview_prepare_action_ids"] == []
+    assert anchor_policy["publish_action_ids"] == ["finalize_current_deed_to_ir_output"]

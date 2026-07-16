@@ -140,7 +140,7 @@ def test_detector_active_for_run25_shaped_delta() -> None:
     )
     assert posture["active"] is True
     assert REASON_IR_DIFFERS in posture["reason_codes"]
-    assert posture["contract_ref"] == CORRECTION_CONTRACT_REF
+    assert "contract_ref" not in posture
     deltas = posture["candidate_deltas"]
     assert len(deltas) >= 1
     distance_delta = next(row for row in deltas if row.get("target_entity_id") == "p1_call2_distance")
@@ -401,7 +401,7 @@ def test_timeline_renders_correction_posture_and_refusal() -> None:
     body = "\n".join(lines)
     assert "correction_posture:" in body
     assert "ir_value_differs_from_inherited_operand" in body
-    assert "contract_ref: deed_to_ir:correction_contract" in body
+    assert "contract_ref" not in body
 
     refusal = upstream_corrections_required_refusal(
         correction_posture=posture,

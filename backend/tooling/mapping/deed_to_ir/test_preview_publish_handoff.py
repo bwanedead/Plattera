@@ -1,9 +1,9 @@
-"""Regression tests for economical preview-to-publish handoff (Brief Q)."""
+"""Regression tests for preview handoff projection and hydrate-next (internal prepare outputs)."""
 
 from __future__ import annotations
 
-from domains.mapping.deed_to_ir.execution.tool_specs import build_deed_to_ir_tool_specs
 from domains.mapping.deed_to_ir.domain_pack import build_deed_to_ir_domain_pack
+from domains.mapping.deed_to_ir.execution.tool_specs import build_deed_to_ir_tool_specs
 from harness.audit.human_timeline import _render_hydration_lane, _render_tool_result
 from harness.runtime.orchestration.hydrate_next import (
     enrich_hydrate_next_resolution_errors,
@@ -48,42 +48,26 @@ def test_timeline_renders_preview_ready_expected_next():
     assert f"recommended_publish_request: final_package_preview_ref={_REVISION_REF}" in body
 
 
-def test_prepare_tool_spec_mentions_working_preview_ref_not_derived_ref_id():
-    specs = {spec.tool_id: spec for spec in build_deed_to_ir_tool_specs()}
-    prepare = specs["prepare_deed_to_ir_final_package"]
-    publish = specs["publish_deed_to_ir_output"]
-    prepare_text = (
-        prepare.expected_result_shape
-        + prepare.expected_request_shape
-        + (prepare.purpose or "")
-    ).lower()
-    publish_text = (
-        publish.expected_request_shape
-        + (publish.expected_result_shape or "")
-        + (publish.purpose or "")
-    ).lower()
-    assert "working_preview_ref" in prepare_text
-    assert "derived_ref_id" not in prepare_text.replace("does not emit a derived_ref_id", "")
-    assert "recommended_publish_request" in prepare_text
-    assert "preview_ready_summary" in prepare_text
-    assert "preview_ready_summary.expected_next" in publish_text or "preview_ready_summary" in publish_text
+def test_agent_surface_exposes_finalize_not_prepare_or_publish():
+    ids = [spec.tool_id for spec in build_deed_to_ir_tool_specs()]
+    assert "finalize_current_deed_to_ir_output" in ids
+    assert "prepare_deed_to_ir_final_package" not in ids
+    assert "publish_deed_to_ir_output" not in ids
 
 
-def test_procedural_guidance_discourages_preview_rehydration_when_ready():
+def test_procedural_guidance_teaches_compact_finalizer_not_preview_launchpad():
     block = next(
         b
         for b in build_deed_to_ir_domain_pack().build_semantic_prompt_blocks()
         if b.block_id == "deed_to_ir_procedural_guidance"
     )
-    assert block.version == "v33"
-    text = block.text.lower()
-    assert "publish launchpad" in text
-    assert "do not hydrate the preview just to reread the same summary" in text
-    assert "derived_ref_id" in text
-    assert "prepare_deed_to_ir_final_package" in text
-    assert "working_preview_ref" in text
-    assert "economical" in text
-    assert "posture-only repair before publish" in text
+    assert block.version == "v34"
+    text = block.text
+    assert "finalize_current_deed_to_ir_output" in text
+    assert "prepare_deed_to_ir_final_package" not in text
+    assert "publish_deed_to_ir_output" not in text
+    assert "publish launchpad" not in text.lower()
+    assert "recommended_publish_request" not in text
 
 
 def test_derived_ref_id_after_preview_emits_advisory_hint():

@@ -31,11 +31,10 @@ def test_manifest_tool_ids_match_tool_specs() -> None:
         "patch_ir_draft",
         "submit_ir_for_mapping",
         "finalize_current_deed_to_ir_output",
-        "prepare_deed_to_ir_final_package",
-        "publish_deed_to_ir_output",
         "hydrate_artifact_refs",
         "list_feature_graph_artifacts",
     )
+    assert len(manifest.declared_semantic_tool_ids) == 8
     assert manifest.domain_id == "deed_to_ir"
     assert manifest.family_id == "mapping"
     assert manifest.display_name == "Deed To IR"
@@ -57,20 +56,18 @@ def test_ir_tool_specs_expose_core_contract_and_capability_filters() -> None:
     assert "starter_contract" in describe.expected_result_shape.lower()
 
 
-def test_tool_specs_emphasize_operand_lane_and_posture_publish_flow() -> None:
+def test_tool_specs_emphasize_operand_lane_and_finalize_flow() -> None:
     specs = {spec.tool_id: spec for spec in build_deed_to_ir_tool_specs()}
     hydrate = specs["hydrate_deed_to_ir_input"]
     hydrate_refs = specs["hydrate_artifact_refs"]
-    prepare = specs["prepare_deed_to_ir_final_package"]
-    publish = specs["publish_deed_to_ir_output"]
+    finalize = specs["finalize_current_deed_to_ir_output"]
 
     assert "mapping_operands is the compact authoring operand lane" in hydrate.purpose
     assert "deferred_for_operand_lane" in hydrate.expected_result_shape.lower()
     assert "operand_suite_ref" in hydrate.expected_result_shape.lower()
     assert "deed_to_ir:operands:" in hydrate_refs.purpose.lower()
-    assert "publish_ready_candidate=true" in prepare.expected_result_shape.lower()
-    assert "posture" in publish.expected_request_shape.lower()
-    assert "final_package_preview_ref" in publish.purpose.lower()
+    assert "final_package_preview_ref" in finalize.expected_result_shape.lower()
+    assert "next_required_action=complete_run" in finalize.expected_result_shape.lower()
 
 
 def test_hydrate_tool_spec_exposes_resolution_projection_limits() -> None:
@@ -103,94 +100,9 @@ def test_hydrate_tool_spec_exposes_resolution_projection_limits() -> None:
     assert "semantic" not in save.expected_request_shape.lower()
 
 
-def test_publish_tool_spec_exposes_row_contracts_from_models() -> None:
-    from domains.mapping.deed_to_ir.payloads.published_output import (
-        ALLOWED_CLOSURE_DIMENSION_IDS,
-        MAX_CLOSURE_DIMENSIONS,
-        MAX_EXTERNAL_DEPENDENCIES,
-        MAX_REF_LENGTH,
-        MAX_ROW_REFS,
-        MAX_SCOPE_RESULTS,
-        MAX_SUMMARY_LENGTH,
-    )
-
-    publish = {spec.tool_id: spec for spec in build_deed_to_ir_tool_specs()}["publish_deed_to_ir_output"]
-    assert publish.expected_request_json_shape["oneOf"]
-    direct_shape = publish.expected_request_json_shape["oneOf"][1]
-    preview_shape = publish.expected_request_json_shape["oneOf"][0]
-    assert preview_shape["required"] == ["final_package_preview_ref"]
-    shape = direct_shape
-    assert shape["additionalProperties"] is False
-    assert shape["required"] == ["mapping_artifact_ref"]
-    assert "expected_ir_artifact_ref" in shape["properties"]
-
-    scope = shape["properties"]["scope_results"]
-    assert scope["maxItems"] == MAX_SCOPE_RESULTS
-    scope_item = scope["items"]
-    assert scope_item["additionalProperties"] is False
-    assert scope_item["required"] == ["scope_id", "status"]
-    scope_props = scope_item["properties"]
-    assert set(scope_props) == {
-        "scope_id",
-        "status",
-        "title",
-        "summary",
-        "basis_refs",
-        "blocker_refs",
-        "dependency_refs",
-    }
-    assert scope_props["scope_id"]["maxLength"] == 128
-    assert scope_props["basis_refs"]["maxItems"] == MAX_ROW_REFS
-    assert scope_props["basis_refs"]["items"]["maxLength"] == MAX_REF_LENGTH
-    assert scope_props["blocker_refs"]["maxItems"] == MAX_ROW_REFS
-    assert scope_props["blocker_refs"]["items"]["maxLength"] == MAX_REF_LENGTH
-
-    deps = shape["properties"]["external_dependencies"]
-    assert deps["maxItems"] == MAX_EXTERNAL_DEPENDENCIES
-    dep_item = deps["items"]
-    assert dep_item["additionalProperties"] is False
-    assert dep_item["required"] == ["dependency_id", "affected_scope", "description", "status"]
-    assert set(dep_item["properties"]) == {
-        "dependency_id",
-        "affected_scope",
-        "description",
-        "status",
-        "available_refs",
-    }
-    assert dep_item["properties"]["available_refs"]["items"]["maxLength"] == MAX_REF_LENGTH
-
-    closure = shape["properties"]["closure_dimensions"]
-    assert closure["maxItems"] == MAX_CLOSURE_DIMENSIONS
-    closure_item = closure["items"]
-    assert closure_item["additionalProperties"] is False
-    assert closure_item["required"] == ["dimension_id", "status"]
-    assert closure_item["properties"]["dimension_id"]["enum"] == sorted(ALLOWED_CLOSURE_DIMENSION_IDS)
-    assert closure_item["properties"]["basis_refs"]["items"]["minLength"] == 1
-
-    notes = shape["properties"]["notes"]
-    note_item = notes["items"]
-    assert note_item["additionalProperties"] is False
-    assert note_item["required"] == ["note_id", "summary"]
-    assert set(note_item["properties"]) == {"note_id", "summary", "basis_refs"}
-    assert note_item["properties"]["summary"]["maxLength"] == MAX_SUMMARY_LENGTH
-
-    example = publish.example_request
-    assert example["final_package_preview_ref"].startswith("deed_to_ir:final_package_preview:rev:")
-
-    prepare = {spec.tool_id: spec for spec in build_deed_to_ir_tool_specs()}["prepare_deed_to_ir_final_package"]
-    prepare_example = prepare.example_request
-    assert prepare_example["use_current_mapping_lineage"] is True
-    assert prepare_example["correction_decisions"][0]["target_entity_id"]
-    assert prepare_example["dependency_decisions"][0]["disposition"] == "include"
-    dumped = json.dumps(prepare_example).lower()
-    for forbidden in ("parcel_1", "parcel_2", "range 74", "range 75", "canal"):
-        assert forbidden not in dumped
-
-
 def test_submit_and_hydrate_tool_specs_mention_mapping_review() -> None:
     specs = {spec.tool_id: spec for spec in build_deed_to_ir_tool_specs()}
     submit = specs["submit_ir_for_mapping"]
-    publish = specs["publish_deed_to_ir_output"]
     hydrate = specs["hydrate_artifact_refs"]
     assert "mapping_review" in submit.expected_result_shape.lower()
     assert "recommended_review_refs" in submit.expected_result_shape.lower()
@@ -201,8 +113,81 @@ def test_submit_and_hydrate_tool_specs_mention_mapping_review() -> None:
     assert "mapping_review" in hydrate.expected_request_shape.lower()
     assert "mapping_example_scope" in json.dumps(hydrate.example_request)
     assert "recommended_publish_refs" in hydrate.expected_result_shape.lower()
-    assert "final_package_preview_ref" in publish.expected_request_shape.lower()
-    assert "mapping_ir_lineage_mismatch" in publish.expected_result_shape.lower()
+    assert "finalize_current_deed_to_ir_output" in hydrate.expected_result_shape
+    assert "to publish, prefer" not in hydrate.expected_result_shape.lower()
+    assert "recommended_publish_request" not in hydrate.expected_result_shape
+    assert "intent-first preview" not in submit.expected_result_shape.lower()
+    for spec in specs.values():
+        blob = " ".join(
+            [
+                spec.purpose,
+                spec.expected_request_shape,
+                spec.expected_result_shape,
+                json.dumps(spec.example_request),
+            ]
+        )
+        assert "prepare_deed_to_ir_final_package" not in blob
+        assert "publish_deed_to_ir_output" not in blob
+
+
+def test_prepare_and_publish_tool_schemas_expose_upstream_corrections() -> None:
+    from domains.mapping.deed_to_ir.payloads.final_package_preview_tool_schema import (
+        build_prepare_deed_to_ir_final_package_request_json_shape,
+    )
+    from domains.mapping.deed_to_ir.payloads.published_output_tool_schema import (
+        build_publish_deed_to_ir_output_request_json_shape,
+    )
+
+    prepare_shape = build_prepare_deed_to_ir_final_package_request_json_shape()
+    publish_shape = build_publish_deed_to_ir_output_request_json_shape()
+    assert "oneOf" in prepare_shape
+    explicit = next(
+        branch
+        for branch in prepare_shape["oneOf"]
+        if "mapping_artifact_ref" in branch.get("properties", {})
+    )
+    intent = next(
+        branch
+        for branch in prepare_shape["oneOf"]
+        if "use_current_mapping_lineage" in branch.get("properties", {})
+    )
+    prepare_items = explicit["properties"]["upstream_corrections"]["items"]
+    publish_items = publish_shape["properties"]["upstream_corrections"]["items"]
+    for items in (prepare_items, publish_items):
+        required = set(items["required"])
+        assert {"correction_id", "posture", "resolution_used_by_ir", "recommended_action", "basis_refs", "rationale"} <= required
+        assert items["additionalProperties"] is False
+        assert "posture" in items["properties"]
+        assert "recommended_action" in items["properties"]
+    assert intent["properties"]["use_current_mapping_lineage"]["const"] is True
+    assert "correction_decisions" in intent["properties"]
+    assert "dependency_decisions" in intent["properties"]
+    assert "scope_dispositions" in intent["properties"]
+    assert "closure_dispositions" in intent["properties"]
+    dep_item = intent["properties"]["dependency_decisions"]["items"]
+    assert set(dep_item["required"]) == {"candidate_id", "disposition"}
+    assert dep_item["properties"]["disposition"]["enum"] == ["include", "not_applicable"]
+
+
+def test_prepare_example_places_operand_delta_in_upstream_corrections_not_notes() -> None:
+    from domains.mapping.deed_to_ir.payloads.final_package_example import (
+        build_prepare_deed_to_ir_final_package_explicit_example_request,
+    )
+
+    example = build_prepare_deed_to_ir_final_package_explicit_example_request()
+    correction = example["upstream_corrections"][0]
+    note_text = json.dumps(example["notes"]).lower()
+    correction_text = json.dumps(correction).lower()
+
+    assert correction["resolution_used_by_ir"] is True
+    assert correction["upstream_value"]
+    assert correction["corrected_value"]
+    assert correction["upstream_value"] != correction["corrected_value"]
+    assert "upstream correction" not in note_text or "not an upstream correction" in note_text
+    assert correction["upstream_value"] not in note_text
+    assert correction["corrected_value"] not in note_text
+    assert "mapping sanity" in correction["rationale"].lower() or "source evidence" in correction["rationale"].lower()
+    assert correction_text  # keep used
 
 
 def test_procedural_guidance_covers_hydration_discipline() -> None:
@@ -214,7 +199,6 @@ def test_procedural_guidance_covers_hydration_discipline() -> None:
     assert "mapping_review" in guidance
     assert "recommended_review_refs" in guidance
     assert "current_mapping_lineage" in guidance or "lineage_lock" in guidance
-    assert "expected_ir_artifact_ref" in guidance
     assert "patch_ir_draft" in guidance
     assert "resubmit" in guidance
     assert "operand_suite_ref" in guidance
@@ -227,7 +211,7 @@ def test_procedural_guidance_covers_hydration_discipline() -> None:
     assert "mapping_ir_lineage_mismatch" in guidance or "stale mapping lineage" in guidance
 
 
-def test_procedural_guidance_emphasizes_draft_first_and_posture_before_publish() -> None:
+def test_procedural_guidance_emphasizes_draft_first_and_source_repair() -> None:
     guidance = next(
         b.text.lower()
         for b in build_deed_to_ir_domain_pack().build_semantic_prompt_blocks()
@@ -235,10 +219,9 @@ def test_procedural_guidance_emphasizes_draft_first_and_posture_before_publish()
     )
     assert "draft-first" in guidance or "draft the ir" in guidance
     assert "save a bounded supported draft" in guidance or "save a draft" in guidance
-    assert "before calling publish" in guidance or "posture alignment" in guidance
-    assert "do not use publish as the probe" in guidance
-    assert "posture alignment" in guidance or "align posture" in guidance
-    assert "retry the same" in guidance and "final_package_preview_ref" in guidance
+    assert "finalize_current_deed_to_ir_output" in guidance
+    assert "prepare_deed_to_ir_final_package" not in guidance
+    assert "publish_deed_to_ir_output" not in guidance
     assert "zero `source_entity_links`" in guidance or "zero source_entity_links" in guidance
     assert "do not reread them again just to feel safer" in guidance
     assert "known blocked" in guidance or "dependency-pending scope" in guidance
@@ -251,19 +234,15 @@ def test_procedural_guidance_v23_upstream_corrections_discipline() -> None:
         for b in build_deed_to_ir_domain_pack().build_semantic_prompt_blocks()
         if b.block_id == "deed_to_ir_procedural_guidance"
     )
-    assert block.version == "v33"
+    assert block.version == "v34"
     text = block.text.lower()
-    assert "upstream_corrections" in text
-    assert "`notes` are commentary only" in block.text
-    assert "machine-readable correction lane" in text
-    assert "resolution_used_by_ir=false" in text or "resolution_used_by_ir=true" in block.text
-    assert "not only a note" in text or "not only in notes" in text
+    assert "finalize_current_deed_to_ir_output" in text
+    assert "prepare_deed_to_ir_final_package" not in text
+    assert "publish_deed_to_ir_output" not in text
     assert "mapping_operands" in text
     assert "image:derived" in block.text or "image:derived:*" in block.text
-    assert "final report" in text or "final reports" in text
-    assert "not automatic transcript mutation" in text or "not live repair" in text
-    assert "external_dependencies" in text
-    assert "trust transcript-edit" in text
+    assert "source_entity_links" in text
+    assert "external dependencies" in text
 
 
 def test_procedural_guidance_v22_upstream_corrections() -> None:
@@ -276,7 +255,7 @@ def test_procedural_guidance_v24_mapping_sanity_discipline() -> None:
         for b in build_deed_to_ir_domain_pack().build_semantic_prompt_blocks()
         if b.block_id == "deed_to_ir_procedural_guidance"
     )
-    assert block.version == "v33"
+    assert block.version == "v34"
     text = block.text.lower()
     assert "sanity_review" in text
     assert "endpoint displacement" in text
@@ -292,12 +271,13 @@ def test_procedural_guidance_v25_correction_lane_discipline() -> None:
         for b in build_deed_to_ir_domain_pack().build_semantic_prompt_blocks()
         if b.block_id == "deed_to_ir_procedural_guidance"
     )
-    assert block.version == "v33"
+    assert block.version == "v34"
     text = block.text.lower()
-    assert "notes are commentary only" in text or "notes` are commentary only" in block.text
-    assert "correction_lane_advisory" in text
-    assert "resolution_used_by_ir=false" in text or "resolution_used_by_ir=false" in block.text
-    assert "must" in text and "upstream_corrections" in text
+    assert "finalize_current_deed_to_ir_output" in text
+    assert "prepare_deed_to_ir_final_package" not in text
+    assert "publish_deed_to_ir_output" not in text
+    assert "correction" in text
+    assert "confirmed_source_repair" in text or "ir_only_exception" in text
 
 
 def test_procedural_guidance_v26_correction_posture_gate() -> None:
@@ -306,43 +286,37 @@ def test_procedural_guidance_v26_correction_posture_gate() -> None:
         for b in build_deed_to_ir_domain_pack().build_semantic_prompt_blocks()
         if b.block_id == "deed_to_ir_procedural_guidance"
     )
-    assert block.version == "v33"
+    assert block.version == "v34"
     text = block.text.lower()
-    assert "correction_posture.active=true" in block.text or "correction_posture" in text
-    assert "deed_to_ir:correction_contract" in block.text
-    assert "upstream_corrections_required" in text
+    assert "correction_posture" in text
+    assert "finalize_current_deed_to_ir_output" in text
 
 
-def test_procedural_guidance_v27_retry_shell_and_lineage_lock() -> None:
+def test_procedural_guidance_v27_lineage_lock_discipline() -> None:
     block = next(
         b
         for b in build_deed_to_ir_domain_pack().build_semantic_prompt_blocks()
         if b.block_id == "deed_to_ir_procedural_guidance"
     )
-    assert block.version == "v33"
+    assert block.version == "v34"
     text = block.text.lower()
-    assert "retry_package_shell" in text
     assert "lineage_lock" in text or "recommended_publish_refs" in text
+    assert "finalize_current_deed_to_ir_output" in text
 
 
-def test_procedural_guidance_v28_strict_upstream_correction_row() -> None:
+def test_procedural_guidance_v28_source_repair_and_finalization_discipline() -> None:
     block = next(
         b
         for b in build_deed_to_ir_domain_pack().build_semantic_prompt_blocks()
         if b.block_id == "deed_to_ir_procedural_guidance"
     )
-    assert block.version == "v33"
-    text = block.text
-    lower = text.lower()
-    assert "correction_decisions" in lower or "upstream_corrections_template" in lower
-    assert "strict machine rows" in lower or "strict machine row" in lower
-    assert "rationale" in lower
-    assert "upstream_value" in lower
-    assert "corrected_value" in lower
-    assert "inherited_value" in lower
-    assert "confirmed_from_source" in lower
-    assert "summary" in lower
-    assert "do not invent" in lower
+    assert block.version == "v34"
+    text = block.text.lower()
+    assert "finalize_current_deed_to_ir_output" in text
+    assert "prepare_deed_to_ir_final_package" not in text
+    assert "publish_deed_to_ir_output" not in text
+    assert "correction" in text
+    assert "source repair" in text or "confirmed_source_repair" in text
 
 
 def test_procedural_guidance_v29_course_updates_and_no_delegate_repair() -> None:
@@ -351,7 +325,7 @@ def test_procedural_guidance_v29_course_updates_and_no_delegate_repair() -> None
         for b in build_deed_to_ir_domain_pack().build_semantic_prompt_blocks()
         if b.block_id == "deed_to_ir_procedural_guidance"
     )
-    assert block.version == "v33"
+    assert block.version == "v34"
     text = block.text.lower()
     assert "course_updates" in text
     assert "draft_patch_targets" in text
@@ -366,15 +340,15 @@ def test_procedural_guidance_v33_intent_first_preflight() -> None:
         for b in build_deed_to_ir_domain_pack().build_semantic_prompt_blocks()
         if b.block_id == "deed_to_ir_procedural_guidance"
     )
-    assert block.version == "v33"
+    assert block.version == "v34"
     text = block.text.lower()
-    assert "current mapping lineage" in text
-    assert "intent-first" in text
-    assert "correction decision" in text
-    assert "dependency_decisions" in text or "known dependency candidate" in text
-    assert "blocked scope" in text and "dependency row" in text
+    assert "current_mapping_lineage" in text or "canonical finalization" in text
+    assert "preferred endgame" in text or "canonical finalization" in text
+    assert "correction" in text and "disposition" in text
+    assert "dependency dispositions" in text or "dependency_dispositions" in text
+    assert "blocked scope" in text
     assert "not_applicable" in text or "include" in text
-    assert "finalization decision card" in text or "all required decision lanes together" in text
+    assert "finalize_current_deed_to_ir_output" in text
     assert "active_handoff_context" in text
     assert "scoped blocked continuation" in text
     assert "durable package limitation" in text
@@ -439,45 +413,6 @@ def test_startup_context_notes_no_deed_to_ir_delegate_repair_workflow() -> None:
     assert "ir course repair" in text
 
 
-def test_prepare_and_publish_tool_schemas_expose_upstream_corrections() -> None:
-    from domains.mapping.deed_to_ir.payloads.final_package_preview_tool_schema import (
-        build_prepare_deed_to_ir_final_package_request_json_shape,
-    )
-    from domains.mapping.deed_to_ir.payloads.published_output_tool_schema import (
-        build_publish_deed_to_ir_output_request_json_shape,
-    )
-
-    prepare_shape = build_prepare_deed_to_ir_final_package_request_json_shape()
-    publish_shape = build_publish_deed_to_ir_output_request_json_shape()
-    assert "oneOf" in prepare_shape
-    explicit = next(
-        branch
-        for branch in prepare_shape["oneOf"]
-        if "mapping_artifact_ref" in branch.get("properties", {})
-    )
-    intent = next(
-        branch
-        for branch in prepare_shape["oneOf"]
-        if "use_current_mapping_lineage" in branch.get("properties", {})
-    )
-    prepare_items = explicit["properties"]["upstream_corrections"]["items"]
-    publish_items = publish_shape["properties"]["upstream_corrections"]["items"]
-    for items in (prepare_items, publish_items):
-        required = set(items["required"])
-        assert {"correction_id", "posture", "resolution_used_by_ir", "recommended_action", "basis_refs", "rationale"} <= required
-        assert items["additionalProperties"] is False
-        assert "posture" in items["properties"]
-        assert "recommended_action" in items["properties"]
-    assert intent["properties"]["use_current_mapping_lineage"]["const"] is True
-    assert "correction_decisions" in intent["properties"]
-    assert "dependency_decisions" in intent["properties"]
-    assert "scope_dispositions" in intent["properties"]
-    assert "closure_dispositions" in intent["properties"]
-    dep_item = intent["properties"]["dependency_decisions"]["items"]
-    assert set(dep_item["required"]) == {"candidate_id", "disposition"}
-    assert dep_item["properties"]["disposition"]["enum"] == ["include", "not_applicable"]
-
-
 def test_startup_context_marks_operand_suite_as_core_anchor() -> None:
     from domains.mapping.deed_to_ir.prompting.surfaces.startup_context import (
         build_startup_context_block,
@@ -508,127 +443,36 @@ def test_startup_context_marks_operand_suite_as_core_anchor() -> None:
     assert "deed_to_ir:operands:run:run-example" in block.text
 
 
-def test_procedural_guidance_covers_final_package_preview_flow() -> None:
+def test_procedural_guidance_covers_finalize_flow() -> None:
     guidance = next(
         b.text.lower()
         for b in build_deed_to_ir_domain_pack().build_semantic_prompt_blocks()
         if b.block_id == "deed_to_ir_procedural_guidance"
     )
-    assert "prepare_deed_to_ir_final_package" in guidance
-    assert "final_package_preview_ref" in guidance
-    assert "publish from preview" in guidance or "publish from preview ref" in guidance
-    assert "material defects" in guidance
-    assert "provenance wording polish" in guidance
-    assert "publish_ready_candidate=true" in guidance
-    assert "hydrate_output_ref_optional" in guidance or "hydrating `deed_to_ir:output` is optional" in guidance
-    assert "publish_posture_audit_gate" in guidance or "readiness/audit posture" in guidance
+    assert "finalize_current_deed_to_ir_output" in guidance
+    assert "prepare_deed_to_ir_final_package" not in guidance
+    assert "publish_deed_to_ir_output" not in guidance
+    assert "material defect" in guidance
+    assert "preview_ready" in guidance
+    assert "complete_run" in guidance
 
 
-def test_procedural_guidance_discourages_default_post_publish_hydrate() -> None:
+def test_procedural_guidance_discourages_post_finalize_re_hydration() -> None:
     guidance = next(
         b.text.lower()
         for b in build_deed_to_ir_domain_pack().build_semantic_prompt_blocks()
         if b.block_id == "deed_to_ir_procedural_guidance"
     )
-    assert "hydrate_next" in guidance
-    assert "output_ref" in guidance
-    assert "optional" in guidance
+    assert "finalize_current_deed_to_ir_output" in guidance
+    assert "do not hydrate" in guidance or "just to restate" in guidance
+    assert "complete_run" in guidance
 
 
-def test_procedural_guidance_covers_final_package_row_contract() -> None:
-    guidance = next(
-        b.text.lower()
-        for b in build_deed_to_ir_domain_pack().build_semantic_prompt_blocks()
-        if b.block_id == "deed_to_ir_procedural_guidance"
-    )
-    assert "final package rows" in guidance
-    assert "dependency_refs" in guidance
-    assert "forbidden_common" not in guidance
-    assert "use `description`, not `summary`" in guidance
-    assert "preserve_sections" in guidance
-
-
-def test_prepare_example_places_operand_delta_in_upstream_corrections_not_notes() -> None:
-    from domains.mapping.deed_to_ir.payloads.final_package_example import (
-        build_prepare_deed_to_ir_final_package_explicit_example_request,
-    )
-
-    example = build_prepare_deed_to_ir_final_package_explicit_example_request()
-    correction = example["upstream_corrections"][0]
-    note_text = json.dumps(example["notes"]).lower()
-    correction_text = json.dumps(correction).lower()
-
-    assert correction["resolution_used_by_ir"] is True
-    assert correction["upstream_value"]
-    assert correction["corrected_value"]
-    assert correction["upstream_value"] != correction["corrected_value"]
-    assert "upstream correction" not in note_text or "not an upstream correction" in note_text
-    assert correction["upstream_value"] not in note_text
-    assert correction["corrected_value"] not in note_text
-    assert "mapping sanity" in correction["rationale"].lower() or "source evidence" in correction["rationale"].lower()
-    assert correction_text  # keep used
-
-
-def test_prepare_and_publish_tool_specs_state_correction_lane_discipline() -> None:
+def test_tool_specs_state_hydrate_refs_correction_lane() -> None:
     specs = {spec.tool_id: spec for spec in build_deed_to_ir_tool_specs()}
-    prepare = specs["prepare_deed_to_ir_final_package"].expected_request_shape.lower()
-    publish = specs["publish_deed_to_ir_output"].expected_request_shape.lower()
     hydrate = specs["hydrate_artifact_refs"].expected_request_shape.lower()
-    assert "not only in notes" in prepare or "not only in notes" in publish
-    assert "resolution_used_by_ir" in publish
     assert "image:derived" in hydrate
     assert "image:assoc" in hydrate
-
-
-def test_prepare_tool_spec_example_is_complete_and_generic() -> None:
-    from domains.mapping.deed_to_ir.payloads.final_package_example import (
-        build_prepare_deed_to_ir_final_package_example_request,
-        build_prepare_deed_to_ir_final_package_explicit_example_request,
-    )
-
-    prepare = {spec.tool_id: spec for spec in build_deed_to_ir_tool_specs()}["prepare_deed_to_ir_final_package"]
-    example = prepare.example_request
-    canonical = build_prepare_deed_to_ir_final_package_example_request()
-    assert example == canonical
-    assert example["use_current_mapping_lineage"] is True
-    assert "reuse_agent_authored_finalization_state" not in example
-    assert len(example["correction_decisions"]) == 1
-    decision = example["correction_decisions"][0]
-    assert decision["target_entity_id"] == "example_call_2_distance"
-    assert decision["recommended_action"] == "transcript_amendment"
-    assert len(example["scope_dispositions"]) == 2
-    assert len(example["closure_dispositions"]) == 4
-    assert all(row.get("status") for row in example["scope_dispositions"])
-    assert all(row.get("status") for row in example["closure_dispositions"])
-    dumped = json.dumps(example).lower()
-    for forbidden in ("parcel_1", "parcel_2", "range 74", "canal", "518", "542"):
-        assert forbidden not in dumped
-
-    explicit = build_prepare_deed_to_ir_final_package_explicit_example_request()
-    assert len(explicit["scope_results"]) == 2
-    assert len(explicit["external_dependencies"]) == 1
-    assert len(explicit["closure_dimensions"]) == 4
-    assert len(explicit["notes"]) == 1
-    assert len(explicit["upstream_corrections"]) == 1
-    assert explicit["upstream_corrections"][0]["correction_id"] == "example_call_2_distance_source_repair"
-
-
-def test_prepare_and_publish_tool_specs_mention_final_package_preview() -> None:
-    specs = {spec.tool_id: spec for spec in build_deed_to_ir_tool_specs()}
-    prepare = specs["prepare_deed_to_ir_final_package"]
-    publish = specs["publish_deed_to_ir_output"]
-    hydrate = specs["hydrate_artifact_refs"]
-    assert "final_package_preview_ref" in prepare.expected_result_shape.lower()
-    assert "publish_ready_candidate" in prepare.expected_result_shape.lower()
-    assert "rejected_payload_summary" in prepare.expected_result_shape.lower()
-    assert "preserve_sections" in prepare.expected_result_shape.lower()
-    assert "final_package_preview_ref" in publish.expected_request_shape.lower()
-    assert "final_output_summary" in publish.expected_result_shape.lower()
-    assert "hydrate_output_ref_optional" in publish.expected_result_shape.lower()
-    assert "publish_gate_category" in publish.expected_result_shape.lower()
-    assert "final_package_preview_ref" in json.dumps(publish.example_request)
-    assert "final_package_preview" in hydrate.expected_request_shape.lower()
-    assert "recommended_publish_request" in hydrate.expected_result_shape.lower()
 
 
 def test_domain_pack_builds() -> None:
@@ -641,23 +485,22 @@ def test_domain_pack_builds() -> None:
         "patch_ir_draft",
         "submit_ir_for_mapping",
         "finalize_current_deed_to_ir_output",
-        "prepare_deed_to_ir_final_package",
-        "publish_deed_to_ir_output",
         "hydrate_artifact_refs",
         "list_feature_graph_artifacts",
     ]
-    assert len(payload["tool_specs"]) == 10
+    assert len(payload["tool_specs"]) == 8
     assert payload["closure_policy"]["hard_enforced"] is False
-    assert payload["closure_policy"]["publish_action_ids"] == ["publish_deed_to_ir_output"]
+    assert payload["closure_policy"]["publish_action_ids"] == []
     assert payload["closure_policy"]["required_output_ref_for_complete"] == "deed_to_ir:output"
     assert payload["closure_policy"]["completion_anchor"]["enabled"] is True
+    assert payload["closure_policy"]["completion_anchor"]["publish_action_ids"] == [
+        "finalize_current_deed_to_ir_output"
+    ]
     assert payload["closure_policy"]["completion_anchor"]["published_preview_ref_field"] == (
         "final_package_preview_ref"
     )
-    assert payload["closure_policy"]["completion_anchor"]["preview_ready_publish_bypass"] is True
-    assert payload["closure_policy"]["completion_anchor"]["preview_prepare_action_ids"] == [
-        "prepare_deed_to_ir_final_package",
-    ]
+    assert payload["closure_policy"]["completion_anchor"]["preview_ready_publish_bypass"] is False
+    assert payload["closure_policy"]["completion_anchor"]["preview_prepare_action_ids"] == []
     assert payload["closure_policy"]["required_dimension_ids"] == [
         "layer_1_deed_meaning_to_ir_fidelity",
         "layer_2_ir_geometry_integrity",
@@ -698,13 +541,9 @@ def test_branch_and_guidance_mission_markers() -> None:
     )
     assert "inherited_handoff_conditions" in guidance
     assert "first_draft_authoring_card" in guidance
-    assert "closure_dimension_validation_failed" in guidance
-    assert "published output remains authoritative" in guidance
-    assert "downstream deed-to-ir responsibilities" in guidance
-    assert "draft checkpoint" in guidance
-    assert "save_ir_artifact" in guidance or "save a **draft checkpoint**" in guidance
-    assert "submit_ir_for_mapping" in guidance
-    assert "publish_deed_to_ir_output" in guidance
+    assert "finalize_current_deed_to_ir_output" in guidance
+    assert "prepare_deed_to_ir_final_package" not in guidance
+    assert "publish_deed_to_ir_output" not in guidance
     assert "mechanically_mappable_candidate" in guidance
     assert "not transcript-edit atoms" in guidance
     assert "copy inherited covered units into local covered units" in guidance
@@ -831,3 +670,45 @@ def test_loader_output_excludes_filesystem_path_from_source() -> None:
     dumped = str(loaded)
     assert str(_FIXTURE) not in dumped
     assert "test_fixtures" not in dumped.lower()
+
+
+def test_partial_finalizer_not_treated_as_pre_dispatch_publish() -> None:
+    """Outer publish_action_ids empty → finalize is not a generic publish attempt."""
+    from dataclasses import asdict
+
+    from domains.mapping.deed_to_ir.semantics.closure import build_deed_to_ir_closure_policy
+    from harness.mission_state import ClosureState, new_mission_state
+    from harness.runtime.memory import LoopMemoryState
+    from harness.runtime.orchestration.contracts import ActionPlan
+    from harness.runtime.orchestration.orchestrator_policy import closure_enforcement_failure
+
+    policy = asdict(build_deed_to_ir_closure_policy())
+    # Even if hard publish enforcement were on, empty outer publish_action_ids
+    # must keep finalize off the generic pre-dispatch publish path.
+    policy["hard_enforced"] = True
+    policy["enforce_on_publish"] = True
+
+    ms = new_mission_state(mission_id="m-finalizer", loop_family="orchestration_kernel")
+    ms = ms.model_copy(
+        update={
+            "work_universe_posture": "unaudited",
+            "closure_state": ClosureState(
+                dimensions=[],
+                ready_to_close=False,
+                ready_to_publish=False,
+                requires_hitl=False,
+            ),
+        }
+    )
+    mem = LoopMemoryState()
+    mem.continuity.mission_state = ms
+    plan = ActionPlan(
+        action_type="finalize_current_deed_to_ir_output",
+        action_inputs={"scope_decisions": {"scope_a": "handoffable"}},
+    )
+    failure = closure_enforcement_failure(
+        run_ctx={"domain_closure_policy": policy},
+        loop_memory=mem,
+        action_plan=plan,
+    )
+    assert failure is None

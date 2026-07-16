@@ -9,7 +9,7 @@ from ..branch import DEED_TO_IR_DOMAIN_ID
 DEED_TO_IR_PROCEDURAL_GUIDANCE_SOURCE_REF = (
     "backend/domains/mapping/deed_to_ir/prompting/surfaces/procedural_guidance.py"
 )
-DEED_TO_IR_PROCEDURAL_GUIDANCE_VERSION = "v33"
+DEED_TO_IR_PROCEDURAL_GUIDANCE_VERSION = "v34"
 
 DEED_TO_IR_PROCEDURAL_GUIDANCE_TEXT = """\
 Use this guidance to orient deed-to-IR work. This is **guidance**, not a hard script.
@@ -28,7 +28,7 @@ Use this guidance to orient deed-to-IR work. This is **guidance**, not a hard sc
 - If the first draft may be imperfect, save a bounded supported draft anyway rather than spinning in pre-draft reading. Repair from draft feedback.
 - A compile-clean graph with zero `source_entity_links` is not a good first draft. It may be mechanically mappable, but it is weak deed-to-IR work. For every node or edge derived from upstream deed meaning, attach exact `source_entity_links` when the operand suite or inherited handoff provides a source entity id.
 - `source_entity_links` belong on graph entities, not only graph metadata. Use upstream `operand_id` / resolution item ids as `entity_id`; set `entity_type` to the available upstream entity type (`resolution_unit`, `resolution_item`, or equivalent); set `source_ref` to the inherited resolution state ref when applicable.
-- The first draft does not need perfect provenance, but zero provenance links should be treated as a repair signal before preview/publish — use `draft_quality_flags` and counts, not guesswork.
+- The first draft does not need perfect provenance, but zero provenance links should be treated as a repair signal before finalization — use `draft_quality_flags` and counts, not guesswork.
 
 ## Draft IR lifecycle
 - Before authoring or repairing supported operation nodes, use the FeatureGraph authoring guide as the layer map: deed meaning, node kind, compiler operation, params, operands, and rendered geometry are distinct.
@@ -44,110 +44,44 @@ Use this guidance to orient deed-to-IR work. This is **guidance**, not a hard sc
 - Use `unknown` only when the feature kind itself is unknown. A known blocked, partial, or dependency-pending scope is not unknown; represent it as an `annotation` with source/provenance links and handoff notes. Do not fabricate geometry for blocked scope.
 - Do not treat `unknown` nodes with deed prose parked in `graph.metadata` as sufficient map IR.
 - `submit_ir_for_mapping` is the deliberate mapping attempt once structural readiness is honest enough for inspection.
-- `prepare_deed_to_ir_final_package` builds a confirmable preview checkpoint — agent-authored correction/scope/closure decisions plus mechanically assembled rows and lineage. Prefer intent-first (`use_current_mapping_lineage`); full package rows are advanced/compatibility.
-- `publish_deed_to_ir_output` is final scoped handoff only; prefer publishing with `final_package_preview_ref` from the preview.
+- After mapping review is honest enough for scoped handoff, call `finalize_current_deed_to_ir_output` — the finalizer prepares and publishes the durable package internally.
 
-## Final package preview flow
-- After a clean repaired remap, use the **current mapping lineage**. If correction posture is active, author the correction decision and any genuinely missing scope, dependency, or closure disposition. Do not reread operands, historic mappings, or broad artifact refs unless the current lineage or correction packet is missing, contradictory, or incomplete.
-- Preferred endgame after repair: remap → one complete intent-first `prepare_deed_to_ir_final_package` (`use_current_mapping_lineage=true` with all required decision lanes together) → publish → complete.
-- Prefer intent-first preview. Author compact dispositions with statuses; deterministic code expands them into strict rows. Reuse of a prior agent-authored preview is optional. Use explicit full package rows only for advanced/manual overrides.
-- At the first intent-first preview attempt, submit all required decision lanes together. If a finalization decision card is returned, resubmit its carried-forward rows plus the missing agent-authored decisions directly; do not hydrate artifacts merely to recover facts already present in the card.
-- When known dependency candidates are projected for the current handoff, author `dependency_decisions`: `disposition=include` with `status`, or `disposition=not_applicable` with `rationale`. Candidates are evidence only; blocked scope posture is not itself a Layer 3 dependency row — include or decline so the external-dependency handoff stays agent-authored and machine-readable.
+## Canonical finalization
+- Preferred endgame: inspect mapping review → repair current IR if necessary → submit the repaired IR for mapping → call `finalize_current_deed_to_ir_output` with only unresolved semantic decision maps → `complete_run`.
+- Treat the lineage-bound finalization session from a successful remap as the current finalization candidate. Do not track mapping/IR pairs, preview refs, closure arrays, or strict package rows manually.
+- Author only semantic conclusions the active session still needs:
+  - scope statuses: `handoffable` or `blocked`;
+  - correction dispositions: `confirmed_source_repair`, `ir_only_exception`, or `needs_hitl`;
+  - dependency dispositions: `include` or `not_applicable`;
+  - rationales only for exceptional cases required by the session (`ir_only_exception`, `not_applicable`).
+- When `correction_posture` is active, choose dispositions from evidence: source-confirmed repaired value used by current IR → `confirmed_source_repair`; intentional IR-only difference → `ir_only_exception` plus rationale; unresolved human question → `needs_hitl`. Do not invent strict correction rows — the finalizer expands dispositions mechanically.
+- A blocked scope alone is not a dependency disposition. Use dependency dispositions only for explicit external-dependency candidates on the session.
+- Exact request grammar and known IDs live on the finalizer tool spec and the active finalization session projection — do not invent IDs or reconstruct package shells.
+- If `missing_finalization_decisions` is returned, supply only the reported missing IDs (reuse `prompt_carry_forward` / session projection when present). Previously persisted decisions need not be repeated.
+- If correction disposition is `needs_hitl`, wait for human resolution; do not treat that as approval or publication.
+- If the session is `preview_ready`, retry the same finalizer with **no decision mutations** — publication retries the stored immutable preview.
+- If the result is `published` with `next_required_action=complete_run`, call `complete_run`. Do not hydrate output/preview/IR/mapping just to restate what the finalizer already returned.
+- Reopen IR only for a material defect in the current IR/mapping/final handoff — not to polish bookkeeping or restate already accepted decisions.
+- Mapping review before finalization remains required. Rendered output is not semantic correctness by itself.
 - Never treat mechanical mapping facts (compile/judge counts, renders, lineage_current) as semantic closure.
-- Do not rebuild package details from memory when current lineage and correction candidates already carry the refs and typed values.
-- Normal end flow: save/patch draft IR → submit for mapping → inspect mapping review → prepare final package preview → publish from preview → complete (with final state patch only if still needed).
-- A ready preview is a **publish launchpad**. When `prepare_deed_to_ir_final_package` returns `publish_ready_candidate=true` with valid lineage, scope counts, dependency count, and closure statuses, normally publish from `recommended_publish_request` on the next artifact-writing turn.
-- Do not hydrate the preview just to reread the same summary. Use `working_preview_ref` only when targeted preview hydration is genuinely needed.
-- Do not use `@this.result.derived_ref_id` after `prepare_deed_to_ir_final_package` — that tool does not emit `derived_ref_id`. Publish from `recommended_publish_request`; hydrate with `@this.result.working_preview_ref` only when necessary.
-- State alignment is useful but should be **economical**:
-  - patch obvious closure/work-item state in the same turn as preview when already known,
-  - or patch final state in the same turn as `complete_run`,
-  - do not spend separate turns on posture-only repair before publish unless publish depends on it or local state would materially mislead downstream handoff.
-- If a state patch fails, do not keep repairing posture before publish unless the failure affects the package, lineage, scope posture, dependency posture, or final handoff truth.
-- Before calling publish, posture alignment means the local state says what the preview already showed: mapping reviewed, final package preview accepted, scoped output ready to publish. Do not use publish as the probe for whether readiness posture is aligned.
-- If publish is refused only by readiness/audit posture (`publish_gate_category=publish_posture_audit_gate`, `preview_still_valid=true`), do **not** rebuild or rehydrate the preview — patch mission/closure posture if warranted and retry the same `final_package_preview_ref`.
-- If the IR is patched after preview, submit mapping again and prepare a new preview before publish.
-- After a successful preview, only reopen IR for material defects: wrong geometry, wrong source value, stale mapping lineage, missing blocked scope/dependency, failed compile/judge/render, or preview does not match intended final handoff.
-- Do not reopen IR for provenance wording polish or speculative improvement.
-- Publish with the preview ref — do not manually reconstruct compile/judge/render refs or re-copy row payloads at publish time. To change rows, prepare a new preview.
-
-## Publish and completion
-- After successful `publish_deed_to_ir_output` with `final_output_summary.ready_for_completion_candidate=true`, normally call `complete_run`. Do not hydrate output/preview/IR/mapping just to restate what publish already returned.
-- Do not patch the local work graph merely to make posture mirror final package rows — the published output is the durable closeout package and its closure rows are authoritative.
-- Mission `closure_state.dimensions` mirroring is optional after publish. If you patch dimensions, each row requires `dimension_id`, `title`, and `status`. Final package closure rows use `dimension_id` + `status` only — do not mirror them verbatim without `title`.
-- If `closure_dimension_validation_failed` appears on a late `complete_run` patch while publish already succeeded, treat it as repair noise unless it affects package identity; the published output remains authoritative.
-- Continue only for a material defect: wrong IR/mapping lineage, wrong scope/dependency/closure metadata, map review defect, user/HITL correction, or publish result not completion-ready.
-- Mapping review before preview/publish is still required — the completion anchor applies only after publish succeeds.
-- Use `outputs.final_output_summary` and compact publish counts/refs to close when sufficient — hydrating `deed_to_ir:output` is optional unless you need deeper inspection of persisted rows.
-- Do not default to `hydrate_next: ["@this.result.output_ref"]` after successful publish unless a specific unresolved question remains about the persisted package.
-- Publish refusals include `publish_gate_category` and `repair_hint` — distinguish preview invalidity from mapping lineage, storage failure, and posture/audit gates before rebuilding artifacts.
-
-## Final package rows
-- Intent-first prepare reuses or assembles these rows; author full rows only on the advanced/explicit path.
-- `scope_results`: one row per scope/parcel/object being handed off.
-  - Required: `scope_id`, `status`
-  - Optional: `title`, `summary`, `basis_refs`, `blocker_refs`, `dependency_refs`
-  - Use `dependency_refs` / `blocker_refs` to point at `external_dependencies[].dependency_id`
-- `external_dependencies`: one row per missing external source/dependency.
-  - Required: `dependency_id`, `affected_scope`, `description`, `status`
-  - Optional: `available_refs`
-  - Use `description`, not `summary`. `affected_scope` is the impacted scope id/name.
-  - Do not put `title` on dependency rows.
-- `closure_dimensions`: one row per closure layer.
-  - Required: `dimension_id`, `status`
-  - Optional: `title`, `summary`, `basis_refs`
-  - Use the supported closure dimension ids from the schema (all four layers required in the preview).
-- `notes`: non-blocking handoff commentary only — **notes are not the correction lane**.
-  - Required: `note_id`, `summary`
-  - Optional: `basis_refs`
-  - Use notes for context that does not report an upstream value delta the final IR relied on.
-- When prepare validation fails, inspect `rejected_payload_summary`, `row_contract_summary`, and `preserve_sections` — repair the invalid section without dropping valid sections.
-
-## Upstream correction report (final package only)
-- **`notes` are commentary only** — non-corrective context, handoff reminders, or audit color. They are not the machine-readable correction lane.
-- **Preferred:** when `correction_posture.active=true`, author `correction_decisions[]` on intent-first prepare (`target_entity_id`, `posture`, `resolution_used_by_ir`, `recommended_action`, `rationale`). Deterministic code assembles strict `upstream_corrections` rows from the typed candidate + decision.
-- **Advanced/compatibility:** supply full `upstream_corrections` rows on the explicit prepare path. Use exact schema field names only — do not invent `summary`, `inherited_value`, or `ir_value`.
-- If the final IR uses a value that differs from the inherited handoff because source/map sanity established a better value, the final package **must** document that delta — via intent-first decisions or explicit correction rows, not only a note.
-- If an upstream defect was investigated but **not** used by final IR: `resolution_used_by_ir=false` (and `posture="suspected"` when still uncertain).
-- If an upstream defect was used by final IR: `resolution_used_by_ir=true` with source/evidence refs in `basis_refs` (assembled mechanically on intent-first).
-- During prepare, a mechanical `correction_lane_advisory` may appear when `upstream_corrections` is empty but package text mentions correction-like language — treat it as a steering signal, not a refusal.
-- When a tool returns `correction_posture.active=true`, follow the correction contract card (`deed_to_ir:correction_contract`). Do not publish a final package with corrected IR values and an empty correction lane.
-- Intent-first may retryably refuse with `correction_decisions_required` / `missing_finalization_decisions` — author only the missing decisions; do not rebuild refs from memory.
-- Explicit path may still refuse with `upstream_corrections_required` — copy `retry_package_shell` and add `upstream_corrections`, or switch to intent-first `correction_decisions`.
-
-### Upstream correction strict row contract
-- Assembled or explicit `upstream_corrections` rows are **strict machine rows**, not prose summaries.
-- Use exact schema field names only: `correction_id`, `posture`, `resolution_used_by_ir`, `recommended_action`, `basis_refs`, `rationale`, `target_entity_id`, `target_entity_type`, `upstream_value`, `corrected_value` (plus optional `title`).
-- **Do not invent** `summary`, `affected_scope`, `value_kind`, `inherited_value`, or `ir_value` on correction rows.
-- Use **`rationale`**, not `summary`.
-- Use **`upstream_value` / `corrected_value`**, not `inherited_value` / `ir_value`.
-- Valid `posture` values are exactly: `suspected`, `confirmed_from_source`, `needs_hitl`.
-- When source evidence confirmed the value used by final IR, prefer: `posture: confirmed_from_source`, `resolution_used_by_ir: true`, `recommended_action: transcript_amendment`.
-- Trust transcript-edit as the normal starting point. Do not trigger transcript-edit repair repeatedly during drafting.
-- If map/geometry/deed logic exposes a concrete upstream handoff defect, investigate with targeted source evidence refs (`image:derived:*`, `image:assoc:*` via `hydrate_artifact_refs`) and transcript lanes while continuing to solve the IR/map.
-- During drafting, keep working notes local. Do not emit `upstream_corrections` as a live repair trigger.
-- Do not duplicate the same correction as both a note and an upstream correction unless the note carries separate non-corrective context.
-- If final IR/map **relies on a correction** to the inherited handoff, include one or more `upstream_corrections` rows in the final package preview.
-- `upstream_corrections` are **final reports for later targeted transcript-edit amendment**, not automatic transcript mutation and not live repair runs.
-- Do not emit correction rows for ordinary blocked external dependencies — use `external_dependencies` for that.
-- Do not emit correction rows just because IR chose a normalized value already supported by the handoff.
-- Final published output may be correct and usable even before a later transcript-edit amendment exists.
+- Corrections used by final IR must be disclosed via correction dispositions. Blocked scopes and external dependencies must remain explicit. Dependency and correction candidates are evidence, not deterministic conclusions.
+- IR patched after mapping must be remapped before finalization. Published output is the durable closeout package.
 
 ## Mapping review and hydration discipline
-- After `submit_ir_for_mapping`, inspect `outputs.mapping_review` first — mapping review is not just compile/judge pass/fail. Inspect mechanical geometry behavior in `mapping_review.sanity_review` (endpoint displacement, course leg tables, source evidence handles). When present, inspect `mapping_review.correction_posture` for mechanical IR-vs-inherited operand deltas.
+- After `submit_ir_for_mapping`, inspect `outputs.mapping_review` first — mapping review is not just compile/judge pass/fail. Inspect mechanical geometry behavior in `mapping_review.sanity_review` (endpoint displacement, course leg tables, source evidence handles). When present, inspect `mapping_review.correction_posture` for mechanical IR-vs-inherited operand deltas and use the compact finalizer correction dispositions above.
 - Prefer `outputs.mapping_review.recommended_review_refs` over `@this.result.artifact_refs[]` for ordinary mapping review — do not bulk-hydrate every returned ref by habit. Copyable `*_ref` fields must be full canonical refs; never use truncated display fragments as refs.
 - Large unexplained endpoint displacement is a **source-sanity trigger**, not automatically a deed defect. Do not declare an open traverse limitation until you consider whether the deed description expected closure or a boundary return.
 - If one course leg looks suspicious, hydrate targeted source evidence for that leg (from `sanity_review.recommended_source_evidence_refs` or course leg `evidence_refs`) before finalizing an upstream correction or limitation.
 - Station chains, centerlines, routes, strips, and intentionally open alignments may not close — endpoint displacement is a mechanical fact to interpret, not a universal failure.
 - Hydrate specific refs only when needed: control render for visual map review (leg/gap annotations), geometry ref for feature/coordinate inspection, mapping ref for compact lineage, counts, sanity_review, and draft_patch_targets.
 - For upstream source repair, hydrate targeted transcript-edit evidence refs (`image:derived:*`, `image:assoc:*`) via `hydrate_artifact_refs` — do not bulk-hydrate the entire transcript-edit artifact universe.
-- After a successful remap via `submit_ir_for_mapping`, use `mapping_review.active_handoff_context` (or `current_mapping_lineage` / compatibility `lineage_lock`) as the **sole hot mapping/IR candidate** for the next intent-first preview — do not treat older mappings in `latest_refs` as equally eligible, and do not mix a newer IR ref with an older mapping ref (or vice versa). When hydrating a mapping ref, inspect `lineage_status` (`current` vs `superseded`); a superseded historical mapping remains auditable but is not the intent-first finalization candidate.
+- After a successful remap via `submit_ir_for_mapping`, use `mapping_review.active_handoff_context` (or `current_mapping_lineage` / compatibility `lineage_lock`) as the **sole hot mapping/IR candidate** for the next finalization — do not treat older mappings in `latest_refs` as equally eligible, and do not mix a newer IR ref with an older mapping ref (or vice versa). When hydrating a mapping ref, inspect `lineage_status` (`current` vs `superseded`); a superseded historical mapping remains auditable but is not the finalization candidate.
 - Work items whose explicit `evidence_refs` cite only superseded mapping/IR refs are **historical lineage context**: auditable, but they do not establish a defect in the current mapping and must not reopen otherwise accepted current handoff work.
 - When a source limitation is represented in current IR/mapping as a scoped blocked continuation, treat it as a **durable package limitation** — not an instruction to reopen otherwise accepted current work. Do not create or preserve a global `blocks → final_handoff` relation solely because a source continuation is unavailable. A material defect in current lineage may still block handoff; that distinction remains agent-authored.
-- If any `patch_ir_draft` occurs after mapping, resubmit the patched draft for mapping before publishing — stale mapping lineage is refused retryably for intent-first preview and when `expected_ir_artifact_ref` does not match.
+- If any `patch_ir_draft` occurs after mapping, resubmit the patched draft for mapping before finalization — stale mapping lineage is refused retryably.
 
 ## Mapping sanity repair (surgical course patch)
-- Normal path: inspect `mapping_review.sanity_review` → use `mapping_review.draft_patch_targets` (and `correction_posture.matching_patch_target_id` / `patch_update_shells` when present) → `patch_ir_draft` with `course_updates` → remap → preview/publish.
+- Normal path: inspect `mapping_review.sanity_review` → use `mapping_review.draft_patch_targets` (and `correction_posture.matching_patch_target_id` / `patch_update_shells` when present) → `patch_ir_draft` with `course_updates` → remap → finalize.
 - Prefer `course_updates` over reconstructing full `courses[]` for a simple bearing/distance fix. Shells may include placeholders; the agent authors the corrected `value`. Deterministic code does not choose deed truth.
 - Do **not** use `delegate_subtask` to locate IR patch targets — the parent already owns the draft/mapping surfaces and the mechanical bridges (`draft_patch_targets` / shells); delegation adds no bounded observation gain for this repair.
 
@@ -169,13 +103,13 @@ Use this guidance to orient deed-to-IR work. This is **guidance**, not a hard sc
   - submit IR for mapping
   - inspect map/compile/judge artifacts
   - repair IR when mapping exposes a real defect
-  - prepare final package preview
-  - publish final output from preview ref
+  - finalize the current lineage-bound package
+  - complete the run after published output
 - Inherited upstream values are **starting inputs**, not blind truth. If mapping/compile/judge exposes a real defect, self-heal by correcting IR and provenance — do not silently trust transcript-edit when earned evidence contradicts it.
 
 ## Foundation workflow (bound)
 - Bound tool contracts live in tool specs — treat those as authoritative; this guidance does not duplicate exact tool IDs or request shapes.
-- Typical flow: hydrate `mapping_operands` and feature-graph capabilities; save a draft early; repair placeholder-only drafts into real op/geometry/feature-ref structure with provenance; submit saved IR for mapping when `mapping_submission_ready_candidate` is true enough for inspection; inspect returned mapping review; prepare final package preview; align posture; publish from preview ref.
+- Typical flow: hydrate `mapping_operands` and feature-graph capabilities; save a draft early; repair placeholder-only drafts into real op/geometry/feature-ref structure with provenance; submit saved IR for mapping when `mapping_submission_ready_candidate` is true enough for inspection; inspect returned mapping review; finalize with unresolved semantic decisions; complete after published output.
 - Attach exact upstream links through `ProvenanceAttachment.source_entity_links` on graph entities — not only graph metadata.
 - Do not guess schema, operation parameters, units, operand shapes, support status, or provenance contracts. Hydrate capability details in the same orientation batch before the first non-trivial IR save when details are not already in context.
 
@@ -185,6 +119,7 @@ Use this guidance to orient deed-to-IR work. This is **guidance**, not a hard sc
 - Do not treat startup handoff or resolution summary as closure or earned geometry truth.
 - Do not expect deterministic code to infer atom-to-feature associations or source-entity links.
 - Do not unpin or shrink operand-suite visibility by default after drafting — the operand suite is core reference material, not disposable context.
+- Do not manage preview refs, closure arrays, strict package rows, or package shells as agent bookkeeping — the finalizer owns that realization.
 """
 
 

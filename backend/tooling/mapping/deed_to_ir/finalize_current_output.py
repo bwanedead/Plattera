@@ -35,6 +35,7 @@ from .finalization_session_persistence import (
     read_finalization_session,
     write_finalization_session,
 )
+from .finalizer_result_boundary import normalize_finalizer_agent_visible_result
 from .mapping_lineage import read_current_mapping_lineage
 from .output_persistence import publish_deed_to_ir_output
 from .persistence_io import refusal, retryable_refusal
@@ -66,6 +67,41 @@ def finalize_current_deed_to_ir_output(
     persistence: Any | None = None,
 ) -> dict[str, Any]:
     """Compact current-head finalizer: merge decisions, prepare preview, publish."""
+    return normalize_finalizer_agent_visible_result(
+        _finalize_current_deed_to_ir_output_impl(
+            dossier_id=dossier_id,
+            transcription_id=transcription_id,
+            workspace_id=workspace_id,
+            run_id=run_id,
+            transcript_edit_source_revision_ref=transcript_edit_source_revision_ref,
+            resolution_state_ref=resolution_state_ref,
+            scope_statuses=scope_statuses,
+            correction_dispositions=correction_dispositions,
+            dependency_dispositions=dependency_dispositions,
+            rationales=rationales,
+            resolution_state_snapshot=resolution_state_snapshot,
+            issues=issues,
+            persistence=persistence,
+        )
+    )
+
+
+def _finalize_current_deed_to_ir_output_impl(
+    *,
+    dossier_id: str,
+    transcription_id: str | None,
+    workspace_id: str | None,
+    run_id: str | None,
+    transcript_edit_source_revision_ref: str | None,
+    resolution_state_ref: str | None,
+    scope_statuses: Any = None,
+    correction_dispositions: Any = None,
+    dependency_dispositions: Any = None,
+    rationales: Any = None,
+    resolution_state_snapshot: Mapping[str, Any] | None = None,
+    issues: list[Mapping[str, Any]] | None = None,
+    persistence: Any | None = None,
+) -> dict[str, Any]:
     request = {
         "scope_statuses": scope_statuses,
         "correction_dispositions": correction_dispositions,

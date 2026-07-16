@@ -21,8 +21,6 @@ _EXPECTED_TOOL_IDS = (
     "patch_ir_draft",
     "submit_ir_for_mapping",
     "finalize_current_deed_to_ir_output",
-    "prepare_deed_to_ir_final_package",
-    "publish_deed_to_ir_output",
     "hydrate_artifact_refs",
     "list_feature_graph_artifacts",
 )
@@ -42,7 +40,7 @@ def _launch_context(**overrides: object) -> dict:
     return base
 
 
-def test_runtime_adapter_builds_turn_surface_with_ten_tools() -> None:
+def test_runtime_adapter_builds_turn_surface_with_eight_tools() -> None:
     adapter = build_deed_to_ir_runtime_adapter()
     surface = adapter.build_turn_surface(_launch_context())
 
@@ -52,7 +50,7 @@ def test_runtime_adapter_builds_turn_surface_with_ten_tools() -> None:
 
     payload = surface.payload["deed_to_ir"]
     assert payload["tool_ids"] == list(_EXPECTED_TOOL_IDS)
-    assert len(payload["tool_specs"]) == 10
+    assert len(payload["tool_specs"]) == 8
 
     handoff = surface.payload["deed_to_ir_startup_handoff"]
     assert handoff["resolution_state_ref"] == "transcript_edit:resolution_state:fixture-001"
@@ -156,44 +154,6 @@ def test_save_ir_handler_sanitizes_exception_paths() -> None:
     assert "C:\\\\secret" not in dumped
     assert result["outputs"]["error"]["code"] == "deed_to_ir_tool_error"
     assert result["refusal"]["reason_code"] == "deed_to_ir_tool_error"
-
-
-def test_publish_handler_passes_non_list_row_fields_through() -> None:
-    adapter = build_deed_to_ir_runtime_adapter()
-    surface = adapter.build_turn_surface(_launch_context())
-    handler = next(b.handler for b in surface.tool_bindings if b.tool_id == "publish_deed_to_ir_output")
-    captured: dict[str, object] = {}
-
-    def _fake_publish(**kwargs: object) -> dict[str, object]:
-        captured.update(kwargs)
-        return {
-            "executed": False,
-            "refusal": {
-                "reason_code": "publish_payload_validation_failed",
-                "retryable": True,
-                "blocked_by_invariant": False,
-            },
-            "outputs": {
-                "validation_errors": [{"path": "notes", "code": "invalid", "message": "notes must be an array"}],
-            },
-        }
-
-    with patch(
-        "domains.mapping.deed_to_ir.runtime_adapter.composition.publish_deed_to_ir_output",
-        side_effect=_fake_publish,
-    ):
-        result = handler(
-            {
-                "mapping_artifact_ref": "feature_graph:mapping:mapping_example",
-                "notes": {"note_id": "n1", "summary": "object not array"},
-                "external_dependencies": {"dependency_id": "dep1"},
-            }
-        )
-
-    assert captured["notes"] == {"note_id": "n1", "summary": "object not array"}
-    assert captured["external_dependencies"] == {"dependency_id": "dep1"}
-    assert result["executed"] is False
-    assert result["outputs"]["validation_errors"][0]["path"] == "notes"
 
 
 def test_finalize_handler_passes_malformed_maps_through() -> None:

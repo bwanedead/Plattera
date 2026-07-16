@@ -183,23 +183,11 @@ def build_preview_hydration_payload(
         "schema_version": preview.get("schema_version"),
         "final_package_preview_ref": ref_id,
         "final_package_preview_revision_ref": preview_revision_ref,
-        "working_preview_ref": preview_revision_ref,
         "selected_artifacts": selected_dict,
         **row_summaries,
         "review_summary": preview.get("mechanical_review_summary"),
         "lineage_summary": preview.get("lineage_summary"),
         "publish_ready_candidate": preview.get("publish_ready_candidate"),
-        "recommended_publish_request": build_recommended_publish_request(
-            preview_revision_ref=preview_revision_ref,
-        ),
-        **(
-            {"preview_ready_summary": ready_summary}
-            if (ready_summary := build_preview_ready_summary(
-                publish_ready_candidate=bool(preview.get("publish_ready_candidate")),
-            ))
-            is not None
-            else {}
-        ),
         **(
             {"correction_lane_advisory": preview.get("correction_lane_advisory")}
             if isinstance(preview.get("correction_lane_advisory"), Mapping)

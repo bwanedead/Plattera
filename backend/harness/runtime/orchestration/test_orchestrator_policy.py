@@ -444,68 +444,60 @@ def test_closure_enforcement_allows_complete_after_state_change_post_publish() -
     assert result is None
 
 
-def test_preview_ready_publish_bypass_allows_posture_blocked_publish() -> None:
+def test_deed_to_ir_finalize_not_pre_dispatch_publish_when_posture_unaudited() -> None:
+    """Empty outer publish_action_ids keeps finalize off generic pre-dispatch publish gates."""
     from dataclasses import asdict
 
     from domains.mapping.deed_to_ir.semantics.closure import build_deed_to_ir_closure_policy
 
-    preview_ref = "deed_to_ir:final_package_preview:rev:0001"
     mem = _loop_memory_with_closure(
         dimensions=[_dim("layer_a")],
         ready_to_publish=False,
         work_universe_posture="partial",
     )
-    mem.continuity.kernel_step_result_records.append(
-        {
-            "kernel_turn_index": 7,
-            "action_type": "prepare_deed_to_ir_final_package",
-            "execution_state": "executed",
-            "outputs_for_continuity": {
-                "publish_ready_candidate": True,
-                "final_package_preview_ref": preview_ref,
-                "preview_ready_summary": {"expected_next": "publish_deed_to_ir_output"},
-            },
-        }
-    )
     plan = ActionPlan(
-        action_type="publish_deed_to_ir_output",
-        action_inputs={"final_package_preview_ref": preview_ref},
+        action_type="finalize_current_deed_to_ir_output",
+        action_inputs={"scope_decisions": {"scope_a": "handoffable"}},
     )
-    ctx = {"domain_closure_policy": asdict(build_deed_to_ir_closure_policy())}
-    assert closure_enforcement_failure(run_ctx=ctx, loop_memory=mem, action_plan=plan) is None
+    policy = asdict(build_deed_to_ir_closure_policy())
+    assert list(policy.get("publish_action_ids") or ()) == []
+    assert policy["completion_anchor"]["preview_ready_publish_bypass"] is False
+    assert (
+        closure_enforcement_failure(
+            run_ctx={"domain_closure_policy": policy},
+            loop_memory=mem,
+            action_plan=plan,
+        )
+        is None
+    )
 
 
-def test_preview_ready_publish_bypass_still_blocks_hitl_items() -> None:
+def test_deed_to_ir_retired_publish_action_not_pre_dispatch_publish() -> None:
+    """Historical publish action id is not in outer publish_action_ids under BR-014."""
     from dataclasses import asdict
 
     from domains.mapping.deed_to_ir.semantics.closure import build_deed_to_ir_closure_policy
 
-    preview_ref = "deed_to_ir:final_package_preview:rev:0001"
     mem = _loop_memory_with_closure(
         dimensions=[_dim("layer_a")],
         ready_to_publish=False,
         work_universe_posture="partial",
         resolution_items=[_item("i1", requires_hitl=True)],
     )
-    mem.continuity.kernel_step_result_records.append(
-        {
-            "kernel_turn_index": 7,
-            "action_type": "prepare_deed_to_ir_final_package",
-            "execution_state": "executed",
-            "outputs_for_continuity": {
-                "publish_ready_candidate": True,
-                "final_package_preview_ref": preview_ref,
-            },
-        }
-    )
     plan = ActionPlan(
         action_type="publish_deed_to_ir_output",
-        action_inputs={"final_package_preview_ref": preview_ref},
+        action_inputs={"final_package_preview_ref": "deed_to_ir:final_package_preview:rev:0001"},
     )
-    ctx = {"domain_closure_policy": asdict(build_deed_to_ir_closure_policy())}
-    result = closure_enforcement_failure(run_ctx=ctx, loop_memory=mem, action_plan=plan)
-    assert result is not None
-    assert result[0] == "closure_publish_items_require_hitl"
+    policy = asdict(build_deed_to_ir_closure_policy())
+    assert "publish_deed_to_ir_output" not in (policy.get("publish_action_ids") or [])
+    assert (
+        closure_enforcement_failure(
+            run_ctx={"domain_closure_policy": policy},
+            loop_memory=mem,
+            action_plan=plan,
+        )
+        is None
+    )
 
 
 # ---------------------------------------------------------------------------
