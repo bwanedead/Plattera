@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from domains.mapping.deed_to_ir.payloads.final_package_preview import DeedToIrFinalPackagePreview
@@ -23,6 +24,7 @@ from .paths import (
     deed_to_ir_output_dir,
     deed_to_ir_output_latest_pointer_path,
     deed_to_ir_output_revision_path,
+    require_safe_revision_digits,
 )
 from .persistence_io import (
     atomic_write_json,
@@ -342,12 +344,31 @@ def _persist_published_output(
             "Provide workspace_id or run_id to scope deed-to-IR output storage.",
         )
 
+    preview_ref = str(final_package_preview_ref or "").strip() or None
     revision_digits: str
     revision_ref: str
     try:
         safe_transcription_id = str(transcription_id).strip()
         output_dir = deed_to_ir_output_dir(dossier_id, safe_transcription_id, workspace_key)
         with _workspace_publish_lock(output_dir):
+            pointer_path = deed_to_ir_output_latest_pointer_path(
+                dossier_id,
+                safe_transcription_id,
+                workspace_key,
+            )
+            if preview_ref:
+                replay = _replay_or_refuse_matching_preview_publication(
+                    dossier_id=dossier_id,
+                    transcription_id=safe_transcription_id,
+                    workspace_id=workspace_key,
+                    pointer_path=pointer_path,
+                    requested_preview_ref=preview_ref,
+                    requested_published=published,
+                    correction_lane_advisory=correction_lane_advisory,
+                )
+                if replay is not None:
+                    return replay
+
             revision_digits = _next_revision_digits(revision_dir=output_dir)
             revision_path = deed_to_ir_output_revision_path(
                 dossier_id,
@@ -372,21 +393,16 @@ def _persist_published_output(
                 message = str(exc).strip() or "final_pointer_write_failed"
                 return _publish_refusal("final_pointer_write_failed", message)
 
-            pointer_path = deed_to_ir_output_latest_pointer_path(
-                dossier_id,
-                safe_transcription_id,
-                workspace_key,
-            )
-            _atomic_write_json(
-                pointer_path,
-                {
-                    "schema_version": "1.0",
-                    "revision_digits": revision_digits,
-                    "revision_ref": build_output_revision_ref(revision_digits),
-                    "output_ref": OUTPUT_REF,
-                    "published_at": _utc_now_iso(),
-                },
-            )
+            pointer_payload: dict[str, Any] = {
+                "schema_version": "1.0",
+                "revision_digits": revision_digits,
+                "revision_ref": build_output_revision_ref(revision_digits),
+                "output_ref": OUTPUT_REF,
+                "published_at": _utc_now_iso(),
+            }
+            if preview_ref:
+                pointer_payload["final_package_preview_ref"] = preview_ref
+            _atomic_write_json(pointer_path, pointer_payload)
             revision_ref = build_output_revision_ref(revision_digits)
     except UnsafeDeedToIrPathSegmentError as exc:
         return _publish_refusal("invalid_scope_path", str(exc))
@@ -396,7 +412,144 @@ def _persist_published_output(
             return _publish_refusal(code, code)
         raise
 
-    selected = package.selected_artifacts
+    return _build_publish_success_result(
+        published=published,
+        revision_ref=revision_ref,
+        final_package_preview_ref=preview_ref,
+        correction_lane_advisory=correction_lane_advisory,
+        idempotent_replay=False,
+    )
+
+
+_PUBLISHED_PREVIEW_REPLAY_STATE_INVALID = "published_preview_replay_state_invalid"
+
+
+def _replay_or_refuse_matching_preview_publication(
+    *,
+    dossier_id: str,
+    transcription_id: str,
+    workspace_id: str,
+    pointer_path: Path,
+    requested_preview_ref: str,
+    requested_published: DeedToIrPublishedOutput,
+    correction_lane_advisory: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    """If latest pointer claims this preview was published, replay or refuse.
+
+    Returns None when no matching preview publication exists (caller publishes normally).
+    """
+    pointer = _read_json(pointer_path)
+    if not isinstance(pointer, dict):
+        return None
+    stored_preview = str(pointer.get("final_package_preview_ref") or "").strip()
+    if not stored_preview or stored_preview != requested_preview_ref:
+        return None
+
+    coordinate = _validate_matching_preview_pointer_coordinate(pointer)
+    if isinstance(coordinate, dict):
+        return coordinate
+    revision_digits, revision_ref = coordinate
+
+    revision_path = deed_to_ir_output_revision_path(
+        dossier_id,
+        transcription_id,
+        workspace_id,
+        revision_digits,
+    )
+    if not revision_path.is_file():
+        return _publish_refusal(
+            _PUBLISHED_PREVIEW_REPLAY_STATE_INVALID,
+            "Latest output pointer claims this preview was published but the revision file is missing.",
+        )
+
+    raw = _read_json(revision_path)
+    if not isinstance(raw, dict):
+        return _publish_refusal(
+            _PUBLISHED_PREVIEW_REPLAY_STATE_INVALID,
+            "Latest output pointer claims this preview was published but the revision payload is unreadable.",
+        )
+
+    try:
+        stored_published = DeedToIrPublishedOutput.model_validate(raw)
+    except Exception:
+        return _publish_refusal(
+            _PUBLISHED_PREVIEW_REPLAY_STATE_INVALID,
+            "Latest output pointer claims this preview was published but the revision is invalid.",
+        )
+
+    requested_mapping = str(requested_published.selected_artifacts.mapping_artifact_ref or "").strip()
+    requested_ir = str(requested_published.selected_artifacts.ir_artifact_ref or "").strip()
+    stored_mapping = str(stored_published.selected_artifacts.mapping_artifact_ref or "").strip()
+    stored_ir = str(stored_published.selected_artifacts.ir_artifact_ref or "").strip()
+    if stored_mapping != requested_mapping or stored_ir != requested_ir:
+        return _publish_refusal(
+            _PUBLISHED_PREVIEW_REPLAY_STATE_INVALID,
+            "Latest output pointer claims this preview was published but stored mapping/IR selection conflicts.",
+        )
+
+    return _build_publish_success_result(
+        published=stored_published,
+        revision_ref=revision_ref,
+        final_package_preview_ref=requested_preview_ref,
+        correction_lane_advisory=correction_lane_advisory,
+        idempotent_replay=True,
+    )
+
+
+def _validate_matching_preview_pointer_coordinate(
+    pointer: dict[str, Any],
+) -> tuple[str, str] | dict[str, Any]:
+    """Validate latest pointer as one coherent publication coordinate for replay.
+
+    Returns ``(revision_digits, revision_ref)`` or a ``published_preview_replay_state_invalid``
+    refusal. Does not synthesize missing refs.
+    """
+    output_ref = str(pointer.get("output_ref") or "").strip()
+    if output_ref != OUTPUT_REF:
+        return _publish_refusal(
+            _PUBLISHED_PREVIEW_REPLAY_STATE_INVALID,
+            "Latest output pointer claims this preview was published but output_ref is invalid.",
+        )
+
+    revision_digits_raw = str(pointer.get("revision_digits") or "").strip()
+    if not revision_digits_raw:
+        return _publish_refusal(
+            _PUBLISHED_PREVIEW_REPLAY_STATE_INVALID,
+            "Latest output pointer claims this preview was published but revision digits are missing.",
+        )
+    try:
+        revision_digits = require_safe_revision_digits(revision_digits_raw)
+    except UnsafeDeedToIrPathSegmentError:
+        return _publish_refusal(
+            _PUBLISHED_PREVIEW_REPLAY_STATE_INVALID,
+            "Latest output pointer claims this preview was published but revision digits are invalid.",
+        )
+
+    revision_ref = str(pointer.get("revision_ref") or "").strip()
+    if not revision_ref:
+        return _publish_refusal(
+            _PUBLISHED_PREVIEW_REPLAY_STATE_INVALID,
+            "Latest output pointer claims this preview was published but revision_ref is missing.",
+        )
+    expected_revision_ref = build_output_revision_ref(revision_digits)
+    if revision_ref != expected_revision_ref:
+        return _publish_refusal(
+            _PUBLISHED_PREVIEW_REPLAY_STATE_INVALID,
+            "Latest output pointer claims this preview was published but revision_ref disagrees with revision_digits.",
+        )
+    return revision_digits, revision_ref
+
+
+def _build_publish_success_result(
+    *,
+    published: DeedToIrPublishedOutput,
+    revision_ref: str,
+    final_package_preview_ref: str | None = None,
+    correction_lane_advisory: dict[str, Any] | None = None,
+    idempotent_replay: bool = False,
+) -> dict[str, Any]:
+    """Shared success shaping for first publication and idempotent preview replay."""
+    selected = published.selected_artifacts
     scopes = [row.model_dump(mode="json") for row in published.scope_results]
     deps = [row.model_dump(mode="json") for row in published.external_dependencies]
     closure = [row.model_dump(mode="json") for row in published.closure_dimensions]
@@ -443,6 +596,8 @@ def _persist_published_output(
         outputs["final_package_preview_ref"] = preview_ref
     if isinstance(correction_lane_advisory, dict) and correction_lane_advisory:
         outputs["correction_lane_advisory"] = correction_lane_advisory
+    if idempotent_replay:
+        outputs["idempotent_replay"] = True
     return {
         "executed": True,
         "artifact_refs": artifact_refs,

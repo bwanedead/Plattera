@@ -12,6 +12,13 @@
 - **Capability contract:** Derive compact field inventories from Pydantic models and operation details from `OPERATION_REGISTRY`; keep authored examples in `feature_graph_examples.py` schema-valid and compiler-tested.
 - **Course repair:** `patch_ir_draft.course_updates` surgically edits one CourseTraverse row (1-based `course_index`); agent authors `value` — never infer corrected deed values.
 - **Draft patch targets:** `draft_patch_targets` / `patch_update_shells` are mechanical bridges from course-leg facts to patch locations; placeholders only, no corrected values.
+- **Preview publish idempotency:** Under the output publish lock, if latest pointer
+  `final_package_preview_ref` matches the request, replay the stored revision
+  (`idempotent_replay=true`) or refuse with `published_preview_replay_state_invalid`
+  (missing/invalid revision or mapping/IR selection conflict). Never allocate a
+  duplicate revision for that matching preview. Direct/legacy publish omits the
+  pointer field. Idempotency is latest-pointer-scoped (a newer published preview
+  supersedes prior matching). Replay validates mapping/IR selection only.
 
 ## Commands
 - Test: `pytest backend/tooling/mapping/deed_to_ir/ -q`

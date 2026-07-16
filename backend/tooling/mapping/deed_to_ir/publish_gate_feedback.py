@@ -54,6 +54,7 @@ _STORAGE_CODES = frozenset(
         "mapping_artifact_not_found",
         "mapping_package_not_found",
         "mapping_sidecar_missing",
+        "published_preview_replay_state_invalid",
     }
 )
 
