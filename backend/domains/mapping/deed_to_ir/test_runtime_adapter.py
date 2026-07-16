@@ -20,6 +20,7 @@ _EXPECTED_TOOL_IDS = (
     "save_ir_artifact",
     "patch_ir_draft",
     "submit_ir_for_mapping",
+    "finalize_current_deed_to_ir_output",
     "prepare_deed_to_ir_final_package",
     "publish_deed_to_ir_output",
     "hydrate_artifact_refs",
@@ -41,7 +42,7 @@ def _launch_context(**overrides: object) -> dict:
     return base
 
 
-def test_runtime_adapter_builds_turn_surface_with_nine_tools() -> None:
+def test_runtime_adapter_builds_turn_surface_with_ten_tools() -> None:
     adapter = build_deed_to_ir_runtime_adapter()
     surface = adapter.build_turn_surface(_launch_context())
 
@@ -51,7 +52,7 @@ def test_runtime_adapter_builds_turn_surface_with_nine_tools() -> None:
 
     payload = surface.payload["deed_to_ir"]
     assert payload["tool_ids"] == list(_EXPECTED_TOOL_IDS)
-    assert len(payload["tool_specs"]) == 9
+    assert len(payload["tool_specs"]) == 10
 
     handoff = surface.payload["deed_to_ir_startup_handoff"]
     assert handoff["resolution_state_ref"] == "transcript_edit:resolution_state:fixture-001"
@@ -193,6 +194,47 @@ def test_publish_handler_passes_non_list_row_fields_through() -> None:
     assert captured["external_dependencies"] == {"dependency_id": "dep1"}
     assert result["executed"] is False
     assert result["outputs"]["validation_errors"][0]["path"] == "notes"
+
+
+def test_finalize_handler_passes_malformed_maps_through() -> None:
+    adapter = build_deed_to_ir_runtime_adapter()
+    surface = adapter.build_turn_surface(_launch_context())
+    handler = next(
+        b.handler for b in surface.tool_bindings if b.tool_id == "finalize_current_deed_to_ir_output"
+    )
+    captured: dict[str, object] = {}
+
+    def _fake_finalize(**kwargs: object) -> dict[str, object]:
+        captured.update(kwargs)
+        return {
+            "executed": False,
+            "refusal": {
+                "reason_code": "finalization_decision_invalid",
+                "retryable": True,
+                "blocked_by_invariant": False,
+                "blocked_by_budget": False,
+                "missing_inputs": [],
+            },
+            "outputs": {
+                "error": {
+                    "code": "finalization_decision_invalid",
+                    "message": "scope_statuses must be an object map",
+                }
+            },
+        }
+
+    with patch(
+        "domains.mapping.deed_to_ir.runtime_adapter.composition.finalize_current_deed_to_ir_output",
+        side_effect=_fake_finalize,
+    ):
+        list_result = handler({"scope_statuses": ["parcel_1"]})
+        assert captured["scope_statuses"] == ["parcel_1"]
+        assert list_result["refusal"]["reason_code"] == "finalization_decision_invalid"
+        assert list_result["refusal"]["retryable"] is True
+
+        scalar_result = handler({"rationales": 42})
+        assert captured["rationales"] == 42
+        assert scalar_result["refusal"]["retryable"] is True
 
 
 def test_error_code_accepts_machine_safe_value_error_codes() -> None:

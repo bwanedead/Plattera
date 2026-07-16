@@ -20,6 +20,7 @@ from tooling.mapping.deed_to_ir.ir_draft_patch import patch_ir_draft
 from tooling.mapping.deed_to_ir.ir_mapping_submission import submit_ir_for_mapping
 from tooling.mapping.deed_to_ir.ir_persistence import save_ir_artifact
 from tooling.mapping.deed_to_ir.final_package_preview_persistence import prepare_deed_to_ir_final_package
+from tooling.mapping.deed_to_ir.finalize_current_output import finalize_current_deed_to_ir_output
 from tooling.mapping.deed_to_ir.output_persistence import publish_deed_to_ir_output
 
 from ..domain_pack import DeedToIrDomainPack
@@ -110,6 +111,10 @@ def _tool_handler_entries(
         (
             "submit_ir_for_mapping",
             _make_submit_ir_handler(dossier_id=dossier_id, handoff=handoff),
+        ),
+        (
+            "finalize_current_deed_to_ir_output",
+            _make_finalize_current_handler(dossier_id=dossier_id, handoff=handoff),
         ),
         (
             "prepare_deed_to_ir_final_package",
@@ -244,6 +249,34 @@ def _make_submit_ir_handler(
                 transcription_id=handoff.scope.transcription_id,
                 workspace_id=handoff.scope.workspace_id,
                 run_id=handoff.scope.run_id,
+            )
+        except Exception as exc:
+            return _exception_refusal(exc)
+
+    return handler
+
+
+def _make_finalize_current_handler(
+    *,
+    dossier_id: str,
+    handoff: DeedToIrStartupHandoff,
+) -> Callable[[Any], Any]:
+    def handler(request: Any) -> dict[str, Any]:
+        inputs = _extract_inputs(request)
+        try:
+            return finalize_current_deed_to_ir_output(
+                dossier_id=dossier_id,
+                transcription_id=handoff.scope.transcription_id,
+                workspace_id=handoff.scope.workspace_id,
+                run_id=handoff.scope.run_id,
+                transcript_edit_source_revision_ref=handoff.source.source_revision_ref,
+                resolution_state_ref=handoff.resolution_state_ref,
+                scope_statuses=inputs.get("scope_statuses"),
+                correction_dispositions=inputs.get("correction_dispositions"),
+                dependency_dispositions=inputs.get("dependency_dispositions"),
+                rationales=inputs.get("rationales"),
+                resolution_state_snapshot=handoff.resolution_state_snapshot,
+                issues=list(handoff.issues) if handoff.issues else None,
             )
         except Exception as exc:
             return _exception_refusal(exc)

@@ -42,8 +42,12 @@
   `current_mapping_lineage.json`). Model `finalization_session.py`, scope inventory
   `finalization_scope_inventory.py`, lifecycle `finalization_session_persistence.py`.
   Successful `submit_ir_for_mapping` replaces the session; newer IR write marks it stale.
-  Prompt projects compact `active_finalization_session` while pending only — decisions
-  never migrate across lineages; empty scope inventory persists `scope_inventory_unavailable`.
+  Prompt projects compact `active_finalization_session` for pending_decisions,
+  preview_ready, and published (stale excluded). Decisions never migrate across
+  lineages; empty scope inventory persists `scope_inventory_unavailable`.
+  Compact finalizer: `finalize_current_deed_to_ir_output`
+  (`finalization_decisions.py` + `finalize_current_output.py`); prepare/publish
+  remain advanced compatibility paths.
 - `projection_module_ref` remains the normal state-projection module slot (unused for deed-to-IR).
 - Without usable current lineage, work items are left unclassified (never forced historical).
 

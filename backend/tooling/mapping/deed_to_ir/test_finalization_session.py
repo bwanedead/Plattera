@@ -570,15 +570,40 @@ def test_prompt_compaction_rejects_invalid_and_unknown_decisions() -> None:
     assert decisions["dependency_dispositions"] == {
         "parcel_2_continuation_scope": "include"
     }
-    assert decisions["rationales"]["parcel_1"] == "x" * MAX_RATIONALE_CHARS
-    assert "parcel_99" not in decisions["rationales"]
-    assert "parcel_2" not in decisions["rationales"]
+    # Oversized / unknown / blank rationales are excluded; bodies are never projected.
+    assert "rationales" not in decisions
+    assert "rationale_ids" not in decisions
     assert compact["missing"]["scope_ids"] == ["parcel_2"]
     assert compact["missing"]["correction_ids"] == ["p1_call2_distance"]
     assert compact["missing"]["dependency_ids"] == []
     assert "confirmed_source_repair" in compact["allowed_values"]["correction_dispositions"]
     assert "confirmed_from_source" not in compact["allowed_values"]["correction_dispositions"]
 
+
+def test_prompt_compaction_projects_rationale_ids_not_bodies() -> None:
+    from tooling.mapping.deed_to_ir.finalization_session import MAX_RATIONALE_CHARS
+
+    full = "y" * MAX_RATIONALE_CHARS
+    session = build_pending_finalization_session(
+        mapping_artifact_ref="feature_graph:mapping:m_rat",
+        source_ir_artifact_ref="feature_graph:ir:i_rat",
+        scope_ids=["parcel_1"],
+        correction_candidates=[{"target_entity_id": "p1_call2_distance"}],
+        dependency_candidates=[],
+    )
+    session["decisions"] = {
+        "scope_statuses": {"parcel_1": "handoffable"},
+        "correction_dispositions": {"p1_call2_distance": "ir_only_exception"},
+        "dependency_dispositions": {},
+        "rationales": {"p1_call2_distance": full},
+    }
+    compact = compact_finalization_session_for_prompt(session)
+    assert compact is not None
+    assert session["decisions"]["rationales"]["p1_call2_distance"] == full
+    assert "rationales" not in compact["decisions"]
+    assert compact["decisions"]["rationale_ids"] == ["p1_call2_distance"]
+    assert compact["missing"]["rationale_ids"] == []
+    assert full not in str(compact)
 
 def test_capacity_diagnostic_survives_full_incoming_diagnostic_budget() -> None:
     from tooling.mapping.deed_to_ir.finalization_session import (

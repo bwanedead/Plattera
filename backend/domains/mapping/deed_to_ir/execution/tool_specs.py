@@ -8,6 +8,10 @@ from typing import Any
 from domains.mapping.deed_to_ir.payloads.final_package_example import (
     build_prepare_deed_to_ir_final_package_example_request,
 )
+from domains.mapping.deed_to_ir.payloads.finalize_current_output_tool_schema import (
+    build_finalize_current_deed_to_ir_output_example_request,
+    build_finalize_current_deed_to_ir_output_request_json_shape,
+)
 from domains.mapping.deed_to_ir.payloads.final_package_preview_tool_schema import (
     build_prepare_deed_to_ir_final_package_request_json_shape,
     build_publish_deed_to_ir_output_request_json_shape_with_preview,
@@ -426,6 +430,44 @@ def build_deed_to_ir_tool_specs() -> tuple[SemanticToolSpec, ...]:
                 "over @this.result.artifact_refs[] for post-submit inspection. artifact_refs still lists all "
                 "persisted refs. Top-level image_evidence carries clean/control PNG payloads. outputs also "
                 "include bounded counts, coordinate_space, world_bbox, and canonical refs without filesystem paths."
+            ),
+        ),
+        SemanticToolSpec(
+            tool_id="finalize_current_deed_to_ir_output",
+            category="write",
+            purpose=(
+                "Compact current-head finalizer for the lineage-bound finalization session. Accepts only "
+                "unresolved semantic decision maps (scope statuses, correction dispositions, dependency "
+                "dispositions, and exceptional rationales). Persists partial progress, prepares the "
+                "immutable final-package preview internally, and publishes it. Preferred post-remap path: "
+                "submit_ir_for_mapping → finalize_current_deed_to_ir_output → complete_run. "
+                "Does not accept mapping/IR/preview refs, closure arrays, or upstream correction rows."
+            ),
+            expected_request_shape=(
+                "All maps optional. Empty request returns exact missing decision IDs. "
+                "scope_statuses: map of known scope_id → handoffable|blocked. "
+                "correction_dispositions: map of known correction_id → "
+                "confirmed_source_repair|ir_only_exception|needs_hitl. "
+                "dependency_dispositions: map of known dependency_id → include|not_applicable. "
+                "rationales: map of known requirement_id → rationale text; required only for "
+                "ir_only_exception and not_applicable. Previously accepted decisions need not be resubmitted. "
+                "Rejects artifact refs and unknown top-level fields."
+            ),
+            expected_request_json_shape=(
+                build_finalize_current_deed_to_ir_output_request_json_shape()
+            ),
+            example_request=build_finalize_current_deed_to_ir_output_example_request(),
+            batching={
+                "allowed": False,
+                "side_effect_class": "write",
+            },
+            expected_result_shape=(
+                "On success: finalization_status=published, final_package_preview_ref, "
+                "output_revision_ref, mapping_artifact_ref, ir_artifact_ref, "
+                "next_required_action=complete_run, plus publication counts/refs. "
+                "Incomplete decisions: retryable missing_finalization_decisions with missing IDs. "
+                "needs_hitl: finalization_requires_hitl without preparing/publishing. "
+                "preview_ready retry republishes the frozen preview; published replay is idempotent."
             ),
         ),
         SemanticToolSpec(

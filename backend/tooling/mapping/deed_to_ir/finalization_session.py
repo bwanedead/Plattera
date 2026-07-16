@@ -9,6 +9,11 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from domains.mapping.deed_to_ir.payloads.finalization_vocabulary import (
+    ALLOWED_CORRECTION_DISPOSITIONS,
+    ALLOWED_DEPENDENCY_DISPOSITIONS,
+    ALLOWED_SCOPE_STATUSES,
+)
 from domains.mapping.deed_to_ir.payloads.published_output import (
     MAX_EXTERNAL_DEPENDENCIES,
     MAX_RATIONALE_LENGTH,
@@ -18,19 +23,16 @@ from domains.mapping.deed_to_ir.payloads.published_output import (
 
 SCHEMA_VERSION = "deed_to_ir.finalization_session.v1"
 STATUS_PENDING_DECISIONS = "pending_decisions"
+STATUS_PREVIEW_READY = "preview_ready"
+STATUS_PUBLISHED = "published"
 STATUS_STALE = "stale"
 STALE_REASON_IR_REVISION_WITHOUT_REMAP = "ir_revision_without_remap"
 SCOPE_INVENTORY_UNAVAILABLE = "scope_inventory_unavailable"
 REQUIREMENTS_CAPACITY_EXCEEDED = "finalization_requirements_capacity_exceeded"
 
-# Finalizer contract vocabulary (BR-013) — not legacy upstream_corrections postures.
-ALLOWED_SCOPE_STATUSES: tuple[str, ...] = ("handoffable", "blocked")
-ALLOWED_CORRECTION_DISPOSITIONS: tuple[str, ...] = (
-    "confirmed_source_repair",
-    "ir_only_exception",
-    "needs_hitl",
+ACTIVE_FINALIZATION_STATUSES = frozenset(
+    {STATUS_PENDING_DECISIONS, STATUS_PREVIEW_READY, STATUS_PUBLISHED}
 )
-ALLOWED_DEPENDENCY_DISPOSITIONS: tuple[str, ...] = ("include", "not_applicable")
 
 MAX_SCOPE_REQUIREMENTS = MAX_SCOPE_RESULTS
 MAX_CORRECTION_REQUIREMENTS = MAX_UPSTREAM_CORRECTIONS
@@ -131,35 +133,39 @@ def compact_finalization_session_for_prompt(
 ) -> dict[str, Any] | None:
     """Bounded active-session projection for per-turn prompt runtime.
 
-    While pending: lineage refs, exact missing IDs, allowed values, accepted
-    decisions, and status. Omits full artifacts and large evidence payloads.
+    Pending: lineage, requirements, accepted decisions, missing IDs, allowed values.
+    Preview-ready / published: status, refs, and next_required_action only.
+    Stale sessions are excluded.
     """
     if not isinstance(session, Mapping) or not session:
         return None
     status = str(session.get("status") or "").strip()
-    if status != STATUS_PENDING_DECISIONS:
+    if status not in ACTIVE_FINALIZATION_STATUSES:
         return None
 
+    if status == STATUS_PREVIEW_READY:
+        preview_ref = str(session.get("preview_ref") or "").strip() or None
+        return {
+            "status": STATUS_PREVIEW_READY,
+            "final_package_preview_ref": preview_ref,
+            "next_required_action": "finalize_current_deed_to_ir_output",
+        }
+
+    if status == STATUS_PUBLISHED:
+        return {
+            "status": STATUS_PUBLISHED,
+            "output_revision_ref": str(session.get("output_revision_ref") or "").strip() or None,
+            "final_package_preview_ref": str(session.get("preview_ref") or "").strip() or None,
+            "next_required_action": "complete_run",
+        }
+
     lineage = session.get("lineage") if isinstance(session.get("lineage"), Mapping) else {}
-    requirements = (
-        session.get("requirements") if isinstance(session.get("requirements"), Mapping) else {}
-    )
     decisions = session.get("decisions") if isinstance(session.get("decisions"), Mapping) else {}
 
-    scope_ids = [
-        str(item).strip()
-        for item in (requirements.get("scope_ids") or [])
-        if str(item or "").strip()
-    ][:MAX_SCOPE_REQUIREMENTS]
-    correction_ids = _requirement_ids(
-        requirements.get("correction_candidates"),
-        id_keys=("target_entity_id",),
-    )[:MAX_CORRECTION_REQUIREMENTS]
-    dependency_ids = _requirement_ids(
-        requirements.get("dependency_candidates"),
-        id_keys=("candidate_id", "dependency_id"),
-    )[:MAX_DEPENDENCY_REQUIREMENTS]
-    known_ids = set(scope_ids) | set(correction_ids) | set(dependency_ids)
+    known = session_requirement_ids(session)
+    scope_ids = list(known["scope_ids"])[:MAX_SCOPE_REQUIREMENTS]
+    correction_ids = list(known["correction_ids"])[:MAX_CORRECTION_REQUIREMENTS]
+    dependency_ids = list(known["dependency_ids"])[:MAX_DEPENDENCY_REQUIREMENTS]
 
     accepted_scopes = _accepted_decision_map(
         decisions.get("scope_statuses"),
@@ -179,6 +185,7 @@ def compact_finalization_session_for_prompt(
         allowed_values=ALLOWED_DEPENDENCY_DISPOSITIONS,
         maximum=MAX_DEPENDENCY_REQUIREMENTS,
     )
+    known_ids = set(scope_ids) | set(correction_ids) | set(dependency_ids)
     accepted_rationales = _accepted_rationales(
         decisions.get("rationales"),
         known_ids=known_ids,
@@ -187,9 +194,15 @@ def compact_finalization_session_for_prompt(
         + MAX_DEPENDENCY_REQUIREMENTS,
     )
 
-    missing_scope = [sid for sid in scope_ids if sid not in accepted_scopes]
-    missing_corrections = [cid for cid in correction_ids if cid not in accepted_corrections]
-    missing_dependencies = [did for did in dependency_ids if did not in accepted_dependencies]
+    missing = compute_missing_finalization_ids(
+        scope_ids=scope_ids,
+        correction_ids=correction_ids,
+        dependency_ids=dependency_ids,
+        scope_statuses=accepted_scopes,
+        correction_dispositions=accepted_corrections,
+        dependency_dispositions=accepted_dependencies,
+        rationales=accepted_rationales,
+    )
 
     compact: dict[str, Any] = {
         "status": STATUS_PENDING_DECISIONS,
@@ -197,11 +210,7 @@ def compact_finalization_session_for_prompt(
             "mapping_artifact_ref": lineage.get("mapping_artifact_ref"),
             "source_ir_artifact_ref": lineage.get("source_ir_artifact_ref"),
         },
-        "missing": {
-            "scope_ids": missing_scope,
-            "correction_ids": missing_corrections,
-            "dependency_ids": missing_dependencies,
-        },
+        "missing": missing,
         "allowed_values": {
             "scope_statuses": list(ALLOWED_SCOPE_STATUSES),
             "correction_dispositions": list(ALLOWED_CORRECTION_DISPOSITIONS),
@@ -221,7 +230,7 @@ def compact_finalization_session_for_prompt(
     if accepted_dependencies:
         accepted["dependency_dispositions"] = accepted_dependencies
     if accepted_rationales:
-        accepted["rationales"] = accepted_rationales
+        accepted["rationale_ids"] = list(accepted_rationales.keys())
     if accepted:
         compact["decisions"] = accepted
 
@@ -230,6 +239,56 @@ def compact_finalization_session_for_prompt(
         compact["diagnostics"] = _compact_diagnostics(diagnostics)
 
     return compact
+
+
+def compute_missing_finalization_ids(
+    *,
+    scope_ids: Sequence[str],
+    correction_ids: Sequence[str],
+    dependency_ids: Sequence[str],
+    scope_statuses: Mapping[str, str],
+    correction_dispositions: Mapping[str, str],
+    dependency_dispositions: Mapping[str, str],
+    rationales: Mapping[str, str],
+) -> dict[str, list[str]]:
+    """Exact unresolved decision and rationale IDs for the current session."""
+    missing_scope = [sid for sid in scope_ids if sid not in scope_statuses]
+    missing_corrections = [cid for cid in correction_ids if cid not in correction_dispositions]
+    missing_dependencies = [did for did in dependency_ids if did not in dependency_dispositions]
+    missing_rationale: list[str] = []
+    for cid, disposition in correction_dispositions.items():
+        if disposition == "ir_only_exception" and cid not in rationales:
+            missing_rationale.append(cid)
+    for did, disposition in dependency_dispositions.items():
+        if disposition == "not_applicable" and did not in rationales:
+            missing_rationale.append(did)
+    return {
+        "scope_ids": missing_scope,
+        "correction_ids": missing_corrections,
+        "dependency_ids": missing_dependencies,
+        "rationale_ids": missing_rationale,
+    }
+
+
+def session_requirement_ids(session: Mapping[str, Any]) -> dict[str, list[str]]:
+    requirements = (
+        session.get("requirements") if isinstance(session.get("requirements"), Mapping) else {}
+    )
+    return {
+        "scope_ids": [
+            str(item).strip()
+            for item in (requirements.get("scope_ids") or [])
+            if str(item or "").strip()
+        ],
+        "correction_ids": _requirement_ids(
+            requirements.get("correction_candidates"),
+            id_keys=("target_entity_id",),
+        ),
+        "dependency_ids": _requirement_ids(
+            requirements.get("dependency_candidates"),
+            id_keys=("candidate_id", "dependency_id"),
+        ),
+    }
 
 
 def _bound_requirement_lane(
@@ -423,9 +482,9 @@ def _accepted_rationales(
         if not text_key or text_key not in known_ids:
             continue
         text_value = str(value or "").strip()
-        if not text_value:
+        if not text_value or len(text_value) > MAX_RATIONALE_CHARS:
             continue
-        out[text_key] = text_value[:MAX_RATIONALE_CHARS]
+        out[text_key] = text_value
         if len(out) >= maximum:
             break
     return out
