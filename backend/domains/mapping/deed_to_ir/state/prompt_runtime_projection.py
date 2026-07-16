@@ -14,6 +14,9 @@ from typing import Any
 from tooling.mapping.deed_to_ir.active_handoff_projection import (
     project_lineage_aware_handoff_context,
 )
+from tooling.mapping.deed_to_ir.finalization_session_persistence import (
+    compact_active_finalization_session_for_prompt,
+)
 from tooling.mapping.deed_to_ir.mapping_lineage import read_current_mapping_lineage
 
 PROJECTION_SCHEMA = "deed_to_ir.prompt_runtime_projection.v1"
@@ -34,34 +37,57 @@ def build_prompt_runtime_projection(
     if not dossier_id:
         return None
 
+    transcription_id = _optional_text(launch.get("transcription_id"))
+    workspace_id = _optional_text(launch.get("workspace_id"))
+    run_id = _optional_text(launch.get("run_id"))
+
     lineage = read_current_mapping_lineage(
         dossier_id=dossier_id,
-        transcription_id=_optional_text(launch.get("transcription_id")),
-        workspace_id=_optional_text(launch.get("workspace_id")),
-        run_id=_optional_text(launch.get("run_id")),
+        transcription_id=transcription_id,
+        workspace_id=workspace_id,
+        run_id=run_id,
     )
     items = [dict(item) for item in (resolution_items or ()) if isinstance(item, Mapping)]
     projected = project_lineage_aware_handoff_context(lineage=lineage, work_items=items)
-    if not projected:
+    active_finalization = compact_active_finalization_session_for_prompt(
+        dossier_id=dossier_id,
+        transcription_id=transcription_id,
+        workspace_id=workspace_id,
+        run_id=run_id,
+    )
+    if not projected and active_finalization is None:
         return None
 
     out: dict[str, Any] = {
         "schema": PROJECTION_SCHEMA,
         "domain_id": "deed_to_ir",
-        **projected,
+        **(projected or {}),
     }
-    active = projected.get("active_handoff_context")
+    if active_finalization is not None:
+        out["active_finalization_session"] = active_finalization
+
+    active = out.get("active_handoff_context")
+    hot_refs: list[str] = []
+    seen_hot: set[str] = set()
     if isinstance(active, Mapping):
-        hot_refs: list[str] = []
         for key in ("mapping_artifact_ref", "source_ir_artifact_ref"):
             ref = str(active.get(key) or "").strip()
-            if ref:
+            if ref and ref not in seen_hot:
+                seen_hot.add(ref)
                 hot_refs.append(ref)
-        if hot_refs:
-            # Mechanical hint only: harness may union these into exact-ref windowing.
-            out["hot_artifact_refs"] = hot_refs
+    if not hot_refs and isinstance(active_finalization, Mapping):
+        lineage = active_finalization.get("lineage")
+        if isinstance(lineage, Mapping):
+            for key in ("mapping_artifact_ref", "source_ir_artifact_ref"):
+                ref = str(lineage.get(key) or "").strip()
+                if ref and ref not in seen_hot:
+                    seen_hot.add(ref)
+                    hot_refs.append(ref)
+    if hot_refs:
+        # Mechanical hint only: harness may union these into exact-ref windowing.
+        out["hot_artifact_refs"] = hot_refs
 
-    cold_refs = _cold_refs_from_historical(projected.get("historical_lineage_context"))
+    cold_refs = _cold_refs_from_historical(out.get("historical_lineage_context"))
     if cold_refs:
         # Historical mapping/IR refs must be demoted from generic exact-ref windowing.
         out["cold_artifact_refs"] = cold_refs

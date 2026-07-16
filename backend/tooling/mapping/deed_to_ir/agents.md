@@ -31,6 +31,12 @@
   lineage into `run_context.domain_runtime_projection` each choose_action turn. Emits
   `hot_artifact_refs` / `cold_artifact_refs` for mechanical exact-ref windowing. Historical
   classification uses only work-item `evidence_refs` mapping/IR refs; no status mutation.
+- Finalization session: workspace sidecar `finalization_session.json` (same identity as
+  `current_mapping_lineage.json`). Model `finalization_session.py`, scope inventory
+  `finalization_scope_inventory.py`, lifecycle `finalization_session_persistence.py`.
+  Successful `submit_ir_for_mapping` replaces the session; newer IR write marks it stale.
+  Prompt projects compact `active_finalization_session` while pending only — decisions
+  never migrate across lineages; empty scope inventory persists `scope_inventory_unavailable`.
 - `projection_module_ref` remains the normal state-projection module slot (unused for deed-to-IR).
 - Without usable current lineage, work items are left unclassified (never forced historical).
 

@@ -161,6 +161,44 @@ def submit_ir_for_mapping(
         "use_these_refs_for_next_preview": True,
     }
 
+    from .finalization_session import compact_finalization_session_for_prompt
+    from .finalization_session_persistence import (
+        replace_finalization_session_for_mapping_submission,
+    )
+
+    resolution_for_session = (
+        resolution_state_snapshot
+        if isinstance(resolution_state_snapshot, Mapping)
+        else (
+            handoff_context.get("resolution_state_snapshot")
+            if isinstance(handoff_context, Mapping)
+            and isinstance(handoff_context.get("resolution_state_snapshot"), Mapping)
+            else None
+        )
+    )
+    issues_for_session = None
+    if isinstance(handoff_context, Mapping):
+        raw_issues = handoff_context.get("issues")
+        if isinstance(raw_issues, list):
+            issues_for_session = [row for row in raw_issues if isinstance(row, Mapping)]
+    finalization_session = replace_finalization_session_for_mapping_submission(
+        dossier_id=dossier_id,
+        transcription_id=str(tid).strip() if tid else None,
+        workspace_id=str(wid).strip() if wid else None,
+        run_id=str(rid).strip() if rid else None,
+        mapping_artifact_ref=mapping.artifact_ref,
+        source_ir_artifact_ref=outcome.ir_artifact_ref,
+        ir_graph=ir_artifact.graph,
+        mapping_artifact=artifact,
+        correction_posture=mapping_review.get("correction_posture")
+        if isinstance(mapping_review.get("correction_posture"), Mapping)
+        else None,
+        resolution_state_snapshot=resolution_for_session
+        if isinstance(resolution_for_session, Mapping)
+        else None,
+        issues=issues_for_session,
+    )
+
     outputs: dict[str, Any] = {
         "mapping_artifact_ref": mapping.artifact_ref,
         "compile_artifact_ref": compile_outcome.artifact_ref,
@@ -181,6 +219,9 @@ def submit_ir_for_mapping(
         "lineage_lock": lineage_lock,
         "current_mapping_lineage": compact_current_mapping_lineage_for_projection(lineage_for_review),
     }
+    compact_session = compact_finalization_session_for_prompt(finalization_session)
+    if compact_session is not None:
+        outputs["active_finalization_session"] = compact_session
     # Prefer the copy already attached onto mapping_review; fall back if absent.
     attached = mapping_review.get("active_handoff_context")
     if isinstance(attached, Mapping) and attached:
