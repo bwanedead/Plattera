@@ -34,6 +34,7 @@
     "governance": "node ../tools/static-governance.mjs",
     "check": "npm run lint && npm run governance",
     "check:full": "npm run check && npm run typecheck",
+    "test:agent-viewer": "npx tsx --test src/components/agent-viewer/model/eventIdentity.test.mjs src/components/agent-viewer/model/reviewContracts.test.mjs",
     "start": "next start",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",

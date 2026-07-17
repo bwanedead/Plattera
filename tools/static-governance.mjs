@@ -57,10 +57,6 @@ const oversizedFileBudgets = new Map([
 ]);
 
 const componentServiceImportBaselines = new Map([
-  ["frontend/src/components/agent-viewer/AgentCanvasPane.tsx", 1],
-  ["frontend/src/components/agent-viewer/AgentSidebar.tsx", 1],
-  ["frontend/src/components/agent-viewer/agentViewerUtils.ts", 1],
-  ["frontend/src/components/agent-viewer/EventDetailBlock.tsx", 1],
   ["frontend/src/components/agent-viewer/types.ts", 1],
   ["frontend/src/components/assets/AssetInstallOverlay.tsx", 1],
   ["frontend/src/components/assets/AssetsTray.tsx", 3],

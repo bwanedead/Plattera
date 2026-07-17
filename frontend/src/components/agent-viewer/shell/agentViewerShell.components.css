@@ -1,0 +1,326 @@
+/* Agent viewer — shared controls, header, activity, inspector */
+.av-run-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 18px 10px;
+  border-bottom: 1px solid var(--av-border);
+}
+
+.av-run-header-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.av-run-eyebrow {
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--av-muted);
+}
+
+.av-run-title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+
+.av-run-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.av-run-meta {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+  color: var(--av-muted);
+  font-size: 12px;
+}
+
+.av-run-error {
+  margin-top: 8px;
+  color: var(--av-danger);
+  font-size: 13px;
+}
+
+.av-status-pill,
+.av-mode-pill,
+.av-badge,
+.av-count,
+.av-meta-chip,
+.av-inspector-status,
+.av-activity-stage {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 11px;
+  border: 1px solid var(--av-border);
+  color: var(--av-muted);
+}
+
+.av-status-working { color: var(--av-accent); border-color: rgba(110, 168, 255, 0.35); }
+.av-status-complete { color: var(--av-success); border-color: rgba(95, 211, 141, 0.35); }
+.av-status-error { color: var(--av-danger); border-color: rgba(255, 123, 123, 0.35); }
+.av-status-waiting_user { color: var(--av-warning); border-color: rgba(240, 193, 90, 0.35); }
+.av-status-disconnected { color: var(--av-muted); }
+.av-status-terminal { color: var(--av-success); border-color: rgba(95, 211, 141, 0.35); }
+.av-status-idle { color: var(--av-muted); }
+
+.av-button {
+  border: 1px solid var(--av-border);
+  background: var(--av-panel-2);
+  color: var(--av-text);
+  border-radius: 10px;
+  padding: 8px 12px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.av-button:hover:not(:disabled) {
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+.av-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.av-button-primary {
+  background: var(--av-accent-soft);
+  border-color: rgba(110, 168, 255, 0.35);
+  color: #d9e8ff;
+}
+
+.av-button-ghost {
+  background: transparent;
+}
+
+.av-button.is-active {
+  border-color: rgba(110, 168, 255, 0.45);
+  background: rgba(110, 168, 255, 0.12);
+}
+
+.av-activity-timeline,
+.av-inspector-list,
+.av-resolution-inspector {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.av-activity-row,
+.av-inspector-row {
+  text-align: left;
+  width: 100%;
+  border: 1px solid transparent;
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: 12px;
+  padding: 10px 12px;
+  color: inherit;
+  cursor: pointer;
+}
+
+.av-activity-row:hover,
+.av-inspector-row:hover,
+.av-activity-row.is-selected,
+.av-inspector-row.is-selected {
+  border-color: rgba(110, 168, 255, 0.35);
+  background: rgba(110, 168, 255, 0.08);
+}
+
+.av-activity-row-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.av-activity-turn {
+  font-size: 11px;
+  color: var(--av-accent);
+  letter-spacing: 0.06em;
+}
+
+.av-activity-stage-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.av-activity-delegate {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 2px 6px;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #d8b4fe;
+  border: 1px solid rgba(216, 180, 254, 0.35);
+}
+
+.av-activity-line1 {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.av-activity-line2,
+.av-inspector-row-sub,
+.av-empty-inline,
+.av-empty-panel,
+.av-unknown-reason,
+.av-unknown-ref {
+  color: var(--av-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.av-empty-panel {
+  padding: 24px;
+  text-align: center;
+}
+
+.av-inspector-section + .av-inspector-section {
+  margin-top: 14px;
+}
+
+.av-inspector-section-header {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  font-size: 12px;
+  color: var(--av-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.av-inspector-row-title {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.av-work-summary {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 10px;
+  font-size: 12px;
+  color: var(--av-muted);
+}
+
+.av-attention-strip {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--av-border);
+  overflow-x: auto;
+}
+
+.av-attention-label {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--av-muted);
+  flex-shrink: 0;
+}
+
+.av-attention-items {
+  display: flex;
+  gap: 6px;
+}
+
+.av-attention-chip {
+  border: 1px solid var(--av-border);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--av-text);
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.av-attention-chip.is-selected,
+.av-attention-chip:hover {
+  border-color: rgba(110, 168, 255, 0.35);
+  background: rgba(110, 168, 255, 0.1);
+}
+
+.av-chapter-rail {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--av-border);
+  overflow-x: auto;
+}
+
+.av-chapter-rail-label,
+.av-action-bar-label {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--av-muted);
+  flex-shrink: 0;
+}
+
+.av-chapter-rail-items,
+.av-action-bar-items {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.av-chapter-chip {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  border: 1px solid var(--av-border);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--av-text);
+  border-radius: 10px;
+  padding: 6px 10px;
+  cursor: pointer;
+  min-width: 120px;
+}
+
+.av-chapter-chip.is-active,
+.av-chapter-chip:hover {
+  border-color: rgba(110, 168, 255, 0.35);
+  background: rgba(110, 168, 255, 0.1);
+}
+
+.av-chapter-chip-title {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.av-chapter-chip-status {
+  font-size: 11px;
+  color: var(--av-muted);
+  text-transform: lowercase;
+}
+
+.av-action-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--av-border);
+  flex-wrap: wrap;
+}
+
+.av-action-bar-error {
+  color: var(--av-danger);
+  font-size: 12px;
+}

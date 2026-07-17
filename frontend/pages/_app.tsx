@@ -7,6 +7,7 @@ import 'allotment/dist/style.css';      // Global split-pane styling (Allotment)
 import '../src/components/mapping/CleanMap.css'  // Map overlay/loading CSS (global)
 import '../src/components/visualization/backgrounds/CleanMapBackground.css' // Background placeholders
 import '../src/styles/components/loaders.css' // Any global loaders referenced by components
+import '../src/components/agent-viewer/shell/agentViewerShell.css'
 import { BackendStatusBanner } from '../src/components/system/BackendStatusBanner'
 import { PLSSDownloadBanner } from '../src/components/plss/PLSSDownloadBanner'
 import { PLSSDownloadOverlay } from '../src/components/plss/PLSSDownloadOverlay'
@@ -14,7 +15,6 @@ import { AssetInstallBanner } from '../src/components/assets/AssetInstallBanner'
 import { AssetInstallOverlay } from '../src/components/assets/AssetInstallOverlay'
 import { ToastProvider } from '../src/components/ui/ToastProvider'
 import { ApiKeyModal } from '../src/components/ApiKeyModal'
-import { LogsButton } from '../src/components/logs/LogsButton'
 import { installGlobalLogCapture } from '../src/services/logging/logStore'
 
 export default function App({ Component, pageProps }: AppProps) {
@@ -225,7 +225,6 @@ export default function App({ Component, pageProps }: AppProps) {
         <main>
           <Component {...pageProps} />
           <ApiKeyModal open={showKeyModal} onClose={() => setShowKeyModal(false)} onSaved={() => location.reload()} />
-          <LogsButton />
         </main>
       </div>
     </ToastProvider>

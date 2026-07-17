@@ -5,6 +5,7 @@ import type {
 } from '../../../services/agentViewerApi';
 import { defaultAgentViewerRegistry, type AgentViewerRegistry } from '../registry/viewerRegistry';
 import { buildSnapshotInventory, type AgentViewerInventorySection } from './snapshotInventory';
+import { firstText, isRecord } from './modelUtils';
 
 export type AgentViewerSnapshotView = {
   snapshot: AgentViewerSnapshot | null;
@@ -143,32 +144,20 @@ function eventDedupeKey(evt: AgentViewerEvent): string | null {
   return null;
 }
 
-function safeText(value: any): string {
+function safeText(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
 }
 
-function firstText(...values: any[]): string {
-  for (const value of values) {
-    const text = safeText(value);
-    if (text) return text;
-  }
-  return '';
-}
-
-function optionalText(value: any): string | undefined {
+function optionalText(value: unknown): string | undefined {
   const text = safeText(value);
   return text ? text : undefined;
 }
 
-function nullableText(value: any): string | null {
+function nullableText(value: unknown): string | null {
   const text = safeText(value);
   return text ? text : null;
 }
 
-function numberOrNull(value: any): number | null {
+function numberOrNull(value: unknown): number | null {
   return typeof value === 'number' ? value : null;
-}
-
-function isRecord(value: any): value is Record<string, any> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }

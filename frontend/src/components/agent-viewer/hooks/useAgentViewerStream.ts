@@ -1,5 +1,7 @@
 import React from 'react';
 import { subscribeAgentViewerEvents, type AgentViewerEvent, type AgentViewerLoopKind } from '../../../services/agentViewerApi';
+import { postAgentViewerTimingLog } from '../transport/live/frontendLogGateway';
+import { useAgentViewerClientLogBridge } from './useAgentViewerClientLogBridge';
 
 type Params = {
   isOpen: boolean;
@@ -14,16 +16,18 @@ export function useAgentViewerStream({ isOpen, activeLoopKind, activeRunId }: Pa
   const [isHydratingReplay, setIsHydratingReplay] = React.useState(false);
   const replayHydratingRef = React.useRef(false);
 
+  useAgentViewerClientLogBridge(isOpen);
+
   React.useEffect(() => {
     if (!isOpen || !activeLoopKind || !activeRunId) return;
     const startedAtMs = Date.now();
     let firstEventLogged = false;
     let firstLiveLogged = false;
     let firstPromptLogged = false;
-    void postFrontendTimingLog(
-      `subscribe_start loop=${activeLoopKind} run=${activeRunId}`,
-      { loop_kind: activeLoopKind, run_id: activeRunId },
-    );
+    void postAgentViewerTimingLog(`subscribe_start loop=${activeLoopKind} run=${activeRunId}`, {
+      loop_kind: activeLoopKind,
+      run_id: activeRunId,
+    });
     setEvents([]);
     setConnected(false);
     setIsHydratingReplay(true);
@@ -42,7 +46,7 @@ export function useAgentViewerStream({ isOpen, activeLoopKind, activeRunId }: Pa
         const phase = String(normalizedEvent?.payload?.phase || '');
         if (!firstEventLogged) {
           firstEventLogged = true;
-          void postFrontendTimingLog(
+          void postAgentViewerTimingLog(
             `first_event_received loop=${activeLoopKind} run=${activeRunId} elapsed_ms=${Date.now() - startedAtMs}`,
             {
               loop_kind: activeLoopKind,
@@ -55,7 +59,7 @@ export function useAgentViewerStream({ isOpen, activeLoopKind, activeRunId }: Pa
         }
         if (!isReplay && !firstLiveLogged) {
           firstLiveLogged = true;
-          void postFrontendTimingLog(
+          void postAgentViewerTimingLog(
             `first_live_event_received loop=${activeLoopKind} run=${activeRunId} elapsed_ms=${Date.now() - startedAtMs}`,
             {
               loop_kind: activeLoopKind,
@@ -67,7 +71,7 @@ export function useAgentViewerStream({ isOpen, activeLoopKind, activeRunId }: Pa
         }
         if (!firstPromptLogged && String(normalizedEvent?.event_type || '') === 'human_feedback_needed') {
           firstPromptLogged = true;
-          void postFrontendTimingLog(
+          void postAgentViewerTimingLog(
             `prompt_event_received loop=${activeLoopKind} run=${activeRunId} elapsed_ms=${Date.now() - startedAtMs}`,
             {
               loop_kind: activeLoopKind,
@@ -78,16 +82,15 @@ export function useAgentViewerStream({ isOpen, activeLoopKind, activeRunId }: Pa
             },
           );
         }
-        const taggedEvent =
-          isReplay
-            ? {
-                ...normalizedEvent,
-                payload: {
-                  ...(normalizedEvent.payload || {}),
-                  __replay: true,
-                },
-              }
-            : normalizedEvent;
+        const taggedEvent = isReplay
+          ? {
+              ...normalizedEvent,
+              payload: {
+                ...(normalizedEvent.payload || {}),
+                __replay: true,
+              },
+            }
+          : normalizedEvent;
         setEvents((prev) => insertEventWithTickerReplacement(prev, taggedEvent));
       },
       () => setConnected(false),
@@ -104,66 +107,9 @@ export function useAgentViewerStream({ isOpen, activeLoopKind, activeRunId }: Pa
     };
   }, [isOpen, activeLoopKind, activeRunId]);
 
-  React.useEffect(() => {
-    if (!isOpen) return;
-    const endpoint = 'http://127.0.0.1:8000/api/logs/frontend';
-    const postLog = (level: string, args: any[]) => {
-      try {
-        const text = args
-          .map((v) => {
-            if (typeof v === 'string') return v;
-            try {
-              return JSON.stringify(v);
-            } catch {
-              return String(v);
-            }
-          })
-          .join(' ');
-        void fetch(endpoint, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            level,
-            message: text.slice(0, 3800),
-            source: 'agent_viewer_client',
-            ts: Date.now() / 1000,
-          }),
-        }).catch(() => {
-          // Non-fatal: backend log sink may be temporarily unavailable.
-        });
-      } catch {
-        // ignore
-      }
-    };
-
-    const originalWarn = console.warn;
-    const originalError = console.error;
-    console.warn = (...args: any[]) => {
-      postLog('WARNING', args);
-      originalWarn(...args);
-    };
-    console.error = (...args: any[]) => {
-      postLog('ERROR', args);
-      originalError(...args);
-    };
-
-    const onWindowError = (evt: ErrorEvent) => {
-      postLog('ERROR', [evt.message, evt.filename, evt.lineno, evt.colno]);
-    };
-    window.addEventListener('error', onWindowError);
-
-    return () => {
-      console.warn = originalWarn;
-      console.error = originalError;
-      window.removeEventListener('error', onWindowError);
-    };
-  }, [isOpen]);
-
   return {
     events,
-    setEvents,
     connected,
-    setConnected,
     connectionEpoch,
     isHydratingReplay,
   };
@@ -171,16 +117,18 @@ export function useAgentViewerStream({ isOpen, activeLoopKind, activeRunId }: Pa
 
 function normalizeLaneEvent(event: AgentViewerEvent): AgentViewerEvent {
   const payload = event.payload && typeof event.payload === 'object' ? event.payload : {};
-  const lane = String((event as any).lane || payload.lane || '').trim() || undefined;
-  const laneSeqRaw = (event as any).lane_seq ?? payload.lane_seq;
+  const lane = String((event as AgentViewerEvent & { lane?: string }).lane || payload.lane || '').trim() || undefined;
+  const laneSeqRaw = (event as AgentViewerEvent & { lane_seq?: number }).lane_seq ?? payload.lane_seq;
   const laneSeq = typeof laneSeqRaw === 'number' ? laneSeqRaw : undefined;
-  const sessionId = String((event as any).session_id || payload.session_id || '').trim() || undefined;
+  const sessionId =
+    String((event as AgentViewerEvent & { session_id?: string }).session_id || payload.session_id || '').trim() ||
+    undefined;
   return {
     ...event,
     lane,
     lane_seq: laneSeq,
     session_id: sessionId,
-    payload: payload as Record<string, any>,
+    payload: payload as Record<string, unknown>,
   };
 }
 
@@ -197,22 +145,4 @@ function insertEventWithTickerReplacement(prev: AgentViewerEvent[], event: Agent
     return existingLane !== laneKey;
   });
   return [event, ...filtered].slice(0, 250);
-}
-
-async function postFrontendTimingLog(message: string, metadata?: Record<string, any>): Promise<void> {
-  try {
-    await fetch('http://127.0.0.1:8000/api/logs/frontend', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        level: 'INFO',
-        source: 'agent_viewer_timing',
-        message: `AGENT_VIEWER_TIMING ► ${message}`,
-        ts: Date.now() / 1000,
-        meta: metadata || {},
-      }),
-    });
-  } catch {
-    // ignore timing log failures
-  }
 }

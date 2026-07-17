@@ -1,0 +1,162 @@
+/* Agent viewer — canvas, replay, artifact renderers */
+.av-artifact-canvas {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+}
+
+.av-canvas-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--av-border);
+}
+
+.av-canvas-toolbar-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.av-canvas-title,
+.av-event-canvas-title,
+.av-image-title,
+.av-text-title,
+.av-unknown-title {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.av-canvas-body {
+  flex: 1;
+  overflow: auto;
+  padding: 14px;
+  min-height: 0;
+}
+
+.av-follow-live {
+  color: var(--av-success);
+  font-size: 12px;
+}
+
+.av-replay-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px 14px 14px;
+  border-top: 1px solid var(--av-border);
+}
+
+.av-replay-buttons {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.av-replay-scrub {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.av-replay-label {
+  font-size: 12px;
+  color: var(--av-muted);
+}
+
+.av-replay-range {
+  width: 100%;
+}
+
+.av-image-frame {
+  margin-top: 12px;
+  border: 1px solid var(--av-border);
+  border-radius: 12px;
+  overflow: hidden;
+  background: #090b0f;
+}
+
+.av-image {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 70vh;
+  object-fit: contain;
+}
+
+.av-text-body {
+  margin: 12px 0 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 13px;
+  line-height: 1.5;
+  background: rgba(0, 0, 0, 0.22);
+  border-radius: 12px;
+  padding: 12px;
+}
+
+.av-json-tree {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.av-json-node {
+  margin-left: 8px;
+}
+
+.av-json-children {
+  margin-left: 12px;
+  border-left: 1px solid var(--av-border);
+  padding-left: 8px;
+}
+
+.av-json-leaf {
+  display: flex;
+  gap: 8px;
+  padding: 2px 0;
+}
+
+.av-json-key {
+  color: #9fd0ff;
+}
+
+.av-json-value {
+  color: #f2f4f8;
+}
+
+.av-json-null {
+  color: #ff9f9f;
+}
+
+.av-json-meta,
+.av-json-truncated {
+  color: var(--av-muted);
+}
+
+.av-image-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.av-raw-inspector {
+  border-top: 1px solid var(--av-border);
+  padding: 10px 14px;
+  max-height: 240px;
+  overflow: auto;
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.av-raw-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: 11px;
+  color: var(--av-muted);
+}

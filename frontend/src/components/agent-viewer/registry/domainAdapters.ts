@@ -4,6 +4,7 @@ import {
   type AgentViewerRegistry,
   type ViewerRendererRegistration,
 } from './viewerRegistry';
+import { defaultDomainAdapters, type ExtendedDomainAdapter } from './defaultDomainAdapters';
 
 export type AgentViewerDomainAdapter = {
   id: string;
@@ -15,7 +16,7 @@ export type AgentViewerDomainAdapter = {
 
 export function createRegistryForSnapshot(
   snapshot: AgentViewerSnapshot | null,
-  adapters: AgentViewerDomainAdapter[] = [],
+  adapters: ExtendedDomainAdapter[] = defaultDomainAdapters,
   baseRegistrations: ViewerRendererRegistration[] = [],
 ): AgentViewerRegistry {
   const activeAdapters = selectDomainAdapters(snapshot, adapters);
@@ -28,8 +29,8 @@ export function createRegistryForSnapshot(
 
 export function selectDomainAdapters(
   snapshot: AgentViewerSnapshot | null,
-  adapters: AgentViewerDomainAdapter[],
-): AgentViewerDomainAdapter[] {
+  adapters: ExtendedDomainAdapter[],
+): ExtendedDomainAdapter[] {
   if (!snapshot) return [];
   return adapters
     .filter((adapter) => (adapter.matches ? adapter.matches(snapshot) : false))
