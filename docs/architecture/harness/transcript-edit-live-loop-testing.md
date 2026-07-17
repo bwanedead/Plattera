@@ -107,21 +107,14 @@ $ctx = "{""dossier_id"":""9f5eecb6-cd7e-483c-b691-b76aa7132e8e"",""transcription
 python -m harness.cli.start --run-id $runId --loop-kind transcript_edit --python-module harness.runtime.runner.entrypoint --module-arg=--domain-id --module-arg=transcript_edit --module-arg=--launch-context-json --module-arg=$ctx
 ```
 
-Optional model override from CLI:
+Optional model override from CLI (stronger explicit alternative):
 
 ```powershell
-python -m harness.cli.start --run-id $runId --loop-kind transcript_edit --model gpt-5.4-mini --python-module harness.runtime.runner.entrypoint --module-arg=--domain-id --module-arg=transcript_edit --module-arg=--launch-context-json --module-arg=$ctx
+python -m harness.cli.start --run-id $runId --loop-kind transcript_edit --model gpt-5.6-terra --python-module harness.runtime.runner.entrypoint --module-arg=--domain-id --module-arg=transcript_edit --module-arg=--launch-context-json --module-arg=$ctx
 ```
 
-GPT-5.6 opt-in overrides (same `--model` flag; default unchanged):
-
-```powershell
---model gpt-5.6-terra
-```
-
-```powershell
---model gpt-5.6-luna
-```
+Other supported overrides use the same `--model` flag (for example
+`gpt-5.4-mini` or an explicit `gpt-5.6-luna`).
 
 Guidance:
 
@@ -134,14 +127,14 @@ Guidance:
   into a shallow few-turn pass
 - omit `model` from launch context unless you explicitly want to override the
   harness default model
-- the harness default remains `gpt-5.4`
-- for cheaper exploratory runs, prefer `harness.cli.start --model gpt-5.4-mini`
-  or `--model gpt-5.6-luna`; for stronger GPT-5.6 live runs use `--model gpt-5.6-terra`
-- `gpt-5.6-terra` / `gpt-5.6-luna` are opt-in live-test overrides only — this
-  doc does not prescribe model-comparison runs
+- the harness default is `gpt-5.6-luna`; omitting `--model` on a new run selects
+  Luna
+- for the stronger explicit alternative, use `--model gpt-5.6-terra`
 - if both launch context `model` and CLI `--model` are set, launch context
   wins; CLI `--model` is a convenience fallback for runs where the context JSON
   omits `model`
+- resume and fork preserve the run’s recorded model rather than adopting the
+  current default
 
 Check status:
 
@@ -309,7 +302,8 @@ python -m harness.cli.watch --run-id $runId --timeout 120
 Resume is mechanical. It restores the last completed `kernel_resume.json`
 checkpoint and starts the next turn in the same run directory. It does not
 replay a half-failed LLM call and it does not infer mission meaning. If the run
-was started with `--model`, the resumed child preserves that model override.
+was started with an explicit or recorded model, the resumed child preserves that
+model rather than adopting the current harness default (`gpt-5.6-luna`).
 If the run had a pending `control.json`, resume consumes that stale control
 request before spawning the child so the resumed run does not immediately stop
 again.

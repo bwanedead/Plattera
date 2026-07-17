@@ -290,6 +290,7 @@ def test_resume_run_respawns_with_env(isolated_harness_root, monkeypatch):
         return _FakeProc()
 
     monkeypatch.setattr(subprocess, "Popen", fake_popen)
+    monkeypatch.setattr("harness.cli.resume.spawn_run_control_watchdog", lambda **kwargs: None)
 
     out = resume_run(run_id=rid)
     assert out["status"] == "resumed"
@@ -418,10 +419,41 @@ def test_resume_preserves_model_override_env(isolated_harness_root, monkeypatch)
         return _FakeProc()
 
     monkeypatch.setattr(subprocess, "Popen", fake_popen)
+    monkeypatch.setattr("harness.cli.resume.spawn_run_control_watchdog", lambda **kwargs: None)
 
     out = resume_run(run_id=rid)
     assert out["status"] == "resumed"
     assert captured["env"]["HARNESS_CLI_MODEL"] == "gpt-5.4-mini"
+
+
+@pytest.mark.parametrize(
+    "recorded_model",
+    ("gpt-5.4", "gpt-5.4-mini", "gpt-5.6-terra", "gpt-5.6-luna"),
+)
+def test_resume_preserves_recorded_model_identity(
+    isolated_harness_root, monkeypatch, recorded_model
+):
+    """Resume must not silently switch a recorded model to the current default."""
+    rid = f"resume-model-{recorded_model.replace('.', '-')}"
+    st = _write_dead_run(rid, with_checkpoint=True)
+    st.extra = {"model": recorded_model}
+    rs.write_state(st)
+
+    captured: dict = {}
+
+    class _FakeProc:
+        pid = 70001
+
+    def fake_popen(argv, *, cwd, stdin, stdout, stderr, env, close_fds, **kw):
+        captured["env"] = dict(env)
+        return _FakeProc()
+
+    monkeypatch.setattr(subprocess, "Popen", fake_popen)
+    monkeypatch.setattr("harness.cli.resume.spawn_run_control_watchdog", lambda **kwargs: None)
+
+    out = resume_run(run_id=rid)
+    assert out["status"] == "resumed"
+    assert captured["env"]["HARNESS_CLI_MODEL"] == recorded_model
 
 
 def test_status_reports_interrupted_resumable(isolated_harness_root, isolated_dossiers_artifacts_shim):

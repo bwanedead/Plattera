@@ -20,8 +20,6 @@ import time
 from typing import Any
 from uuid import uuid4
 
-_LOG = logging.getLogger(__name__)
-
 from harness.execution.contracts import ExecutionSessionStartRequest
 from harness.execution.executor import ExecutionExecutor
 from harness.execution.session import ExecutionSessionManager
@@ -67,6 +65,10 @@ from harness.runtime.model_failure_classifier import (
 from harness.runtime.llm.instrumented_caller import instrument_openai_model_caller
 from services.llm.openai import OpenAIService
 from .contracts import RuntimeAdapter, RuntimeArtifactTargets, RuntimeRunResult
+
+_LOG = logging.getLogger(__name__)
+
+DEFAULT_HARNESS_MODEL = "gpt-5.6-luna"
 
 
 class RuntimeRunnerError(RuntimeError):
@@ -719,10 +721,11 @@ def _build_default_model_caller(*, model_name: str) -> Callable[..., Mapping[str
 
 
 def _select_model_name(context: Mapping[str, Any]) -> str:
-    return (
-        str(context.get("model") or os.environ.get("HARNESS_CLI_MODEL") or "gpt-5.4").strip()
-        or "gpt-5.4"
-    )
+    launch_model = str(context.get("model") or "").strip()
+    if launch_model:
+        return launch_model
+    cli_model = str(os.environ.get("HARNESS_CLI_MODEL") or "").strip()
+    return cli_model or DEFAULT_HARNESS_MODEL
 
 
 def _select_run_id(context: Mapping[str, Any]) -> str:

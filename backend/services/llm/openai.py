@@ -273,7 +273,7 @@ class OpenAIService(LLMService):
             "context_window_tokens": 400_000,
             "max_output_tokens": 128_000,
         },
-        # GPT-5.6 Terra/Luna: opt-in harness overrides only (default remains gpt-5.4).
+        # GPT-5.6 Terra/Luna: Luna is the harness default; Terra is the stronger explicit override.
         # context_window_tokens / max_output_tokens match gpt-5.4 until an official OpenAI
         # model card is wired here; public preview listings report larger Terra windows.
         "gpt-5.6-terra": {
@@ -281,7 +281,7 @@ class OpenAIService(LLMService):
             "provider": "openai",
             "cost_tier": "standard",
             "capabilities": ["text", "vision"],
-            "description": "Strong GPT-5.6 model for live harness runs",
+            "description": "Stronger GPT-5.6 model for explicit harness overrides",
             "verification_required": False,
             "api_model_name": "gpt-5.6-terra",
             "default_max_tokens": 16000,
@@ -293,7 +293,7 @@ class OpenAIService(LLMService):
             "provider": "openai",
             "cost_tier": "budget",
             "capabilities": ["text", "vision"],
-            "description": "Cheaper GPT-5.6 model for live harness experiments",
+            "description": "Budget GPT-5.6 model used as the harness default",
             "verification_required": False,
             "api_model_name": "gpt-5.6-luna",
             "default_max_tokens": 16000,

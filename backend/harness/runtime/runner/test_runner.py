@@ -435,6 +435,21 @@ def test_select_model_name_falls_back_to_cli_env(monkeypatch) -> None:
     assert runner_module._select_model_name({}) == "gpt-5.4-mini"
 
 
+def test_select_model_name_strips_candidates_before_precedence(monkeypatch) -> None:
+    """Whitespace-only launch model must not suppress a usable CLI override."""
+    monkeypatch.setenv("HARNESS_CLI_MODEL", "gpt-5.6-terra")
+    assert runner_module._select_model_name({"model": "   "}) == "gpt-5.6-terra"
+
+    monkeypatch.delenv("HARNESS_CLI_MODEL", raising=False)
+    assert runner_module._select_model_name({"model": "   "}) == "gpt-5.6-luna"
+
+    monkeypatch.setenv("HARNESS_CLI_MODEL", "   ")
+    assert runner_module._select_model_name({"model": "   "}) == "gpt-5.6-luna"
+
+    monkeypatch.setenv("HARNESS_CLI_MODEL", "gpt-5.6-terra")
+    assert runner_module._select_model_name({"model": "gpt-5.4-mini"}) == "gpt-5.4-mini"
+
+
 def test_runner_injects_domain_closure_policy_into_orchestration_context(tmp_path: Path, monkeypatch) -> None:
     captured: dict[str, Any] = {}
     policy = DomainClosurePolicy(
@@ -1243,20 +1258,26 @@ def test_hitl_routing_uses_canonical_run_id(tmp_path: Path, monkeypatch) -> None
 
 
 # ---------------------------------------------------------------------------
-# Workstream 4: default model is gpt-5.4
+# Workstream 4: default model is gpt-5.6-luna
 # ---------------------------------------------------------------------------
 
 
-def test_runner_default_model_is_gpt54() -> None:
-    """Omitting model in launch context should resolve to gpt-5.4, not gpt-5.4-mini."""
-    assert runner_module._select_model_name({}) == "gpt-5.4"
-    assert runner_module._select_model_name({"model": None}) == "gpt-5.4"
-    assert runner_module._select_model_name({"model": ""}) == "gpt-5.4"
+def test_runner_default_model_is_gpt56_luna(monkeypatch) -> None:
+    """Omitting model in launch context should resolve to gpt-5.6-luna."""
+    monkeypatch.delenv("HARNESS_CLI_MODEL", raising=False)
+    assert runner_module.DEFAULT_HARNESS_MODEL == "gpt-5.6-luna"
+    assert runner_module._select_model_name({}) == "gpt-5.6-luna"
+    assert runner_module._select_model_name({"model": None}) == "gpt-5.6-luna"
+    assert runner_module._select_model_name({"model": ""}) == "gpt-5.6-luna"
+    assert runner_module._select_model_name({"model": "   "}) == "gpt-5.6-luna"
 
 
 def test_runner_explicit_model_override_is_preserved() -> None:
     """Explicit model override should be respected and not replaced with default."""
     assert runner_module._select_model_name({"model": "gpt-5.4-mini"}) == "gpt-5.4-mini"
+    assert runner_module._select_model_name({"model": "gpt-5.4"}) == "gpt-5.4"
+    assert runner_module._select_model_name({"model": "gpt-5.6-terra"}) == "gpt-5.6-terra"
+    assert runner_module._select_model_name({"model": "gpt-5.6-luna"}) == "gpt-5.6-luna"
     assert runner_module._select_model_name({"model": "gpt-5"}) == "gpt-5"
 
 

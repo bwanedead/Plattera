@@ -135,7 +135,7 @@ def test_gpt56_terra_and_luna_registered_with_exact_api_names() -> None:
         assert entry.get("default_max_tokens") == 16000
         assert "text" in entry["capabilities"]
         assert "vision" in entry["capabilities"]
-    # Default harness model must remain gpt-5.4 (registry presence only; no default flip).
+    # gpt-5.4 remains a supported explicit/historical registry option.
     assert "gpt-5.4" in OpenAIService.models
 
 

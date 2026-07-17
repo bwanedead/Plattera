@@ -40,6 +40,18 @@ def test_strip_removes_run_id_from_equals_form_flag() -> None:
     assert doc["model"] == "gpt-5.4"
 
 
+def test_strip_preserves_explicit_recorded_models() -> None:
+    for model in ("gpt-5.4", "gpt-5.4-mini", "gpt-5.6-terra", "gpt-5.6-luna"):
+        launch = {"run_id": "parent-run", "model": model, "dossier_id": "d1"}
+        raw = json.dumps(launch, separators=(",", ":"))
+        argv = ["python", "-m", "harness.runtime.runner.entrypoint", f"--launch-context-json={raw}"]
+        stripped = strip_launch_context_identity_for_fork(argv)
+        doc = json.loads(stripped[3].split("=", 1)[1])
+        assert "run_id" not in doc
+        assert doc["model"] == model
+        assert doc["dossier_id"] == "d1"
+
+
 def test_strip_noop_without_launch_context_flag() -> None:
     argv = ["python", "-m", "harness.cli.stub_worker"]
     assert strip_launch_context_identity_for_fork(argv) == argv
