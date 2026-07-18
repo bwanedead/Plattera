@@ -21,6 +21,7 @@ from tooling.mapping.deed_to_ir.artifact_hydration import (
     make_hydrate_artifact_refs_handler,
 )
 from ..domain_pack import DeedToIrDomainPack
+from ..execution.result_views import wrap_handler_with_result_view
 from ..payloads import DeedToIrStartupHandoff
 from ..prompting import PromptBlock
 
@@ -78,6 +79,12 @@ def _tool_handler_entries(
     handoff: DeedToIrStartupHandoff,
 ) -> tuple[tuple[str, Callable[[Any], Any]], ...]:
     handoff_context = _handoff_tool_context(handoff)
+    scope = dict(
+        dossier_id=dossier_id,
+        transcription_id=handoff.scope.transcription_id,
+        workspace_id=handoff.scope.workspace_id,
+        run_id=handoff.scope.run_id,
+    )
     return (
         (
             "hydrate_deed_to_ir_input",
@@ -89,29 +96,45 @@ def _tool_handler_entries(
         ),
         (
             "save_ir_artifact",
-            _make_save_ir_handler(
-                dossier_id=dossier_id,
-                draft_workspace_id=handoff.scope.workspace_id,
-                draft_run_id=handoff.scope.run_id,
-                transcription_id=handoff.scope.transcription_id,
+            wrap_handler_with_result_view(
+                _make_save_ir_handler(
+                    dossier_id=dossier_id,
+                    draft_workspace_id=handoff.scope.workspace_id,
+                    draft_run_id=handoff.scope.run_id,
+                    transcription_id=handoff.scope.transcription_id,
+                ),
+                action_id="save_ir_artifact",
+                **scope,
             ),
         ),
         (
             "patch_ir_draft",
-            _make_patch_ir_draft_handler(
-                dossier_id=dossier_id,
-                draft_workspace_id=handoff.scope.workspace_id,
-                draft_run_id=handoff.scope.run_id,
-                transcription_id=handoff.scope.transcription_id,
+            wrap_handler_with_result_view(
+                _make_patch_ir_draft_handler(
+                    dossier_id=dossier_id,
+                    draft_workspace_id=handoff.scope.workspace_id,
+                    draft_run_id=handoff.scope.run_id,
+                    transcription_id=handoff.scope.transcription_id,
+                ),
+                action_id="patch_ir_draft",
+                **scope,
             ),
         ),
         (
             "submit_ir_for_mapping",
-            _make_submit_ir_handler(dossier_id=dossier_id, handoff=handoff),
+            wrap_handler_with_result_view(
+                _make_submit_ir_handler(dossier_id=dossier_id, handoff=handoff),
+                action_id="submit_ir_for_mapping",
+                **scope,
+            ),
         ),
         (
             "finalize_current_deed_to_ir_output",
-            _make_finalize_current_handler(dossier_id=dossier_id, handoff=handoff),
+            wrap_handler_with_result_view(
+                _make_finalize_current_handler(dossier_id=dossier_id, handoff=handoff),
+                action_id="finalize_current_deed_to_ir_output",
+                **scope,
+            ),
         ),
         (
             HYDRATE_ARTIFACT_REFS,
