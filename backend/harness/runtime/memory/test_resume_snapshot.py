@@ -1131,3 +1131,128 @@ def test_parse_rejects_malformed_pinned_refs() -> None:
     }
     _, _, err = parse_kernel_resume_snapshot(base)
     assert err == "resume_snapshot_pinned_refs_invalid"
+
+def test_roundtrip_pending_result_deliveries_preserved() -> None:
+    from harness.runtime.memory.result_delivery import admit_pending_result_delivery
+    from harness.execution.contracts import ActionDispatchResult
+
+    mem = LoopMemoryState()
+    deliveries: list[dict] = []
+    admit_pending_result_delivery(
+        deliveries,
+        result=ActionDispatchResult(
+            action_id="tool_a",
+            executed=True,
+            outputs={"ok": True},
+            artifact_refs=("artifact://x",),
+        ),
+        source_turn_index=4,
+        action_index=1,
+        action_alias="review_mapping",
+        execution_state="executed",
+    )
+    deliveries[0]["successful_content_contact_ids"] = ["prompt-contact-9"]
+    mem.continuity.pending_result_deliveries = deliveries
+    snap = build_kernel_resume_snapshot(
+        loop_memory=mem,
+        session_manager=ExecutionSessionManager(),
+        session_id="s1",
+        next_iteration=5,
+    )
+    restored, _, err = parse_kernel_resume_snapshot(snap)
+    assert err is None
+    assert len(restored.continuity.pending_result_deliveries) == 1
+    row = restored.continuity.pending_result_deliveries[0]
+    assert row["delivery_id"] == "turn:4:action:1:review_mapping"
+    assert row["successful_content_contact_ids"] == ["prompt-contact-9"]
+    assert row["representation"] == {"ok": True}
+
+
+def test_pending_result_deliveries_absent_defaults_to_empty() -> None:
+    rs = new_resolution_state()
+    ms = new_mission_state(mission_id="m1", loop_family="orchestration_kernel", resolution_state=rs)
+    base = {
+        "schema_version": "kernel_resume.v1",
+        "next_iteration": 1,
+        "continuity": {
+            "latest_refs": {},
+            "mission_state": ms.model_dump(mode="json"),
+            "resolution_state": rs.model_dump(mode="json"),
+            "active_item_id": None,
+        },
+        "hitl": {"hitl_state": "no_prompt"},
+        "telemetry": {"llm_contact_count": 0, "prompt_event_count": 0},
+        "execution_session": None,
+    }
+    restored, _, err = parse_kernel_resume_snapshot(base)
+    assert err is None
+    assert restored.continuity.pending_result_deliveries == []
+
+
+def test_parse_rejects_malformed_pending_result_deliveries() -> None:
+    rs = new_resolution_state()
+    ms = new_mission_state(mission_id="m1", loop_family="orchestration_kernel", resolution_state=rs)
+    base = {
+        "schema_version": "kernel_resume.v1",
+        "next_iteration": 1,
+        "continuity": {
+            "latest_refs": {},
+            "mission_state": ms.model_dump(mode="json"),
+            "resolution_state": rs.model_dump(mode="json"),
+            "active_item_id": None,
+            "pending_result_deliveries": [{"schema_version": "pending_result_delivery.v1"}],
+        },
+        "hitl": {"hitl_state": "no_prompt"},
+        "telemetry": {"llm_contact_count": 0, "prompt_event_count": 0},
+        "execution_session": None,
+    }
+    _, _, err = parse_kernel_resume_snapshot(base)
+    assert err == "resume_snapshot_pending_result_deliveries_invalid"
+
+
+def test_parse_rejects_pending_result_deliveries_over_cap() -> None:
+    from harness.runtime.memory.result_delivery import MAX_PENDING_RESULT_DELIVERIES
+
+    rs = new_resolution_state()
+    ms = new_mission_state(mission_id="m1", loop_family="orchestration_kernel", resolution_state=rs)
+    row = {
+        "schema_version": "pending_result_delivery.v1",
+        "delivery_id": "turn:1:action:0:a",
+        "source_turn_index": 1,
+        "action_index": 0,
+        "action_alias": "a",
+        "action_id": "tool_a",
+        "execution_state": "executed",
+        "executed": True,
+        "reason_codes": [],
+        "reason_codes_omitted_count": 0,
+        "refusal": None,
+        "artifact_refs": [],
+        "artifact_refs_omitted_count": 0,
+        "representation_kind": "exact_outputs",
+        "representation": {"ok": True},
+        "continuity_key": None,
+        "successful_content_contact_ids": [],
+    }
+    oversized = []
+    for i in range(MAX_PENDING_RESULT_DELIVERIES + 1):
+        item = dict(row)
+        item["delivery_id"] = f"turn:{i}:action:0:a"
+        item["source_turn_index"] = i
+        oversized.append(item)
+    base = {
+        "schema_version": "kernel_resume.v1",
+        "next_iteration": 1,
+        "continuity": {
+            "latest_refs": {},
+            "mission_state": ms.model_dump(mode="json"),
+            "resolution_state": rs.model_dump(mode="json"),
+            "active_item_id": None,
+            "pending_result_deliveries": oversized,
+        },
+        "hitl": {"hitl_state": "no_prompt"},
+        "telemetry": {"llm_contact_count": 0, "prompt_event_count": 0},
+        "execution_session": None,
+    }
+    _, _, err = parse_kernel_resume_snapshot(base)
+    assert err == "resume_snapshot_pending_result_deliveries_invalid"

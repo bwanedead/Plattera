@@ -32,6 +32,10 @@ from .continuity_journal import (
     validate_stored_step_record,
 )
 from .loop_state import LoopMemoryState
+from .result_delivery import (
+    MAX_PENDING_RESULT_DELIVERIES,
+    validate_stored_pending_result_delivery,
+)
 from .telemetry import PromptContactTelemetry
 from .turn_recovery import TurnRecoveryState
 
@@ -100,6 +104,7 @@ def build_kernel_resume_snapshot(
                 else None
             ),
             "delegate_subtask_results": list(loop_memory.continuity.delegate_subtask_results),
+            "pending_result_deliveries": list(loop_memory.continuity.pending_result_deliveries),
             "stable_context": list(loop_memory.continuity.stable_context),
             "pinned_refs": list(loop_memory.continuity.pinned_refs),
             "pinned_refs_hydration": (
@@ -364,6 +369,20 @@ def parse_kernel_resume_snapshot(payload: Mapping[str, Any]) -> tuple[LoopMemory
                     return empty, 1, "resume_snapshot_delegate_subtask_results_invalid"
                 delegate_subtask_results_out.append(norm)
 
+    pending_result_deliveries_out: list[dict[str, Any]] = []
+    if "pending_result_deliveries" in cont:
+        prd_raw = cont.get("pending_result_deliveries")
+        if prd_raw is not None:
+            if not isinstance(prd_raw, list):
+                return empty, 1, "resume_snapshot_pending_result_deliveries_invalid"
+            if len(prd_raw) > MAX_PENDING_RESULT_DELIVERIES:
+                return empty, 1, "resume_snapshot_pending_result_deliveries_invalid"
+            for row in prd_raw:
+                norm = validate_stored_pending_result_delivery(row)
+                if norm is None:
+                    return empty, 1, "resume_snapshot_pending_result_deliveries_invalid"
+                pending_result_deliveries_out.append(norm)
+
     stable_context_out: list[dict[str, Any]] = []
     if "stable_context" in cont:
         sc_raw = cont.get("stable_context")
@@ -461,6 +480,7 @@ def parse_kernel_resume_snapshot(payload: Mapping[str, Any]) -> tuple[LoopMemory
         pending_agent_hydration=pending_agent_hydration_out,
         recent_action_sequence_result=recent_action_sequence_result_out,
         delegate_subtask_results=delegate_subtask_results_out,
+        pending_result_deliveries=pending_result_deliveries_out,
         stable_context=stable_context_out,
         pinned_refs=pinned_refs_out,
         pinned_refs_hydration=pinned_refs_hydration_out,
