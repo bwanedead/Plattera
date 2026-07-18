@@ -6,6 +6,11 @@ from collections.abc import Mapping
 from typing import Any
 
 from .action_ids import normalize_action_id
+from .agent_result_view import (
+    agent_result_view_omission_to_wire,
+    agent_result_view_to_wire,
+    normalize_agent_result_view_pair,
+)
 from .contracts import ActionDispatchResult, ExecutionRefusal, ExecutionStepRequest
 
 
@@ -65,7 +70,11 @@ def execution_step_request_from_wire(raw: object) -> ExecutionStepRequest | None
 
 
 def action_dispatch_result_to_wire(res: ActionDispatchResult) -> dict[str, Any]:
-    return {
+    view, omitted = normalize_agent_result_view_pair(
+        res.agent_result_view,
+        res.agent_result_view_omitted,
+    )
+    wire: dict[str, Any] = {
         "action_id": str(res.action_id),
         "executed": res.executed,
         "reason_codes": list(res.reason_codes),
@@ -74,6 +83,11 @@ def action_dispatch_result_to_wire(res: ActionDispatchResult) -> dict[str, Any]:
         "artifact_refs": list(res.artifact_refs),
         "idempotency_key": res.idempotency_key,
     }
+    if view is not None:
+        wire["agent_result_view"] = agent_result_view_to_wire(view)
+    elif omitted is not None:
+        wire["agent_result_view_omitted"] = agent_result_view_omission_to_wire(omitted)
+    return wire
 
 
 def action_dispatch_result_from_wire(raw: object) -> ActionDispatchResult | None:
@@ -85,6 +99,11 @@ def action_dispatch_result_from_wire(raw: object) -> ActionDispatchResult | None
         return None
     refusal_raw = raw.get("refusal")
     refusal = execution_refusal_from_wire(refusal_raw) if refusal_raw is not None else None
+    view_raw = raw.get("agent_result_view") if raw.get("agent_result_view") is not None else None
+    omission_raw = (
+        raw.get("agent_result_view_omitted") if raw.get("agent_result_view_omitted") is not None else None
+    )
+    view, omitted = normalize_agent_result_view_pair(view_raw, omission_raw)
     return ActionDispatchResult(
         action_id=aid,
         executed=bool(raw.get("executed", False)),
@@ -93,4 +112,6 @@ def action_dispatch_result_from_wire(raw: object) -> ActionDispatchResult | None
         refusal=refusal,
         artifact_refs=tuple(str(x) for x in list(raw.get("artifact_refs") or []) if str(x).strip()),
         idempotency_key=str(raw.get("idempotency_key") or ""),
+        agent_result_view=view,
+        agent_result_view_omitted=omitted,
     )

@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Mapping
 
 from .action_ids import normalize_action_id
+from .agent_result_view import normalize_agent_result_view_pair
 from .contracts import ActionDispatchHandler, ActionDispatchResult, ExecutionRefusal, ExecutionStepRequest
 
 
@@ -47,7 +48,17 @@ def _coerce_result(
     idempotency_key: str,
 ) -> ActionDispatchResult:
     if isinstance(raw_result, ActionDispatchResult):
-        return raw_result
+        view, omitted = normalize_agent_result_view_pair(
+            raw_result.agent_result_view,
+            raw_result.agent_result_view_omitted,
+        )
+        return replace(
+            raw_result,
+            action_id=action_id,
+            idempotency_key=idempotency_key,
+            agent_result_view=view,
+            agent_result_view_omitted=omitted,
+        )
     if not isinstance(raw_result, Mapping):
         return ActionDispatchResult(
             action_id=action_id,
@@ -73,6 +84,10 @@ def _coerce_result(
     image_evidence: tuple[dict[str, Any], ...] = ()
     if isinstance(raw_evidence, (list, tuple)):
         image_evidence = tuple(e for e in raw_evidence if isinstance(e, dict))
+    agent_result_view, agent_result_view_omitted = normalize_agent_result_view_pair(
+        raw_result.get("agent_result_view"),
+        raw_result.get("agent_result_view_omitted"),
+    )
     return ActionDispatchResult(
         action_id=action_id,
         executed=bool(raw_result.get("executed", True)),
@@ -82,4 +97,6 @@ def _coerce_result(
         artifact_refs=tuple(str(item) for item in list(raw_result.get("artifact_refs") or []) if str(item).strip()),
         idempotency_key=idempotency_key,
         image_evidence=image_evidence,
+        agent_result_view=agent_result_view,
+        agent_result_view_omitted=agent_result_view_omitted,
     )

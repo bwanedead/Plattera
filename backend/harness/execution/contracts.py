@@ -7,6 +7,7 @@ from enum import Enum
 from typing import Any, Mapping, Protocol, runtime_checkable
 
 from .action_ids import ActionId
+from .agent_result_view import AgentResultView, AgentResultViewOmission
 
 
 @dataclass(frozen=True)
@@ -39,6 +40,10 @@ class ActionDispatchResult:
     # Mechanical side channel for model-visible image evidence (base64 payloads).
     # NOT included in continuity text records to avoid token bloat.
     image_evidence: tuple[dict[str, Any], ...] = field(default_factory=tuple)
+    # Domain-authored agent-facing result view (opaque to this layer). Mutually
+    # exclusive with agent_result_view_omitted. Absent view is normal.
+    agent_result_view: AgentResultView | None = None
+    agent_result_view_omitted: AgentResultViewOmission | None = None
 
 
 @dataclass(frozen=True)

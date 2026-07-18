@@ -15,6 +15,7 @@ from .contracts import (
 )
 from .run_artifact import RunArtifact
 from .session import ExecutionSession, new_execution_session
+from .wire_codec import action_dispatch_result_from_wire, action_dispatch_result_to_wire
 
 
 class JsonFileExecutionPersistence:
@@ -72,8 +73,25 @@ def _session_payload(session: ExecutionSession) -> dict[str, Any]:
         "run_id": session.run_id,
         "completed_idempotency_keys": sorted(session.completed_idempotency_keys),
         "run_artifact": session.run_artifact.to_dict(),
-        "records": [asdict(record) for record in session.records],
+        "records": [_record_to_payload(record) for record in session.records],
     }
+
+
+def _record_to_payload(record: SessionExecutionRecord) -> dict[str, Any]:
+    return {
+        "session_id": record.session_id,
+        "run_id": record.run_id,
+        "request": asdict(record.request),
+        "result": _result_to_payload(record.result),
+    }
+
+
+def _result_to_payload(result: ActionDispatchResult) -> dict[str, Any]:
+    # Canonical view/omission encoding via the shared wire helper; preserve
+    # image_evidence write behavior that the wire codec intentionally omits.
+    payload = action_dispatch_result_to_wire(result)
+    payload["image_evidence"] = [dict(item) for item in result.image_evidence]
+    return payload
 
 
 def _record_from_payload(payload: Mapping[str, Any]) -> SessionExecutionRecord:
@@ -98,6 +116,11 @@ def _request_from_payload(payload: Mapping[str, Any]) -> ExecutionStepRequest:
 
 
 def _result_from_payload(payload: Mapping[str, Any]) -> ActionDispatchResult:
+    # Prefer the canonical wire codec so view/omission share one interpretation.
+    # image_evidence remains intentionally unrestored on load (pre-existing behavior).
+    parsed = action_dispatch_result_from_wire(payload)
+    if parsed is not None:
+        return parsed
     refusal_payload = payload.get("refusal")
     refusal = _refusal_from_payload(refusal_payload) if isinstance(refusal_payload, Mapping) else None
     outputs = payload.get("outputs")
