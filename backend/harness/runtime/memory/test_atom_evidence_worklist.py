@@ -6,7 +6,7 @@ import json
 
 from harness.runtime.memory.atom_evidence_worklist import build_atom_evidence_worklist
 from harness.runtime.memory.continuity_journal import build_kernel_step_result_record
-from harness.runtime.memory.point_crop_set_projection import project_point_crop_set_summary
+from tooling.mapping.transcript_edit.point_crop_set_projection import project_point_crop_set_summary
 from harness.runtime.orchestration.subtasks.delegate_result_refs import build_delegate_result_record
 
 

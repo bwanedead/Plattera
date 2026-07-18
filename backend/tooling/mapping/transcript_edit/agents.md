@@ -12,6 +12,7 @@
 - **Ignore `head.json`** for the agent-facing startup inventory (tooling may use storage internals later without exposing “head” to the model contract).
 - **Peer T0 rule:** When `run.json` has `completed_drafts`, that list is canonical. Exclude `raw/<transcription_id>.json` (legacy pointer); if it exists, emit `t0_legacy_pointer_file_present`. Extra raw files → `t0_raw_file_not_in_completed_drafts`; missing listed files → `t0_peer_file_missing`.
 - **Hydration cap:** Requests over `max_refs` set `cap_exceeded`, `omitted_ref_ids`, and a `cap_exceeded` error entry; `t0:raw:<transcription_id>` is rejected as `legacy_pointer_alias`.
+- **Point-crop projection:** `point_crop_set_projection.py` is the single mechanical crop-set projector (legacy slicer may import it temporarily). Do not reintroduce a harness-memory copy.
 
 ## Allowed changes
 

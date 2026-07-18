@@ -9,7 +9,7 @@ import re
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from .point_crop_set_projection import project_point_crop_set_summary
+from tooling.mapping.transcript_edit.point_crop_set_projection import project_point_crop_set_summary
 
 KIND = "atom_evidence_worklist"
 

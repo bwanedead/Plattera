@@ -21,6 +21,7 @@ from tooling.mapping.transcript_edit.artifact_transform import make_transform_ar
 from tooling.mapping.transcript_edit.draft_persistence import resolve_workspace_key
 
 from ..domain_pack import TranscriptEditDomainPack
+from ..execution.result_views import wrap_handler_with_result_view
 from ..payloads import TranscriptEditStartupInventory
 from ..prompting import PromptBlock
 
@@ -89,18 +90,24 @@ def _tool_handler_entries(
     return (
         (
             "hydrate_artifact_refs",
-            make_hydrate_artifact_refs_handler(
-                dossier_id=dossier_id,
-                transcription_id=transcription_id,
-                workspace_key=workspace_key,
+            wrap_handler_with_result_view(
+                make_hydrate_artifact_refs_handler(
+                    dossier_id=dossier_id,
+                    transcription_id=transcription_id,
+                    workspace_key=workspace_key,
+                ),
+                action_id="hydrate_artifact_refs",
             ),
         ),
         (
             "transform_artifact",
-            make_transform_artifact_handler(
-                dossier_id=dossier_id,
-                transcription_id=transcription_id,
-                workspace_key=workspace_key,
+            wrap_handler_with_result_view(
+                make_transform_artifact_handler(
+                    dossier_id=dossier_id,
+                    transcription_id=transcription_id,
+                    workspace_key=workspace_key,
+                ),
+                action_id="transform_artifact",
             ),
         ),
         (

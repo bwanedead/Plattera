@@ -431,7 +431,7 @@ def enrich_hydrate_next_resolution_errors(
 
 def build_tool_result_snapshot_from_batch_item(row: Mapping[str, Any]) -> dict[str, Any]:
     """Build a placeholder-resolution snapshot from one action-sequence item row."""
-    from harness.runtime.memory.point_crop_set_projection import (
+    from tooling.mapping.transcript_edit.point_crop_set_projection import (
         compact_crop_identity_from_summary,
     )
 

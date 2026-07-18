@@ -68,9 +68,33 @@ def test_removed_harness_paths_do_not_return() -> None:
         HARNESS_ROOT / "run_summary.py",
         HARNESS_ROOT / "run_state.py",
         HARNESS_ROOT / "runtime" / "mission" / "family_adapters",
+        HARNESS_ROOT / "runtime" / "memory" / "point_crop_set_projection.py",
+        HARNESS_ROOT / "runtime" / "memory" / "test_point_crop_set_projection.py",
     ]
     found = [str(path.relative_to(REPO_ROOT)) for path in removed_paths if path.exists()]
     assert not found, "Removed harness paths returned:\n" + "\n".join(found)
+
+
+def test_point_crop_set_projection_owned_by_transcript_edit_tooling() -> None:
+    tooling_path = (
+        REPO_ROOT
+        / "backend"
+        / "tooling"
+        / "mapping"
+        / "transcript_edit"
+        / "point_crop_set_projection.py"
+    )
+    assert tooling_path.is_file()
+    harness_imports = []
+    for path in _python_source_files():
+        text = path.read_text(encoding="utf-8")
+        if "harness.runtime.memory.point_crop_set_projection" in text:
+            harness_imports.append(str(path.relative_to(REPO_ROOT)))
+        if "from .point_crop_set_projection import" in text and "runtime/memory" in str(
+            path.as_posix()
+        ):
+            harness_imports.append(str(path.relative_to(REPO_ROOT)))
+    assert not harness_imports, "Stale harness point-crop imports:\n" + "\n".join(harness_imports)
 
 
 def test_current_runtime_layout_exists() -> None:

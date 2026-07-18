@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 
-from harness.runtime.memory.point_crop_set_projection import project_point_crop_set_summary
+from tooling.mapping.transcript_edit.point_crop_set_projection import project_point_crop_set_summary
 from harness.runtime.memory.tool_result_slices import build_recent_tool_result_slices
 from harness.runtime.orchestration.recent_result_projection import (
     project_recent_tool_result_slices_for_prompt,

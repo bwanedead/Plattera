@@ -19,7 +19,7 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 from .continuity_journal import CLIP_SENTINEL_KEY  # paired: see continuity_journal._clip_large_text_fields
-from .point_crop_set_projection import project_point_crop_set_summary
+from tooling.mapping.transcript_edit.point_crop_set_projection import project_point_crop_set_summary
 from .prompt_carry_forward import (
     PROMPT_CARRY_FORWARD_KEY,
     PROMPT_CARRY_FORWARD_OMITTED_KEY,

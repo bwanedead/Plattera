@@ -477,7 +477,7 @@ def build_batch_item_result_row(
         if excerpt:
             row["outputs_excerpt"] = excerpt
     if isinstance(outputs, Mapping):
-        from harness.runtime.memory.point_crop_set_projection import (
+        from tooling.mapping.transcript_edit.point_crop_set_projection import (
             project_point_crop_set_summary,
         )
 
@@ -534,7 +534,7 @@ def _compact_outputs_for_projection(
             elif isinstance(value, Mapping) and value:
                 compact[key] = dict(value)
     if isinstance(crop_summary, Mapping):
-        from harness.runtime.memory.point_crop_set_projection import (
+        from tooling.mapping.transcript_edit.point_crop_set_projection import (
             compact_crop_identity_from_summary,
         )
 
