@@ -14,13 +14,12 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
-_LOG = logging.getLogger(__name__)
-
 from harness.runtime.llm.streaming_config import apply_streaming_to_call_options
 from services.llm.call_options import LlmCallOptions
 
 from ..composition import ComposedTurnInput
 from ..model_failure_classifier import classify_model_failure
+from harness.runtime.llm.instrumented_caller import extract_trace_from_exception
 from .action_plan_parser import ModelActionParseError, is_repairable_action_plan_error, parse_action_plan_response
 from .contracts import ActionPlan, OrchestrationAdapter, OrchestratorContext, SharedStateProjection
 from .llm_prompt_builder import (
@@ -44,13 +43,13 @@ from .llm_turn_lifecycle import (
     resolve_choose_action_prompt_mode,
 )
 from .recoverable_turn_failure import RecoverableTurnFailure, is_recoverable_output_failure
-from harness.runtime.llm.instrumented_caller import extract_trace_from_exception
-
 from .repair_lane import TextModelCaller, attempt_repair, count_attempted_actions_in_text, extract_audit_text
+from .result_delivery_hooks import acknowledge_prompt_result_delivery_contact
 from .resumable_model_interruption import ResumableModelInterruption
 from .subtasks.registry import build_composed_subtask_registry
 from .tool_batch_policy import resolve_domain_action_batch_policy
 
+_LOG = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class LlmTurnOrchestrationAdapter(OrchestrationAdapter):
@@ -222,15 +221,6 @@ class LlmTurnOrchestrationAdapter(OrchestrationAdapter):
         raw_response: Any = None
         try:
             raw_response = self.text_model_caller(prompt, self.model_name, call_options=call_opts)
-            plan = parse_action_plan_response(
-                raw_response,
-                available_tool_ids=available_tool_ids,
-                tool_batch_policies=tool_batch_policies,
-                domain_batch_policy=domain_batch_policy,
-                subtask_profile_registry=subtask_registry,
-            )
-        except ModelActionParseError as exc:
-            parse_exc = exc
         except Exception as exc:
             classification = classify_model_failure(exception=exc)
             parse_rc = (
@@ -255,6 +245,19 @@ class LlmTurnOrchestrationAdapter(OrchestrationAdapter):
                     prompt_mode=prompt_mode,
                 ) from exc
             raise
+        acknowledge_prompt_result_delivery_contact(
+            context.loop_memory.continuity.pending_result_deliveries, metadata=prompt_doc.result_delivery_contact
+        )
+        try:
+            plan = parse_action_plan_response(
+                raw_response,
+                available_tool_ids=available_tool_ids,
+                tool_batch_policies=tool_batch_policies,
+                domain_batch_policy=domain_batch_policy,
+                subtask_profile_registry=subtask_registry,
+            )
+        except ModelActionParseError as exc:
+            parse_exc = exc
         if parse_exc is not None:
             if not is_repairable_action_plan_error(parse_exc.reason_code):
                 raw_response_text = extract_audit_text(raw_response)

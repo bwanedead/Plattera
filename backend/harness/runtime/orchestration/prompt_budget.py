@@ -28,6 +28,7 @@ BUDGET_BUCKET_KEYS: tuple[str, ...] = (
     "evidence_refs",
     "recent_tool_result_slices",
     "recent_action_sequence_result",
+    "latest_action_results",
     "hydrate_next",
     "pinned_refs",
     "stable_context",
@@ -164,7 +165,7 @@ def _accumulate_run_context_buckets(buckets: dict[str, int], run_context: Mappin
 
 
 def _accumulate_structured_state_buckets(buckets: dict[str, int], structured_state: Mapping[str, Any]) -> None:
-    for key in ("recent_tool_result_slices", "recent_action_sequence_result"):
+    for key in ("recent_tool_result_slices", "recent_action_sequence_result", "latest_action_results"):
         if key in structured_state:
             buckets[key] += measure_json_chars(structured_state[key])
             if key == "recent_tool_result_slices":
@@ -190,6 +191,7 @@ def _accumulate_structured_state_buckets(buckets: dict[str, int], structured_sta
     accounted = {
         "recent_tool_result_slices",
         "recent_action_sequence_result",
+        "latest_action_results",
         "agent_requested_hydration",
         "pinned_refs_hydration",
         "pinned_refs",

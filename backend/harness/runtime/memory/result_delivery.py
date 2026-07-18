@@ -1,8 +1,9 @@
-"""Inert pending-result delivery substrate (mechanical only).
+"""Pending-result delivery substrate (mechanical only).
 
 Owns admission, bounded retention, supersession, pure projection, and contact
-acknowledgement for recent action results. Does not attach to production prompts
-or interpret domain schemas / continuity-key prefixes.
+acknowledgement for recent action results. Production admission/prompt/contact
+wiring lives in ``runtime/orchestration/result_delivery_hooks.py``. Does not
+interpret domain schemas or continuity-key prefixes.
 """
 
 from __future__ import annotations

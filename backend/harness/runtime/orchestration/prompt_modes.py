@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from .choose_action_instruction import CHOOSE_ACTION_INSTRUCTION
 from .compaction_instruction import COMPACTION_INSTRUCTION
 from .repair_instruction import REPAIR_INSTRUCTION, STATE_REPAIR_INSTRUCTION
 from .resume_instruction import RESUME_INSTRUCTION
 from .turn_recovery_instruction import TURN_RECOVERY_INSTRUCTION
+
+if TYPE_CHECKING:
+    from .result_delivery_hooks import ResultDeliveryContactMetadata
 
 PromptMode = Literal["full_choose_action", "state_repair", "repair", "compaction", "resume", "turn_recovery"]
 
@@ -36,6 +39,8 @@ class PromptBuildDocument:
     prompt_body: dict[str, Any]
     prompt_text: str
     prompt_budget: dict[str, Any] | None = None
+    # Internal only — never serialized into prompt_text / prompt_body / model input.
+    result_delivery_contact: ResultDeliveryContactMetadata | None = None
 
 
 _FULL_RUN_CONTEXT_FIELDS = (
@@ -75,6 +80,7 @@ _FULL_STRUCTURED_STATE_FIELDS = (
     "pinned_refs_hydration",
     "stable_context",
     "recent_action_sequence_result",
+    "latest_action_results",
     "prompt_observability_summary",
 )
 _STATE_REPAIR_STRUCTURED_STATE_FIELDS = (
@@ -87,6 +93,7 @@ _STATE_REPAIR_STRUCTURED_STATE_FIELDS = (
     "pinned_refs_hydration",
     "stable_context",
     "recent_action_sequence_result",
+    "latest_action_results",
     "prompt_observability_summary",
 )
 _RESUME_RUN_CONTEXT_FIELDS = (
@@ -109,6 +116,7 @@ _RESUME_STRUCTURED_STATE_FIELDS = (
     "pinned_refs_hydration",
     "stable_context",
     "recent_action_sequence_result",
+    "latest_action_results",
     "prompt_observability_summary",
 )
 _TURN_RECOVERY_RUN_CONTEXT_FIELDS = (
@@ -129,6 +137,7 @@ _TURN_RECOVERY_STRUCTURED_STATE_FIELDS = (
     "pinned_refs_hydration",
     "stable_context",
     "recent_action_sequence_result",
+    "latest_action_results",
     "prompt_observability_summary",
 )
 

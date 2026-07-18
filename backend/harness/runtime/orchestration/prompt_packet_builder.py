@@ -22,6 +22,7 @@ from ..memory.delegate_observation_worklist_projection import (
     delegate_observation_reminder_from_context,
 )
 from ..memory.tool_result_slices import build_recent_tool_result_slices
+from harness.runtime.memory.result_delivery import ContactReceipt
 from .contracts import OrchestratorContext, SharedStateProjection
 from .loop_health_summary import build_prompt_observability_summary
 from .prompt_modes import PromptBuildDocument, PromptMode, PromptModeSpec, require_prompt_mode_spec
@@ -36,6 +37,10 @@ from .ref_window_projection import (
 from .recent_result_projection import (
     project_recent_action_sequence_for_prompt,
     project_recent_tool_result_slices_for_prompt,
+)
+from .result_delivery_hooks import (
+    build_result_delivery_contact_metadata,
+    project_pending_results_for_prompt,
 )
 
 logger = logging.getLogger(__name__)
@@ -191,6 +196,13 @@ def build_turn_prompt_document(
     )
     if isinstance(domain_runtime_projection, Mapping):
         hot_refs = _apply_domain_artifact_ref_windowing(hot_refs, domain_runtime_projection)
+    structured_state, delivery_receipt = _build_structured_state(
+        context,
+        journal_verbatim_keep_n,
+        closure_policy=visible_launch_context.get("domain_closure_policy"),
+        hot_refs=hot_refs,
+        opaque_launch_context=opaque_launch_context,
+    )
     return _assemble_prompt_document(
         mode=mode,
         doctrine_blocks=doctrine_blocks_document(composed_input),
@@ -203,13 +215,11 @@ def build_turn_prompt_document(
             hot_latest_ref_keys=hot_latest_ref_keys,
             domain_runtime_projection=domain_runtime_projection,
         ),
-        structured_state=_build_structured_state(
-            context,
-            journal_verbatim_keep_n,
-            closure_policy=visible_launch_context.get("domain_closure_policy"),
-            hot_refs=hot_refs,
-            opaque_launch_context=opaque_launch_context,
-        ),
+        structured_state=structured_state,
+        result_delivery_receipt=delivery_receipt,
+        active_attention_refs=hot_refs,
+        request_id_prefix=str(getattr(context, "request_id_prefix", "") or ""),
+        iteration=int(context.loop_memory.iterations),
     )
 
 
@@ -384,7 +394,7 @@ def _build_structured_state(
     closure_policy: Mapping[str, Any] | None,
     hot_refs: frozenset[str],
     opaque_launch_context: Mapping[str, Any] | None = None,
-) -> dict[str, Any]:
+) -> tuple[dict[str, Any], ContactReceipt]:
     cont = context.loop_memory.continuity
     structured: dict[str, Any] = {
         "compacted_continuity_summary": cont.compacted_continuity_summary,
@@ -419,6 +429,7 @@ def _build_structured_state(
             )
         ),
     }
+    delivery_receipt: ContactReceipt
     timeline = _build_recent_turn_timeline(
         cont.continuity_journal_entries,
         cont.kernel_step_records,
@@ -446,6 +457,11 @@ def _build_structured_state(
     )
     if sequence_lane is not None:
         structured["recent_action_sequence_result"] = sequence_lane
+    latest_lane, delivery_receipt = project_pending_results_for_prompt(
+        cont.pending_result_deliveries
+    )
+    if latest_lane is not None:
+        structured["latest_action_results"] = latest_lane
     from .subtasks.delegate_result_refs import project_recent_delegate_results_for_prompt
 
     feedback = cont.state_patch_feedback if isinstance(cont.state_patch_feedback, Mapping) else {}
@@ -483,7 +499,7 @@ def _build_structured_state(
     )
     if stable_projection is not None:
         structured["stable_context"] = stable_projection
-    return structured
+    return structured, delivery_receipt
 
 
 def _build_pinned_refs_hydration(record: Mapping[str, Any] | None) -> dict[str, Any] | None:
@@ -769,6 +785,10 @@ def _assemble_prompt_document(
     run_context: dict[str, Any],
     structured_state: dict[str, Any],
     mode_packet: Mapping[str, Any] | None = None,
+    result_delivery_receipt: ContactReceipt | None = None,
+    active_attention_refs: frozenset[str] | set[str] | tuple[str, ...] | None = None,
+    request_id_prefix: str = "",
+    iteration: int = 0,
 ) -> PromptBuildDocument:
     spec = require_prompt_mode_spec(mode)
     prompt_body: dict[str, Any] = {"prompt_mode": mode}
@@ -790,6 +810,19 @@ def _assemble_prompt_document(
         instruction_text=spec.instruction_text,
         prompt_body=prompt_body,
     )
+    contact_meta = None
+    if (
+        result_delivery_receipt is not None
+        and isinstance(filtered_structured_state, Mapping)
+        and "latest_action_results" in filtered_structured_state
+    ):
+        contact_meta = build_result_delivery_contact_metadata(
+            request_id_prefix=request_id_prefix,
+            iteration=iteration,
+            prompt_mode=str(mode),
+            contact_receipt=result_delivery_receipt,
+            active_attention_refs=active_attention_refs or (),
+        )
     return PromptBuildDocument(
         mode=mode,
         call_phase=spec.call_phase,
@@ -797,6 +830,7 @@ def _assemble_prompt_document(
         prompt_body=prompt_body,
         prompt_text=prompt_text,
         prompt_budget=prompt_budget,
+        result_delivery_contact=contact_meta,
     )
 
 

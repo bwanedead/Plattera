@@ -193,7 +193,7 @@ def _execute_sequence_items(
     wave_started_at_epoch = time.time()
     wave_wall_start = perf_counter()
 
-    for item in actions:
+    for action_index, item in enumerate(actions, start=1):
         if stop_remaining:
             item_rows.append(
                 build_batch_item_result_row(
@@ -241,6 +241,7 @@ def _execute_sequence_items(
             multi_action=multi_action,
             policy=policy,
             stop_remaining=stop_remaining,
+            action_index=action_index,
         )
 
     sequence_result, last_step_result = _finalize_sequence_result(
@@ -314,6 +315,7 @@ def _consume_sequence_step_result(
     multi_action: bool,
     policy: ToolBatchPolicy | None,
     stop_remaining: bool,
+    action_index: int,
 ) -> tuple[Any | None, bool]:
     last_step_result = step_result
     append_kernel_step_result_continuity(
@@ -323,6 +325,16 @@ def _consume_sequence_step_result(
         step_result=step_result,
     )
     accumulate_image_evidence(loop_memory=loop_memory, step_result=step_result)
+
+    from .result_delivery_hooks import admit_recorded_execution_result
+
+    admit_recorded_execution_result(
+        loop_memory.continuity.pending_result_deliveries,
+        step_result=step_result,
+        source_turn_index=int(iteration),
+        action_index=int(action_index),
+        action_alias=str(item.alias or "").strip() or f"action{int(action_index)}",
+    )
 
     if step_result.execution_state not in (ExecutionState.EXECUTED, ExecutionState.DEDUPED):
         refusal = step_result.refusal
@@ -426,7 +438,9 @@ def _execute_parallel_delegate_sequence(
     alias_counts: dict[str, int] = {}
     policy = None
 
-    for (item, req), outcome in zip(prepared, outcomes, strict=True):
+    for action_index, ((item, req), outcome) in enumerate(
+        zip(prepared, outcomes, strict=True), start=1
+    ):
         if outcome.deduped_result is not None:
             step_result = outcome.deduped_result
         else:
@@ -456,6 +470,7 @@ def _execute_parallel_delegate_sequence(
             multi_action=True,
             policy=policy,
             stop_remaining=False,
+            action_index=action_index,
         )
 
     sequence_result, last_step_result = _finalize_sequence_result(

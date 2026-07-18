@@ -12,6 +12,7 @@
 - **Native wire only:** Harness accepts and produces the current wire vocabulary only (e.g. `opaque_payload`, `opaque_adapter_payload`, `pack_id`, JSON keys `mission_flow` and `orchestration_kernel`, `loop_family` values aligned with those). Do not add alternate keys, Pydantic aliases, or fallbacks for superseded names.
 - **Inspection:** `observability/summary/` package (`models.py`, thin `build.py`, `orchestration.py`, `payload.py`, shared helpers) is the derived read model; keep it inspection-only (see `docs/architecture/harness/run-summary-build-refactor-brief.md`).
 - **Runtime folders are responsibility-based:** `runtime/orchestration/` holds run-scope and mission-scope orchestration plus their generic mode-support contracts; `runtime/memory/` holds continuity/telemetry/loop-local carriage; `runtime/hitl/` holds HITL transport; CLI payload helpers live in `cli/`; mission payload helpers and derived summaries live in `observability/`.
+- **Pending-result delivery (BR-017/021):** Typed `ActionDispatchResult` is the sole admission source (`result_delivery_hooks.admit_recorded_execution_result` from action-sequence execution). Semantic prompts project `structured_state.latest_action_results` via pure BR-017 projection; contact acknowledgement runs only after the primary `text_model_caller` returns in `LlmTurnOrchestrationAdapter.choose_action`. Prompt construction must not mutate delivery state. Do not admit from summaries, audit, journal, or tool-result slices. Legacy result lanes coexist until BR-022.
 
 ## Allowed changes
 
