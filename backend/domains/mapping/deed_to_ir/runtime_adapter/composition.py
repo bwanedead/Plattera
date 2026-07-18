@@ -88,11 +88,19 @@ def _tool_handler_entries(
     return (
         (
             "hydrate_deed_to_ir_input",
-            make_hydrate_deed_to_ir_input_handler(handoff_context=handoff_context),
+            wrap_handler_with_result_view(
+                make_hydrate_deed_to_ir_input_handler(handoff_context=handoff_context),
+                action_id="hydrate_deed_to_ir_input",
+                **scope,
+            ),
         ),
         (
             "describe_feature_graph_capabilities",
-            _make_capabilities_handler(),
+            wrap_handler_with_result_view(
+                _make_capabilities_handler(),
+                action_id="describe_feature_graph_capabilities",
+                **scope,
+            ),
         ),
         (
             "save_ir_artifact",

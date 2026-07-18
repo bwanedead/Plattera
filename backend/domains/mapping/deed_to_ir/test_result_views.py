@@ -790,7 +790,12 @@ def test_composition_wraps_exactly_four_state_advancing_handlers() -> None:
             assert view.continuity_key == build_working_head_continuity_key(**_SCOPE)
 
         describe = by_id["describe_feature_graph_capabilities"]({})
-        assert "agent_result_view" not in describe
+        assert "agent_result_view" in describe
+        describe_view, describe_om = normalize_agent_result_view_pair(
+            describe["agent_result_view"], None
+        )
+        assert describe_om is None and describe_view is not None
+        assert describe_view.continuity_key is None
 
         with patch(
             "domains.mapping.deed_to_ir.runtime_adapter.composition.list_feature_graph_artifacts",
@@ -800,7 +805,12 @@ def test_composition_wraps_exactly_four_state_advancing_handlers() -> None:
         assert "agent_result_view" not in listed
 
         hydrate_input = by_id["hydrate_deed_to_ir_input"]({"sections": ["issues"]})
-        assert "agent_result_view" not in hydrate_input
+        assert "agent_result_view" in hydrate_input
+        hydrate_view, hydrate_om = normalize_agent_result_view_pair(
+            hydrate_input["agent_result_view"], None
+        )
+        assert hydrate_om is None and hydrate_view is not None
+        assert hydrate_view.continuity_key is None
 
 
 def test_executor_normalization_preserves_attached_views() -> None:

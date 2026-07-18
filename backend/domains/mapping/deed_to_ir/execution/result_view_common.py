@@ -17,6 +17,9 @@ from harness.execution.agent_result_view import (
 WORKING_HEAD_CONTINUITY_PREFIX = "deed_to_ir.current_working_head:"
 MAX_ERROR_MESSAGE_CHARS = 240
 MAX_COLLECTION_ROWS = 32
+MAX_REQUESTED_RESOLUTION_UNIT_IDS = 64
+MAX_REQUESTED_OPERATION_NAMES = 32
+MAX_IGNORED_OPERATION_ROWS = 32
 
 _HOST_OR_BINARY_KEYS = frozenset(
     {
@@ -144,7 +147,8 @@ def strip_host_fields(value: MutableMapping[str, Any] | dict[str, Any]) -> dict[
         if str(key) in _HOST_OR_BINARY_KEYS:
             continue
         stripped = strip_host_value(item)
-        if stripped in (None, "", [], {}):
+        # Keep empty lists/dicts: successfully hydrated empty sections are valid.
+        if stripped is None or stripped == "":
             continue
         out[str(key)] = stripped
     return out
@@ -206,6 +210,165 @@ def view_budget_omission(*, fields: Sequence[str] | None = None) -> dict[str, An
     if fields:
         marker["fields"] = [str(field) for field in fields]
     return marker
+
+
+def extract_action_inputs(request: Any) -> dict[str, Any] | None:
+    """Copy mapping-valued action inputs without mutating or coercing invalid shapes."""
+    if hasattr(request, "inputs"):
+        raw = getattr(request, "inputs", None)
+        if isinstance(raw, Mapping):
+            return dict(raw)
+        return None
+    if isinstance(request, Mapping):
+        return dict(request)
+    return None
+
+
+def section_omission(
+    *,
+    section: str,
+    reason: str = "view_budget",
+    **extra: Any,
+) -> dict[str, Any]:
+    row: dict[str, Any] = {"section": str(section), "reason": reason}
+    for key, value in extra.items():
+        if value is not None:
+            row[key] = value
+    return row
+
+
+def string_rows(
+    raw: Any, *, limit: int = MAX_COLLECTION_ROWS
+) -> tuple[list[str], int]:
+    """Whole-string collection intake. Non-strings are skipped and uncounted."""
+    if not isinstance(raw, list):
+        return [], 0
+    valid = [item.strip() for item in raw if isinstance(item, str) and item.strip()]
+    intake_omitted = max(0, len(valid) - limit)
+    return valid[:limit], intake_omitted
+
+
+def strict_string_list(raw: Any) -> list[str]:
+    """Accept strings only; trim, dedupe, preserve order. Never coerce non-strings."""
+    if not isinstance(raw, list):
+        return []
+    out: list[str] = []
+    seen: set[str] = set()
+    for item in raw:
+        if not isinstance(item, str):
+            continue
+        text = item.strip()
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        out.append(text)
+    return out
+
+
+def bounded_string_ids(
+    raw: Any, *, limit: int
+) -> tuple[list[str], int]:
+    """Strict string IDs with intake omission count. Never substring an ID."""
+    ids = strict_string_list(raw)
+    omitted = max(0, len(ids) - limit)
+    return ids[:limit], omitted
+
+
+def fit_complete_strings(
+    payload: dict[str, Any],
+    *,
+    schema_id: str,
+    key: str,
+    values: Sequence[str],
+    omitted_key: str,
+    intake_limit: int | None = None,
+    continuity_key: str | None = None,
+) -> None:
+    """Fit complete strings; skip oversized; never substring. May omit the field."""
+    if not values:
+        return
+    if intake_limit is None:
+        intake = list(values)
+        intake_omitted = 0
+    else:
+        intake = list(values[:intake_limit])
+        intake_omitted = max(0, len(values) - intake_limit)
+
+    kept: list[str] = []
+    for value in intake:
+        trial = list(kept) + [value]
+        trial_omitted = intake_omitted + (len(intake) - len(trial))
+        candidate = {**payload, key: trial}
+        if trial_omitted:
+            candidate[omitted_key] = trial_omitted
+        if payload_fits(
+            schema_id=schema_id, payload=candidate, continuity_key=continuity_key
+        ):
+            kept = trial
+            continue
+        continue
+
+    omitted = intake_omitted + (len(intake) - len(kept))
+    if kept:
+        payload[key] = kept
+    if omitted:
+        count_candidate = {**payload, omitted_key: omitted}
+        if payload_fits(
+            schema_id=schema_id,
+            payload=count_candidate,
+            continuity_key=continuity_key,
+        ):
+            payload[omitted_key] = omitted
+
+
+def bounded_ignored_operation_rows(
+    raw: Any, *, limit: int = MAX_IGNORED_OPERATION_ROWS
+) -> tuple[list[dict[str, Any]], int]:
+    if not isinstance(raw, list):
+        return [], 0
+    rows: list[dict[str, Any]] = []
+    for item in raw:
+        if not isinstance(item, Mapping):
+            continue
+        name = item.get("name")
+        reason = item.get("reason")
+        if not isinstance(name, str) or not name.strip():
+            continue
+        if not isinstance(reason, str) or not reason.strip():
+            continue
+        rows.append({"name": name.strip(), "reason": reason.strip()})
+    omitted = max(0, len(rows) - limit)
+    return rows[:limit], omitted
+
+
+def payload_fits(
+    *,
+    schema_id: str,
+    payload: Mapping[str, Any],
+    continuity_key: str | None = None,
+) -> bool:
+    view, _ = try_build_view(
+        schema_id=schema_id,
+        payload=payload,
+        continuity_key=continuity_key,
+    )
+    return view is not None
+
+
+def try_attach_value(
+    payload: dict[str, Any],
+    *,
+    key: str,
+    value: Any,
+    schema_id: str,
+    continuity_key: str | None = None,
+) -> bool:
+    trial = dict(payload)
+    trial[key] = value
+    if not payload_fits(schema_id=schema_id, payload=trial, continuity_key=continuity_key):
+        return False
+    payload[key] = value
+    return True
 
 
 def _nonblank(value: str | None) -> str | None:

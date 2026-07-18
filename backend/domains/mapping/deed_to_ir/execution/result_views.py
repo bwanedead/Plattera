@@ -14,6 +14,10 @@ from harness.execution.agent_result_view import (
     agent_result_view_to_wire,
 )
 
+from .capability_result_views import (
+    SCHEMA_DESCRIBE_FEATURE_GRAPH_CAPABILITIES,
+    build_describe_feature_graph_capabilities_view,
+)
 from .draft_result_views import (
     SCHEMA_PATCH_IR_DRAFT,
     SCHEMA_SAVE_IR_ARTIFACT,
@@ -24,11 +28,15 @@ from .finalization_result_views import (
     SCHEMA_FINALIZE_CURRENT_OUTPUT,
     build_finalize_current_output_view,
 )
+from .input_result_views import (
+    SCHEMA_HYDRATE_DEED_TO_IR_INPUT,
+    build_hydrate_deed_to_ir_input_view,
+)
 from .mapping_result_views import (
     SCHEMA_SUBMIT_IR_FOR_MAPPING,
     build_submit_ir_for_mapping_view,
 )
-from .result_view_common import build_working_head_continuity_key
+from .result_view_common import build_working_head_continuity_key, extract_action_inputs
 
 _SUCCESS_ONLY_ACTIONS = frozenset(
     {
@@ -38,7 +46,13 @@ _SUCCESS_ONLY_ACTIONS = frozenset(
     }
 )
 _FINALIZER_ACTION = "finalize_current_deed_to_ir_output"
-_WRAPPED_ACTIONS = frozenset({*_SUCCESS_ONLY_ACTIONS, _FINALIZER_ACTION})
+_READ_ACTIONS = frozenset(
+    {
+        "hydrate_deed_to_ir_input",
+        "describe_feature_graph_capabilities",
+    }
+)
+_WRAPPED_ACTIONS = frozenset({*_SUCCESS_ONLY_ACTIONS, _FINALIZER_ACTION, *_READ_ACTIONS})
 
 
 def attach_deed_to_ir_result_view(
@@ -49,42 +63,57 @@ def attach_deed_to_ir_result_view(
     transcription_id: str | None,
     workspace_id: str | None,
     run_id: str | None,
+    action_inputs: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Attach a provider view/omission without mutating nested outputs."""
     out = dict(result)
     if action_id not in _WRAPPED_ACTIONS:
         return out
 
-    continuity_key = build_working_head_continuity_key(
-        dossier_id=dossier_id,
-        transcription_id=transcription_id,
-        workspace_id=workspace_id,
-        run_id=run_id,
-    )
-
-    if action_id in _SUCCESS_ONLY_ACTIONS:
+    if action_id in _READ_ACTIONS:
         if not _is_successful(out):
             return out
         outputs = out.get("outputs")
         if not isinstance(outputs, Mapping):
             return out
-        if action_id == "save_ir_artifact":
-            view, omission = build_save_ir_artifact_view(
-                outputs, continuity_key=continuity_key
-            )
-        elif action_id == "patch_ir_draft":
-            view, omission = build_patch_ir_draft_view(
-                outputs, continuity_key=continuity_key
+        if action_id == "hydrate_deed_to_ir_input":
+            view, omission = build_hydrate_deed_to_ir_input_view(
+                outputs, action_inputs=action_inputs
             )
         else:
-            view, omission = build_submit_ir_for_mapping_view(
-                outputs, continuity_key=continuity_key
+            view, omission = build_describe_feature_graph_capabilities_view(
+                outputs, action_inputs=action_inputs
             )
     else:
-        # Finalizer: attach for success and normalized refusals.
-        view, omission = build_finalize_current_output_view(
-            out, continuity_key=continuity_key
+        continuity_key = build_working_head_continuity_key(
+            dossier_id=dossier_id,
+            transcription_id=transcription_id,
+            workspace_id=workspace_id,
+            run_id=run_id,
         )
+        if action_id in _SUCCESS_ONLY_ACTIONS:
+            if not _is_successful(out):
+                return out
+            outputs = out.get("outputs")
+            if not isinstance(outputs, Mapping):
+                return out
+            if action_id == "save_ir_artifact":
+                view, omission = build_save_ir_artifact_view(
+                    outputs, continuity_key=continuity_key
+                )
+            elif action_id == "patch_ir_draft":
+                view, omission = build_patch_ir_draft_view(
+                    outputs, continuity_key=continuity_key
+                )
+            else:
+                view, omission = build_submit_ir_for_mapping_view(
+                    outputs, continuity_key=continuity_key
+                )
+        else:
+            # Finalizer: attach for success and normalized refusals.
+            view, omission = build_finalize_current_output_view(
+                out, continuity_key=continuity_key
+            )
 
     if view is not None:
         out["agent_result_view"] = agent_result_view_to_wire(view)
@@ -115,6 +144,7 @@ def wrap_handler_with_result_view(
             transcription_id=transcription_id,
             workspace_id=workspace_id,
             run_id=run_id,
+            action_inputs=extract_action_inputs(request),
         )
 
     return wrapped
@@ -125,7 +155,9 @@ def _is_successful(result: Mapping[str, Any]) -> bool:
 
 
 __all__ = [
+    "SCHEMA_DESCRIBE_FEATURE_GRAPH_CAPABILITIES",
     "SCHEMA_FINALIZE_CURRENT_OUTPUT",
+    "SCHEMA_HYDRATE_DEED_TO_IR_INPUT",
     "SCHEMA_PATCH_IR_DRAFT",
     "SCHEMA_SAVE_IR_ARTIFACT",
     "SCHEMA_SUBMIT_IR_FOR_MAPPING",
