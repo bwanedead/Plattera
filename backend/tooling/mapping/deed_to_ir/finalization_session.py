@@ -156,7 +156,6 @@ def compact_finalization_session_for_prompt(
             "status": STATUS_PUBLISHED,
             "output_revision_ref": str(session.get("output_revision_ref") or "").strip() or None,
             "final_package_preview_ref": str(session.get("preview_ref") or "").strip() or None,
-            "next_required_action": "complete_run",
         }
 
     lineage = session.get("lineage") if isinstance(session.get("lineage"), Mapping) else {}

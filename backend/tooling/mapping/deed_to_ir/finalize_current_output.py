@@ -450,7 +450,6 @@ def _publish_stored_preview(
         **outputs,
         "finalization_status": STATUS_PUBLISHED,
         "final_package_preview_ref": preview_ref,
-        "next_required_action": "complete_run",
     }
     published_session = dict(session)
     published_session["status"] = STATUS_PUBLISHED
@@ -501,7 +500,6 @@ def _published_replay(
         outputs = dict(stored.get("outputs") or {})
         outputs["idempotent_replay"] = True
         outputs["finalization_status"] = STATUS_PUBLISHED
-        outputs["next_required_action"] = "complete_run"
         if session.get("preview_ref") and "final_package_preview_ref" not in outputs:
             outputs["final_package_preview_ref"] = session.get("preview_ref")
         if session.get("output_revision_ref") and "output_revision_ref" not in outputs:
@@ -526,7 +524,6 @@ def _published_replay(
         outputs = result.setdefault("outputs", {})
         if isinstance(outputs, dict):
             outputs["idempotent_replay"] = True
-            outputs["next_required_action"] = "complete_run"
     return result
 
 

@@ -71,7 +71,7 @@ def test_completion_anchor_satisfied_when_publish_and_refs_present():
     )
     assert anchor is not None
     assert anchor["satisfied"] is True
-    assert anchor["expected_next"] == "complete_run"
+    assert "expected_next" not in anchor
     assert anchor["ready_for_completion_candidate"] is True
     assert anchor["mapping_ref"] == _MAPPING_B
     assert anchor["preview_ref"] == _PREVIEW_REF
@@ -186,7 +186,7 @@ def test_loop_health_suppresses_complete_run_blockers_present_after_publish_r16_
     assert summary["completion_anchor"]["satisfied"] is True
     assert "complete_run_blockers_present" not in summary["mechanical_flags"]
     assert "completion_anchor_satisfied" in summary["mechanical_flags"]
-    assert "expected_next:complete_run" in summary["mechanical_flags"]
+    assert "expected_next:complete_run" not in summary["mechanical_flags"]
     assert "items_require_hitl" not in " ".join(summary["closure_readiness_projection"]["complete_run_blockers"])
 
 
@@ -229,16 +229,16 @@ def test_timeline_renders_completion_anchor_from_observability():
                 latest_refs=_latest_refs(),
                 step_result_records=[_publish_result_record()],
             ),
-            "mechanical_flags": ["completion_anchor_satisfied", "expected_next:complete_run"],
+            "mechanical_flags": ["completion_anchor_satisfied"],
         }
     }
     body = "\n".join(_render_observability(turn))
     assert "completion_anchor:" in body
-    assert "expected_next: complete_run" in body
+    assert "expected_next: complete_run" not in body
     assert "deed_to_ir:output" in body
 
 
-def test_timeline_finalize_result_renders_expected_next():
+def test_timeline_finalize_result_renders_completion_anchor_without_complete_run():
     turn = {
         "tool_result_raw": {
             "execution_state": "executed",
@@ -253,7 +253,8 @@ def test_timeline_finalize_result_renders_expected_next():
         "parsed_action_plan": {"action_type": "finalize_current_deed_to_ir_output"},
     }
     body = "\n".join(_render_tool_result(turn))
-    assert "expected_next: complete_run" in body
+    assert "expected_next: complete_run" not in body
+    assert "ready_for_completion_candidate: true" in body
 
 
 def test_timeline_renders_closure_enforcement_blocked_finalize_gate():

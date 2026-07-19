@@ -433,7 +433,7 @@ def build_deed_to_ir_tool_specs() -> tuple[SemanticToolSpec, ...]:
                 "unresolved semantic decision maps (scope statuses, correction dispositions, dependency "
                 "dispositions, and exceptional rationales). Persists partial progress, prepares the "
                 "immutable final-package preview internally, and publishes it. Preferred post-remap path: "
-                "submit_ir_for_mapping → finalize_current_deed_to_ir_output → complete_run. "
+                "submit_ir_for_mapping → finalize_current_deed_to_ir_output. "
                 "Does not accept mapping/IR/preview refs, closure arrays, or upstream correction rows."
             ),
             expected_request_shape=(
@@ -457,7 +457,7 @@ def build_deed_to_ir_tool_specs() -> tuple[SemanticToolSpec, ...]:
             expected_result_shape=(
                 "On success: finalization_status=published, final_package_preview_ref, "
                 "output_revision_ref, mapping_artifact_ref, ir_artifact_ref, "
-                "next_required_action=complete_run, plus publication counts/refs. "
+                "ready_for_completion_candidate=true, plus publication counts/refs. "
                 "Incomplete decisions: retryable missing_finalization_decisions with missing IDs. "
                 "needs_hitl: finalization_requires_hitl without preparing/publishing. "
                 "preview_ready retry republishes the frozen preview; published replay is idempotent."

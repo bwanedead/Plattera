@@ -28,6 +28,8 @@ _TOOL_ACTION_IDS = frozenset(
     }
 )
 
+_POST_PUBLICATION_COMPLETION_ACTIONS = frozenset({"complete_run"})
+
 _STRIP_OUTPUT_KEYS = frozenset(
     {
         "finalization_decision_card",
@@ -199,9 +201,22 @@ def normalize_finalizer_agent_visible_result(result: Mapping[str, Any] | None) -
     _scrub_node(sanitized, reason_code=reason_code, next_action=next_action)
 
     outputs = sanitized.get("outputs")
+    if isinstance(outputs, MutableMapping) and sanitized.get("executed") is True:
+        _strip_post_publication_completion_routing(outputs)
     if isinstance(outputs, MutableMapping) and sanitized.get("executed") is False:
         _apply_top_level_next_action_routing(outputs, next_action=next_action)
     return sanitized
+
+
+def _strip_post_publication_completion_routing(outputs: MutableMapping[str, Any]) -> None:
+    status = str(outputs.get("finalization_status") or "").strip()
+    summary = outputs.get("final_output_summary")
+    ready = isinstance(summary, Mapping) and summary.get("ready_for_completion_candidate") is True
+    if status != "published" and not ready:
+        return
+    for key in ("next_required_action", "expected_next"):
+        if str(outputs.get(key) or "").strip() in _POST_PUBLICATION_COMPLETION_ACTIONS:
+            outputs.pop(key, None)
 
 
 def _reclassify_recoverable_publication_refusal(
@@ -329,6 +344,9 @@ def _apply_action_field(
     is_tool_valued = text in _TOOL_ACTION_IDS or mentions_retired
 
     if next_action is None:
+        if text in _POST_PUBLICATION_COMPLETION_ACTIONS:
+            node.pop(key, None)
+            return
         if is_tool_valued:
             node.pop(key, None)
         return

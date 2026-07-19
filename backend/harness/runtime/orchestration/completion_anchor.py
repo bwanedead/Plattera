@@ -9,7 +9,7 @@ from typing import Any
 from domains.closure_policy import CompletionAnchorPolicy
 
 
-def _parse_completion_anchor_policy(
+def parse_completion_anchor_policy(
     closure_policy: Mapping[str, Any] | None,
 ) -> CompletionAnchorPolicy | None:
     if not isinstance(closure_policy, Mapping):
@@ -166,7 +166,7 @@ def evaluate_preview_ready_publish_bypass(
     action_plan: Any,
     step_result_records: list[Any] | tuple[Any, ...] | None,
 ) -> dict[str, Any]:
-    policy = _parse_completion_anchor_policy(closure_policy)
+    policy = parse_completion_anchor_policy(closure_policy)
     if policy is None or not policy.preview_ready_publish_bypass:
         return {"allowed": False}
     inputs = _publish_action_inputs(action_plan)
@@ -199,7 +199,7 @@ def evaluate_completion_anchor(
     latest_refs: Mapping[str, Any] | None,
     step_result_records: list[Any] | tuple[Any, ...] | None,
 ) -> dict[str, Any] | None:
-    policy = _parse_completion_anchor_policy(closure_policy)
+    policy = parse_completion_anchor_policy(closure_policy)
     if policy is None:
         return None
 
@@ -259,8 +259,9 @@ def evaluate_completion_anchor(
     anchor: dict[str, Any] = {
         "satisfied": satisfied,
         "ready_for_completion_candidate": ready_for_completion,
-        "expected_next": policy.expected_next if satisfied else None,
     }
+    if satisfied and policy.expected_next:
+        anchor["expected_next"] = policy.expected_next
     if required_output_ref:
         anchor["output_ref"] = required_output_ref
     if preview_ref:
@@ -287,7 +288,7 @@ def apply_completion_anchor_to_closure_readiness(
     anchor: Mapping[str, Any],
     closure_policy: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    policy = _parse_completion_anchor_policy(closure_policy)
+    policy = parse_completion_anchor_policy(closure_policy)
     if policy is None:
         if isinstance(projection, Mapping):
             out = dict(projection)

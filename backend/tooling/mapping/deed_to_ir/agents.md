@@ -49,7 +49,8 @@
   (`finalization_decisions.py` + `finalize_current_output.py`). Lower-level
   prepare/publish functions are internal compatibility primitives only.
   Partial finalizer calls are not generic pre-dispatch publish attempts;
-  successful finalizer publication is the completion-anchor event.
+  successful finalizer publication is the completion-anchor event and may
+  complete the run in the same turn when the domain anchor is satisfied.
   Finalizer agent-visible results are normalized by `finalizer_result_boundary.py`:
   reason-aware next-action routing (finalize vs submit_ir_for_mapping vs HITL/none);
   never invent a next tool for unknown refusals; preserve reason-specific repair

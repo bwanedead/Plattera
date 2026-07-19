@@ -67,7 +67,8 @@ def test_tool_specs_emphasize_operand_lane_and_finalize_flow() -> None:
     assert "operand_suite_ref" in hydrate.expected_result_shape.lower()
     assert "deed_to_ir:operands:" in hydrate_refs.purpose.lower()
     assert "final_package_preview_ref" in finalize.expected_result_shape.lower()
-    assert "next_required_action=complete_run" in finalize.expected_result_shape.lower()
+    assert "ready_for_completion_candidate=true" in finalize.expected_result_shape.lower()
+    assert "next_required_action=complete_run" not in finalize.expected_result_shape.lower()
 
 
 def test_hydrate_tool_spec_exposes_resolution_projection_limits() -> None:
@@ -454,7 +455,8 @@ def test_procedural_guidance_covers_finalize_flow() -> None:
     assert "publish_deed_to_ir_output" not in guidance
     assert "material defect" in guidance
     assert "preview_ready" in guidance
-    assert "complete_run" in guidance
+    assert "do not call `complete_run`" in guidance
+    assert "next_required_action=complete_run" not in guidance
 
 
 def test_procedural_guidance_discourages_post_finalize_re_hydration() -> None:
@@ -465,7 +467,7 @@ def test_procedural_guidance_discourages_post_finalize_re_hydration() -> None:
     )
     assert "finalize_current_deed_to_ir_output" in guidance
     assert "do not hydrate" in guidance or "just to restate" in guidance
-    assert "complete_run" in guidance
+    assert "do not call `complete_run`" in guidance
 
 
 def test_tool_specs_state_hydrate_refs_correction_lane() -> None:
@@ -501,6 +503,8 @@ def test_domain_pack_builds() -> None:
     )
     assert payload["closure_policy"]["completion_anchor"]["preview_ready_publish_bypass"] is False
     assert payload["closure_policy"]["completion_anchor"]["preview_prepare_action_ids"] == []
+    assert payload["closure_policy"]["completion_anchor"]["terminal_on_satisfied_anchor"] is True
+    assert payload["closure_policy"]["completion_anchor"].get("expected_next") in (None, "")
     assert payload["closure_policy"]["required_dimension_ids"] == [
         "layer_1_deed_meaning_to_ir_fidelity",
         "layer_2_ir_geometry_integrity",
@@ -542,6 +546,8 @@ def test_branch_and_guidance_mission_markers() -> None:
     assert "inherited_handoff_conditions" in guidance
     assert "first_draft_authoring_card" in guidance
     assert "finalize_current_deed_to_ir_output" in guidance
+    assert "next_required_action=complete_run" not in guidance
+    assert "do not call `complete_run`" in guidance
     assert "prepare_deed_to_ir_final_package" not in guidance
     assert "publish_deed_to_ir_output" not in guidance
     assert "mechanically_mappable_candidate" in guidance

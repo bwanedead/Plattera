@@ -752,7 +752,7 @@ def test_retry_publication_uses_br012_idempotency(monkeypatch) -> None:
         assert second["outputs"]["idempotent_replay"] is True
         assert second["outputs"]["final_package_preview_ref"] == preview_ref
         assert second["outputs"]["output_revision_ref"] == output_ref
-        assert second["outputs"]["next_required_action"] == "complete_run"
+        assert "next_required_action" not in second["outputs"]
 
 
 def test_decision_mutation_after_preview_is_refused(monkeypatch) -> None:
@@ -784,7 +784,7 @@ def test_decision_mutation_after_preview_is_refused(monkeypatch) -> None:
         _assert_retryable(refused, "finalization_decisions_frozen")
 
 
-def test_successful_publication_persists_published_and_next_action(monkeypatch) -> None:
+def test_successful_publication_persists_published_without_complete_run_routing(monkeypatch) -> None:
     with tempfile.TemporaryDirectory() as tmp:
         persistence, _ir, mapping_ref, _submitted, ctx = _submit_with_lineage(
             tmp, leg2_distance=_PRACTICE_CORRECT_DISTANCE, monkeypatch=monkeypatch
@@ -793,7 +793,7 @@ def test_successful_publication_persists_published_and_next_action(monkeypatch) 
         assert result["executed"] is True
         outputs = result["outputs"]
         assert outputs["finalization_status"] == "published"
-        assert outputs["next_required_action"] == "complete_run"
+        assert "next_required_action" not in outputs
         _assert_revision_preview_ref(outputs["final_package_preview_ref"])
         assert outputs["output_revision_ref"]
         assert outputs["mapping_artifact_ref"] == mapping_ref or outputs["mapping_artifact_ref"]
@@ -881,7 +881,6 @@ def test_pending_preview_ready_and_published_prompt_projections() -> None:
         "status": STATUS_PUBLISHED,
         "output_revision_ref": "deed_to_ir:output:rev:0001",
         "final_package_preview_ref": "deed_to_ir:final_package_preview:rev:0001",
-        "next_required_action": "complete_run",
     }
 
     stale = dict(pending)

@@ -47,7 +47,7 @@ Use this guidance to orient deed-to-IR work. This is **guidance**, not a hard sc
 - After mapping review is honest enough for scoped handoff, call `finalize_current_deed_to_ir_output` — the finalizer prepares and publishes the durable package internally.
 
 ## Canonical finalization
-- Preferred endgame: inspect mapping review → repair current IR if necessary → submit the repaired IR for mapping → call `finalize_current_deed_to_ir_output` with only unresolved semantic decision maps → `complete_run`.
+- Preferred endgame: inspect mapping review → repair current IR if necessary → submit the repaired IR for mapping → call `finalize_current_deed_to_ir_output` with only unresolved semantic decision maps. When publication succeeds with `ready_for_completion_candidate=true`, the run completes from that anchor — do not call `complete_run` merely to restate publication bookkeeping.
 - Treat the lineage-bound finalization session from a successful remap as the current finalization candidate. Do not track mapping/IR pairs, preview refs, closure arrays, or strict package rows manually.
 - Author only semantic conclusions the active session still needs:
   - scope statuses: `handoffable` or `blocked`;
@@ -60,7 +60,7 @@ Use this guidance to orient deed-to-IR work. This is **guidance**, not a hard sc
 - If `missing_finalization_decisions` is returned, read the reported missing IDs from `latest_action_results` and use `active_finalization_session` when present; supply only those IDs on retry. Previously persisted decisions need not be repeated.
 - If correction disposition is `needs_hitl`, wait for human resolution; do not treat that as approval or publication.
 - If the session is `preview_ready`, retry the same finalizer with **no decision mutations** — publication retries the stored immutable preview.
-- If the result is `published` with `next_required_action=complete_run`, call `complete_run`. Do not hydrate output/preview/IR/mapping just to restate what the finalizer already returned.
+- When publication succeeds with `ready_for_completion_candidate=true`, treat the published package as the durable closeout — do not hydrate output/preview/IR/mapping just to restate what the finalizer already returned, and do not call `complete_run` for bookkeeping.
 - Reopen IR only for a material defect in the current IR/mapping/final handoff — not to polish bookkeeping or restate already accepted decisions.
 - Mapping review before finalization remains required. Rendered output is not semantic correctness by itself.
 - Never treat mechanical mapping facts (compile/judge counts, renders, lineage_current) as semantic closure.
@@ -104,12 +104,11 @@ Use this guidance to orient deed-to-IR work. This is **guidance**, not a hard sc
   - inspect map/compile/judge artifacts
   - repair IR when mapping exposes a real defect
   - finalize the current lineage-bound package
-  - complete the run after published output
 - Inherited upstream values are **starting inputs**, not blind truth. If mapping/compile/judge exposes a real defect, self-heal by correcting IR and provenance — do not silently trust transcript-edit when earned evidence contradicts it.
 
 ## Foundation workflow (bound)
 - Bound tool contracts live in tool specs — treat those as authoritative; this guidance does not duplicate exact tool IDs or request shapes.
-- Typical flow: hydrate `mapping_operands` and feature-graph capabilities; save a draft early; repair placeholder-only drafts into real op/geometry/feature-ref structure with provenance; submit saved IR for mapping when `mapping_submission_ready_candidate` is true enough for inspection; inspect returned mapping review; finalize with unresolved semantic decisions; complete after published output.
+- Typical flow: hydrate `mapping_operands` and feature-graph capabilities; save a draft early; repair placeholder-only drafts into real op/geometry/feature-ref structure with provenance; submit saved IR for mapping when `mapping_submission_ready_candidate` is true enough for inspection; inspect returned mapping review; finalize with unresolved semantic decisions.
 - Attach exact upstream links through `ProvenanceAttachment.source_entity_links` on graph entities — not only graph metadata.
 - Do not guess schema, operation parameters, units, operand shapes, support status, or provenance contracts. Hydrate capability details in the same orientation batch before the first non-trivial IR save when details are not already in context.
 

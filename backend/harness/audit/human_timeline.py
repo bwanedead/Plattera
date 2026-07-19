@@ -1106,7 +1106,6 @@ def _render_tool_result(
                         "output_ref": outputs.get("output_ref"),
                         "mapping_ref": outputs.get("mapping_artifact_ref"),
                         "ready_for_completion_candidate": True,
-                        "expected_next": "complete_run",
                     }
             lines.extend(render_completion_anchor_timeline_lines(anchor, indent="  "))
         source_window_line = render_source_window_timeline_line(

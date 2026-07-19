@@ -68,7 +68,7 @@ def build_deed_to_ir_closure_policy() -> DomainClosurePolicy:
                 "required_dimensions_missing:",
                 "resolution_items_below_minimum:",
             ),
-            expected_next="complete_run",
+            terminal_on_satisfied_anchor=True,
         ),
         standards=(
             ClosureDimensionStandard(

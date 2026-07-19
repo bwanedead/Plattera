@@ -36,6 +36,7 @@ class CompletionAnchorPolicy:
     publish_posture_mirror_blocker_exact: tuple[str, ...] = ()
     publish_posture_mirror_blocker_prefixes: tuple[str, ...] = ()
     expected_next: str | None = None
+    terminal_on_satisfied_anchor: bool = False
     suppressed_flag_reason: str = "local posture mismatch after published output"
 
 

@@ -348,7 +348,7 @@ def test_normalize_unknown_omits_connector_fragment_repair_hint():
     _assert_no_retired_workflow_directives(result)
 
 
-def test_normalize_preserves_published_next_action():
+def test_normalize_strips_published_complete_run_routing():
     raw = {
         "executed": True,
         "artifact_refs": ["deed_to_ir:output"],
@@ -357,10 +357,12 @@ def test_normalize_preserves_published_next_action():
             "next_required_action": "complete_run",
             "final_package_preview_ref": "deed_to_ir:final_package_preview:rev:0001",
             "output_revision_ref": "deed_to_ir:output:rev:0001",
+            "final_output_summary": {"ready_for_completion_candidate": True},
         },
     }
     result = normalize_finalizer_agent_visible_result(raw)
-    assert result["outputs"]["next_required_action"] == "complete_run"
+    assert "next_required_action" not in result["outputs"]
+    assert "expected_next" not in result["outputs"]
     _assert_no_retired_action_ids(result)
 
 

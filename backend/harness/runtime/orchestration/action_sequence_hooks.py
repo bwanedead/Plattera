@@ -562,6 +562,7 @@ def run_action_sequence_turn_if_present(
             tracer=tracer,
             turn_completion_observer=turn_completion_observer,
             patch_present=patch_present,
+            run_ctx=run_ctx,
         )
 
     any_executed = any(
@@ -625,6 +626,7 @@ def _finalize_single_action_turn(
     tracer: Any,
     turn_completion_observer: Any | None,
     patch_present: bool,
+    run_ctx: dict[str, Any] | None,
 ) -> ActionSequenceOutcome:
     item = actions[0]
     if last_step is None:
@@ -708,7 +710,12 @@ def _finalize_single_action_turn(
                 sequence_result=sequence_result,
             )
 
-    if last_step.execution_state != ExecutionState.EXECUTED:
+    from .completion_anchor_terminal import (
+        evaluate_same_turn_completion_anchor,
+        is_success_like_execution_state,
+    )
+
+    if not is_success_like_execution_state(last_step.execution_state):
         refusal = last_step.refusal
         reason = refusal.reason_code if refusal is not None else "step_execution_refused"
         retryable = refusal.retryable if refusal is not None else False
@@ -791,10 +798,11 @@ def _finalize_single_action_turn(
             sequence_result=sequence_result,
         )
 
+    execution_label = last_step.execution_state.value
     tracer.emit_execution_result(
         iteration=iteration,
         action_type=item.action_type,
-        execution_state="executed",
+        execution_state=execution_label,
         reason_code=None,
         retryable=None,
         refs_delta=loop_memory.continuity.latest_refs,
@@ -810,8 +818,22 @@ def _finalize_single_action_turn(
         loop_memory=loop_memory,
         action_plan=action_plan,
         iteration=iteration,
-        execution_state="executed",
+        execution_state=execution_label,
         execution_reason_code=None,
+    )
+    same_turn = evaluate_same_turn_completion_anchor(
+        closure_policy=(run_ctx or {}).get("domain_closure_policy"),
+        action_plan=action_plan,
+        latest_refs=loop_memory.continuity.latest_refs,
+        step_result_records=loop_memory.continuity.kernel_step_result_records,
+    )
+    terminal_decision = (
+        same_turn.terminal_reason_code if same_turn is not None else None
+    )
+    mechanical_audit = (
+        {"completion_anchor": same_turn.completion_anchor}
+        if same_turn is not None
+        else None
     )
     observe_turn_completed(
         turn_completion_observer,
@@ -820,6 +842,8 @@ def _finalize_single_action_turn(
         step_result=last_step,
         loop_memory=loop_memory,
         sequence_result=sequence_result,
+        terminal_decision=terminal_decision,
+        mechanical_audit=mechanical_audit,
     )
     capture_hydrate_after_sequence(
         loop_memory=loop_memory,
@@ -827,6 +851,14 @@ def _finalize_single_action_turn(
         sequence_result=sequence_result,
         iteration=iteration,
     )
+    if same_turn is not None:
+        return ActionSequenceOutcome(
+            handled=True,
+            action_plan=action_plan,
+            sequence_result=sequence_result,
+            terminal_class=same_turn.terminal_class,
+            terminal_reason_code=same_turn.terminal_reason_code,
+        )
     return ActionSequenceOutcome(
         handled=True,
         action_plan=action_plan,
