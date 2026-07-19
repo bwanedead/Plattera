@@ -21,7 +21,7 @@ from .result_view_common import (
 
 SCHEMA_FINALIZE_CURRENT_OUTPUT = "deed_to_ir.finalize_current_output.v1"
 
-# Explicit allowlist only — never select legacy cards or prompt_carry_forward.
+# Explicit allowlist only — never select retired public cards.
 _FINALIZER_SCALAR_KEYS = (
     "finalization_status",
     "final_package_preview_ref",

@@ -206,12 +206,12 @@ def test_state_repair_prompt_carries_lean_structured_state_and_richer_run_contex
     structured_state = doc.prompt_body["structured_state"]
     assert doc.mode == "state_repair"
     # Bulky raw step-record arrays are excluded from state_repair to keep closure-repair
-    # prompts lean; tool result slices and timeline provide equivalent signal.
+    # prompts lean; timeline + latest_action_results (when pending) provide signal.
     assert "recent_kernel_step_records" not in structured_state
     assert "recent_kernel_step_result_records" not in structured_state
+    assert "recent_tool_result_slices" not in structured_state
     # Lean fields are still present.
     assert "recent_turn_timeline" in structured_state
-    assert "recent_tool_result_slices" in structured_state
     assert "recent_continuity_journal_entries" in structured_state
     # state_repair still carries the richer run_context anchors.
     run_context = doc.prompt_body["run_context"]
@@ -563,156 +563,127 @@ def test_repair_prompt_document_does_not_derive_rationale_target_when_error_unre
     assert "add_missing_rationale" not in targets
 
 
-def test_full_choose_action_includes_recent_tool_result_slices() -> None:
+_LEGACY_PROMPT_KEYS = (
+    "recent_tool_result_slices",
+    "recent_action_sequence_result",
+    "prompt_carry_forward",
+    "artifact_excerpt_boundary_risk",
+)
+
+
+def _seed_pending_delivery(
+    loop_memory: LoopMemoryState,
+    *,
+    outputs: dict[str, Any] | None = None,
+    action_alias: str = "seed",
+) -> None:
+    from harness.execution.contracts import ActionDispatchResult
+    from harness.runtime.memory.result_delivery import admit_pending_result_delivery
+
+    admit_pending_result_delivery(
+        loop_memory.continuity.pending_result_deliveries,
+        result=ActionDispatchResult(
+            action_id="noop",
+            executed=True,
+            outputs=dict(outputs or {"note": "done"}),
+            artifact_refs=(),
+        ),
+        source_turn_index=2,
+        action_index=1,
+        action_alias=action_alias,
+        execution_state="executed",
+    )
+
+
+def test_full_choose_action_includes_latest_action_results_when_pending() -> None:
+    context = _context()
+    _seed_pending_delivery(context.loop_memory, outputs={"note": "done"})
     doc = build_choose_action_prompt_document(
         composed_input=_composed_input(),
         opaque_launch_context={"run_id": "r-1"},
-        context=_context(),
+        context=context,
         projection=_projection(),
         journal_verbatim_keep_n=2,
     )
     structured = doc.prompt_body["structured_state"]
-    assert "recent_tool_result_slices" in structured
+    assert "latest_action_results" in structured
     assert "recent_kernel_step_result_records" not in structured
-    slices = structured["recent_tool_result_slices"]
-    assert isinstance(slices, list) and slices
-    entry = slices[0]
+    for banned in _LEGACY_PROMPT_KEYS:
+        assert banned not in structured
+    lane = structured["latest_action_results"]
+    assert isinstance(lane, list) and lane
+    entry = lane[0]
     for key in (
-        "kernel_turn_index",
-        "action_type",
+        "delivery_id",
+        "action_alias",
+        "action_id",
         "execution_state",
-        "result_truncated",
-        "artifact_refs",
-        "outputs_excerpt",
-        "outputs_excerpt_truncated",
+        "representation_kind",
+        "representation",
     ):
         assert key in entry
-    # The previous turn's stored tool result (note=done) must be visible as bounded text.
-    blob = json.dumps(entry["outputs_excerpt"], ensure_ascii=False, sort_keys=True, default=str)
+    blob = json.dumps(entry["representation"], ensure_ascii=False, sort_keys=True, default=str)
     assert "done" in blob
 
 
-def test_full_choose_action_prompt_body_has_slices_not_raw_records() -> None:
+def test_full_choose_action_prompt_omits_legacy_result_lanes() -> None:
+    context = _context()
+    _seed_pending_delivery(context.loop_memory)
     doc = build_choose_action_prompt_document(
         composed_input=_composed_input(),
         opaque_launch_context={"run_id": "r-1"},
-        context=_context(),
+        context=context,
         projection=_projection(),
         journal_verbatim_keep_n=2,
     )
     prompt_text = doc.prompt_text
-    assert "recent_tool_result_slices" in prompt_text
+    assert "latest_action_results" in prompt_text
     assert "recent_kernel_step_result_records" not in prompt_text
+    for banned in _LEGACY_PROMPT_KEYS:
+        assert banned not in prompt_text
 
 
-def test_tool_result_slices_truncate_oversized_outputs() -> None:
-    from harness.runtime.memory.tool_result_slices import build_recent_tool_result_slices
-
-    big = "x" * 20000
-    rows = [
-        {
-            "kernel_turn_index": 1,
-            "action_type": "hydrate_artifact_refs",
-            "execution_state": "executed",
-            "execution_reason_code": None,
-            "artifact_refs": [],
-            "outputs_for_continuity": {"payload": big},
-            "result_truncated": False,
-        }
-    ]
-    slices = build_recent_tool_result_slices(rows, max_chars_per_result=500)
-    assert len(slices) == 1
-    entry = slices[0]
-    excerpt = entry["outputs_excerpt"]
-    excerpt_str = excerpt if isinstance(excerpt, str) else json.dumps(excerpt, default=str)
-    assert len(excerpt_str) <= 500
-    assert entry["outputs_excerpt_truncated"] is True
-
-
-def test_tool_result_slices_strip_binary_image_payloads() -> None:
-    from harness.runtime.memory.tool_result_slices import build_recent_tool_result_slices
-
-    rows = [
-        {
-            "kernel_turn_index": 1,
-            "action_type": "read_page",
-            "execution_state": "executed",
-            "artifact_refs": [],
-            "outputs_for_continuity": {
-                "note": "visible text",
-                "image_bytes": "AAAABBBBCCCC" * 200,
-                "nested": {"image_base64": "ZZZ" * 200, "caption": "ok"},
-            },
-            "result_truncated": False,
-        }
-    ]
-    slices = build_recent_tool_result_slices(rows)
-    blob = json.dumps(slices[0]["outputs_excerpt"], ensure_ascii=False, default=str)
-    assert "visible text" in blob
-    assert "image_bytes" not in blob
-    assert "image_base64" not in blob
-    assert "AAAABBBB" not in blob
-    assert "ZZZ" not in blob
-
-
-def test_tool_result_slices_respect_max_records_and_chronology() -> None:
-    from harness.runtime.memory.tool_result_slices import build_recent_tool_result_slices
-
-    rows = [
-        {
-            "kernel_turn_index": i,
-            "action_type": "noop",
-            "execution_state": "executed",
-            "artifact_refs": [],
-            "outputs_for_continuity": {"turn": i},
-            "result_truncated": False,
-        }
-        for i in (1, 2, 3, 4, 5)
-    ]
-    slices = build_recent_tool_result_slices(rows, max_records=3)
-    assert [s["kernel_turn_index"] for s in slices] == [3, 4, 5]
-
-
-def test_tool_result_slices_does_not_infer_semantic_conclusions() -> None:
-    from harness.runtime.memory.tool_result_slices import build_recent_tool_result_slices
-
-    rows = [
-        {
-            "kernel_turn_index": 1,
-            "action_type": "hydrate_artifact_refs",
-            "execution_state": "executed",
-            "artifact_refs": ["artifact://a"],
-            "outputs_for_continuity": {"result": "anything"},
-            "result_truncated": False,
-        }
-    ]
-    entry = build_recent_tool_result_slices(rows)[0]
-    # No host-authored interpretation, ranking, relevance flag, or conclusion.
-    for banned_key in (
-        "relevance",
-        "is_relevant",
-        "conclusion",
-        "summary",
-        "verdict",
-        "recommendation",
-        "semantic_tag",
+def test_semantic_prompts_exclude_legacy_result_projection_keys() -> None:
+    context = _context()
+    _seed_pending_delivery(context.loop_memory)
+    context.loop_memory.continuity.recent_action_sequence_result = {
+        "batch_id": "req:iter:2:batch",
+        "source_turn_index": 2,
+        "items": [{"alias": "a", "action_type": "noop", "execution_state": "executed"}],
+    }
+    for builder in (
+        build_choose_action_prompt_document,
+        build_state_repair_prompt_document,
+        build_resume_prompt_document,
     ):
-        assert banned_key not in entry
+        doc = builder(
+            composed_input=_composed_input(),
+            opaque_launch_context={"run_id": "r-legacy"},
+            context=context,
+            projection=_projection(),
+            journal_verbatim_keep_n=2,
+        )
+        blob = json.dumps(doc.prompt_body, ensure_ascii=False, default=str)
+        for banned in _LEGACY_PROMPT_KEYS:
+            assert banned not in blob
+            assert banned not in doc.prompt_text
+        assert "latest_action_results" in (doc.prompt_body.get("structured_state") or {})
 
 
-def test_state_repair_carries_slices_but_not_raw_step_record_arrays() -> None:
-    """state_repair uses lean structured_state: slices are kept, raw step-record arrays are excluded."""
+def test_state_repair_carries_latest_action_results_but_not_raw_step_record_arrays() -> None:
+    """state_repair uses lean structured_state: latest_action_results when pending, no raw arrays."""
+    context = _context()
+    _seed_pending_delivery(context.loop_memory)
     doc = build_state_repair_prompt_document(
         composed_input=_composed_input(),
         opaque_launch_context={"run_id": "r-1"},
-        context=_context(),
+        context=context,
         projection=_projection(),
         journal_verbatim_keep_n=2,
     )
     structured = doc.prompt_body["structured_state"]
-    # Slices are kept — they provide bounded mechanical context without the bulk.
-    assert "recent_tool_result_slices" in structured
-    # Raw step-record arrays are excluded from state_repair to keep closure-repair prompts lean.
+    assert "latest_action_results" in structured
+    assert "recent_tool_result_slices" not in structured
     assert "recent_kernel_step_result_records" not in structured
     assert "recent_kernel_step_records" not in structured
 
@@ -791,36 +762,32 @@ def test_full_choose_action_prompt_doctrine_mentions_hydrate_next() -> None:
     assert "verify saved payload shape before publish" in doc.prompt_text
 
 
-def test_choose_action_prompt_preserves_complete_prompt_carry_forward() -> None:
-    """Dedicated carry-forward lane is complete in the next prompt despite long prose."""
-    from harness.runtime.memory.prompt_carry_forward import PROMPT_CARRY_FORWARD_SCHEMA_VERSION
+def test_choose_action_prompt_surfaces_structured_ids_via_latest_action_results() -> None:
+    """Decision IDs reach the next prompt through latest_action_results, not prompt_carry_forward."""
+    from harness.execution.contracts import ActionDispatchResult
+    from harness.runtime.memory.result_delivery import admit_pending_result_delivery
 
-    payload = {
+    outputs = {
         "action_type": "demo_tool",
         "reason_code": "missing_decisions",
         "decision_card": {"required": ["a", "b"], "ids": ["id_1", "id_2"]},
         "retry_request_template": {"rows": [{"id": "id_1", "status": "ok"}]},
+        "repair_hint": "Use the returned card.",
     }
     loop_memory = LoopMemoryState()
     loop_memory.iterations = 2
-    loop_memory.continuity.kernel_step_result_records.append(
-        {
-            "kernel_turn_index": 1,
-            "action_type": "demo_tool",
-            "execution_state": "refused",
-            "execution_reason_code": "missing_decisions",
-            "artifact_refs": [],
-            "latest_refs_snapshot": {},
-            "outputs_for_continuity": {
-                "error": {"message": "e" * 5000},
-                "repair_hint": ("Use the returned card. " * 300),
-                "prompt_carry_forward": {
-                    "schema_version": PROMPT_CARRY_FORWARD_SCHEMA_VERSION,
-                    "payload": payload,
-                },
-            },
-            "result_truncated": False,
-        }
+    admit_pending_result_delivery(
+        loop_memory.continuity.pending_result_deliveries,
+        result=ActionDispatchResult(
+            action_id="demo_tool",
+            executed=False,
+            outputs=outputs,
+            artifact_refs=(),
+        ),
+        source_turn_index=1,
+        action_index=1,
+        action_alias="demo",
+        execution_state="refused",
     )
     context = OrchestratorContext(
         session_manager=ExecutionSessionManager(),
@@ -838,51 +805,44 @@ def test_choose_action_prompt_preserves_complete_prompt_carry_forward() -> None:
         projection=_projection(),
         journal_verbatim_keep_n=2,
     )
-    slices = doc.prompt_body["structured_state"]["recent_tool_result_slices"]
-    assert slices
-    carry = slices[-1]["prompt_carry_forward"]
-    assert carry["payload"] == payload
-    # Truncated excerpt must not be the only home for structured IDs.
-    assert slices[-1].get("outputs_excerpt_truncated") is True
-    assert "id_1" in json.dumps(carry)
-    assert "id_2" in json.dumps(carry)
+    lane = doc.prompt_body["structured_state"]["latest_action_results"]
+    assert lane
+    blob = json.dumps(lane, ensure_ascii=False, default=str)
+    assert "id_1" in blob
+    assert "id_2" in blob
+    assert "prompt_carry_forward" not in blob
+    assert "recent_tool_result_slices" not in json.dumps(doc.prompt_body, default=str)
 
 
-def test_choose_action_prompt_pipeline_storage_to_carry_forward() -> None:
-    """Tool outputs → continuity record → slice → choose-action prompt."""
-    from harness.runtime.memory.continuity_journal import build_kernel_step_result_record
-    from harness.runtime.memory.prompt_carry_forward import PROMPT_CARRY_FORWARD_SCHEMA_VERSION
+def test_choose_action_prompt_pipeline_storage_to_latest_action_results() -> None:
+    """Tool outputs → pending delivery → latest_action_results in choose-action prompt."""
+    from harness.execution.contracts import ActionDispatchResult
+    from harness.runtime.memory.result_delivery import admit_pending_result_delivery
 
-    payload = {
-        "action_type": "demo_tool",
-        "reason_code": "missing_decisions",
+    outputs = {
         "finalization_decision_card": {
             "required_lanes": ["dependency_decisions"],
-            "dependency_decisions": [{"candidate_id": "parcel_2_continuation_scope"}],
+            "dependency_decisions": [{"candidate_id": "unit_2_continuation_scope"}],
         },
         "retry_request_template": {
-            "correction_decisions": [{"target_entity_id": "p1_call2_distance"}],
+            "correction_decisions": [{"target_entity_id": "row1_call2_value"}],
         },
     }
-    record = build_kernel_step_result_record(
-        kernel_turn_index=1,
-        action_type="demo_tool",
-        execution_state="refused",
-        execution_reason_code="missing_decisions",
-        latest_refs_snapshot={},
-        outputs={
-            "repair_hint": ("Use the returned card. " * 200),
-            "error": {"message": "e" * 3000},
-            "prompt_carry_forward": {
-                "schema_version": PROMPT_CARRY_FORWARD_SCHEMA_VERSION,
-                "payload": payload,
-            },
-        },
-        artifact_refs=[],
-    )
     loop_memory = LoopMemoryState()
     loop_memory.iterations = 2
-    loop_memory.continuity.kernel_step_result_records.append(record)
+    admit_pending_result_delivery(
+        loop_memory.continuity.pending_result_deliveries,
+        result=ActionDispatchResult(
+            action_id="demo_tool",
+            executed=False,
+            outputs=outputs,
+            artifact_refs=(),
+        ),
+        source_turn_index=1,
+        action_index=1,
+        action_alias="demo",
+        execution_state="refused",
+    )
     context = OrchestratorContext(
         session_manager=ExecutionSessionManager(),
         session_id="sess-carry-pipe",
@@ -899,17 +859,17 @@ def test_choose_action_prompt_pipeline_storage_to_carry_forward() -> None:
         projection=_projection(),
         journal_verbatim_keep_n=2,
     )
-    slices = doc.prompt_body["structured_state"]["recent_tool_result_slices"]
-    carry = slices[-1]["prompt_carry_forward"]
-    assert carry["payload"] == payload
+    lane = doc.prompt_body["structured_state"]["latest_action_results"]
+    assert lane
     blob = json.dumps(doc.prompt_body, ensure_ascii=False, default=str)
-    assert "p1_call2_distance" in blob
-    assert "parcel_2_continuation_scope" in blob
+    assert "row1_call2_value" in blob
+    assert "unit_2_continuation_scope" in blob
+    assert "prompt_carry_forward" not in blob
 
 
-def test_choose_action_prompt_surfaces_storage_omission_marker() -> None:
+def test_choose_action_prompt_ignores_legacy_prompt_carry_forward_in_continuity() -> None:
+    """Opaque legacy prompt_carry_forward in continuity outputs must not enter the prompt."""
     from harness.runtime.memory.continuity_journal import build_kernel_step_result_record
-    from harness.runtime.memory.prompt_carry_forward import PROMPT_CARRY_FORWARD_SCHEMA_VERSION
 
     record = build_kernel_step_result_record(
         kernel_turn_index=1,
@@ -920,8 +880,8 @@ def test_choose_action_prompt_surfaces_storage_omission_marker() -> None:
         outputs={
             "repair_hint": "h" * 80,
             "prompt_carry_forward": {
-                "schema_version": PROMPT_CARRY_FORWARD_SCHEMA_VERSION,
-                "payload": {"blob": "z" * 9000},
+                "schema_version": "prompt_carry_forward.v1",
+                "payload": {"blob": "z" * 100},
             },
         },
         artifact_refs=[],
@@ -945,6 +905,8 @@ def test_choose_action_prompt_surfaces_storage_omission_marker() -> None:
         projection=_projection(),
         journal_verbatim_keep_n=2,
     )
-    row = doc.prompt_body["structured_state"]["recent_tool_result_slices"][-1]
-    assert "prompt_carry_forward" not in row
-    assert row["prompt_carry_forward_omitted"]["reason"] == "oversized"
+    structured = doc.prompt_body.get("structured_state") or {}
+    assert "recent_tool_result_slices" not in structured
+    blob = json.dumps(doc.prompt_body, ensure_ascii=False, default=str)
+    assert "prompt_carry_forward" not in blob
+    assert "prompt_carry_forward_omitted" not in blob

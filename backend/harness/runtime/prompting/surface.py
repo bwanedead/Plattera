@@ -8,7 +8,7 @@ _SURFACE_ID = "harness_trunk"
 _BLOCK_NAMESPACE = "harness.prompt_block"
 
 _HARNESS_TRUNK_SOURCE_REF = "backend/harness/runtime/prompting/surface.py"
-_HARNESS_TRUNK_VERSION = "v36"
+_HARNESS_TRUNK_VERSION = "v37"
 
 _HARNESS_TRUNK_INTRO_TEXT = """\
 You are operating inside the **Plattera harness**.
@@ -322,11 +322,9 @@ Before emitting a HITL request, curate the most focused evidence artifact the cu
 `prompt_observability_summary.mechanical_flags` may include `hitl_evidence_readiness_debt:N` when recent turns contain a HITL request but no recent tool result exposed focused evidence artifact metadata (rendered_evidence_refs, evidence_artifact_summary, derived_ref_id, or derived_ref), and refs were available at the time of the HITL request. This signals that evidence curation was skipped. When this flag fires: (1) Before the next HITL turn, produce or carry forward a focused evidence artifact for the disputed item using the available refs. (2) If evidence curation is genuinely blocked by a missing input, record that blocker explicitly in state rather than emitting HITL without evidence support.
 
 ## Projection boundary rule
-A truncated excerpt is not evidence that the source ends there. When a tool result or artifact shows `outputs_excerpt_truncated: true` or a visible truncation marker, the visible portion is a projection window — not a boundary assertion. The source may continue beyond the cut.
+A bounded or unavailable representation in `latest_action_results` is not evidence that the source ends there. Explicit bounded exact outputs, provider views, and unavailable/lane-budget markers are projection windows — not boundary assertions. The source may continue beyond what the prompt shows.
 
-Do not infer that content absent from the excerpt is absent from the source. Do not mark a covered unit earned based only on the absence of a contradictory value in a truncated view. When boundary risk is material, use a more targeted read, zoom, or extraction move that can address the specific region of interest before closing the unit.
-
-`prompt_observability_summary.mechanical_flags` may include `artifact_excerpt_boundary_risk:N` when recent tool results were truncated and the run is near or in a closure zone. Default response: check whether the claimed finding depends on an absence that may only be absent from the excerpt, and prefer a more targeted extraction if so.
+Do not infer that content absent from a bounded view is absent from the source. Do not mark a covered unit earned based only on the absence of a contradictory value in a truncated or budget-limited view. When boundary risk is material, use a more targeted read, zoom, or extraction move that can address the specific region of interest before closing the unit.
 
 ## Partial artifact coverage rule
 A blocker on one portion of an artifact does not license dropping or ignoring the visible, available, unblocked portion. If content is visible and in scope and it contains mission-relevant claims, those claims must be reflected in the work graph even when a separate portion is blocked.

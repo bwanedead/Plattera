@@ -1441,84 +1441,6 @@ def test_claim_inventory_flags_surface_when_pressure_enabled() -> None:
 
 
 # ---------------------------------------------------------------------------
-# artifact_excerpt_boundary_risk flag
-# ---------------------------------------------------------------------------
-
-
-def test_flags_artifact_excerpt_boundary_risk_fires_near_closure_ready() -> None:
-    """Truncated recent results + closure_ready_to_close → flag fires."""
-    result = _flags(recent_result_truncated_count=1, closure_ready_to_close=True)
-    assert "artifact_excerpt_boundary_risk:1" in result
-
-
-def test_flags_artifact_excerpt_boundary_risk_fires_with_posture_believed_adequate() -> None:
-    """believed_adequate posture near closure zone triggers the flag."""
-    result = _flags(recent_result_truncated_count=2, work_universe_posture="believed_adequate")
-    assert "artifact_excerpt_boundary_risk:2" in result
-
-
-def test_flags_artifact_excerpt_boundary_risk_fires_with_posture_audited() -> None:
-    """audited posture triggers the flag when results were truncated."""
-    result = _flags(recent_result_truncated_count=1, work_universe_posture="audited")
-    assert "artifact_excerpt_boundary_risk:1" in result
-
-
-def test_flags_artifact_excerpt_boundary_risk_not_fired_when_no_truncation() -> None:
-    """No truncated results → flag suppressed even at closure."""
-    result = _flags(recent_result_truncated_count=0, closure_ready_to_close=True)
-    assert not any(f.startswith("artifact_excerpt_boundary_risk:") for f in result)
-
-
-def test_flags_artifact_excerpt_boundary_risk_not_fired_when_not_near_closure() -> None:
-    """Truncated results without closure proximity → flag suppressed."""
-    result = _flags(
-        recent_result_truncated_count=2,
-        closure_ready_to_close=False,
-        work_universe_posture="initial",
-    )
-    assert not any(f.startswith("artifact_excerpt_boundary_risk:") for f in result)
-
-
-def test_flags_artifact_excerpt_boundary_risk_carries_truncated_count() -> None:
-    """Flag string encodes the truncated count for observability."""
-    result = _flags(recent_result_truncated_count=3, closure_ready_to_close=True)
-    assert "artifact_excerpt_boundary_risk:3" in result
-
-
-def _mem_with_result_records(
-    result_records: list[dict],
-    *,
-    work_universe_posture: str = "audited",
-    ready_to_close: bool = True,
-) -> LoopMemoryState:
-    mem = _mem(work_universe_posture=work_universe_posture, ready_to_close=ready_to_close)
-    mem.continuity.kernel_step_result_records = list(result_records)
-    return mem
-
-
-def test_summary_recent_result_truncated_count_in_summary() -> None:
-    """recent_result_truncated_count is exposed in the summary dict."""
-    records = [
-        {"kernel_turn_index": 1, "result_truncated": True, "action_type": "hydrate_artifact_refs"},
-        {"kernel_turn_index": 2, "result_truncated": False, "action_type": "hydrate_artifact_refs"},
-    ]
-    mem = _mem_with_result_records(records)
-    result = build_prompt_observability_summary(mem)
-    assert "recent_result_truncated_count" in result
-    assert result["recent_result_truncated_count"] == 1
-
-
-def test_summary_artifact_excerpt_boundary_risk_flag_fires_via_result_records() -> None:
-    """Integration: truncated result record near audited posture fires the flag in summary."""
-    records = [
-        {"kernel_turn_index": 1, "result_truncated": True, "action_type": "hydrate_artifact_refs"},
-    ]
-    mem = _mem_with_result_records(records, work_universe_posture="audited", ready_to_close=True)
-    result = build_prompt_observability_summary(mem)
-    assert any(f.startswith("artifact_excerpt_boundary_risk:") for f in result["mechanical_flags"])
-
-
-# ---------------------------------------------------------------------------
 # Brief 1, items 2-4: semantic_repair_debt / pending_hitl_integration /
 # reread_after_failed_persist_risk surface through loop_health_summary.
 # ---------------------------------------------------------------------------
@@ -1754,26 +1676,6 @@ def test_short_determined_value_does_not_flag() -> None:
     result = build_prompt_observability_summary(mem)
     assert result["long_determined_value_units_count"] == 0
     assert not any(f.startswith("long_determined_value_units:") for f in result["mechanical_flags"])
-
-
-def test_summary_excerpt_truncated_fires_boundary_risk_even_when_result_not_truncated() -> None:
-    """Run-6 failure shape: result_truncated=False but outputs large enough to cut the excerpt."""
-    records = [
-        {
-            "kernel_turn_index": 1,
-            "result_truncated": False,  # raw tool result was NOT flagged as truncated
-            "action_type": "hydrate_artifact_refs",
-            "outputs_for_continuity": {"key": "x" * 3000},  # but excerpt would be cut at 2500
-        }
-    ]
-    mem = _mem_with_result_records(records, work_universe_posture="audited", ready_to_close=True)
-    result = build_prompt_observability_summary(mem)
-    # The count must reflect excerpt truncation even when result_truncated is False
-    assert result["recent_result_truncated_count"] == 1
-    assert any(
-        f.startswith("artifact_excerpt_boundary_risk:")
-        for f in result["mechanical_flags"]
-    )
 
 
 # ---------------------------------------------------------------------------

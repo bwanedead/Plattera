@@ -19,7 +19,6 @@ from harness.runtime.orchestration.subtasks.delegate_result_refs import (
     build_delegate_result_record,
     build_delegate_result_ref_id,
     hydrate_delegate_result_refs,
-    project_recent_delegate_results_for_prompt,
     register_delegate_result_record,
     validate_stored_delegate_result_record,
 )
@@ -316,38 +315,6 @@ def test_wrap_hydrate_handler_partitions_subtask_refs() -> None:
     kinds = {row.get("kind") for row in outputs["results"]}
     assert "delegate_subtask_result" in kinds
     assert "image" in kinds
-
-
-def test_recent_prompt_projection_includes_delegate_refs() -> None:
-    record = build_delegate_result_record(
-        ref_id="subtask:turn8:read_parcel1_bearing",
-        turn_index=8,
-        alias="read_parcel1_bearing",
-        action_index=1,
-        action_inputs={
-            "profile": "p",
-            "task": "t",
-            "target_entity_id": "p1_bearing",
-            "context_refs": ["image:derived:a"],
-        },
-        outputs=_sample_outputs(),
-    )
-    projected = project_recent_delegate_results_for_prompt(
-        [record],
-        current_turn=8,
-    )
-    assert projected is not None
-    assert projected["items"][0]["ref_id"] == "subtask:turn8:read_parcel1_bearing"
-    assert projected["items"][0]["target_entity_id"] == "p1_bearing"
-    prompt_trace = projected["items"][0].get("subtask_trace") or {}
-    assert prompt_trace.get("wall_seconds") == 18.56
-    assert prompt_trace.get("model_call_seconds") == 18.42
-    assert prompt_trace.get("prompt_char_count") == 4151
-    assert prompt_trace.get("image_attachment_count") == 1
-    assert "model" not in prompt_trace
-    projected_with_note = dict(projected)
-    projected_with_note["repair_note"] = "Delegate results are already available as refs."
-    assert "repair_note" in projected_with_note
 
 
 def test_timeline_renders_delegate_ref() -> None:

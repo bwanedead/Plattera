@@ -70,9 +70,75 @@ def test_removed_harness_paths_do_not_return() -> None:
         HARNESS_ROOT / "runtime" / "mission" / "family_adapters",
         HARNESS_ROOT / "runtime" / "memory" / "point_crop_set_projection.py",
         HARNESS_ROOT / "runtime" / "memory" / "test_point_crop_set_projection.py",
+        HARNESS_ROOT / "runtime" / "memory" / "tool_result_slices.py",
+        HARNESS_ROOT / "runtime" / "memory" / "prompt_carry_forward.py",
+        HARNESS_ROOT / "runtime" / "orchestration" / "recent_result_projection.py",
     ]
     found = [str(path.relative_to(REPO_ROOT)) for path in removed_paths if path.exists()]
     assert not found, "Removed harness paths returned:\n" + "\n".join(found)
+
+
+def test_prompt_continuity_uses_latest_action_results_not_legacy_lanes() -> None:
+    """BR-022: semantic prompt modes project latest_action_results only; no slice/carry producers."""
+    modes_source = (HARNESS_ROOT / "runtime" / "orchestration" / "prompt_modes.py").read_text(
+        encoding="utf-8"
+    )
+    packet_source = (
+        HARNESS_ROOT / "runtime" / "orchestration" / "prompt_packet_builder.py"
+    ).read_text(encoding="utf-8")
+
+    # Structured-state allowlist string literals must not reintroduce legacy lanes.
+    for banned in ('"recent_tool_result_slices"', '"recent_action_sequence_result"'):
+        assert banned not in modes_source, f"prompt_modes allowlist reintroduced {banned}"
+        assert banned not in packet_source, f"prompt_packet_builder allowlist reintroduced {banned}"
+
+    # No prompt_carry_forward producer in prompt assembly.
+    for needle in (
+        "prompt_carry_forward",
+        "build_prompt_carry_forward",
+        "PROMPT_CARRY_FORWARD",
+    ):
+        assert needle not in modes_source
+        assert needle not in packet_source
+
+    semantic_modes = (
+        "full_choose_action",
+        "state_repair",
+        "resume",
+        "turn_recovery",
+    )
+    from harness.runtime.orchestration.prompt_modes import require_prompt_mode_spec
+
+    for mode in semantic_modes:
+        fields = require_prompt_mode_spec(mode).structured_state_fields
+        assert "latest_action_results" in fields, f"{mode} missing latest_action_results"
+        assert "recent_tool_result_slices" not in fields
+        assert "recent_action_sequence_result" not in fields
+
+
+def test_harness_result_continuity_does_not_import_mapping_tooling() -> None:
+    """Generic result-continuity prompt owners must not import domain tooling projectors."""
+    continuity_owners = [
+        HARNESS_ROOT / "runtime" / "orchestration" / "prompt_modes.py",
+        HARNESS_ROOT / "runtime" / "orchestration" / "prompt_packet_builder.py",
+        HARNESS_ROOT / "runtime" / "orchestration" / "llm_prompt_builder.py",
+        HARNESS_ROOT / "runtime" / "memory" / "result_delivery.py",
+        HARNESS_ROOT / "runtime" / "memory" / "continuity_journal.py",
+        HARNESS_ROOT / "runtime" / "memory" / "continuity.py",
+    ]
+    banned_prefixes = (
+        "tooling.mapping.transcript_edit",
+        "tooling.mapping.deed_to_ir",
+    )
+    failures: list[str] = []
+    for path in continuity_owners:
+        text = path.read_text(encoding="utf-8")
+        for prefix in banned_prefixes:
+            if prefix in text:
+                failures.append(f"{path.relative_to(REPO_ROOT)}: imports {prefix}")
+    assert not failures, "Result-continuity modules imported mapping tooling:\n" + "\n".join(
+        failures
+    )
 
 
 def test_point_crop_set_projection_owned_by_transcript_edit_tooling() -> None:

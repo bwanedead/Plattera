@@ -234,7 +234,7 @@ def test_procedural_guidance_v23_upstream_corrections_discipline() -> None:
         for b in build_deed_to_ir_domain_pack().build_semantic_prompt_blocks()
         if b.block_id == "deed_to_ir_procedural_guidance"
     )
-    assert block.version == "v34"
+    assert block.version == "v35"
     text = block.text.lower()
     assert "finalize_current_deed_to_ir_output" in text
     assert "prepare_deed_to_ir_final_package" not in text
@@ -255,7 +255,7 @@ def test_procedural_guidance_v24_mapping_sanity_discipline() -> None:
         for b in build_deed_to_ir_domain_pack().build_semantic_prompt_blocks()
         if b.block_id == "deed_to_ir_procedural_guidance"
     )
-    assert block.version == "v34"
+    assert block.version == "v35"
     text = block.text.lower()
     assert "sanity_review" in text
     assert "endpoint displacement" in text
@@ -271,7 +271,7 @@ def test_procedural_guidance_v25_correction_lane_discipline() -> None:
         for b in build_deed_to_ir_domain_pack().build_semantic_prompt_blocks()
         if b.block_id == "deed_to_ir_procedural_guidance"
     )
-    assert block.version == "v34"
+    assert block.version == "v35"
     text = block.text.lower()
     assert "finalize_current_deed_to_ir_output" in text
     assert "prepare_deed_to_ir_final_package" not in text
@@ -286,7 +286,7 @@ def test_procedural_guidance_v26_correction_posture_gate() -> None:
         for b in build_deed_to_ir_domain_pack().build_semantic_prompt_blocks()
         if b.block_id == "deed_to_ir_procedural_guidance"
     )
-    assert block.version == "v34"
+    assert block.version == "v35"
     text = block.text.lower()
     assert "correction_posture" in text
     assert "finalize_current_deed_to_ir_output" in text
@@ -298,7 +298,7 @@ def test_procedural_guidance_v27_lineage_lock_discipline() -> None:
         for b in build_deed_to_ir_domain_pack().build_semantic_prompt_blocks()
         if b.block_id == "deed_to_ir_procedural_guidance"
     )
-    assert block.version == "v34"
+    assert block.version == "v35"
     text = block.text.lower()
     assert "lineage_lock" in text or "recommended_publish_refs" in text
     assert "finalize_current_deed_to_ir_output" in text
@@ -310,7 +310,7 @@ def test_procedural_guidance_v28_source_repair_and_finalization_discipline() -> 
         for b in build_deed_to_ir_domain_pack().build_semantic_prompt_blocks()
         if b.block_id == "deed_to_ir_procedural_guidance"
     )
-    assert block.version == "v34"
+    assert block.version == "v35"
     text = block.text.lower()
     assert "finalize_current_deed_to_ir_output" in text
     assert "prepare_deed_to_ir_final_package" not in text
@@ -325,7 +325,7 @@ def test_procedural_guidance_v29_course_updates_and_no_delegate_repair() -> None
         for b in build_deed_to_ir_domain_pack().build_semantic_prompt_blocks()
         if b.block_id == "deed_to_ir_procedural_guidance"
     )
-    assert block.version == "v34"
+    assert block.version == "v35"
     text = block.text.lower()
     assert "course_updates" in text
     assert "draft_patch_targets" in text
@@ -340,7 +340,7 @@ def test_procedural_guidance_v33_intent_first_preflight() -> None:
         for b in build_deed_to_ir_domain_pack().build_semantic_prompt_blocks()
         if b.block_id == "deed_to_ir_procedural_guidance"
     )
-    assert block.version == "v34"
+    assert block.version == "v35"
     text = block.text.lower()
     assert "current_mapping_lineage" in text or "canonical finalization" in text
     assert "preferred endgame" in text or "canonical finalization" in text

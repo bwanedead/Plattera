@@ -10,8 +10,6 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from harness.runtime.memory.prompt_carry_forward import wrap_prompt_carry_forward
-
 from .final_package_preview_persistence import prepare_deed_to_ir_final_package
 from .finalization_decisions import (
     convert_compact_decisions_to_prepare_inputs,
@@ -553,12 +551,6 @@ def missing_finalization_decisions_refusal(
         }
         if compact is not None:
             outputs["active_finalization_session"] = compact
-            outputs["prompt_carry_forward"] = wrap_prompt_carry_forward(
-                {
-                    "missing": outputs["missing"],
-                    "active_finalization_session": compact,
-                }
-            )
     return payload
 
 

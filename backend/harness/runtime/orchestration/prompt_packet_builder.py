@@ -21,7 +21,6 @@ from ..memory.delegate_observation_worklist_projection import (
     compact_delegate_observation_worklist_for_prompt,
     delegate_observation_reminder_from_context,
 )
-from ..memory.tool_result_slices import build_recent_tool_result_slices
 from harness.runtime.memory.result_delivery import ContactReceipt
 from .contracts import OrchestratorContext, SharedStateProjection
 from .loop_health_summary import build_prompt_observability_summary
@@ -33,10 +32,6 @@ from .ref_window_projection import (
     build_hot_latest_ref_keys,
     collect_hot_refs_for_prompt,
     project_refs_map_for_prompt,
-)
-from .recent_result_projection import (
-    project_recent_action_sequence_for_prompt,
-    project_recent_tool_result_slices_for_prompt,
 )
 from .result_delivery_hooks import (
     build_result_delivery_contact_metadata,
@@ -438,48 +433,14 @@ def _build_structured_state(
     )
     if timeline:
         structured["recent_turn_timeline"] = timeline
-    tool_result_slices = build_recent_tool_result_slices(
-        cont.kernel_step_result_records,
-    )
-    if tool_result_slices:
-        structured["recent_tool_result_slices"] = project_recent_tool_result_slices_for_prompt(
-            tool_result_slices,
-            current_turn=int(context.loop_memory.iterations),
-            hot_refs=hot_refs,
-        )
     pending_hydration = _build_agent_requested_hydration(cont.pending_agent_hydration)
     if pending_hydration is not None:
         structured["agent_requested_hydration"] = pending_hydration
-    sequence_lane = project_recent_action_sequence_for_prompt(
-        cont.recent_action_sequence_result,
-        current_turn=int(context.loop_memory.iterations),
-        hot_refs=hot_refs,
-    )
-    if sequence_lane is not None:
-        structured["recent_action_sequence_result"] = sequence_lane
     latest_lane, delivery_receipt = project_pending_results_for_prompt(
         cont.pending_result_deliveries
     )
     if latest_lane is not None:
         structured["latest_action_results"] = latest_lane
-    from .subtasks.delegate_result_refs import project_recent_delegate_results_for_prompt
-
-    feedback = cont.state_patch_feedback if isinstance(cont.state_patch_feedback, Mapping) else {}
-    repair_bundle = (
-        feedback.get("state_patch_repair_bundle")
-        if isinstance(feedback.get("state_patch_repair_bundle"), Mapping)
-        else None
-    )
-    delegate_lane = project_recent_delegate_results_for_prompt(
-        cont.delegate_subtask_results,
-        current_turn=int(context.loop_memory.iterations),
-        hot_refs=hot_refs,
-        mission_state=cont.mission_state.model_dump(mode="json"),
-        resolution_state=cont.resolution_state.model_dump(mode="json"),
-        repair_bundle=repair_bundle,
-    )
-    if delegate_lane is not None:
-        structured["recent_delegate_results"] = delegate_lane
     from .pinned_refs import build_pinned_refs_projection
 
     pinned_projection = build_pinned_refs_projection(

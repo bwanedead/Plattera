@@ -149,9 +149,10 @@ def test_surface_teaches_projection_boundary_rule() -> None:
     text = _HARNESS_TRUNK_METHOD_TEXT
     lowered = text.lower()
     assert "projection boundary rule" in lowered
-    assert "truncated excerpt is not evidence" in lowered
-    assert "absent from the excerpt" in lowered
-    assert "artifact_excerpt_boundary_risk" in text
+    assert "latest_action_results" in text
+    assert "projection windows" in lowered or "not boundary assertions" in lowered
+    assert "absent from a bounded view" in lowered or "absent from the source" in lowered
+    assert "artifact_excerpt_boundary_risk" not in text
 
 
 def test_surface_teaches_partial_artifact_coverage_rule() -> None:

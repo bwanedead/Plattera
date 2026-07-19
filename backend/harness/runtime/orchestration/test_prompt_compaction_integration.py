@@ -6,7 +6,6 @@ from harness.execution.session import ExecutionSessionManager
 from harness.mission_state import new_mission_state, new_resolution_state
 from harness.runtime.composition.contracts import ComposedTurnInput
 from harness.runtime.memory import LoopMemoryState
-from harness.runtime.memory.tool_result_slices import build_recent_tool_result_slices
 from harness.runtime.orchestration.contracts import OrchestratorContext, SharedStateProjection
 from harness.runtime.orchestration.llm_prompt_builder import build_choose_action_prompt_document
 from harness.runtime.orchestration.prompt_budget import build_prompt_budget_report
@@ -107,9 +106,8 @@ def test_late_run_prompt_smaller_than_uncompacted_baseline() -> None:
             },
         },
         "structured_state": {
-            "recent_tool_result_slices": build_recent_tool_result_slices(
-                cont.kernel_step_result_records
-            ),
+            # Uncompacted baseline: raw continuity result records (not a live prompt lane).
+            "recent_kernel_step_result_records": list(cont.kernel_step_result_records),
         },
     }
     baseline = build_prompt_budget_report(

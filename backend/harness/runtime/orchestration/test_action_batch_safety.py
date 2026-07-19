@@ -47,7 +47,8 @@ def test_batch_item_row_never_stores_raw_b64() -> None:
     }
 
 
-def test_prompt_projection_omits_b64_from_legacy_stored_rows() -> None:
+def test_prompt_projection_omits_recent_action_sequence_result_and_b64() -> None:
+    """Sequence result remains durable for resume/audit but is not a semantic prompt lane."""
     lm = LoopMemoryState()
     lm.continuity.recent_action_sequence_result = {
         "batch_id": "req:iter:1:batch",
@@ -79,8 +80,9 @@ def test_prompt_projection_omits_b64_from_legacy_stored_rows() -> None:
     text = str(doc.prompt_body)
     assert "SECRET" not in text
     assert "b64" not in text
-    lane = doc.prompt_body["structured_state"]["recent_action_sequence_result"]
-    assert lane["items"][0].get("image_evidence_summary", {}).get("count") == 1
+    structured = doc.prompt_body.get("structured_state") or {}
+    assert "recent_action_sequence_result" not in structured
+    assert lm.continuity.recent_action_sequence_result is not None
 
 
 def test_validate_stored_action_sequence_result_strips_b64() -> None:

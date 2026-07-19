@@ -834,14 +834,15 @@ def _assert_prompt_contains_finalization_ids(prompt_blob: str) -> None:
 
 
 def test_intent_first_decision_card_survives_next_turn_prompt_projection(monkeypatch) -> None:
-    """Exact card/template IDs must appear in the next choose-action prompt document."""
+    """Exact card/template IDs must appear in the next choose-action prompt via latest_action_results."""
     import json
 
+    from harness.execution.contracts import ActionDispatchResult
     from harness.execution.session import ExecutionSessionManager
     from harness.mission_state import new_mission_state, new_resolution_state
     from harness.runtime.composition.contracts import ComposedTurnInput, TurnBlock
     from harness.runtime.memory import LoopMemoryState
-    from harness.runtime.memory.continuity_journal import build_kernel_step_result_record
+    from harness.runtime.memory.result_delivery import admit_pending_result_delivery
     from harness.runtime.orchestration.contracts import OrchestratorContext, SharedStateProjection
     from harness.runtime.orchestration.llm_prompt_builder import build_choose_action_prompt_document
 
@@ -862,20 +863,25 @@ def test_intent_first_decision_card_survives_next_turn_prompt_projection(monkeyp
         )
         assert result["executed"] is False
         assert result["refusal"]["reason_code"] == "missing_finalization_decisions"
-        assert "prompt_carry_forward" in result["outputs"]
+        assert "prompt_carry_forward" not in result["outputs"]
+        assert "finalization_decision_card" in result["outputs"]
+        assert "retry_request_template" in result["outputs"]
 
-        record = build_kernel_step_result_record(
-            kernel_turn_index=1,
-            action_type="prepare_deed_to_ir_final_package",
-            execution_state="refused",
-            execution_reason_code="missing_finalization_decisions",
-            latest_refs_snapshot={},
-            outputs=result["outputs"],
-            artifact_refs=[],
-        )
         loop_memory = LoopMemoryState()
         loop_memory.iterations = 2
-        loop_memory.continuity.kernel_step_result_records.append(record)
+        admit_pending_result_delivery(
+            loop_memory.continuity.pending_result_deliveries,
+            result=ActionDispatchResult(
+                action_id="prepare_deed_to_ir_final_package",
+                executed=False,
+                outputs=result["outputs"],
+                artifact_refs=(),
+            ),
+            source_turn_index=1,
+            action_index=1,
+            action_alias="prepare",
+            execution_state="refused",
+        )
         context = OrchestratorContext(
             session_manager=ExecutionSessionManager(),
             session_id="sess-d2ir-carry",
@@ -914,21 +920,28 @@ def test_intent_first_decision_card_survives_next_turn_prompt_projection(monkeyp
         )
         prompt_blob = json.dumps(doc.prompt_body, ensure_ascii=False, default=str)
         _assert_prompt_contains_finalization_ids(prompt_blob)
-        slices = doc.prompt_body["structured_state"]["recent_tool_result_slices"]
-        carry = slices[-1]["prompt_carry_forward"]
-        assert carry["payload"]["reason_code"] == "missing_finalization_decisions"
-        assert carry["payload"]["finalization_decision_card"]["required_lanes"]
+        structured = doc.prompt_body["structured_state"]
+        assert "recent_tool_result_slices" not in structured
+        assert "prompt_carry_forward" not in prompt_blob
+        lane = structured["latest_action_results"]
+        representation = lane[-1]["representation"]
+        assert representation["finalization_decision_card"]["required_lanes"]
+        error = representation.get("error") or {}
+        assert error.get("code") == "missing_finalization_decisions" or (
+            result["refusal"]["reason_code"] == "missing_finalization_decisions"
+        )
 
 
 def test_intent_first_retry_template_preserves_authored_correction_row(monkeypatch) -> None:
-    """Carried correction rows in retry_request_template remain intact in the next prompt."""
+    """Carried correction rows in retry_request_template remain intact in latest_action_results."""
     import json
 
+    from harness.execution.contracts import ActionDispatchResult
     from harness.execution.session import ExecutionSessionManager
     from harness.mission_state import new_mission_state, new_resolution_state
     from harness.runtime.composition.contracts import ComposedTurnInput, TurnBlock
     from harness.runtime.memory import LoopMemoryState
-    from harness.runtime.memory.continuity_journal import build_kernel_step_result_record
+    from harness.runtime.memory.result_delivery import admit_pending_result_delivery
     from harness.runtime.orchestration.contracts import OrchestratorContext, SharedStateProjection
     from harness.runtime.orchestration.llm_prompt_builder import build_choose_action_prompt_document
 
@@ -949,21 +962,25 @@ def test_intent_first_retry_template_preserves_authored_correction_row(monkeypat
             **_compact_dispositions(),
         )
         assert result["executed"] is False
+        assert "prompt_carry_forward" not in result["outputs"]
         template = result["outputs"]["retry_request_template"]
         assert template["correction_decisions"][0] == correction
 
-        record = build_kernel_step_result_record(
-            kernel_turn_index=1,
-            action_type="prepare_deed_to_ir_final_package",
-            execution_state="refused",
-            execution_reason_code="missing_finalization_decisions",
-            latest_refs_snapshot={},
-            outputs=result["outputs"],
-            artifact_refs=[],
-        )
         loop_memory = LoopMemoryState()
         loop_memory.iterations = 2
-        loop_memory.continuity.kernel_step_result_records.append(record)
+        admit_pending_result_delivery(
+            loop_memory.continuity.pending_result_deliveries,
+            result=ActionDispatchResult(
+                action_id="prepare_deed_to_ir_final_package",
+                executed=False,
+                outputs=result["outputs"],
+                artifact_refs=(),
+            ),
+            source_turn_index=1,
+            action_index=1,
+            action_alias="prepare",
+            execution_state="refused",
+        )
         context = OrchestratorContext(
             session_manager=ExecutionSessionManager(),
             session_id="sess-d2ir-row",
@@ -1000,8 +1017,9 @@ def test_intent_first_retry_template_preserves_authored_correction_row(monkeypat
             ),
             journal_verbatim_keep_n=2,
         )
-        carry = doc.prompt_body["structured_state"]["recent_tool_result_slices"][-1][
-            "prompt_carry_forward"
-        ]
-        assert carry["payload"]["retry_request_template"]["correction_decisions"][0] == correction
+        structured = doc.prompt_body["structured_state"]
+        assert "recent_tool_result_slices" not in structured
+        representation = structured["latest_action_results"][-1]["representation"]
+        assert representation["retry_request_template"]["correction_decisions"][0] == correction
         assert "p1_call2_distance" in json.dumps(doc.prompt_body, default=str)
+        assert "prompt_carry_forward" not in json.dumps(doc.prompt_body, default=str)

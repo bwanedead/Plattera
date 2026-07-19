@@ -61,7 +61,7 @@ def test_procedural_guidance_teaches_compact_finalizer_not_preview_launchpad():
         for b in build_deed_to_ir_domain_pack().build_semantic_prompt_blocks()
         if b.block_id == "deed_to_ir_procedural_guidance"
     )
-    assert block.version == "v34"
+    assert block.version == "v35"
     text = block.text
     assert "finalize_current_deed_to_ir_output" in text
     assert "prepare_deed_to_ir_final_package" not in text

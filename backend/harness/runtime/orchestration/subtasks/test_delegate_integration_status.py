@@ -18,21 +18,6 @@ from harness.runtime.orchestration.subtasks.delegate_integration_status import (
     compute_delegate_ref_integration_status,
     should_show_delegate_integration_repair_note,
 )
-from harness.runtime.orchestration.subtasks.delegate_result_refs import (
-    build_delegate_result_record,
-    project_recent_delegate_results_for_prompt,
-)
-
-
-def _sample_outputs() -> dict:
-    return {
-        "action_type": DELEGATE_SUBTASK_ACTION_TYPE,
-        "subtask_id": "read_bearing",
-        "profile": "p",
-        "status": "completed",
-        "input_refs": ["image:derived:a"],
-        "result": {"source_visible_text": "N. 4° 00' W."},
-    }
 
 
 def test_ref_in_evidence_refs_is_referenced_in_state() -> None:
@@ -139,61 +124,6 @@ def test_context_crop_ref_in_repair_bundle_matches_repair_status() -> None:
         repair_bundle={"fragments": [{"evidence_refs": [crop_ref]}]},
     )
     assert status == STATUS_REFERENCED_IN_REPAIR_BUNDLE
-
-
-def test_prompt_projection_includes_integration_status() -> None:
-    record = build_delegate_result_record(
-        ref_id="subtask:turn8:read_parcel1_bearing",
-        turn_index=8,
-        alias="read_parcel1_bearing",
-        action_index=1,
-        action_inputs={"profile": "p", "task": "t", "context_refs": ["image:derived:a"]},
-        outputs=_sample_outputs(),
-    )
-    projected = project_recent_delegate_results_for_prompt(
-        [record],
-        current_turn=8,
-        resolution_state={"items": [{"evidence_refs": ["subtask:turn8:read_parcel1_bearing"]}]},
-    )
-    assert projected is not None
-    row = projected["items"][0]
-    assert row["integration_status"] == STATUS_REFERENCED_IN_STATE
-
-
-def test_repair_note_only_when_repair_bundle_and_unreferenced_refs() -> None:
-    record = build_delegate_result_record(
-        ref_id="subtask:turn8:read_parcel1_bearing",
-        turn_index=8,
-        alias="read_parcel1_bearing",
-        action_index=1,
-        action_inputs={"profile": "p", "task": "t", "context_refs": ["image:derived:a"]},
-        outputs=_sample_outputs(),
-    )
-    repair_bundle = {"fragments": [{"evidence_refs": ["image:derived:other"]}]}
-
-    with_note = project_recent_delegate_results_for_prompt(
-        [record],
-        current_turn=8,
-        repair_bundle=repair_bundle,
-    )
-    assert with_note is not None
-    assert "repair_note" in with_note
-
-    integrated = project_recent_delegate_results_for_prompt(
-        [record],
-        current_turn=8,
-        repair_bundle=repair_bundle,
-        resolution_state={"items": [{"evidence_refs": ["subtask:turn8:read_parcel1_bearing"]}]},
-    )
-    assert integrated is not None
-    assert "repair_note" not in integrated
-
-    no_bundle = project_recent_delegate_results_for_prompt(
-        [record],
-        current_turn=8,
-    )
-    assert no_bundle is not None
-    assert "repair_note" not in no_bundle
 
 
 def test_should_show_repair_note_helper() -> None:

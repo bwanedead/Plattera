@@ -8,7 +8,6 @@ from pathlib import Path
 
 from feature_graph.models import FeatureGraph, FeatureKind, FeatureNode, OpExpr
 from harness.audit.human_timeline import _render_tool_result
-from harness.runtime.memory.tool_result_slices import build_recent_tool_result_slices
 from tooling.mapping.deed_to_ir.artifact_hydration import hydrate_artifact_refs
 from tooling.mapping.deed_to_ir.ir_mapping_submission import submit_ir_for_mapping
 from tooling.mapping.deed_to_ir.ir_persistence import save_ir_artifact
@@ -112,7 +111,7 @@ def test_hydrate_mapping_ref_includes_mapping_review() -> None:
     assert review["geometry_ref"] == submitted["outputs"]["geometry_ref"]
 
 
-def test_tool_result_slices_preserve_mapping_review_over_large_artifact_refs() -> None:
+def test_compact_mapping_review_preserves_refs_under_large_artifact_noise() -> None:
     review = {
         "mapping_artifact_ref": "feature_graph:mapping:mapping_example",
         "source_ir_artifact_ref": "feature_graph:ir:example_scope_v1",
@@ -125,25 +124,14 @@ def test_tool_result_slices_preserve_mapping_review_over_large_artifact_refs() -
             "mapping_artifact_ref": "feature_graph:mapping:mapping_example",
             "expected_ir_artifact_ref": "feature_graph:ir:example_scope_v1",
         },
+        # Noise that must not displace compact projection of publish refs.
+        "pad": "x" * 4000,
     }
-    long_refs = [f"artifact://dossiers/feature_graphs/d-test/ir/{index:04d}/{'x' * 200}" for index in range(12)]
-    record = {
-        "kernel_turn_index": 2,
-        "action_type": "submit_ir_for_mapping",
-        "execution_state": "executed",
-        "artifact_refs": long_refs,
-        "outputs_for_continuity": {
-            "mapping_review": review,
-            "compiled_feature_count": 3,
-            "rendered_feature_count": 3,
-        },
-    }
-    slices = build_recent_tool_result_slices([record], max_chars_per_result=2500)
-    assert len(slices) == 1
-    compact = slices[0].get("mapping_review")
+    compact = compact_mapping_review_for_projection(review)
     assert compact is not None
     assert compact["source_ir_artifact_ref"] == review["source_ir_artifact_ref"]
     assert compact["recommended_publish_refs"]["expected_ir_artifact_ref"] == review["source_ir_artifact_ref"]
+    assert "pad" not in compact
 
 
 def test_timeline_renders_mapping_review_compactly() -> None:

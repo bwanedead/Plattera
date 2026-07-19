@@ -9,7 +9,6 @@ from pathlib import Path
 from feature_graph.models import FeatureGraph, FeatureKind, FeatureNode, OpExpr
 
 from harness.audit.human_timeline import _render_tool_result
-from harness.runtime.memory.tool_result_slices import build_recent_tool_result_slices
 from services.feature_graph.feature_graph_persistence_service import FeatureGraphPersistenceService
 from tooling.mapping.deed_to_ir.draft_ir_lifecycle import (
     build_draft_repair_items,
@@ -122,39 +121,25 @@ def test_invalid_schema_still_retryable_and_persists_nothing():
     assert before == after
 
 
-def test_current_draft_ir_in_tool_result_slices():
-    outputs = {
+def test_current_draft_ir_compacts_for_tooling_projection():
+    current = {
+        "draft_ir_ref": "feature_graph:ir:ir_test",
         "draft_version": "v0",
-        "current_draft_ir": {
-            "draft_ir_ref": "feature_graph:ir:ir_test",
-            "draft_version": "v0",
-            "graph_id": "parcel_1_ir",
-            "node_count": 2,
-            "edge_count": 0,
-            "unknown_node_count": 0,
-            "source_entity_link_count": 0,
-            "nodes": [{"id": "start", "kind": "point"}],
-            "edges": [],
-            "compile_gap_count": 0,
-            "judge_finding_count": 0,
-            "mechanically_mappable_candidate": True,
-        },
+        "graph_id": "parcel_1_ir",
+        "node_count": 2,
+        "edge_count": 0,
+        "unknown_node_count": 0,
+        "source_entity_link_count": 0,
+        "nodes": [{"id": "start", "kind": "point"}],
+        "edges": [],
+        "compile_gap_count": 0,
+        "judge_finding_count": 0,
+        "mechanically_mappable_candidate": True,
     }
-    slices = build_recent_tool_result_slices(
-        [
-            {
-                "kernel_turn_index": 1,
-                "action_type": "save_ir_artifact",
-                "execution_state": "executed",
-                "artifact_refs": ["feature_graph:ir:ir_test"],
-                "outputs_for_continuity": outputs,
-            }
-        ]
-    )
-    assert slices
-    row = slices[0]
-    assert row.get("current_draft_ir")
-    assert row["current_draft_ir"]["draft_version"] == "v0"
+    compact = compact_current_draft_ir_for_projection(current)
+    assert compact is not None
+    assert compact["draft_version"] == "v0"
+    assert compact["draft_ir_ref"] == "feature_graph:ir:ir_test"
 
 
 def test_timeline_renders_draft_version_and_counts():
@@ -526,7 +511,7 @@ def test_base_draft_ref_graph_id_mismatch_is_retryable_and_persists_nothing():
     assert len(after) == len(before)
 
 
-def test_draft_repair_items_in_tool_slices_and_timeline():
+def test_draft_repair_items_in_tooling_projection_and_timeline():
     outputs = {
         "draft_version": "v0",
         "current_draft_ir": {
@@ -548,18 +533,9 @@ def test_draft_repair_items_in_tool_slices_and_timeline():
             ],
         },
     }
-    slices = build_recent_tool_result_slices(
-        [
-            {
-                "kernel_turn_index": 1,
-                "action_type": "save_ir_artifact",
-                "execution_state": "executed",
-                "artifact_refs": ["feature_graph:ir:parcel_1_ir_v0"],
-                "outputs_for_continuity": outputs,
-            }
-        ]
-    )
-    assert slices[0]["current_draft_ir"]["draft_repair_items"][0]["node_id"] == "parcel_1_boundary"
+    compact = compact_current_draft_ir_for_projection(outputs["current_draft_ir"])
+    assert compact is not None
+    assert compact["draft_repair_items"][0]["node_id"] == "parcel_1_boundary"
     turn = {
         "tool_result_raw": {
             "execution_state": "executed",

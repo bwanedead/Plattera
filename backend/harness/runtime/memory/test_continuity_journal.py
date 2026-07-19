@@ -37,8 +37,8 @@ def test_clip_long_string_returns_sentinel_dict() -> None:
     """Oversized strings must be replaced with a sentinel dict, not a trimmed string.
 
     The sentinel carries CLIP_SENTINEL_KEY=True, the original char length, and an
-    excerpt.  This lets tool_result_slices emit is_complete=False with the true
-    original length rather than treating the excerpt as a complete field.
+    excerpt. Downstream result-view / delivery projection can treat the field as
+    incomplete using the original length rather than treating the excerpt as complete.
     """
     long_str = "x" * 3000
     result = _clip_large_text_fields(long_str, max_chars=200)
@@ -308,3 +308,52 @@ def test_new_default_cap_is_32000() -> None:
 def test_structured_clip_field_chars_is_2000() -> None:
     """Confirm per-field clip constant matches the intended value."""
     assert _STRUCTURED_CLIP_FIELD_CHARS == 2000
+
+
+def test_legacy_opaque_prompt_carry_forward_does_not_crash_resume_parse() -> None:
+    """Opaque legacy prompt_carry_forward in outputs_for_continuity must round-trip resume."""
+    from harness.execution.contracts import ExecutionSessionStartRequest
+    from harness.execution.executor import ExecutionExecutor
+    from harness.execution.session import ExecutionSessionManager
+    from harness.mission_state import new_mission_state, new_resolution_state
+    from harness.runtime.memory.loop_state import LoopMemoryState
+    from harness.runtime.memory.resume_snapshot import (
+        build_kernel_resume_snapshot,
+        parse_kernel_resume_snapshot,
+    )
+
+    executor = ExecutionExecutor()
+    sm = ExecutionSessionManager(executor=executor)
+    sm.start_session(ExecutionSessionStartRequest(run_id="run-legacy-cf", session_id="sess-legacy-cf"))
+    lm = LoopMemoryState()
+    lm.continuity.mission_state = new_mission_state(mission_id="m1", loop_family="orchestration_kernel")
+    lm.continuity.resolution_state = new_resolution_state()
+    record = build_kernel_step_result_record(
+        kernel_turn_index=3,
+        action_type="demo_tool",
+        execution_state="refused",
+        execution_reason_code="missing_decisions",
+        latest_refs_snapshot={},
+        outputs={
+            "repair_hint": "retry with ids",
+            "prompt_carry_forward": {
+                "schema_version": "prompt_carry_forward.v1",
+                "payload": {"ids": ["opaque_id_1"], "blob": "x" * 50},
+            },
+        },
+        artifact_refs=[],
+    )
+    lm.continuity.kernel_step_result_records.append(record)
+    snap = build_kernel_resume_snapshot(
+        loop_memory=lm,
+        session_manager=sm,
+        session_id="sess-legacy-cf",
+        next_iteration=4,
+    )
+    mem2, next_it, err = parse_kernel_resume_snapshot(snap)
+    assert err is None
+    assert next_it == 4
+    stored = mem2.continuity.kernel_step_result_records[0]["outputs_for_continuity"]
+    assert isinstance(stored, dict)
+    assert "prompt_carry_forward" in stored
+    assert stored["prompt_carry_forward"]["payload"]["ids"] == ["opaque_id_1"]

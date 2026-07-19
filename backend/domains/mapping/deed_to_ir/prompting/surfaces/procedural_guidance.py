@@ -9,7 +9,7 @@ from ..branch import DEED_TO_IR_DOMAIN_ID
 DEED_TO_IR_PROCEDURAL_GUIDANCE_SOURCE_REF = (
     "backend/domains/mapping/deed_to_ir/prompting/surfaces/procedural_guidance.py"
 )
-DEED_TO_IR_PROCEDURAL_GUIDANCE_VERSION = "v34"
+DEED_TO_IR_PROCEDURAL_GUIDANCE_VERSION = "v35"
 
 DEED_TO_IR_PROCEDURAL_GUIDANCE_TEXT = """\
 Use this guidance to orient deed-to-IR work. This is **guidance**, not a hard script.
@@ -57,7 +57,7 @@ Use this guidance to orient deed-to-IR work. This is **guidance**, not a hard sc
 - When `correction_posture` is active, choose dispositions from evidence: source-confirmed repaired value used by current IR → `confirmed_source_repair`; intentional IR-only difference → `ir_only_exception` plus rationale; unresolved human question → `needs_hitl`. Do not invent strict correction rows — the finalizer expands dispositions mechanically.
 - A blocked scope alone is not a dependency disposition. Use dependency dispositions only for explicit external-dependency candidates on the session.
 - Exact request grammar and known IDs live on the finalizer tool spec and the active finalization session projection — do not invent IDs or reconstruct package shells.
-- If `missing_finalization_decisions` is returned, supply only the reported missing IDs (reuse `prompt_carry_forward` / session projection when present). Previously persisted decisions need not be repeated.
+- If `missing_finalization_decisions` is returned, read the reported missing IDs from `latest_action_results` and use `active_finalization_session` when present; supply only those IDs on retry. Previously persisted decisions need not be repeated.
 - If correction disposition is `needs_hitl`, wait for human resolution; do not treat that as approval or publication.
 - If the session is `preview_ready`, retry the same finalizer with **no decision mutations** — publication retries the stored immutable preview.
 - If the result is `published` with `next_required_action=complete_run`, call `complete_run`. Do not hydrate output/preview/IR/mapping just to restate what the finalizer already returned.

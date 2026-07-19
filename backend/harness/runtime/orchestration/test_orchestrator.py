@@ -2034,12 +2034,12 @@ class _FinalizationCarryForwardRefuseOnceSessionManager(ExecutionSessionManager)
                         "message": "Author the missing finalization decisions. " + ("x" * 2000),
                     },
                     "repair_hint": ("Resubmit retry_request_template plus missing decisions. " * 80),
+                    "missing": {
+                        "dependency_ids": ["parcel_2_continuation_scope"],
+                        "correction_ids": ["p1_call2_distance"],
+                    },
                     "finalization_decision_card": self._carry_payload["finalization_decision_card"],
                     "retry_request_template": self._carry_payload["retry_request_template"],
-                    "prompt_carry_forward": {
-                        "schema_version": "prompt_carry_forward.v1",
-                        "payload": self._carry_payload,
-                    },
                 },
                 refusal=ExecutionRefusal(
                     reason_code="missing_finalization_decisions",
@@ -2070,8 +2070,8 @@ class _FinalizationCarryForwardRefuseOnceSessionManager(ExecutionSessionManager)
         )
 
 
-class _FinalizationCarryForwardRecoverPack:
-    """Refuse → see exact card in prompt projection → resubmit without hydration → complete."""
+class _FinalizationLatestResultsRecoverPack:
+    """Refuse → see exact card/IDs in latest_action_results → resubmit without hydration → complete."""
 
     def __init__(self) -> None:
         self.turn2_saw_exact_card = False
@@ -2097,6 +2097,8 @@ class _FinalizationCarryForwardRecoverPack:
     def choose_action(
         self, context: OrchestratorContext, projection: SharedStateProjection | None
     ) -> ActionPlan:
+        import json
+
         from harness.runtime.composition.contracts import ComposedTurnInput, TurnBlock
         from harness.runtime.orchestration.llm_prompt_builder import (
             build_choose_action_prompt_document,
@@ -2133,16 +2135,21 @@ class _FinalizationCarryForwardRecoverPack:
                 projection=projection,
                 journal_verbatim_keep_n=2,
             )
-            slices = doc.prompt_body["structured_state"]["recent_tool_result_slices"]
-            carry = slices[-1]["prompt_carry_forward"]
-            payload = carry["payload"]
-            card = payload["finalization_decision_card"]
-            template = payload["retry_request_template"]
+            structured = doc.prompt_body["structured_state"]
+            assert "recent_tool_result_slices" not in structured
+            assert "prompt_carry_forward" not in json.dumps(doc.prompt_body, default=str)
+            lane = structured["latest_action_results"]
+            assert lane
+            representation = lane[-1]["representation"]
+            card = representation["finalization_decision_card"]
+            template = representation["retry_request_template"]
+            missing = representation.get("missing") or {}
             self.turn2_saw_exact_card = (
                 card["dependency_decisions"][0]["candidate_id"]
                 == "parcel_2_continuation_scope"
                 and template["correction_decisions"][0]["target_entity_id"]
                 == "p1_call2_distance"
+                and "parcel_2_continuation_scope" in (missing.get("dependency_ids") or [])
             )
             # Resubmit template plus the missing dependency decision — no hydrate.
             action_inputs = {
@@ -2164,20 +2171,20 @@ class _FinalizationCarryForwardRecoverPack:
                 action_type="prepare_deed_to_ir_final_package",
                 action_inputs=action_inputs,
                 idempotency_key="ik-prepare-2",
-                continuity_journal_entry={"step": "retry from carry-forward card"},
+                continuity_journal_entry={"step": "retry from latest_action_results card"},
             )
         return ActionPlan(
             complete_run=True,
             idempotency_key="ik-finalization-done",
-            rationale="finalization recovered from carry-forward",
+            rationale="finalization recovered from latest_action_results",
             continuity_journal_entry={"step": "done"},
             state_patch={"mission": {"work_universe_posture": "audited"}},
         )
 
 
 def test_finalization_carry_forward_recovery_without_hydration() -> None:
-    """Refusal card remains exact in next prompt; retry resubmits without hydrate."""
-    pack = _FinalizationCarryForwardRecoverPack()
+    """Refusal card/IDs remain exact in latest_action_results; retry resubmits without hydrate."""
+    pack = _FinalizationLatestResultsRecoverPack()
     sm = _FinalizationCarryForwardRefuseOnceSessionManager()
     result = run_orchestration_kernel_loop(
         orchestration_adapter=pack,

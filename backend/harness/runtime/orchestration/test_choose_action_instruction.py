@@ -131,11 +131,15 @@ def test_choose_action_instruction_tool_specific_hydrate_next_placeholders() -> 
     text = CHOOSE_ACTION_INSTRUCTION
     lowered = text.lower()
     assert "tool-specific" in lowered
-    assert "@this.result.working_preview_ref" in text
-    assert "prepare_deed_to_ir_final_package" in text
+    assert "@this.result.working_draft_ref" in text
+    assert "@this.result.working_preview_ref" not in text
+    assert "@this.result.final_package_preview_revision_ref" not in text
+    assert "recommended_publish_request" not in text
+    assert "prepare_final_package" not in text
+    assert "prepare_deed_to_ir_final_package" not in text
     assert "image/transform tools" in lowered or "transform actions" in lowered
     assert "derived_ref_id" in text
-    assert "final package preview (hydration usually unnecessary)" in lowered
+    assert "final package preview" not in lowered
 
 
 def test_choose_action_instruction_includes_tiny_examples() -> None:
@@ -263,13 +267,14 @@ def test_choose_action_instruction_teaches_hitl_repair_not_reask() -> None:
     assert "re-asking when a valid answer already exists" in text
 
 
-def test_choose_action_instruction_teaches_artifact_excerpt_boundary_risk_flag() -> None:
+def test_choose_action_instruction_teaches_latest_action_results_projection_boundary() -> None:
     text = CHOOSE_ACTION_INSTRUCTION
     lowered = text.lower()
-    assert "artifact_excerpt_boundary_risk" in text
-    assert "outputs_structural_metadata" in text
-    assert "do not infer" in lowered or "not infer" in lowered
-    assert "absent from the excerpt" in lowered or "absent from the source" in lowered
+    assert "latest_action_results" in text
+    assert "transport is not a semantic conclusion" in lowered
+    assert "artifact_excerpt_boundary_risk" not in text
+    assert "recent_tool_result_slices" not in text
+    assert "prompt_carry_forward" not in text
 
 
 def test_choose_action_instruction_teaches_generic_multi_lane_preflight() -> None:
@@ -295,10 +300,8 @@ def test_choose_action_instruction_preflight_section_has_no_current_deed_example
 def test_choose_action_instruction_teaches_artifact_shape_preflight_without_hitl() -> None:
     text = CHOOSE_ACTION_INSTRUCTION.lower()
     assert "save/complete shape preflight" in text
-    assert "latest_artifact_ref" in text
-    assert "field presence/length signals" in text
-    assert "outputs_excerpt" in text
-    assert "use the excerpt first when it is complete" in text
+    assert "latest_action_results" in text
+    assert "bounded exact outputs" in text or "provider views" in text
     assert "repair and save again" in text
     assert "not to ask hitl" in text or "not to ask hitl whether the artifact is complete" in text
 
@@ -400,26 +403,21 @@ def test_surface_teaches_compact_claim_atoms_and_locator_doctrine() -> None:
     assert "json paths" in lowered
 
 
-def test_choose_action_instruction_teaches_truncation_boundary_doctrine() -> None:
-    """text_field_summaries and prompt-projection-boundary doctrine must be present and domain-free."""
+def test_choose_action_instruction_teaches_result_lane_projection_doctrine() -> None:
+    """latest_action_results projection doctrine must be present and domain-free."""
     text = CHOOSE_ACTION_INSTRUCTION
     lowered = text.lower()
-    # Core vocabulary
-    assert "text_field_summaries" in text
-    assert "is_complete" in text
-    assert "outputs_excerpt_truncated" in text
-    # Must explain that excerpt_truncated is a projection boundary, not artifact boundary
-    assert "prompt projection" in lowered or "projection boundary" in lowered
-    # Must mention focused/targeted read as the alternative
-    assert "focused" in lowered
-    # Must discourage broad re-hydration for truncation recovery
-    assert "re-hydrat" in lowered or "broad re-hydration" in lowered
-    # No domain-specific terms in the surrounding doctrine block
-    start = lowered.find("outputs_excerpt_truncated")
+    assert "latest_action_results" in text
+    assert "transport is not a semantic conclusion" in lowered
+    assert "unavailable/lane-budget markers" in lowered or "lane-budget" in lowered
+    start = lowered.find("latest_action_results")
     assert start >= 0
     section = lowered[start: start + 800]
     for banned in ("deed", "parcel", "transcript_edit", "bearing", "distance", "acreage"):
-        assert banned not in section, f"Found domain term {banned!r} in truncation-boundary doctrine"
+        assert banned not in section, f"Found domain term {banned!r} in result-lane doctrine"
+    assert "recent_tool_result_slices" not in text
+    assert "artifact_excerpt_boundary_risk" not in text
+    assert "prompt_carry_forward" not in text
 
 
 def test_state_repair_mode_excludes_bulky_step_records_fields() -> None:
@@ -427,6 +425,7 @@ def test_state_repair_mode_excludes_bulky_step_records_fields() -> None:
     spec = require_prompt_mode_spec("state_repair")
     assert "recent_kernel_step_records" not in spec.structured_state_fields
     assert "recent_kernel_step_result_records" not in spec.structured_state_fields
+    assert "recent_tool_result_slices" not in spec.structured_state_fields
     # lean fields must still be present
-    assert "recent_tool_result_slices" in spec.structured_state_fields
+    assert "latest_action_results" in spec.structured_state_fields
     assert "prompt_observability_summary" in spec.structured_state_fields

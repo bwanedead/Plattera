@@ -10,14 +10,8 @@ import re
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from .delegate_integration_status import (
-    DELEGATE_INTEGRATION_REPAIR_NOTE,
-    STATUS_UNREFERENCED_STALE,
-    scan_delegate_results_integration,
-    should_show_delegate_integration_repair_note,
-)
 from .projection import project_subtask_output
-from .trace_fields import compact_subtask_trace, compact_subtask_trace_for_prompt
+from .trace_fields import compact_subtask_trace
 
 DELEGATE_RESULT_REF_PREFIX = "subtask:"
 DELEGATE_RESULT_KIND = "delegate_subtask_result"
@@ -26,7 +20,6 @@ MAX_STORED_RECORDS = 32
 MAX_TASK_CHARS = 400
 MAX_RESULT_SERIALIZED_CHARS = 2400
 MAX_RECORD_SERIALIZED_CHARS = 4000
-MAX_PROMPT_ROWS = 8
 
 _STRIP_KEYS = frozenset(
     {
@@ -197,67 +190,6 @@ def build_delegate_result_summary(record: Mapping[str, Any]) -> str:
     if preview:
         return f"{alias} {status}; {preview}"
     return f"{alias} {status}"
-
-
-def project_recent_delegate_results_for_prompt(
-    records: Sequence[Mapping[str, Any]] | None,
-    *,
-    current_turn: int,
-    hot_refs: frozenset[str] | None = None,
-    mission_state: Mapping[str, Any] | None = None,
-    resolution_state: Mapping[str, Any] | None = None,
-    repair_bundle: Mapping[str, Any] | None = None,
-) -> dict[str, Any] | None:
-    """Prompt-visible recent delegate result refs (mechanical only)."""
-    if not records:
-        return None
-    hot = hot_refs or frozenset()
-    integration_by_ref = scan_delegate_results_integration(
-        records,
-        current_turn=int(current_turn),
-        mission_state=mission_state,
-        resolution_state=resolution_state,
-        repair_bundle=repair_bundle,
-    )
-    rows: list[dict[str, Any]] = []
-    for record in reversed(list(records)):
-        if not isinstance(record, Mapping):
-            continue
-        ref_id = str(record.get("ref_id") or "").strip()
-        if not ref_id:
-            continue
-        try:
-            turn = int(record.get("turn_index") or record.get("created_at_turn") or 0)
-        except (TypeError, ValueError):
-            turn = 0
-        age = max(0, int(current_turn) - turn) if turn else 2
-        keep_hot = age <= 1 or ref_id in hot
-        row = {
-            "ref_id": ref_id,
-            "alias": record.get("alias"),
-            "status": record.get("status"),
-            "target_entity_id": record.get("target_entity_id"),
-            "context_refs": list(record.get("context_refs") or [])[:4],
-            "summary": build_delegate_result_summary(record),
-            "integration_status": integration_by_ref.get(ref_id, STATUS_UNREFERENCED_STALE),
-        }
-        trace = compact_subtask_trace_for_prompt(record.get("subtask_trace"))
-        if trace:
-            row["subtask_trace"] = trace
-        if not keep_hot:
-            row["stale"] = True
-        rows.append(row)
-        if len(rows) >= MAX_PROMPT_ROWS:
-            break
-    if not rows:
-        return None
-    out: dict[str, Any] = {"items": list(reversed(rows))}
-    if should_show_delegate_integration_repair_note(
-        repair_bundle=repair_bundle,
-        integration_by_ref=integration_by_ref,
-    ):
-        out["repair_note"] = DELEGATE_INTEGRATION_REPAIR_NOTE
-    return out
 
 
 def validate_stored_delegate_result_record(row: Any) -> dict[str, Any] | None:

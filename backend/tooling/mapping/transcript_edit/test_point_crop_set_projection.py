@@ -1,14 +1,10 @@
-"""Tests for compact point crop set prompt projection."""
+"""Tests for compact point crop set tooling projector."""
 
 from __future__ import annotations
 
 import json
 
 from tooling.mapping.transcript_edit.point_crop_set_projection import project_point_crop_set_summary
-from harness.runtime.memory.tool_result_slices import build_recent_tool_result_slices
-from harness.runtime.orchestration.recent_result_projection import (
-    project_recent_tool_result_slices_for_prompt,
-)
 
 
 def _crop_set_outputs(*, sub_action: str = "point_crops", previous: str | None = None) -> dict:
@@ -132,27 +128,29 @@ def test_projection_includes_source_lineage_when_unwrapped_from_scaffold() -> No
     )
 
 
-def test_stale_projection_keeps_source_lineage_fields() -> None:
+def test_projection_keeps_source_lineage_fields_when_reprojected() -> None:
+    """Tooling projector retains lineage on a second project call (no harness slice layer)."""
     outputs = _crop_set_outputs()
     outputs["placement_surface_ref"] = "image:derived:scaffold-1"
     outputs["source_unwrapped_from_ref"] = "image:derived:scaffold-1"
     outputs["crop_set"]["placement_surface_ref"] = "image:derived:scaffold-1"
     outputs["crop_set"]["source_unwrapped_from_ref"] = "image:derived:scaffold-1"
-    row = {
-        "kernel_turn_index": 1,
-        "action_type": "transform_artifact",
-        "outputs_excerpt": {"crop_set": "verbose"},
-        "point_crop_set_summary": project_point_crop_set_summary(outputs),
-        "artifact_refs": ["image:derived:master-1"],
-    }
-    projected = project_recent_tool_result_slices_for_prompt(
-        [row],
-        current_turn=5,
-        hot_refs=frozenset(),
+    first = project_point_crop_set_summary(outputs)
+    assert first is not None
+    # Re-project from a continuity-shaped wrapper that still carries crop_set.
+    second = project_point_crop_set_summary(
+        {
+            "crop_set": outputs["crop_set"],
+            "placement_surface_ref": outputs["placement_surface_ref"],
+            "source_unwrapped_from_ref": outputs["source_unwrapped_from_ref"],
+            "derived_ref_id": outputs["derived_ref_id"],
+            "parent_ref_id": outputs["parent_ref_id"],
+            "sub_action": "point_crops",
+        }
     )
-    crop_summary = projected[0]["point_crop_set_summary"]
-    assert crop_summary["placement_surface_ref"] == "image:derived:scaffold-1"
-    assert crop_summary["source_lineage_line"] == (
+    assert second is not None
+    assert second["placement_surface_ref"] == "image:derived:scaffold-1"
+    assert second["source_lineage_line"] == (
         "placed_from=image:derived:scaffold-1 · cropped_from=image:assoc:tx-1:original"
     )
 
@@ -185,36 +183,12 @@ def test_project_includes_graph_ref_when_present() -> None:
     assert summary["points"][0]["graph_ref"]["item_id"] == "parcel_1_description"
 
 
-def test_tool_result_slices_include_point_crop_set_summary() -> None:
-    records = [
-        {
-            "kernel_turn_index": 2,
-            "action_type": "transform_artifact",
-            "execution_state": "executed",
-            "artifact_refs": ["image:derived:master-1", "image:derived:crop-a"],
-            "outputs_for_continuity": _crop_set_outputs(),
-        }
-    ]
-    slices = build_recent_tool_result_slices(records)
-    assert "point_crop_set_summary" in slices[0]
-    assert slices[0]["point_crop_set_summary"]["points"][0]["crop_ref"] == "image:derived:crop-a"
-
-
-def test_stale_projection_keeps_crop_set_summary_without_excerpt() -> None:
-    row = {
-        "kernel_turn_index": 1,
-        "action_type": "transform_artifact",
-        "outputs_excerpt": {"crop_set": "verbose"},
-        "point_crop_set_summary": project_point_crop_set_summary(_crop_set_outputs()),
-        "artifact_refs": ["image:derived:master-1"],
-    }
-    projected = project_recent_tool_result_slices_for_prompt(
-        [row],
-        current_turn=5,
-        hot_refs=frozenset(),
-    )
-    assert "outputs_excerpt" not in projected[0]
-    assert projected[0]["point_crop_set_summary"]["master_overlay_ref"] == "image:derived:master-1"
+def test_projector_emits_point_crop_set_summary_shape() -> None:
+    summary = project_point_crop_set_summary(_crop_set_outputs())
+    assert summary is not None
+    assert summary["kind"] == "point_crop_set"
+    assert summary["points"][0]["crop_ref"] == "image:derived:crop-a"
+    assert summary["master_overlay_ref"] == "image:derived:master-1"
 
 
 def test_projection_has_no_b64_or_absolute_paths() -> None:

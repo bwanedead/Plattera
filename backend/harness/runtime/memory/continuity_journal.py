@@ -33,9 +33,9 @@ _MAX_OUTPUTS_FOR_CONTINUITY_JSON_CHARS = 32000
 # Per-field clip applied when the full dict still exceeds the cap after
 # the cap is raised (extreme cases with very many or very large fields).
 _STRUCTURED_CLIP_FIELD_CHARS = 2000
-# Sentinel key written into clip-replacement dicts so tool_result_slices can
-# detect clipped fields and mark them is_complete=False with the original length.
-# Paired constant: tool_result_slices.py uses the same literal.
+# Sentinel key written into clip-replacement dicts so downstream consumers can
+# detect clipped fields and mark them incomplete with the original length.
+# Keep the sentinel string stable across resume snapshots.
 CLIP_SENTINEL_KEY: str = "__clipped__"
 
 
@@ -395,10 +395,7 @@ def _clip_large_text_fields(value: Any, *, max_chars: int) -> Any:
     """Recursively clip oversized string leaves to keep dict structure intact under JSON size pressure.
 
     Oversized strings are replaced by a sentinel dict carrying the original length and a
-    bounded excerpt rather than a plain trimmed string.  This lets ``_extract_text_field_summaries``
-    in ``tool_result_slices`` detect clipped fields and emit ``is_complete: false`` with the
-    correct ``original_char_length``, preventing the truncated text from being misreported as
-    complete to the agent.
+    bounded excerpt rather than a plain trimmed string.
 
     Sentinel shape::
 
@@ -408,14 +405,8 @@ def _clip_large_text_fields(value: Any, *, max_chars: int) -> Any:
             "excerpt": <first max_chars chars of the original string>,
         }
 
-    Non-string nodes pass through unchanged. The opaque ``prompt_carry_forward``
-    object is left intact (never field-clipped into a partial structure).
+    Non-string nodes pass through unchanged.
     """
-    from .prompt_carry_forward import (
-        PROMPT_CARRY_FORWARD_KEY,
-        PROMPT_CARRY_FORWARD_OMITTED_KEY,
-    )
-
     if isinstance(value, str):
         if len(value) <= max_chars:
             return value
@@ -426,11 +417,7 @@ def _clip_large_text_fields(value: Any, *, max_chars: int) -> Any:
         }
     if isinstance(value, dict):
         return {
-            k: (
-                v
-                if str(k) in {PROMPT_CARRY_FORWARD_KEY, PROMPT_CARRY_FORWARD_OMITTED_KEY}
-                else _clip_large_text_fields(v, max_chars=max_chars)
-            )
+            k: _clip_large_text_fields(v, max_chars=max_chars)
             for k, v in value.items()
         }
     if isinstance(value, list):
@@ -444,87 +431,25 @@ def _bound_outputs_for_continuity(outputs: Mapping[str, Any], *, max_json_chars:
     Return value is ``(stored_value, result_truncated)``.
 
     * **Within cap** → returns the round-tripped dict, ``truncated=False``.
-    * **Over cap after field-clip** → returns the field-clipped dict, ``truncated=True``; dict
-      structure is preserved so ``_extract_text_field_summaries`` can still traverse it.
+    * **Over cap after field-clip** → returns the field-clipped dict, ``truncated=True``.
     * **Extreme fallback** (field-clipped dict still over cap) → returns a raw JSON string
-      prefix, ``truncated=True``.  This branch should only trigger for outputs with an
-      unusual number of very large non-string fields. When a valid
-      ``prompt_carry_forward`` is present, extreme fallback keeps a dict wrapper so the
-      structured carry-forward is not destroyed by a string prefix.
-    * **Carry-forward omission** → invalid/oversized carry is stored as
-      ``prompt_carry_forward_omitted`` (never silently absent) and marks
-      ``result_truncated=True``.
+      prefix, ``truncated=True``.
     """
-    from .prompt_carry_forward import (
-        PROMPT_CARRY_FORWARD_KEY,
-        PROMPT_CARRY_FORWARD_OMITTED_KEY,
-        attach_prompt_carry_forward_fields,
-        bound_prompt_carry_forward_for_storage,
-        peel_prompt_carry_forward,
-    )
-
-    carry_raw, remainder = peel_prompt_carry_forward(dict(outputs))
-    carry_stored, carry_omitted = bound_prompt_carry_forward_for_storage(carry_raw)
-    carry_truncated = carry_raw is not None and carry_stored is None
-
-    def _with_carry_lane(stored: Any, *, truncated: bool) -> tuple[Any, bool]:
-        effective_truncated = bool(truncated or carry_truncated)
-        if carry_stored is None and carry_omitted is None:
-            return stored, effective_truncated
-        if isinstance(stored, dict):
-            out = dict(stored)
-            attach_prompt_carry_forward_fields(
-                out,
-                carry_forward=carry_stored,
-                omitted=carry_omitted,
-            )
-            return out, effective_truncated
-        # Extreme string-prefix path: preserve structured carry lane beside the prefix.
-        wrapped: dict[str, Any] = {
-            "__continuity_outputs_truncated__": True,
-            "outputs_prefix": stored,
-        }
-        attach_prompt_carry_forward_fields(
-            wrapped,
-            carry_forward=carry_stored,
-            omitted=carry_omitted,
-        )
-        return wrapped, True
-
-    as_dict = dict(remainder)
-    trial = dict(as_dict)
-    attach_prompt_carry_forward_fields(
-        trial,
-        carry_forward=carry_stored,
-        omitted=carry_omitted,
-    )
-    trial_raw = json.dumps(trial, ensure_ascii=False, default=str, sort_keys=True)
+    as_dict = dict(outputs)
+    trial_raw = json.dumps(as_dict, ensure_ascii=False, default=str, sort_keys=True)
     if len(trial_raw) <= max_json_chars:
         try:
-            return json.loads(trial_raw), carry_truncated
+            return json.loads(trial_raw), False
         except json.JSONDecodeError:
-            return trial, carry_truncated
+            return as_dict, False
 
     clipped = _clip_large_text_fields(as_dict, max_chars=_STRUCTURED_CLIP_FIELD_CHARS)
     if not isinstance(clipped, dict):
         clipped = dict(as_dict)
-    attach_prompt_carry_forward_fields(
-        clipped,
-        carry_forward=carry_stored,
-        omitted=carry_omitted,
-    )
     clipped_raw = json.dumps(clipped, ensure_ascii=False, default=str, sort_keys=True)
     if len(clipped_raw) <= max_json_chars:
         return clipped, True
-    remainder_clipped = {
-        key: value
-        for key, value in clipped.items()
-        if str(key) not in {PROMPT_CARRY_FORWARD_KEY, PROMPT_CARRY_FORWARD_OMITTED_KEY}
-    }
-    remainder_raw = json.dumps(
-        remainder_clipped, ensure_ascii=False, default=str, sort_keys=True
-    )
-    return _with_carry_lane(remainder_raw[:max_json_chars], truncated=True)
+    return clipped_raw[:max_json_chars], True
 
 
 def build_kernel_step_result_record(

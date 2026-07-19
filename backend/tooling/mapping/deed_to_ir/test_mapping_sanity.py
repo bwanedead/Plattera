@@ -13,7 +13,6 @@ from feature_graph.provenance import ProvenanceAttachment, SourceEntityLink
 from feature_graph.rendering.geometry_projection import project_compiled_geometry
 from feature_graph.rendering.renderer import render_clean_png, render_control_png
 from harness.audit.human_timeline import _render_tool_result
-from harness.runtime.memory.tool_result_slices import build_recent_tool_result_slices
 from tooling.mapping.deed_to_ir.artifact_hydration import hydrate_artifact_refs
 from tooling.mapping.deed_to_ir.final_package_preview_persistence import prepare_deed_to_ir_final_package
 from tooling.mapping.deed_to_ir.ir_mapping_submission import submit_ir_for_mapping
@@ -216,7 +215,7 @@ def test_hydrate_mapping_ref_includes_sanity_review() -> None:
     assert "image:derived:fba6f159e40d4010896245d6525d4acf" in evidence_refs
 
 
-def test_run23_style_slice_preserves_full_mapping_ref() -> None:
+def test_compact_mapping_review_preserves_full_mapping_ref_and_sanity() -> None:
     full_mapping_ref = "feature_graph:mapping:mapping_right_of_way_deed_66fe47f4"
     review = {
         "mapping_artifact_ref": full_mapping_ref,
@@ -259,32 +258,15 @@ def test_run23_style_slice_preserves_full_mapping_ref() -> None:
             "recommended_source_evidence_refs": ["image:derived:fba6f159e40d4010896245d6525d4acf"],
             "review_questions": ["Does endpoint displacement matter for the authored geometry role?"],
         },
+        "pad": "x" * 4000,
     }
-    long_refs = [f"artifact://dossiers/feature_graphs/d-test/ir/{index:04d}/{'x' * 200}" for index in range(12)]
-    record = {
-        "kernel_turn_index": 2,
-        "action_type": "submit_ir_for_mapping",
-        "execution_state": "executed",
-        "artifact_refs": long_refs + [full_mapping_ref],
-        "outputs_for_continuity": {
-            "mapping_review": review,
-            "compiled_feature_count": 3,
-            "rendered_feature_count": 3,
-        },
-    }
-    slices = build_recent_tool_result_slices([record], max_chars_per_result=2500)
-    assert len(slices) == 1
-    compact = slices[0]["mapping_review"]
+    compact = compact_mapping_review_for_projection(review)
+    assert compact is not None
     assert compact["mapping_artifact_ref"] == full_mapping_ref
     assert compact["recommended_publish_refs"]["mapping_artifact_ref"] == full_mapping_ref
     assert compact.get("sanity_review") is not None
-    slice_row = slices[0]
-    assert slice_row.get("latest_artifact_ref") is None or slice_row.get("latest_artifact_ref") == full_mapping_ref
-    artifact_refs = slice_row.get("artifact_refs")
-    if isinstance(artifact_refs, list):
-        for ref in artifact_refs:
-            assert ref == full_mapping_ref or len(str(ref)) > 32
-    serialized = json.dumps(slice_row)
+    assert "pad" not in compact
+    serialized = json.dumps(compact)
     assert full_mapping_ref in serialized
 
 

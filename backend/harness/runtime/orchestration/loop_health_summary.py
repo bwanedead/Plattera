@@ -20,7 +20,6 @@ from ..user_messages.ledger import (
     count_pending as _count_user_messages_pending,
 )
 from ..memory import LoopMemoryState
-from ..memory.tool_result_slices import check_outputs_excerpt_truncated
 from ..memory.atom_evidence_worklist_projection import (
     build_atom_evidence_worklist_for_prompt,
     resolution_state_as_mapping,
@@ -171,7 +170,6 @@ def build_prompt_observability_summary(
     same_item_same_ref_bundle_stall_streak = _same_item_same_ref_bundle_stall_streak(step_records)
     same_item_hydrate_churn_no_gain_streak = _same_item_hydrate_churn_no_gain_streak(step_records)
     artifact_refresh_trap_risk_count = _artifact_refresh_trap_risk(step_records)
-    recent_result_truncated_count = _recent_result_truncated_count(step_result_records, last_n=3)
     semantic_repair_debt_kinds_early = _semantic_repair_debt_kinds(feedback)
     pending_hitl_integration_ids_early = _pending_hitl_integration_ids(feedback)
     repair_ready_without_artifact_write_count = _repair_ready_without_artifact_write(
@@ -336,7 +334,6 @@ def build_prompt_observability_summary(
         "hitl_evidence_readiness_debt_count": hitl_evidence_readiness_debt_count,
         "post_hitl_spin_count": post_hitl_spin_count,
         "post_write_artifact_consistency_check_count": post_write_artifact_consistency_check_count,
-        "recent_result_truncated_count": recent_result_truncated_count,
         "substantial_artifact_output_count": substantial_artifact_output_count,
         "covered_unit_count": covered_units_metrics["covered_unit_count"],
         "covered_units_with_candidates_count": covered_units_metrics["covered_units_with_candidates_count"],
@@ -457,7 +454,6 @@ def build_prompt_observability_summary(
         hitl_evidence_readiness_debt_count=hitl_evidence_readiness_debt_count,
         post_hitl_spin_count=post_hitl_spin_count,
         post_write_artifact_consistency_check_count=post_write_artifact_consistency_check_count,
-        recent_result_truncated_count=recent_result_truncated_count,
         artifact_claim_inventory_suspect_count=artifact_claim_inventory_suspect_count,
         closed_candidate_units_missing_determined_value_count=covered_units_metrics[
             "closed_candidate_units_missing_determined_value_count"
@@ -1675,7 +1671,6 @@ def _mechanical_flags(
     hitl_evidence_readiness_debt_count: int = 0,
     post_hitl_spin_count: int = 0,
     post_write_artifact_consistency_check_count: int = 0,
-    recent_result_truncated_count: int = 0,
     artifact_claim_inventory_suspect_count: int = 0,
     closed_candidate_units_missing_determined_value_count: int = 0,
     closed_value_units_missing_evidence_count: int,
@@ -1907,17 +1902,6 @@ def _mechanical_flags(
         )
     ):
         flags.append(f"output_claim_coverage_debt:{resolution_item_count}")
-    # Artifact excerpt boundary risk: recent tool results carried truncated outputs
-    # while the run is in or approaching a closure zone. Structural pressure only —
-    # does not inspect whether the truncation is actually material to the current claim.
-    if (
-        recent_result_truncated_count >= 1
-        and (
-            closure_ready_to_close
-            or _as_optional_text(work_universe_posture) in ("believed_adequate", "audited")
-        )
-    ):
-        flags.append(f"artifact_excerpt_boundary_risk:{recent_result_truncated_count}")
     blockers_for_flag = list(complete_run_blockers)
     anchor = completion_anchor if isinstance(completion_anchor, Mapping) else {}
     anchor_satisfied = bool(anchor.get("satisfied"))
@@ -1940,35 +1924,6 @@ def _mechanical_flags(
         for blocker in blockers_for_flag[:3]:
             flags.append(f"complete_run_blocked:{blocker}")
     return flags[:24]
-
-
-def _recent_result_truncated_count(
-    step_result_records: list[Any],
-    *,
-    last_n: int = 3,
-) -> int:
-    """Count rows in the last N result records where the prompt excerpt would be truncated.
-
-    Checks both ``result_truncated`` (raw tool-output truncation stored on the
-    record) and prompt-visible excerpt truncation (computed via the same
-    bounded-excerpt projection the slice builder uses).  This ensures the flag
-    fires for the run-6 failure shape where ``result_truncated`` was False but
-    the prompt-visible excerpt was cut before the contract keys.
-
-    Structural only — does not inspect outputs content.
-    """
-    if not step_result_records:
-        return 0
-    tail = step_result_records[-last_n:]
-    count = 0
-    for row in tail:
-        if not isinstance(row, Mapping):
-            continue
-        if bool(row.get("result_truncated", False)):
-            count += 1
-        elif check_outputs_excerpt_truncated(row):
-            count += 1
-    return count
 
 
 def _stable_signature(value: Any) -> str:

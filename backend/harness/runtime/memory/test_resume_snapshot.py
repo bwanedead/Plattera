@@ -270,10 +270,9 @@ def test_roundtrip_kernel_step_result_records() -> None:
     assert mem2.continuity.kernel_step_result_records[0]["outputs_for_continuity"] == {"out": True}
 
 
-def test_roundtrip_preserves_prompt_carry_forward() -> None:
+def test_roundtrip_preserves_opaque_prompt_carry_forward_in_outputs() -> None:
+    """Legacy opaque prompt_carry_forward in continuity outputs survives resume parse."""
     from harness.runtime.memory.continuity_journal import build_kernel_step_result_record
-    from harness.runtime.memory.prompt_carry_forward import PROMPT_CARRY_FORWARD_SCHEMA_VERSION
-    from harness.runtime.memory.tool_result_slices import build_recent_tool_result_slices
 
     executor = ExecutionExecutor()
     sm = ExecutionSessionManager(executor=executor)
@@ -295,7 +294,7 @@ def test_roundtrip_preserves_prompt_carry_forward() -> None:
         outputs={
             "repair_hint": "h" * 100,
             "prompt_carry_forward": {
-                "schema_version": PROMPT_CARRY_FORWARD_SCHEMA_VERSION,
+                "schema_version": "prompt_carry_forward.v1",
                 "payload": carry_payload,
             },
         },
@@ -313,16 +312,14 @@ def test_roundtrip_preserves_prompt_carry_forward() -> None:
     assert next_it == 4
     stored = mem2.continuity.kernel_step_result_records[0]["outputs_for_continuity"]
     assert stored["prompt_carry_forward"]["payload"] == carry_payload
-    slices = build_recent_tool_result_slices(mem2.continuity.kernel_step_result_records)
-    assert slices[0]["prompt_carry_forward"]["payload"]["retry_request_template"]["rows"][0][
+    assert stored["prompt_carry_forward"]["payload"]["retry_request_template"]["rows"][0][
         "id"
     ] == "kept_row"
 
 
-def test_roundtrip_preserves_prompt_carry_forward_omission_marker() -> None:
+def test_roundtrip_preserves_oversized_opaque_prompt_carry_forward_blob() -> None:
+    """Opaque 9k prompt_carry_forward blob survives resume under the generic 32K bound."""
     from harness.runtime.memory.continuity_journal import build_kernel_step_result_record
-    from harness.runtime.memory.prompt_carry_forward import PROMPT_CARRY_FORWARD_SCHEMA_VERSION
-    from harness.runtime.memory.tool_result_slices import build_recent_tool_result_slices
 
     executor = ExecutionExecutor()
     sm = ExecutionSessionManager(executor=executor)
@@ -330,6 +327,7 @@ def test_roundtrip_preserves_prompt_carry_forward_omission_marker() -> None:
     lm = LoopMemoryState()
     lm.continuity.mission_state = new_mission_state(mission_id="m1", loop_family="orchestration_kernel")
     lm.continuity.resolution_state = new_resolution_state()
+    blob = "z" * 9000
     record = build_kernel_step_result_record(
         kernel_turn_index=3,
         action_type="demo_tool",
@@ -339,8 +337,8 @@ def test_roundtrip_preserves_prompt_carry_forward_omission_marker() -> None:
         outputs={
             "repair_hint": "h" * 100,
             "prompt_carry_forward": {
-                "schema_version": PROMPT_CARRY_FORWARD_SCHEMA_VERSION,
-                "payload": {"blob": "z" * 9000},
+                "schema_version": "prompt_carry_forward.v1",
+                "payload": {"blob": blob},
             },
         },
         artifact_refs=[],
@@ -356,10 +354,12 @@ def test_roundtrip_preserves_prompt_carry_forward_omission_marker() -> None:
     assert err is None
     assert next_it == 4
     stored = mem2.continuity.kernel_step_result_records[0]["outputs_for_continuity"]
-    assert stored["prompt_carry_forward_omitted"]["reason"] == "oversized"
-    assert "prompt_carry_forward" not in stored
-    slices = build_recent_tool_result_slices(mem2.continuity.kernel_step_result_records)
-    assert slices[0]["prompt_carry_forward_omitted"]["reason"] == "oversized"
+    assert isinstance(stored, dict)
+    assert "prompt_carry_forward" in stored
+    assert stored["prompt_carry_forward"]["schema_version"] == "prompt_carry_forward.v1"
+    assert stored["prompt_carry_forward"]["payload"]["blob"] == blob
+    assert len(stored["prompt_carry_forward"]["payload"]["blob"]) == 9000
+    assert "prompt_carry_forward_omitted" not in stored
 
 
 def test_roundtrip_hitl_pending_and_answered_lists() -> None:

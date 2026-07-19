@@ -26,8 +26,6 @@ BUDGET_BUCKET_KEYS: tuple[str, ...] = (
     "resolution_state",
     "latest_refs",
     "evidence_refs",
-    "recent_tool_result_slices",
-    "recent_action_sequence_result",
     "latest_action_results",
     "hydrate_next",
     "pinned_refs",
@@ -165,13 +163,8 @@ def _accumulate_run_context_buckets(buckets: dict[str, int], run_context: Mappin
 
 
 def _accumulate_structured_state_buckets(buckets: dict[str, int], structured_state: Mapping[str, Any]) -> None:
-    for key in ("recent_tool_result_slices", "recent_action_sequence_result", "latest_action_results"):
-        if key in structured_state:
-            buckets[key] += measure_json_chars(structured_state[key])
-            if key == "recent_tool_result_slices":
-                buckets["evidence_refs"] += _measure_evidence_refs_in_tool_slices(
-                    structured_state.get(key)
-                )
+    if "latest_action_results" in structured_state:
+        buckets["latest_action_results"] += measure_json_chars(structured_state["latest_action_results"])
 
     hydrate_keys = ("agent_requested_hydration", "pinned_refs_hydration")
     hydrate_payload = {key: structured_state[key] for key in hydrate_keys if key in structured_state}
@@ -189,8 +182,6 @@ def _accumulate_structured_state_buckets(buckets: dict[str, int], structured_sta
 
     other_structured: dict[str, Any] = {}
     accounted = {
-        "recent_tool_result_slices",
-        "recent_action_sequence_result",
         "latest_action_results",
         "agent_requested_hydration",
         "pinned_refs_hydration",
@@ -223,19 +214,6 @@ def _measure_evidence_refs_in_work_graph(resolution: Mapping[str, Any]) -> int:
                     for unit in units:
                         if isinstance(unit, Mapping):
                             total += measure_json_chars(unit.get("evidence_refs"))
-    return total
-
-
-def _measure_evidence_refs_in_tool_slices(slices: Any) -> int:
-    if not isinstance(slices, list):
-        return 0
-    total = 0
-    for row in slices:
-        if not isinstance(row, Mapping):
-            continue
-        summary = row.get("evidence_artifact_summary")
-        if isinstance(summary, Mapping):
-            total += measure_json_chars(summary.get("rendered_evidence_refs"))
     return total
 
 

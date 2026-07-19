@@ -25,7 +25,14 @@ def test_budget_buckets_present_and_total_plausible() -> None:
             },
         },
         "structured_state": {
-            "recent_tool_result_slices": [{"kernel_turn_index": 2, "action_type": "noop"}],
+            "latest_action_results": [
+                {
+                    "delivery_id": "turn:2:action:1:noop",
+                    "action_alias": "noop",
+                    "representation_kind": "exact_outputs",
+                    "representation": {"note": "done"},
+                }
+            ],
             "prompt_observability_summary": {"resolution_item_count": 1},
         },
     }
@@ -40,6 +47,7 @@ def test_budget_buckets_present_and_total_plausible() -> None:
     assert buckets["total_prompt_chars"] >= buckets["instruction_text"]
     assert buckets["generic_doctrine"] > 0
     assert buckets["tool_specs_or_surface_payloads"] > 0
+    assert buckets["latest_action_results"] > 0
 
 
 def test_top_buckets_sorted_by_chars() -> None:
@@ -80,9 +88,11 @@ def test_report_has_no_raw_payload_or_b64() -> None:
     instruction = "x" * 200
     prompt_body = {
         "structured_state": {
-            "recent_tool_result_slices": [
+            "latest_action_results": [
                 {
-                    "outputs_excerpt": {"text": "sensitive payload " * 50},
+                    "delivery_id": "turn:1:action:1:a",
+                    "representation_kind": "exact_outputs",
+                    "representation": {"text": "sensitive payload " * 50},
                     "artifact_refs": ["artifact://a"],
                 }
             ]

@@ -364,7 +364,13 @@ def test_normalize_preserves_published_next_action():
     _assert_no_retired_action_ids(result)
 
 
-def test_nested_carry_forward_finalizer_route_scrubs_retired_action_fields():
+def test_missing_decisions_keeps_missing_and_session_without_carry_forward():
+    session = {
+        "status": "pending_decisions",
+        "mapping_artifact_ref": "feature_graph:mapping:x",
+        "expected_ir_artifact_ref": "feature_graph:ir:v1",
+        "lineage_fingerprint": "fp-1",
+    }
     raw = {
         "executed": False,
         "refusal": {
@@ -375,33 +381,27 @@ def test_nested_carry_forward_finalizer_route_scrubs_retired_action_fields():
             "missing_inputs": [],
         },
         "outputs": {
-            "missing": {"scope_ids": ["scope_a"]},
-            "prompt_carry_forward": {
-                "payload": {
-                    "action_type": "prepare_deed_to_ir_final_package",
-                    "action_id": "publish_deed_to_ir_output",
-                    "expected_next": "publish_deed_to_ir_output",
-                    "blocked_action_id": "prepare_deed_to_ir_final_package",
-                    "retry_package_shell": {"mapping_artifact_ref": "feature_graph:mapping:x"},
-                    "missing": {"scope_ids": ["scope_a"]},
-                }
-            },
+            "missing": {"scope_ids": ["scope_a"], "dependency_ids": ["dep_1"]},
+            "active_finalization_session": session,
+            "finalization_decision_card": {"required_lanes": ["scope_dispositions"]},
+            "retry_request_template": {"scope_dispositions": []},
         },
     }
     result = normalize_finalizer_agent_visible_result(raw)
+    outputs = result["outputs"]
+    assert outputs["missing"]["scope_ids"] == ["scope_a"]
+    assert outputs["active_finalization_session"]["mapping_artifact_ref"] == (
+        "feature_graph:mapping:x"
+    )
+    assert "prompt_carry_forward" not in outputs
+    assert "finalization_decision_card" not in outputs
+    assert "retry_request_template" not in outputs
+    assert outputs["next_required_action"] == CANONICAL_FINALIZER_ACTION
+    assert outputs["expected_next"] == CANONICAL_FINALIZER_ACTION
     _assert_no_retired_action_ids(result)
-    assert result["outputs"]["next_required_action"] == CANONICAL_FINALIZER_ACTION
-    assert result["outputs"]["expected_next"] == CANONICAL_FINALIZER_ACTION
-    payload = result["outputs"]["prompt_carry_forward"]["payload"]
-    assert "action_type" not in payload
-    assert "action_id" not in payload
-    assert "retry_package_shell" not in payload
-    assert payload["expected_next"] == CANONICAL_FINALIZER_ACTION
-    assert payload["blocked_action_id"] == CANONICAL_FINALIZER_ACTION
-    assert payload["missing"]["scope_ids"] == ["scope_a"]
 
 
-def test_nested_carry_forward_remap_route_scrubs_retired_action_fields():
+def test_remap_refusal_preserves_session_without_carry_forward():
     raw = {
         "executed": False,
         "refusal": {
@@ -412,28 +412,27 @@ def test_nested_carry_forward_remap_route_scrubs_retired_action_fields():
             "missing_inputs": [],
         },
         "outputs": {
+            "active_finalization_session": {
+                "status": "stale",
+                "mapping_artifact_ref": "feature_graph:mapping:x",
+            },
             "repair_hint": (
                 "Submit IR for mapping, then call prepare_deed_to_ir_final_package."
             ),
-            "prompt_carry_forward": {
-                "payload": {
-                    "action_type": "prepare_deed_to_ir_final_package",
-                    "next_required_action": "publish_deed_to_ir_output",
-                    "expected_next": "prepare_deed_to_ir_final_package",
-                }
-            },
         },
     }
     result = normalize_finalizer_agent_visible_result(raw)
+    outputs = result["outputs"]
+    assert "prompt_carry_forward" not in outputs
+    assert outputs["active_finalization_session"]["mapping_artifact_ref"] == (
+        "feature_graph:mapping:x"
+    )
+    assert outputs["next_required_action"] == SUBMIT_IR_FOR_MAPPING_ACTION
+    assert outputs["expected_next"] == SUBMIT_IR_FOR_MAPPING_ACTION
     _assert_no_retired_action_ids(result)
-    assert result["outputs"]["next_required_action"] == SUBMIT_IR_FOR_MAPPING_ACTION
-    payload = result["outputs"]["prompt_carry_forward"]["payload"]
-    assert "action_type" not in payload
-    assert payload["next_required_action"] == SUBMIT_IR_FOR_MAPPING_ACTION
-    assert payload["expected_next"] == SUBMIT_IR_FOR_MAPPING_ACTION
 
 
-def test_nested_carry_forward_hitl_removes_all_tool_next_actions():
+def test_hitl_refusal_keeps_session_and_drops_tool_next_actions():
     raw = {
         "executed": False,
         "refusal": {
@@ -444,29 +443,25 @@ def test_nested_carry_forward_hitl_removes_all_tool_next_actions():
             "missing_inputs": [],
         },
         "outputs": {
-            "repair_hint": "Wait for human resolution of needs_hitl correction dispositions.",
-            "prompt_carry_forward": {
-                "payload": {
-                    "action_type": "finalize_current_deed_to_ir_output",
-                    "expected_next": "publish_deed_to_ir_output",
-                    "next_required_action": "submit_ir_for_mapping",
-                    "blocked_action_id": "prepare_deed_to_ir_final_package",
-                }
+            "active_finalization_session": {
+                "status": "pending_decisions",
+                "mapping_artifact_ref": "feature_graph:mapping:x",
             },
+            "repair_hint": "Wait for human resolution of needs_hitl correction dispositions.",
+            "next_required_action": "prepare_deed_to_ir_final_package",
+            "expected_next": "publish_deed_to_ir_output",
         },
     }
     result = normalize_finalizer_agent_visible_result(raw)
+    outputs = result["outputs"]
+    assert "prompt_carry_forward" not in outputs
+    assert outputs["active_finalization_session"]["status"] == "pending_decisions"
+    assert "next_required_action" not in outputs
+    assert "expected_next" not in outputs
     _assert_no_retired_action_ids(result)
-    assert "next_required_action" not in result["outputs"]
-    assert "expected_next" not in result["outputs"]
-    payload = result["outputs"]["prompt_carry_forward"]["payload"]
-    assert "action_type" not in payload
-    assert "expected_next" not in payload
-    assert "next_required_action" not in payload
-    assert "blocked_action_id" not in payload
 
 
-def test_nested_unknown_retryable_removes_canonical_and_retired_next_actions():
+def test_unknown_retryable_removes_tool_next_actions_without_carry_wrapper():
     raw = {
         "executed": False,
         "refusal": {
@@ -483,32 +478,22 @@ def test_nested_unknown_retryable_removes_canonical_and_retired_next_actions():
             "repair_hint": (
                 "Call prepare_deed_to_ir_final_package, then publish_deed_to_ir_output."
             ),
-            "prompt_carry_forward": {
-                "payload": {
-                    "action_type": "prepare_deed_to_ir_final_package",
-                    "action_id": "publish_deed_to_ir_output",
-                    "expected_next": "finalize_current_deed_to_ir_output",
-                    "next_required_action": "submit_ir_for_mapping",
-                    "blocked_action_id": "publish_deed_to_ir_output",
-                }
-            },
+            "finalization_decision_card": {"required_lanes": ["scope_dispositions"]},
+            "retry_request_template": {"use_current_mapping_lineage": True},
         },
     }
     result = normalize_finalizer_agent_visible_result(raw)
     _assert_no_retired_workflow_directives(result)
     outputs = result["outputs"]
+    assert "prompt_carry_forward" not in outputs
     assert "next_required_action" not in outputs
     assert "expected_next" not in outputs
     assert "repair_hint" not in outputs
-    payload = outputs["prompt_carry_forward"]["payload"]
-    assert "action_type" not in payload
-    assert "action_id" not in payload
-    assert "expected_next" not in payload
-    assert "next_required_action" not in payload
-    assert "blocked_action_id" not in payload
+    assert "finalization_decision_card" not in outputs
+    assert "retry_request_template" not in outputs
 
 
-def test_nested_non_retryable_removes_tool_next_actions_at_all_depths():
+def test_non_retryable_removes_tool_next_actions_without_carry_wrapper():
     raw = {
         "executed": False,
         "refusal": {
@@ -524,23 +509,53 @@ def test_nested_non_retryable_removes_tool_next_actions_at_all_depths():
                 "message": "Capacity exceeded after prepare_deed_to_ir_final_package.",
             },
             "next_required_action": "finalize_current_deed_to_ir_output",
-            "prompt_carry_forward": {
-                "payload": {
-                    "action_type": "publish_deed_to_ir_output",
-                    "expected_next": "submit_ir_for_mapping",
-                    "blocked_action_id": "prepare_deed_to_ir_final_package",
-                }
-            },
+            "expected_next": "submit_ir_for_mapping",
+            "blocked_action_id": "prepare_deed_to_ir_final_package",
         },
     }
     result = normalize_finalizer_agent_visible_result(raw)
     _assert_no_retired_workflow_directives(result)
+    assert "prompt_carry_forward" not in result["outputs"]
     assert "next_required_action" not in result["outputs"]
     assert "expected_next" not in result["outputs"]
-    payload = result["outputs"]["prompt_carry_forward"]["payload"]
-    assert "action_type" not in payload
-    assert "expected_next" not in payload
-    assert "blocked_action_id" not in payload
+    assert "blocked_action_id" not in result["outputs"]
+
+
+def test_prepare_compatibility_strips_decision_card_without_carry_wrapper():
+    """Internal prepare may emit decision cards; finalizer boundary must strip them."""
+    raw = {
+        "executed": False,
+        "refusal": {
+            "reason_code": "missing_finalization_decisions",
+            "retryable": True,
+            "blocked_by_invariant": False,
+            "blocked_by_budget": False,
+            "missing_inputs": [],
+        },
+        "outputs": {
+            "missing": {"scope_ids": ["parcel_1"]},
+            "active_finalization_session": {
+                "status": "pending_decisions",
+                "mapping_artifact_ref": "feature_graph:mapping:m1",
+            },
+            "finalization_decision_card": {
+                "required_lanes": ["scope_dispositions"],
+                "dependency_decisions": [{"candidate_id": "dep_1"}],
+            },
+            "retry_request_template": {
+                "use_current_mapping_lineage": True,
+                "correction_decisions": [{"target_entity_id": "p1_call2_distance"}],
+            },
+        },
+    }
+    result = normalize_finalizer_agent_visible_result(raw)
+    outputs = result["outputs"]
+    assert outputs["missing"]["scope_ids"] == ["parcel_1"]
+    assert "active_finalization_session" in outputs
+    assert "finalization_decision_card" not in outputs
+    assert "retry_request_template" not in outputs
+    assert "prompt_carry_forward" not in outputs
+    assert outputs["next_required_action"] == CANONICAL_FINALIZER_ACTION
 
 
 def test_publish_gate_prose_hints_normalize_without_exact_action_ids():

@@ -74,12 +74,10 @@ _FULL_STRUCTURED_STATE_FIELDS = (
     "compacted_continuity_summary",
     "recent_continuity_journal_entries",
     "recent_turn_timeline",
-    "recent_tool_result_slices",
     "agent_requested_hydration",
     "pinned_refs",
     "pinned_refs_hydration",
     "stable_context",
-    "recent_action_sequence_result",
     "latest_action_results",
     "prompt_observability_summary",
 )
@@ -87,12 +85,10 @@ _STATE_REPAIR_STRUCTURED_STATE_FIELDS = (
     "compacted_continuity_summary",
     "recent_continuity_journal_entries",
     "recent_turn_timeline",
-    "recent_tool_result_slices",
     "agent_requested_hydration",
     "pinned_refs",
     "pinned_refs_hydration",
     "stable_context",
-    "recent_action_sequence_result",
     "latest_action_results",
     "prompt_observability_summary",
 )
@@ -110,12 +106,10 @@ _RESUME_STRUCTURED_STATE_FIELDS = (
     "compacted_continuity_summary",
     "recent_continuity_journal_entries",
     "recent_turn_timeline",
-    "recent_tool_result_slices",
     "agent_requested_hydration",
     "pinned_refs",
     "pinned_refs_hydration",
     "stable_context",
-    "recent_action_sequence_result",
     "latest_action_results",
     "prompt_observability_summary",
 )
@@ -131,12 +125,10 @@ _TURN_RECOVERY_RUN_CONTEXT_FIELDS = (
 )
 _TURN_RECOVERY_STRUCTURED_STATE_FIELDS = (
     "recent_turn_timeline",
-    "recent_tool_result_slices",
     "agent_requested_hydration",
     "pinned_refs",
     "pinned_refs_hydration",
     "stable_context",
-    "recent_action_sequence_result",
     "latest_action_results",
     "prompt_observability_summary",
 )
