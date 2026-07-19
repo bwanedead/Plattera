@@ -19,6 +19,25 @@ MAX_COURSE_ROWS = 24
 MAX_EVIDENCE_REFS = 12
 MAX_RECOMMENDED_EVIDENCE_REFS = 12
 
+MAX_PROJECTED_FEATURE_METRICS = 4
+MAX_PROJECTED_COURSE_LEG_TABLES = 2
+MAX_PROJECTED_COURSE_ROWS = 6
+MAX_PROJECTED_DISPLACEMENT_CANDIDATES = 4
+MAX_PROJECTED_RECOMMENDED_EVIDENCE_REFS = 6
+MAX_PROJECTED_REVIEW_QUESTIONS = 4
+
+_COURSE_ROW_PROJECTION_KEYS = (
+    "leg_index",
+    "bearing",
+    "distance",
+    "bearing_raw",
+    "distance_raw",
+    "source_entity_ids",
+    "source_entity_ids_reason",
+    "evidence_refs",
+    "evidence_refs_reason",
+)
+
 GENERIC_REVIEW_QUESTIONS = [
     "Does endpoint displacement matter for the authored geometry role?",
     "If this feature was expected to close, inspect contributing course operands before declaring an open limitation.",
@@ -372,14 +391,11 @@ def _collect_recommended_source_evidence_refs(course_leg_tables: list[dict[str, 
     return refs
 
 
-def compact_sanity_review_for_projection(sanity_review: Mapping[str, Any] | None) -> dict[str, Any] | None:
-    """Bounded sanity lane for tool-result slices and prompt projection."""
-    if not isinstance(sanity_review, Mapping) or not sanity_review:
-        return None
-    compact: dict[str, Any] = {}
-
-    metrics: list[dict[str, Any]] = []
-    for metric in (sanity_review.get("feature_metrics") or [])[:4]:
+def _compact_metric_rows(raw: Any) -> tuple[list[dict[str, Any]], int]:
+    if not isinstance(raw, list):
+        return [], 0
+    valid: list[dict[str, Any]] = []
+    for metric in raw:
         if not isinstance(metric, Mapping) or metric.get("skipped"):
             continue
         row = {
@@ -388,56 +404,152 @@ def compact_sanity_review_for_projection(sanity_review: Mapping[str, Any] | None
             "total_length": metric.get("total_length"),
             "vertex_count": metric.get("vertex_count"),
         }
-        metrics.append({key: value for key, value in row.items() if value is not None})
-    if metrics:
-        compact["feature_metrics"] = metrics
+        compact_row = {key: value for key, value in row.items() if value is not None}
+        if compact_row:
+            valid.append(compact_row)
+    intake_omitted = max(0, len(valid) - MAX_PROJECTED_FEATURE_METRICS)
+    return valid[:MAX_PROJECTED_FEATURE_METRICS], intake_omitted
 
-    leg_tables: list[dict[str, Any]] = []
-    for table in (sanity_review.get("course_leg_tables") or [])[:2]:
+
+def _compact_course_row(course: Mapping[str, Any]) -> dict[str, Any] | None:
+    row = {
+        key: course.get(key)
+        for key in _COURSE_ROW_PROJECTION_KEYS
+        if course.get(key) is not None
+    }
+    return row or None
+
+
+def _compact_course_leg_tables(raw: Any) -> tuple[list[dict[str, Any]], int, int]:
+    if not isinstance(raw, list):
+        return [], 0, 0
+    staged: list[tuple[dict[str, Any], int]] = []
+    for table in raw:
         if not isinstance(table, Mapping):
             continue
-        courses: list[dict[str, Any]] = []
-        for course in (table.get("courses") or [])[:6]:
-            if not isinstance(course, Mapping):
-                continue
-            courses.append(
-                {
-                    key: course.get(key)
-                    for key in (
-                        "leg_index",
-                        "bearing",
-                        "distance",
-                        "bearing_raw",
-                        "distance_raw",
-                        "source_entity_ids",
-                        "evidence_refs",
-                    )
-                    if course.get(key) is not None
-                }
-            )
-        leg_tables.append(
-            {
-                "feature_id": table.get("feature_id"),
-                "course_count": table.get("course_count"),
-                "courses": courses,
-            }
-        )
-    if leg_tables:
+        raw_courses = table.get("courses")
+        valid_courses: list[dict[str, Any]] = []
+        if isinstance(raw_courses, list):
+            for course in raw_courses:
+                if not isinstance(course, Mapping):
+                    continue
+                compact_course = _compact_course_row(course)
+                if compact_course is not None:
+                    valid_courses.append(compact_course)
+        table_row = {
+            "feature_id": table.get("feature_id"),
+            "course_count": table.get("course_count"),
+            "courses": valid_courses[:MAX_PROJECTED_COURSE_ROWS],
+        }
+        if valid_courses:
+            table_row["courses_source_count"] = len(valid_courses)
+        if table_row.get("feature_id") is not None or valid_courses:
+            staged.append((table_row, len(valid_courses)))
+    tables_omitted = max(0, len(staged) - MAX_PROJECTED_COURSE_LEG_TABLES)
+    kept_staged = staged[:MAX_PROJECTED_COURSE_LEG_TABLES]
+    kept_tables = [row for row, _ in kept_staged]
+    courses_omitted = sum(
+        max(0, source_count - len(row.get("courses") or []))
+        for row, source_count in kept_staged
+    )
+    return kept_tables, tables_omitted, courses_omitted
+
+
+_DISPLACEMENT_CANDIDATE_KEYS = (
+    "feature_id",
+    "endpoint_displacement",
+    "geometry_type",
+    "total_length",
+)
+
+
+def _compact_displacement_candidate(item: Mapping[str, Any]) -> dict[str, Any] | None:
+    row = {
+        key: item.get(key)
+        for key in _DISPLACEMENT_CANDIDATE_KEYS
+        if item.get(key) is not None
+    }
+    return row or None
+
+
+def _compact_mapping_rows(
+    raw: Any,
+    *,
+    limit: int,
+    row_builder: Any,
+) -> tuple[list[dict[str, Any]], int]:
+    if not isinstance(raw, list):
+        return [], 0
+    valid: list[dict[str, Any]] = []
+    for item in raw:
+        if not isinstance(item, Mapping):
+            continue
+        row = row_builder(item)
+        if row is not None:
+            valid.append(row)
+    intake_omitted = max(0, len(valid) - limit)
+    return valid[:limit], intake_omitted
+
+
+def _compact_string_list(raw: Any, *, limit: int) -> tuple[list[str], int]:
+    if not isinstance(raw, list):
+        return [], 0
+    valid = [item.strip() for item in raw if isinstance(item, str) and item.strip()]
+    intake_omitted = max(0, len(valid) - limit)
+    return valid[:limit], intake_omitted
+
+
+def compact_sanity_review_for_projection(sanity_review: Mapping[str, Any] | None) -> dict[str, Any] | None:
+    """Bounded sanity lane for agent result-view projection."""
+    if not isinstance(sanity_review, Mapping) or not sanity_review:
+        return None
+    compact: dict[str, Any] = {}
+
+    metrics, metrics_omitted = _compact_metric_rows(sanity_review.get("feature_metrics"))
+    if isinstance(sanity_review.get("feature_metrics"), list):
+        compact["feature_metrics"] = metrics
+        if metrics_omitted:
+            compact["feature_metrics_omitted_count"] = metrics_omitted
+
+    leg_tables, tables_omitted, courses_omitted = _compact_course_leg_tables(
+        sanity_review.get("course_leg_tables")
+    )
+    if isinstance(sanity_review.get("course_leg_tables"), list):
         compact["course_leg_tables"] = leg_tables
+        if tables_omitted:
+            compact["course_leg_tables_omitted_count"] = tables_omitted
+        if courses_omitted:
+            compact["courses_omitted_count"] = courses_omitted
 
-    candidates = sanity_review.get("endpoint_displacement_candidates")
-    if isinstance(candidates, list) and candidates:
-        compact["endpoint_displacement_candidates"] = list(candidates)[:4]
+    candidates, candidates_omitted = _compact_mapping_rows(
+        sanity_review.get("endpoint_displacement_candidates"),
+        limit=MAX_PROJECTED_DISPLACEMENT_CANDIDATES,
+        row_builder=_compact_displacement_candidate,
+    )
+    if isinstance(sanity_review.get("endpoint_displacement_candidates"), list):
+        compact["endpoint_displacement_candidates"] = candidates
+        if candidates_omitted:
+            compact["endpoint_displacement_candidates_omitted_count"] = candidates_omitted
 
-    evidence_refs = sanity_review.get("recommended_source_evidence_refs")
-    if isinstance(evidence_refs, list) and evidence_refs:
-        compact["recommended_source_evidence_refs"] = list(evidence_refs)[:6]
+    evidence_refs, evidence_omitted = _compact_string_list(
+        sanity_review.get("recommended_source_evidence_refs"),
+        limit=MAX_PROJECTED_RECOMMENDED_EVIDENCE_REFS,
+    )
+    if isinstance(sanity_review.get("recommended_source_evidence_refs"), list):
+        compact["recommended_source_evidence_refs"] = evidence_refs
+        if evidence_omitted:
+            compact["recommended_source_evidence_refs_omitted_count"] = evidence_omitted
 
-    questions = sanity_review.get("review_questions")
-    if isinstance(questions, list) and questions:
-        compact["review_questions"] = list(questions)[:4]
+    questions, questions_omitted = _compact_string_list(
+        sanity_review.get("review_questions"),
+        limit=MAX_PROJECTED_REVIEW_QUESTIONS,
+    )
+    if isinstance(sanity_review.get("review_questions"), list):
+        compact["review_questions"] = questions
+        if questions_omitted:
+            compact["review_questions_omitted_count"] = questions_omitted
 
-    return compact or None
+    return compact
 
 
 def render_sanity_review_timeline_lines(

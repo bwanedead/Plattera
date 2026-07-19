@@ -10,6 +10,10 @@ from unittest.mock import patch
 import pytest
 
 from domains.mapping.deed_to_ir.execution.draft_result_views import build_save_ir_artifact_view
+from domains.mapping.deed_to_ir.execution.mapping_result_views import (
+    SCHEMA_SUBMIT_IR_FOR_MAPPING,
+    build_submit_ir_for_mapping_view,
+)
 from domains.mapping.deed_to_ir.execution.result_view_common import build_working_head_continuity_key
 from domains.mapping.transcript_edit.execution.result_views import build_hydrate_artifact_refs_view
 from harness.execution.agent_result_view import MAX_AGENT_RESULT_VIEW_CHARS, build_agent_result_view
@@ -1071,6 +1075,133 @@ def test_admission_prompt_ack_with_deed_to_ir_and_transcript_edit_views() -> Non
         len(row.get("successful_content_contact_ids") or []) == 1
         for row in lm.continuity.pending_result_deliveries
     )
+
+
+def test_br024_mapping_view_survives_result_delivery_path() -> None:
+    """Production-shaped v2 mapping view through BR-021 pending-result delivery."""
+    scope = {
+        "dossier_id": "d1",
+        "transcription_id": "t1",
+        "workspace_id": "w1",
+        "run_id": "r1",
+    }
+    continuity = build_working_head_continuity_key(**scope)
+    mapping_ref = "feature_graph:mapping:run40"
+    ir_ref = "feature_graph:ir:run40"
+    critical_crop = "image:derived:fba6f159e40d4010896245d6525d4acf"
+    source_question = (
+        "Large unexplained endpoint displacement is a source-sanity trigger, "
+        "not automatically a deed defect."
+    )
+    submit_outputs = {
+        "mapping_artifact_ref": mapping_ref,
+        "compile_artifact_ref": "feature_graph:compile:c1",
+        "graph_id": "graph-run40",
+        "compiled_feature_count": 2,
+        "current_mapping_lineage": {
+            "mapping_artifact_ref": mapping_ref,
+            "source_ir_artifact_ref": ir_ref,
+            "lineage_current": True,
+        },
+        "mapping_review": {
+            "mapping_artifact_ref": mapping_ref,
+            "source_ir_artifact_ref": ir_ref,
+            "sanity_review": {
+                "endpoint_displacement_candidates": [
+                    {
+                        "feature_id": "parcel_1_boundary",
+                        "endpoint_displacement": 100.8495,
+                    }
+                ],
+                "review_questions": [source_question],
+                "recommended_source_evidence_refs": [critical_crop],
+                "course_leg_tables": [
+                    {
+                        "feature_id": "parcel_1_traverse",
+                        "courses": [
+                            {
+                                "leg_index": 2,
+                                "distance": 618.0,
+                                "source_entity_ids": [
+                                    "p1_call2_distance",
+                                    "p1_call2_bearing",
+                                ],
+                                "evidence_refs": [critical_crop],
+                            }
+                        ],
+                    }
+                ],
+                "feature_metrics": [],
+            },
+        },
+        "active_finalization_session": {
+            "status": "pending_decisions",
+            "lineage": {
+                "mapping_artifact_ref": mapping_ref,
+                "source_ir_artifact_ref": ir_ref,
+            },
+            "requirements": {
+                "scope_ids": ["parcel_1"],
+                "correction_candidates": [],
+                "dependency_candidates": [],
+            },
+            "decisions": {
+                "scope_statuses": {},
+                "correction_dispositions": {},
+                "dependency_dispositions": {},
+                "rationales": {},
+            },
+        },
+    }
+    mapping_view, omitted = build_submit_ir_for_mapping_view(
+        submit_outputs,
+        continuity_key=continuity,
+    )
+    assert omitted is None and mapping_view is not None
+    assert mapping_view.schema_id == SCHEMA_SUBMIT_IR_FOR_MAPPING
+
+    lm = LoopMemoryState()
+    lm.iterations = 2
+    big = _pad_outputs(MAX_AGENT_RESULT_VIEW_CHARS + 1)
+    admit_recorded_execution_result(
+        lm.continuity.pending_result_deliveries,
+        step_result=_step(
+            result=_dispatch(
+                action_id="submit_ir_for_mapping",
+                outputs=big,
+                view=mapping_view,
+                artifact_refs=(mapping_ref,),
+            )
+        ),
+        source_turn_index=1,
+        action_index=1,
+        action_alias="submit",
+    )
+    doc = build_choose_action_prompt_document(
+        composed_input=_composed(),
+        opaque_launch_context={},
+        context=_context(lm),
+        projection=_projection(),
+        journal_verbatim_keep_n=3,
+    )
+    lane_blob = json.dumps(doc.prompt_body["structured_state"]["latest_action_results"])
+    assert SCHEMA_SUBMIT_IR_FOR_MAPPING in lane_blob
+    assert "100.8495" in lane_blob
+    assert critical_crop in lane_blob
+    assert source_question in lane_blob
+    assert mapping_ref in lane_blob
+    assert "continuity_key" not in lane_blob
+    assert doc.result_delivery_contact is not None
+    assert doc.result_delivery_contact.contact_receipt.content_exposed_delivery_ids
+
+    adapter = LlmTurnOrchestrationAdapter(
+        composed_input=_composed(),
+        text_model_caller=lambda *_a, **_k: _valid_plan_json(),
+        model_name="fake",
+        opaque_launch_context={},
+    )
+    adapter.choose_action(_context(lm), _projection())
+    assert len(lm.continuity.pending_result_deliveries[0]["successful_content_contact_ids"]) == 1
 
 
 def test_consume_step_admits_without_rewriting_step_result() -> None:

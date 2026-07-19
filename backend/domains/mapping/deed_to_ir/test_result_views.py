@@ -22,6 +22,7 @@ from domains.mapping.deed_to_ir.execution.mapping_result_views import (
     SCHEMA_SUBMIT_IR_FOR_MAPPING,
     build_submit_ir_for_mapping_view,
 )
+from tooling.mapping.deed_to_ir.mapping_sanity import AMBIGUOUS_OPERAND_FAMILY_REASON
 from domains.mapping.deed_to_ir.execution.result_view_common import (
     WORKING_HEAD_CONTINUITY_PREFIX,
     build_working_head_continuity_key,
@@ -56,6 +57,12 @@ _SCOPE = {
     "workspace_id": "ws-fixture",
     "run_id": "practice-row-live-20260619-76",
 }
+
+_RUN40_CRITICAL_CROP = "image:derived:fba6f159e40d4010896245d6525d4acf"
+_RUN40_SOURCE_SANITY_QUESTION = (
+    "Large unexplained endpoint displacement is a source-sanity trigger, "
+    "not automatically a deed defect."
+)
 
 _EXPECTED_TOOL_IDS = (
     "hydrate_deed_to_ir_input",
@@ -156,7 +163,87 @@ def _draft_outputs(*, current_ref: str, base_ref: str | None = None) -> dict:
     return outputs
 
 
-def _mapping_outputs(*, mapping_ref: str, ir_ref: str, historical: bool = False) -> dict:
+def _run40_sanity_review(*, include_semantic_prose: bool = False) -> dict:
+    sanity: dict = {
+        "feature_metrics": [
+            {
+                "feature_id": "parcel_1_boundary",
+                "endpoint_displacement": 100.8495,
+                "total_length": 2500.0,
+                "vertex_count": 8,
+            }
+        ],
+        "endpoint_displacement_candidates": [
+            {
+                "feature_id": "parcel_1_boundary",
+                "endpoint_displacement": 100.8495,
+            }
+        ],
+        "review_questions": [
+            _RUN40_SOURCE_SANITY_QUESTION,
+            "Does endpoint displacement matter for the authored geometry role?",
+        ],
+        "recommended_source_evidence_refs": [_RUN40_CRITICAL_CROP],
+        "course_leg_tables": [
+            {
+                "feature_id": "parcel_1_traverse",
+                "operation": "CourseTraverse",
+                "course_count": 2,
+                "courses": [
+                    {
+                        "leg_index": 1,
+                        "distance": 500.0,
+                        "bearing": 90.0,
+                        "source_entity_ids": ["p1_call1_distance", "p1_call1_bearing"],
+                    },
+                    {
+                        "leg_index": 2,
+                        "distance": 618.0,
+                        "bearing": 180.0,
+                        "source_entity_ids": ["p1_call2_distance", "p1_call2_bearing"],
+                        "evidence_refs": [_RUN40_CRITICAL_CROP],
+                    },
+                ],
+            }
+        ],
+    }
+    if include_semantic_prose:
+        sanity["conclusion"] = "needs_repair"
+        sanity["summary"] = "One judge gap remains on the current lineage."
+    return sanity
+
+
+def _producer_course_leg_tables(*, table_count: int = 4, courses_per_table: int = 8) -> list:
+    tables: list[dict] = []
+    for table_idx in range(table_count):
+        courses = [
+            {
+                "leg_index": course_idx + 1,
+                "distance": 500.0 + course_idx,
+                "bearing": 90.0,
+                "bearing_raw": f"N. {90 + course_idx}° E.",
+                "source_entity_ids": [f"p{table_idx}_call{course_idx}_distance"],
+            }
+            for course_idx in range(courses_per_table)
+        ]
+        tables.append(
+            {
+                "feature_id": f"parcel_{table_idx}_traverse",
+                "operation": "CourseTraverse",
+                "course_count": courses_per_table,
+                "courses": courses,
+            }
+        )
+    return tables
+
+
+def _mapping_outputs(
+    *,
+    mapping_ref: str,
+    ir_ref: str,
+    historical: bool = False,
+    include_semantic_prose: bool = False,
+) -> dict:
     outputs = {
         "mapping_artifact_ref": mapping_ref,
         "compile_artifact_ref": "feature_graph:compile:c1",
@@ -186,32 +273,29 @@ def _mapping_outputs(*, mapping_ref: str, ir_ref: str, historical: bool = False)
             "skipped_feature_count": 1,
             "lineage_current": True,
             "current_mapping_artifact_ref": mapping_ref,
-            "sanity_review": {
-                "conclusion": "needs_repair",
-                "summary": "One judge gap remains on the current lineage.",
-                "feature_metrics": [
-                    {
-                        "feature_id": "f1",
-                        "endpoint_displacement": 1.2,
-                        "total_length": 100.0,
-                        "vertex_count": 4,
-                    }
-                ],
-                "review_questions": ["Does the judge gap match the intended corner?"],
-            },
+            "sanity_review": _run40_sanity_review(include_semantic_prose=include_semantic_prose),
             "correction_posture": {
                 "active": True,
                 "reason_codes": ["repair_judge_gap"],
                 "candidate_deltas": [
                     {
-                        "target_entity_id": "entity-1",
-                        "value_kind": "bearing",
-                        "selected_ir_display_value": "N 10 E",
+                        "target_entity_id": "p1_call2_distance",
+                        "value_kind": "distance",
+                        "selected_ir_display_value": "618",
                     }
                 ],
             },
             "draft_patch_targets": [
-                {"patch_target_id": "pt1", "node_id": "n1", "field": "bearing"}
+                {
+                    "patch_target_id": "course_distance:p1_call2_distance",
+                    "source_entity_id": "p1_call2_distance",
+                    "node_id": "parcel_1_traverse",
+                    "operation": "CourseTraverse",
+                    "course_index": 2,
+                    "field": "distance",
+                    "current_value": 618.0,
+                    "evidence_refs": [_RUN40_CRITICAL_CROP],
+                }
             ],
             "recommended_publish_refs": ["feature_graph:control:r1"],
         },
@@ -372,6 +456,7 @@ def test_schema_ids_and_json_native_tuple_conversion() -> None:
     )
     assert submit_om is None and submit_view is not None
     assert submit_view.schema_id == SCHEMA_SUBMIT_IR_FOR_MAPPING
+    assert submit_view.schema_id == "deed_to_ir.submit_ir_for_mapping.v2"
     assert isinstance(mapping_raw["world_bbox"], tuple)
     assert submit_view.payload["world_bbox"] == [10.0, 20.0, 30.0, 40.0]
 
@@ -524,9 +609,16 @@ def test_mapping_view_lineage_pair_and_session() -> None:
     assert lineage["source_ir_artifact_ref"] == "feature_graph:ir:v3"
     assert view.payload["mapping_artifact_ref"] == "feature_graph:mapping:m2"
     assert view.payload["ir_artifact_ref"] == "feature_graph:ir:v3"
-    assert view.payload["mapping_review"]["sanity_review"]["conclusion"] == "needs_repair"
+    sanity = view.payload["mapping_review"]["sanity_review"]
+    assert sanity["endpoint_displacement_candidates"][0]["endpoint_displacement"] == 100.8495
+    assert _RUN40_SOURCE_SANITY_QUESTION in sanity["review_questions"]
+    assert _RUN40_CRITICAL_CROP in sanity["recommended_source_evidence_refs"]
+    assert sanity["course_leg_tables"][0]["courses"][1]["distance"] == 618.0
+    assert "conclusion" not in sanity
+    assert "status" not in sanity
+    assert "summary" not in sanity
     assert view.payload["mapping_review"]["correction_posture"]["active"] is True
-    assert view.payload["mapping_review"]["draft_patch_targets"][0]["node_id"] == "n1"
+    assert view.payload["mapping_review"]["draft_patch_targets"][0]["node_id"] == "parcel_1_traverse"
     assert "active_finalization_session" in view.payload
     blob = json.dumps(view.payload)
     assert "feature_graph:mapping:old" not in blob
@@ -540,9 +632,24 @@ def test_mapping_view_survives_envelope_pressure() -> None:
         mapping_ref="feature_graph:mapping:m1",
         ir_ref="feature_graph:ir:v1",
     )
-    outputs["mapping_review"]["sanity_review"]["detail_pad"] = "P" * 8_000
+    outputs["mapping_review"]["sanity_review"]["feature_metrics"].extend(
+        [
+            {
+                "feature_id": f"extra_metric_{i}",
+                "endpoint_displacement": float(i),
+                "total_length": 100.0 + i,
+                "vertex_count": 4,
+            }
+            for i in range(20)
+        ]
+    )
     outputs["mapping_review"]["draft_patch_targets"] = [
-        {"patch_target_id": f"pt{i}", "node_id": f"n{i}", "field": "bearing", "note": "N" * 200}
+        {
+            "patch_target_id": f"pt{i}",
+            "node_id": f"n{i}",
+            "field": "bearing",
+            "note": "N" * 200,
+        }
         for i in range(40)
     ]
     view, omitted = build_submit_ir_for_mapping_view(outputs, continuity_key=continuity)
@@ -551,8 +658,13 @@ def test_mapping_view_survives_envelope_pressure() -> None:
     assert view.payload["current_mapping_lineage"]["mapping_artifact_ref"] == (
         "feature_graph:mapping:m1"
     )
-    assert view.payload["mapping_review"]["sanity_review"]["conclusion"] == "needs_repair"
+    sanity = view.payload["mapping_review"]["sanity_review"]
+    assert sanity["endpoint_displacement_candidates"][0]["endpoint_displacement"] == 100.8495
+    assert _RUN40_CRITICAL_CROP in sanity["recommended_source_evidence_refs"]
     assert view.payload["mapping_review"]["correction_posture"]["active"] is True
+    patch_targets = view.payload["mapping_review"].get("draft_patch_targets") or []
+    omitted_count = int(view.payload.get("draft_patch_targets_omitted_count") or 0)
+    assert omitted_count >= 1 or len(patch_targets) < 40
 
 
 # --- Finalizer behavior -----------------------------------------------------
@@ -1025,6 +1137,7 @@ def test_mapping_long_summary_does_not_evict_repair_guidance() -> None:
     outputs = _mapping_outputs(
         mapping_ref="feature_graph:mapping:m1",
         ir_ref="feature_graph:ir:v1",
+        include_semantic_prose=True,
     )
     outputs["mapping_review"]["sanity_review"]["summary"] = "S" * 20_000
     view, omitted = build_submit_ir_for_mapping_view(outputs, continuity_key=continuity)
@@ -1040,7 +1153,7 @@ def test_mapping_long_summary_does_not_evict_repair_guidance() -> None:
     assert "summary" not in sanity or len(str(sanity.get("summary") or "")) <= 240
     assert ("S" * 40) not in json.dumps(view.payload)
     assert view.payload["mapping_review"]["correction_posture"]["active"] is True
-    assert view.payload["mapping_review"]["draft_patch_targets"][0]["node_id"] == "n1"
+    assert view.payload["mapping_review"]["draft_patch_targets"][0]["node_id"] == "parcel_1_traverse"
     assert "active_finalization_session" in view.payload or view.payload.get(
         "active_finalization_session_omitted", {}
     ).get("reason") == "view_budget"
@@ -1078,6 +1191,7 @@ def test_mapping_bounds_oversized_conclusion_without_evicting_repair() -> None:
     outputs = _mapping_outputs(
         mapping_ref="feature_graph:mapping:m1",
         ir_ref="feature_graph:ir:v1",
+        include_semantic_prose=True,
     )
     outputs["mapping_review"]["sanity_review"]["conclusion"] = "C" * 20_000
     outputs["mapping_review"]["sanity_review"]["status"] = {"not": "a-string"}
@@ -1090,7 +1204,7 @@ def test_mapping_bounds_oversized_conclusion_without_evicting_repair() -> None:
     assert "status" not in sanity
     assert ("C" * 40) not in json.dumps(view.payload)
     assert view.payload["mapping_review"]["correction_posture"]["active"] is True
-    assert view.payload["mapping_review"]["draft_patch_targets"][0]["node_id"] == "n1"
+    assert view.payload["mapping_review"]["draft_patch_targets"][0]["node_id"] == "parcel_1_traverse"
 
 
 def test_session_diagnostics_drop_before_whole_session() -> None:
@@ -1145,3 +1259,461 @@ def test_lineage_fallback_uses_top_level_ir_ref() -> None:
         "feature_graph:ir:top-level"
     )
     assert view.payload["ir_artifact_ref"] == "feature_graph:ir:top-level"
+
+
+# --- BR-024 mapping sanity projection ---------------------------------------
+
+
+def test_br024_detail_only_sanity_survives_without_semantic_prose() -> None:
+    continuity = build_working_head_continuity_key(**_SCOPE)
+    view, omitted = build_submit_ir_for_mapping_view(
+        _mapping_outputs(
+            mapping_ref="feature_graph:mapping:m1",
+            ir_ref="feature_graph:ir:v1",
+        ),
+        continuity_key=continuity,
+    )
+    assert omitted is None and view is not None
+    assert view.schema_id == "deed_to_ir.submit_ir_for_mapping.v2"
+    sanity = view.payload["mapping_review"]["sanity_review"]
+    assert sanity["endpoint_displacement_candidates"][0]["endpoint_displacement"] == 100.8495
+    assert _RUN40_SOURCE_SANITY_QUESTION in sanity["review_questions"]
+    assert _RUN40_CRITICAL_CROP in sanity["recommended_source_evidence_refs"]
+    leg2 = sanity["course_leg_tables"][0]["courses"][1]
+    assert leg2["distance"] == 618.0
+    assert leg2["source_entity_ids"] == ["p1_call2_distance", "p1_call2_bearing"]
+    assert "conclusion" not in sanity
+    assert "status" not in sanity
+    assert "summary" not in sanity
+
+
+def test_br024_run40_source_signal_survives_envelope_pressure() -> None:
+    continuity = build_working_head_continuity_key(**_SCOPE)
+    outputs = _mapping_outputs(
+        mapping_ref="feature_graph:mapping:m1",
+        ir_ref="feature_graph:ir:v1",
+    )
+    outputs["mapping_review"]["sanity_review"]["feature_metrics"].extend(
+        [
+            {
+                "feature_id": f"pad_metric_{i}",
+                "endpoint_displacement": float(i),
+                "total_length": 1000.0 + i,
+                "vertex_count": 5,
+            }
+            for i in range(30)
+        ]
+    )
+    outputs["mapping_review"]["draft_patch_targets"] = [
+        {
+            "patch_target_id": f"pt{i}",
+            "node_id": f"node_{i}",
+            "field": "distance",
+            "note": "X" * 300,
+        }
+        for i in range(50)
+    ]
+    view, omitted = build_submit_ir_for_mapping_view(outputs, continuity_key=continuity)
+    assert omitted is None and view is not None
+    envelope_chars = _measure_view(view)
+    assert envelope_chars <= MAX_AGENT_RESULT_VIEW_CHARS
+    assert view.payload["current_mapping_lineage"]["mapping_artifact_ref"] == (
+        "feature_graph:mapping:m1"
+    )
+    sanity = view.payload["mapping_review"]["sanity_review"]
+    assert sanity["endpoint_displacement_candidates"][0]["endpoint_displacement"] == 100.8495
+    assert _RUN40_CRITICAL_CROP in sanity["recommended_source_evidence_refs"]
+    assert _RUN40_SOURCE_SANITY_QUESTION in sanity["review_questions"]
+    assert "active_finalization_session" in view.payload
+    assert view.payload["mapping_review"]["correction_posture"]["active"] is True
+    patch_targets = view.payload["mapping_review"].get("draft_patch_targets") or []
+    omitted_count = int(view.payload.get("draft_patch_targets_omitted_count") or 0)
+    assert len(patch_targets) + omitted_count == 50
+    assert omitted_count >= 1
+    assert envelope_chars > 0, f"run40-shaped envelope chars={envelope_chars}"
+
+
+def test_br024_patch_target_omission_math_skips_oversized_whole_row() -> None:
+    continuity = build_working_head_continuity_key(**_SCOPE)
+    outputs = _mapping_outputs(
+        mapping_ref="feature_graph:mapping:m1",
+        ir_ref="feature_graph:ir:v1",
+    )
+    outputs["mapping_review"]["draft_patch_targets"] = [
+        {
+            "patch_target_id": "pt_oversized",
+            "node_id": "parcel_1_traverse",
+            "field": "distance",
+            "note": "H" * 25_000,
+        },
+        {
+            "patch_target_id": "pt_small_1",
+            "node_id": "parcel_1_traverse",
+            "field": "bearing",
+            "current_value": 90.0,
+        },
+        {
+            "patch_target_id": "pt_small_2",
+            "node_id": "parcel_2_traverse",
+            "field": "distance",
+            "current_value": 200.0,
+        },
+    ]
+    view, omitted = build_submit_ir_for_mapping_view(outputs, continuity_key=continuity)
+    assert omitted is None and view is not None
+    kept = view.payload["mapping_review"].get("draft_patch_targets") or []
+    omitted_count = int(view.payload.get("draft_patch_targets_omitted_count") or 0)
+    kept_ids = {row["patch_target_id"] for row in kept}
+    assert "pt_oversized" not in kept_ids
+    assert "H" * 40 not in json.dumps(view.payload)
+    assert len(kept) + omitted_count == 3
+    assert any(pid.startswith("pt_small") for pid in kept_ids)
+    for row in kept:
+        assert row["patch_target_id"] in {"pt_small_1", "pt_small_2"}
+
+
+def test_br024_binding_diagnostic_projection_preserves_ambiguity_reasons() -> None:
+    continuity = build_working_head_continuity_key(**_SCOPE)
+    outputs = _mapping_outputs(
+        mapping_ref="feature_graph:mapping:m1",
+        ir_ref="feature_graph:ir:v1",
+    )
+    outputs["mapping_review"]["sanity_review"]["course_leg_tables"] = [
+        {
+            "feature_id": "parcel_1_traverse",
+            "operation": "CourseTraverse",
+            "course_count": 2,
+            "courses": [
+                {
+                    "leg_index": 1,
+                    "distance": 500.0,
+                    "source_entity_ids": ["p1_call1_distance"],
+                },
+                {
+                    "leg_index": 2,
+                    "source_entity_ids_reason": AMBIGUOUS_OPERAND_FAMILY_REASON,
+                    "evidence_refs": [],
+                    "evidence_refs_reason": AMBIGUOUS_OPERAND_FAMILY_REASON,
+                },
+            ],
+        }
+    ]
+    view, omitted = build_submit_ir_for_mapping_view(outputs, continuity_key=continuity)
+    assert omitted is None and view is not None
+    leg2 = view.payload["mapping_review"]["sanity_review"]["course_leg_tables"][0]["courses"][1]
+    assert leg2["source_entity_ids_reason"] == AMBIGUOUS_OPERAND_FAMILY_REASON
+    assert leg2["evidence_refs_reason"] == AMBIGUOUS_OPERAND_FAMILY_REASON
+    assert leg2.get("source_entity_ids") is None
+    assert "no_operand_evidence_indexed" not in json.dumps(leg2)
+    assert "p1_call2_distance" not in json.dumps(leg2)
+    assert "p2_call2_distance" not in json.dumps(leg2)
+
+
+def test_br024_invalid_sanity_shape_emits_invalid_shape_not_view_budget() -> None:
+    continuity = build_working_head_continuity_key(**_SCOPE)
+    outputs = _mapping_outputs(
+        mapping_ref="feature_graph:mapping:m1",
+        ir_ref="feature_graph:ir:v1",
+    )
+    outputs["mapping_review"]["sanity_review"] = "not-a-mapping-shaped-review"
+    view, omitted = build_submit_ir_for_mapping_view(outputs, continuity_key=continuity)
+    assert omitted is None and view is not None
+    assert view.payload["sanity_review_omitted"]["reason"] == "invalid_shape"
+    assert view.payload["sanity_review_omitted"].get("reason") != "view_budget"
+    assert "sanity_review" not in view.payload.get("mapping_review", {})
+    assert view.payload["current_mapping_lineage"]["mapping_artifact_ref"] == (
+        "feature_graph:mapping:m1"
+    )
+    assert "active_finalization_session" in view.payload
+
+
+def test_br024_protected_core_survives_simultaneous_pressure() -> None:
+    continuity = build_working_head_continuity_key(**_SCOPE)
+    outputs = _mapping_outputs(
+        mapping_ref="feature_graph:mapping:m1",
+        ir_ref="feature_graph:ir:v1",
+    )
+    outputs["mapping_review"]["sanity_review"]["feature_metrics"].extend(
+        [
+            {
+                "feature_id": f"pad_metric_{i}",
+                "endpoint_displacement": float(i),
+                "total_length": 5000.0 + i,
+                "vertex_count": 12,
+            }
+            for i in range(40)
+        ]
+    )
+    outputs["mapping_review"]["correction_posture"]["candidate_deltas"].extend(
+        [
+            {
+                "target_entity_id": f"entity_{i}",
+                "value_kind": "distance",
+                "selected_ir_display_value": str(600 + i),
+            }
+            for i in range(20)
+        ]
+    )
+    outputs["active_finalization_session"]["requirements"]["scope_ids"] = [
+        f"scope_{i}" for i in range(30)
+    ]
+    outputs["mapping_review"]["draft_patch_targets"] = [
+        {
+            "patch_target_id": f"pt{i}",
+            "node_id": f"node_{i}",
+            "field": "distance",
+            "note": "P" * 250,
+        }
+        for i in range(45)
+    ]
+    view, omitted = build_submit_ir_for_mapping_view(outputs, continuity_key=continuity)
+    assert omitted is None and view is not None
+    assert _measure_view(view) <= MAX_AGENT_RESULT_VIEW_CHARS
+    sanity = view.payload["mapping_review"]["sanity_review"]
+    assert sanity["endpoint_displacement_candidates"][0]["endpoint_displacement"] == 100.8495
+    assert _RUN40_SOURCE_SANITY_QUESTION in sanity["review_questions"]
+    assert _RUN40_CRITICAL_CROP in sanity["recommended_source_evidence_refs"]
+    assert view.payload["mapping_review"]["correction_posture"]["active"] is True
+    session = view.payload["active_finalization_session"]
+    assert session["status"] == "pending_decisions"
+    assert session["lineage"]["mapping_artifact_ref"] == "feature_graph:mapping:m1"
+    assert session["requirement_counts"]["scope_ids"] == 30
+    assert session["allowed_values"]["scope_statuses"]
+    blob = json.dumps(view.payload)
+    assert "mapping_repair_guidance_omitted" not in blob
+
+
+def test_br024_multiple_late_patch_target_removals_after_marker_attached() -> None:
+    continuity = build_working_head_continuity_key(**_SCOPE)
+    outputs = _mapping_outputs(
+        mapping_ref="feature_graph:mapping:m1",
+        ir_ref="feature_graph:ir:v1",
+    )
+    outputs["mapping_review"]["draft_patch_targets"] = [
+        {
+            "patch_target_id": f"pt{i}",
+            "node_id": "parcel_1_traverse",
+            "field": "distance",
+            "note": "N" * 400,
+        }
+        for i in range(35)
+    ]
+    view, omitted = build_submit_ir_for_mapping_view(outputs, continuity_key=continuity)
+    assert omitted is None and view is not None
+    kept = view.payload["mapping_review"].get("draft_patch_targets") or []
+    omitted_count = int(view.payload.get("draft_patch_targets_omitted_count") or 0)
+    assert len(kept) + omitted_count == 35
+    assert omitted_count >= 2
+    assert _measure_view(view) <= MAX_AGENT_RESULT_VIEW_CHARS
+
+
+def test_br024_accumulated_feature_metric_omission_counts_under_pressure() -> None:
+    continuity = build_working_head_continuity_key(**_SCOPE)
+    outputs = _mapping_outputs(
+        mapping_ref="feature_graph:mapping:m1",
+        ir_ref="feature_graph:ir:v1",
+    )
+    outputs["mapping_review"]["sanity_review"]["feature_metrics"] = [
+        {
+            "feature_id": f"metric_{i}",
+            "endpoint_displacement": float(i),
+            "total_length": 9000.0 + i,
+            "vertex_count": 20,
+        }
+        for i in range(25)
+    ]
+    view, omitted = build_submit_ir_for_mapping_view(outputs, continuity_key=continuity)
+    assert omitted is None and view is not None
+    sanity = view.payload["mapping_review"]["sanity_review"]
+    kept = sanity.get("feature_metrics") or []
+    omitted_count = int(sanity.get("feature_metrics_omitted_count") or 0)
+    assert len(kept) + omitted_count == 25
+    assert omitted_count >= 1
+
+
+def test_br024_omission_markers_survive_final_fitting() -> None:
+    continuity = build_working_head_continuity_key(**_SCOPE)
+    outputs = _mapping_outputs(
+        mapping_ref="feature_graph:mapping:m1",
+        ir_ref="feature_graph:ir:v1",
+    )
+    outputs["mapping_review"]["draft_patch_targets"] = [
+        {"patch_target_id": f"pt{i}", "node_id": f"n{i}", "field": "distance", "note": "Z" * 350}
+        for i in range(40)
+    ]
+    view, omitted = build_submit_ir_for_mapping_view(outputs, continuity_key=continuity)
+    assert omitted is None and view is not None
+    assert "draft_patch_targets_omitted_count" in view.payload
+    assert int(view.payload["draft_patch_targets_omitted_count"]) >= 1
+
+
+def test_br024_no_mechanical_head_to_prose_fallback() -> None:
+    continuity = build_working_head_continuity_key(**_SCOPE)
+    outputs = _mapping_outputs(
+        mapping_ref="feature_graph:mapping:m1",
+        ir_ref="feature_graph:ir:v1",
+        include_semantic_prose=True,
+    )
+    outputs["mapping_review"]["sanity_review"]["feature_metrics"] = [
+        {
+            "feature_id": f"metric_{i}",
+            "endpoint_displacement": float(i),
+            "total_length": 8000.0 + i,
+            "vertex_count": 30,
+        }
+        for i in range(30)
+    ]
+    outputs["mapping_review"]["draft_patch_targets"] = [
+        {"patch_target_id": f"pt{i}", "node_id": f"n{i}", "field": "distance", "note": "Q" * 300}
+        for i in range(40)
+    ]
+    view, omitted = build_submit_ir_for_mapping_view(outputs, continuity_key=continuity)
+    assert omitted is None and view is not None
+    sanity = view.payload["mapping_review"]["sanity_review"]
+    assert sanity["endpoint_displacement_candidates"][0]["endpoint_displacement"] == 100.8495
+    assert _RUN40_SOURCE_SANITY_QUESTION in sanity["review_questions"]
+    if "conclusion" not in sanity:
+        assert sanity.get("conclusion_omitted") is True or "sanity_review_detail_omitted" in view.payload
+
+
+def test_br024_displacement_candidate_strips_host_and_binary_fields() -> None:
+    from tooling.mapping.deed_to_ir.mapping_sanity import compact_sanity_review_for_projection
+
+    compact = compact_sanity_review_for_projection(
+        {
+            "endpoint_displacement_candidates": [
+                {
+                    "feature_id": "parcel_1_boundary",
+                    "endpoint_displacement": 100.8495,
+                    "absolute_path": "C:/host/secret.bin",
+                    "path": "C:/host/child.json",
+                    "b64": "QUJD",
+                    "meta": {"image_b64": "bbbb"},
+                }
+            ]
+        }
+    )
+    assert compact is not None
+    row = compact["endpoint_displacement_candidates"][0]
+    blob = json.dumps(row)
+    assert row["feature_id"] == "parcel_1_boundary"
+    assert "absolute_path" not in blob
+    assert "path" not in blob
+    assert "b64" not in blob
+    assert "image_b64" not in blob
+    assert "C:/host" not in blob
+
+
+def test_br024_course_table_and_course_row_omission_counts_stay_non_overlapping() -> None:
+    from tooling.mapping.deed_to_ir.mapping_sanity import (
+        MAX_PROJECTED_COURSE_ROWS,
+        compact_sanity_review_for_projection,
+    )
+
+    source_table_count = 4
+    courses_per_table = 8
+    raw_tables = _producer_course_leg_tables(
+        table_count=source_table_count,
+        courses_per_table=courses_per_table,
+    )
+    compact_sanity = compact_sanity_review_for_projection({"course_leg_tables": raw_tables})
+    assert compact_sanity is not None
+    assert len(compact_sanity["course_leg_tables"]) == 2
+    assert compact_sanity["course_leg_tables_omitted_count"] == 2
+    assert compact_sanity["courses_omitted_count"] == 4
+
+    continuity = build_working_head_continuity_key(**_SCOPE)
+    outputs = _mapping_outputs(
+        mapping_ref="feature_graph:mapping:m1",
+        ir_ref="feature_graph:ir:v1",
+    )
+    sanity = outputs["mapping_review"]["sanity_review"]
+    sanity["course_leg_tables"] = raw_tables
+    for table in sanity["course_leg_tables"]:
+        for course in table["courses"]:
+            course["bearing_raw"] = "B" * 900
+            course["distance_raw"] = "D" * 900
+    outputs["mapping_review"]["draft_patch_targets"] = [
+        {
+            "patch_target_id": f"pt{i}",
+            "node_id": f"node_{i}",
+            "field": "distance",
+            "note": "X" * 300,
+        }
+        for i in range(40)
+    ]
+
+    view, omitted = build_submit_ir_for_mapping_view(outputs, continuity_key=continuity)
+    assert omitted is None and view is not None
+    assert _measure_view(view) <= MAX_AGENT_RESULT_VIEW_CHARS
+
+    fitted_sanity = view.payload["mapping_review"]["sanity_review"]
+    kept_tables = fitted_sanity.get("course_leg_tables") or []
+    table_omitted = int(fitted_sanity.get("course_leg_tables_omitted_count") or 0)
+    assert len(kept_tables) + table_omitted == source_table_count
+    assert len(kept_tables) == 1
+    assert table_omitted == compact_sanity["course_leg_tables_omitted_count"] + 1
+
+    represented = kept_tables[0]
+    kept_courses = len(represented.get("courses") or [])
+    course_omitted = int(fitted_sanity.get("courses_omitted_count") or 0)
+    assert kept_courses + course_omitted == courses_per_table
+    assert kept_courses < MAX_PROJECTED_COURSE_ROWS
+    assert course_omitted > courses_per_table - MAX_PROJECTED_COURSE_ROWS
+
+
+def test_br024_tiny_omission_count_marker_survives_at_hard_cap() -> None:
+    continuity = build_working_head_continuity_key(**_SCOPE)
+    outputs = _mapping_outputs(
+        mapping_ref="feature_graph:mapping:m1",
+        ir_ref="feature_graph:ir:v1",
+        include_semantic_prose=True,
+    )
+    outputs["active_finalization_session"]["requirements"]["scope_ids"] = [
+        f"scope_{i}" for i in range(45)
+    ]
+    outputs["active_finalization_session"]["requirements"]["correction_candidates"] = [
+        {"target_entity_id": f"corr_{i}", "note": "C" * 260}
+        for i in range(45)
+    ]
+    sanity = outputs["mapping_review"]["sanity_review"]
+    sanity["summary"] = "S" * 18_000
+    sanity["course_leg_tables"] = _producer_course_leg_tables(table_count=4, courses_per_table=8)
+    for table in sanity["course_leg_tables"]:
+        for course in table["courses"]:
+            course["bearing_raw"] = "R" * 240
+    sanity["feature_metrics"].extend(
+        [
+            {
+                "feature_id": f"heavy_metric_{i}",
+                "endpoint_displacement": float(i),
+                "total_length": 9500.0 + i,
+                "vertex_count": 30,
+            }
+            for i in range(40)
+        ]
+    )
+    outputs["mapping_review"]["draft_patch_targets"] = [
+        {
+            "patch_target_id": f"pt{i}",
+            "node_id": f"node_{i}",
+            "field": "distance",
+            "note": "Z" * 520,
+        }
+        for i in range(60)
+    ]
+
+    view, omitted = build_submit_ir_for_mapping_view(outputs, continuity_key=continuity)
+    assert omitted is None and view is not None
+    envelope_chars = _measure_view(view)
+    assert envelope_chars <= MAX_AGENT_RESULT_VIEW_CHARS
+    assert envelope_chars >= MAX_AGENT_RESULT_VIEW_CHARS - 800
+
+    omitted_count = view.payload.get("draft_patch_targets_omitted_count")
+    assert omitted_count is not None
+    assert int(omitted_count) >= 1
+    kept = view.payload["mapping_review"].get("draft_patch_targets") or []
+    assert len(kept) + int(omitted_count) == 60
+    assert "draft_patch_targets_omitted" not in view.payload
+    blob = json.dumps(view.payload)
+    assert "mapping_repair_guidance_omitted" not in blob

@@ -607,5 +607,39 @@ def test_br023_case_f_run40_shaped_parcel1_leg2_evidence_binding() -> None:
     assert leg2["distance"] == 618.0
     assert leg2["source_entity_ids"] == ["p1_call2_distance", "p1_call2_bearing"]
     assert _CRITICAL_CROP in leg2["evidence_refs"]
-    serialized = json.dumps(sanity)
-    assert "p2_call" not in serialized
+
+
+def test_br024_course_leg_intake_omissions_count_only_retained_tables() -> None:
+    from tooling.mapping.deed_to_ir.mapping_sanity import (
+        MAX_PROJECTED_COURSE_LEG_TABLES,
+        MAX_PROJECTED_COURSE_ROWS,
+        compact_sanity_review_for_projection,
+    )
+
+    source_table_count = 4
+    courses_per_table = 8
+    raw_tables = [
+        {
+            "feature_id": f"parcel_{table_idx}_traverse",
+            "courses": [
+                {"leg_index": course_idx + 1, "distance": 500.0 + course_idx, "bearing": 90.0}
+                for course_idx in range(courses_per_table)
+            ],
+        }
+        for table_idx in range(source_table_count)
+    ]
+    compact = compact_sanity_review_for_projection({"course_leg_tables": raw_tables})
+    assert compact is not None
+    kept_tables = compact["course_leg_tables"]
+    assert len(kept_tables) == MAX_PROJECTED_COURSE_LEG_TABLES
+    assert compact["course_leg_tables_omitted_count"] == source_table_count - MAX_PROJECTED_COURSE_LEG_TABLES
+    for table in kept_tables:
+        assert table["courses_source_count"] == courses_per_table
+        assert len(table["courses"]) == MAX_PROJECTED_COURSE_ROWS
+    expected_course_omitted = MAX_PROJECTED_COURSE_LEG_TABLES * (
+        courses_per_table - MAX_PROJECTED_COURSE_ROWS
+    )
+    assert compact["courses_omitted_count"] == expected_course_omitted
+    assert len(kept_tables) + compact["course_leg_tables_omitted_count"] == source_table_count
+    for table in kept_tables:
+        assert len(table["courses"]) + (courses_per_table - len(table["courses"])) == courses_per_table

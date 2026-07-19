@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Mapping, MutableMapping, Sequence
+from collections.abc import Callable, Mapping, MutableMapping, Sequence
 from typing import Any
 
 from harness.execution.agent_result_view import (
@@ -353,6 +353,30 @@ def payload_fits(
         continuity_key=continuity_key,
     )
     return view is not None
+
+
+def ensure_payload_marker_fits(
+    payload: dict[str, Any],
+    *,
+    schema_id: str,
+    continuity_key: str | None,
+    marker_key: str,
+    marker_value: Any,
+    peel: Callable[[], bool],
+) -> bool:
+    """Attach a disclosure marker only when the full payload still fits."""
+    while True:
+        trial = dict(payload)
+        trial[marker_key] = marker_value
+        if payload_fits(
+            schema_id=schema_id,
+            payload=trial,
+            continuity_key=continuity_key,
+        ):
+            payload[marker_key] = marker_value
+            return True
+        if not peel():
+            return False
 
 
 def try_attach_value(

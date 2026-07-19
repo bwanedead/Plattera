@@ -11,9 +11,21 @@ from .finalization_result_views import (
     build_finalization_session_result_view_summary,
     resolve_session_summary_for_envelope,
 )
-from .result_view_common import bound_text, copy_scalar_fields, try_build_view, view_budget_omission
+from .mapping_patch_target_result_views import fit_draft_patch_targets, peel_one_patch_target
+from .mapping_sanity_result_views import (
+    compose_sanity_review,
+    fit_sanity_head,
+    fit_sanity_variable_detail,
+    is_mapping_shaped_sanity,
+    peel_one_sanity_variable_item,
+)
+from .result_view_common import (
+    copy_scalar_fields,
+    try_build_view,
+    view_budget_omission,
+)
 
-SCHEMA_SUBMIT_IR_FOR_MAPPING = "deed_to_ir.submit_ir_for_mapping.v1"
+SCHEMA_SUBMIT_IR_FOR_MAPPING = "deed_to_ir.submit_ir_for_mapping.v2"
 
 _MAPPING_IDENTITY_KEYS = (
     "mapping_artifact_ref",
@@ -33,14 +45,6 @@ _MAPPING_IDENTITY_KEYS = (
     "world_bbox",
 )
 
-_SANITY_DETAIL_KEYS = (
-    "feature_metrics",
-    "course_leg_tables",
-    "endpoint_displacement_candidates",
-    "recommended_source_evidence_refs",
-    "review_questions",
-)
-
 _REVIEW_SKIP_KEYS = frozenset(
     {
         "sanity_review",
@@ -50,7 +54,6 @@ _REVIEW_SKIP_KEYS = frozenset(
     }
 )
 
-
 def build_submit_ir_for_mapping_view(
     outputs: Mapping[str, Any],
     *,
@@ -58,12 +61,17 @@ def build_submit_ir_for_mapping_view(
 ):
     """Priority under envelope pressure (greedy keep; explicit omit on drop):
 
-    1. Current mapping/IR lineage pair
-    2. Bounded sanity conclusion/status
-    3. Correction posture and draft patch targets
-    4. Compact finalization-session summary
-    5. Remaining review detail
-    6. Active handoff and descriptive metadata
+    Protected core (jointly reserved):
+    1. Current mapping/IR lineage and core artifact identity
+    2. Mechanical sanity head
+    3. Compact correction posture
+    4. Compact active finalization session core
+
+    Variable detail (after protected core):
+    5. Additional sanity detail and optional prose
+    6. Draft patch targets, fitted as whole rows
+    7. Remaining mapping-review detail
+    8. Active handoff and descriptive metadata
     """
     lineage_pair = _current_lineage_pair(outputs)
     payload = copy_scalar_fields(outputs, _MAPPING_IDENTITY_KEYS)
@@ -87,85 +95,84 @@ def build_submit_ir_for_mapping_view(
         if isinstance(outputs.get("mapping_review"), Mapping)
         else None
     )
-    compact_review = compact_mapping_review_for_projection(raw_review)
+    compact_review = compact_mapping_review_for_projection(raw_review) or {}
     review: dict[str, Any] = {}
 
-    sanity_core, sanity_detail = _split_sanity(compact_review, raw_review)
-    if sanity_core:
-        if not _set_review_field(
-            payload, review, field="sanity_review", value=sanity_core, continuity_key=continuity_key
-        ):
-            # Keep bounded conclusion/status markers; drop summary-sized extras first.
-            core_only = {
-                key: sanity_core[key]
-                for key in (
-                    "conclusion",
-                    "status",
-                    "conclusion_omitted",
-                    "conclusion_chars",
-                    "status_omitted",
-                    "status_chars",
-                )
-                if key in sanity_core
-            }
-            if core_only and _set_review_field(
-                payload,
-                review,
-                field="sanity_review",
-                value=core_only,
-                continuity_key=continuity_key,
-            ):
-                dropped = [key for key in sanity_core if key not in core_only]
-                if dropped:
-                    payload["sanity_review_omitted"] = view_budget_omission(fields=dropped)
-            else:
-                payload["sanity_review_omitted"] = view_budget_omission(fields=["sanity_review"])
-
-    repair = _repair_guidance(compact_review)
-    if repair and not _merge_review_fields(
-        payload, review, repair, continuity_key=continuity_key
-    ):
-        payload["mapping_repair_guidance_omitted"] = view_budget_omission(
-            fields=list(repair.keys())
-        )
-
-    session = build_finalization_session_result_view_summary(
+    session_summary = build_finalization_session_result_view_summary(
         outputs.get("active_finalization_session")
         if isinstance(outputs.get("active_finalization_session"), Mapping)
         else None
     )
-    if session is not None:
+    session_core = _session_core_only(session_summary)
+    posture = _correction_posture(compact_review)
+
+    raw_sanity = raw_review.get("sanity_review") if isinstance(raw_review, Mapping) else None
+    sanity_collections = None
+    sanity_prose: dict[str, Any] = {}
+    if raw_sanity is not None:
+        if not is_mapping_shaped_sanity(raw_sanity):
+            payload["sanity_review_omitted"] = {"reason": "invalid_shape"}
+        else:
+            sanity_collections, sanity_prose = compose_sanity_review(compact_review, raw_review)
+            if sanity_collections is not None:
+                fit_sanity_head(
+                    schema_id=SCHEMA_SUBMIT_IR_FOR_MAPPING,
+                    payload=payload,
+                    review=review,
+                    collections=sanity_collections,
+                    continuity_key=continuity_key,
+                    protected_session=session_core,
+                    protected_posture=posture,
+                )
+
+    if posture is not None and not _merge_review_fields(
+        payload, review, {"correction_posture": posture}, continuity_key=continuity_key
+    ):
+        payload["correction_posture_omitted"] = view_budget_omission(
+            fields=["correction_posture"]
+        )
+
+    if session_summary is not None:
 
         def _session_fits(candidate: Mapping[str, Any]) -> bool:
-            trial = dict(payload)
-            trial["active_finalization_session"] = dict(candidate)
-            view, _ = try_build_view(
-                schema_id=SCHEMA_SUBMIT_IR_FOR_MAPPING,
-                payload=trial,
+            return _payload_fits(
+                payload,
+                review,
                 continuity_key=continuity_key,
+                session=dict(candidate),
             )
-            return view is not None
 
         resolved, markers = resolve_session_summary_for_envelope(
-            session, fits=_session_fits
+            session_summary, fits=_session_fits
         )
         payload.update(markers)
         if resolved is not None:
             payload["active_finalization_session"] = resolved
 
-    if sanity_detail and isinstance(review.get("sanity_review"), Mapping):
-        enriched = dict(review["sanity_review"])
-        enriched.update(sanity_detail)
-        if not _set_review_field(
-            payload,
-            review,
-            field="sanity_review",
-            value=enriched,
+    if sanity_collections is not None:
+        fit_sanity_variable_detail(
+            schema_id=SCHEMA_SUBMIT_IR_FOR_MAPPING,
+            payload=payload,
+            review=review,
+            collections=sanity_collections,
+            prose=sanity_prose,
             continuity_key=continuity_key,
-        ):
-            payload["sanity_review_detail_omitted"] = view_budget_omission(
-                fields=list(sanity_detail.keys())
-            )
+            protected_session=None,
+            protected_posture=None,
+        )
+
+    targets_source = raw_review if isinstance(raw_review, Mapping) else compact_review
+    fit_draft_patch_targets(
+        schema_id=SCHEMA_SUBMIT_IR_FOR_MAPPING,
+        payload=payload,
+        review=review,
+        targets_raw=targets_source.get("draft_patch_targets"),
+        continuity_key=continuity_key,
+        merge_review_fields=_merge_review_fields,
+        payload_fits=lambda candidate: _payload_fits_raw(
+            candidate, continuity_key=continuity_key
+        ),
+    )
 
     remaining = _remaining_review_fields(compact_review)
     if remaining and not _merge_review_fields(
@@ -186,6 +193,39 @@ def build_submit_ir_for_mapping_view(
             fields=["active_handoff_context"]
         )
 
+    return _finalize_mapping_view(payload, review, continuity_key=continuity_key)
+
+
+def _finalize_mapping_view(
+    payload: dict[str, Any],
+    review: dict[str, Any],
+    *,
+    continuity_key: str | None,
+):
+    view, omission = try_build_view(
+        schema_id=SCHEMA_SUBMIT_IR_FOR_MAPPING,
+        payload=payload,
+        continuity_key=continuity_key,
+    )
+    if view is not None:
+        return view, omission
+
+    peelers = (
+        _peel_handoff,
+        _peel_remaining_review_detail,
+        peel_one_patch_target,
+        peel_one_sanity_variable_item,
+    )
+    for peeler in peelers:
+        while peeler(payload=payload, review=review):
+            view, omission = try_build_view(
+                schema_id=SCHEMA_SUBMIT_IR_FOR_MAPPING,
+                payload=payload,
+                continuity_key=continuity_key,
+            )
+            if view is not None:
+                return view, omission
+
     return try_build_view(
         schema_id=SCHEMA_SUBMIT_IR_FOR_MAPPING,
         payload=payload,
@@ -193,55 +233,83 @@ def build_submit_ir_for_mapping_view(
     )
 
 
-def _split_sanity(
-    compact_review: Mapping[str, Any] | None,
-    raw_review: Mapping[str, Any] | None,
-) -> tuple[dict[str, Any] | None, dict[str, Any]]:
-    compact_sanity = (
-        compact_review.get("sanity_review") if isinstance(compact_review, Mapping) else None
+def _session_core_only(session_summary: Mapping[str, Any] | None) -> dict[str, Any] | None:
+    if not isinstance(session_summary, Mapping):
+        return None
+    core = dict(session_summary)
+    core.pop("diagnostics", None)
+    return core
+
+
+def _payload_fits(
+    payload: dict[str, Any],
+    review: dict[str, Any],
+    *,
+    continuity_key: str | None,
+    session: Mapping[str, Any] | None = None,
+) -> bool:
+    trial = dict(payload)
+    if session is not None:
+        trial["active_finalization_session"] = dict(session)
+    if review:
+        trial["mapping_review"] = dict(review)
+    view, _ = try_build_view(
+        schema_id=SCHEMA_SUBMIT_IR_FOR_MAPPING,
+        payload=trial,
+        continuity_key=continuity_key,
     )
-    raw_sanity = raw_review.get("sanity_review") if isinstance(raw_review, Mapping) else None
-    source = compact_sanity if isinstance(compact_sanity, Mapping) else {}
-
-    core: dict[str, Any] = {}
-    for key in ("conclusion", "status"):
-        value = None
-        if isinstance(raw_sanity, Mapping):
-            value = raw_sanity.get(key)
-        if value in (None, "") and isinstance(source, Mapping):
-            value = source.get(key)
-        # Non-string values are omitted rather than coerced.
-        if isinstance(value, str) and value.strip():
-            bound = bound_text(value, field=key)
-            if bound:
-                core.update(bound)
-
-    summary_source = None
-    if isinstance(raw_sanity, Mapping) and isinstance(raw_sanity.get("summary"), str):
-        summary_source = raw_sanity.get("summary")
-    elif isinstance(source, Mapping) and isinstance(source.get("summary"), str):
-        summary_source = source.get("summary")
-    bound = bound_text(summary_source, field="summary")
-    if bound:
-        core.update(bound)
-
-    detail: dict[str, Any] = {}
-    if isinstance(source, Mapping):
-        for key in _SANITY_DETAIL_KEYS:
-            if key in source and source[key] is not None:
-                detail[key] = source[key]
-    return (core or None), detail
+    return view is not None
 
 
-def _repair_guidance(compact_review: Mapping[str, Any] | None) -> dict[str, Any]:
-    if not isinstance(compact_review, Mapping):
-        return {}
-    out: dict[str, Any] = {}
-    if compact_review.get("correction_posture") is not None:
-        out["correction_posture"] = compact_review["correction_posture"]
-    if compact_review.get("draft_patch_targets") is not None:
-        out["draft_patch_targets"] = compact_review["draft_patch_targets"]
-    return out
+def _payload_fits_raw(payload: dict[str, Any], *, continuity_key: str | None) -> bool:
+    view, _ = try_build_view(
+        schema_id=SCHEMA_SUBMIT_IR_FOR_MAPPING,
+        payload=payload,
+        continuity_key=continuity_key,
+    )
+    return view is not None
+
+
+def _peel_handoff(payload: dict[str, Any], review: dict[str, Any]) -> bool:
+    if "active_handoff_context" not in payload:
+        return False
+    payload.pop("active_handoff_context", None)
+    payload["active_handoff_context_omitted"] = view_budget_omission(
+        fields=["active_handoff_context"]
+    )
+    return True
+
+
+def _peel_remaining_review_detail(payload: dict[str, Any], review: dict[str, Any]) -> bool:
+    skip = _REVIEW_SKIP_KEYS | {"mapping_artifact_ref", "source_ir_artifact_ref"}
+    protected = {"sanity_review", "correction_posture", "draft_patch_targets"}
+    removable = [
+        key
+        for key in review
+        if key not in protected
+        and key not in skip
+        and not _is_omission_marker_key(key)
+    ]
+    if not removable:
+        return False
+    for key in removable:
+        review.pop(key, None)
+    payload["mapping_review"] = dict(review) if review else {}
+    if not review:
+        payload.pop("mapping_review", None)
+    payload["mapping_review_detail_omitted"] = view_budget_omission(fields=removable)
+    return True
+
+
+def _is_omission_marker_key(key: str) -> bool:
+    return key.endswith("_omitted") or key.endswith("_omitted_count")
+
+
+def _correction_posture(compact_review: Mapping[str, Any]) -> dict[str, Any] | None:
+    posture = compact_review.get("correction_posture")
+    if isinstance(posture, Mapping) and posture:
+        return dict(posture)
+    return None
 
 
 def _remaining_review_fields(compact_review: Mapping[str, Any] | None) -> dict[str, Any]:
@@ -271,28 +339,6 @@ def _set_payload_field(
     if view is None:
         return False
     payload[key] = value
-    return True
-
-
-def _set_review_field(
-    payload: dict[str, Any],
-    review: dict[str, Any],
-    *,
-    field: str,
-    value: Any,
-    continuity_key: str | None,
-) -> bool:
-    trial_review = dict(review)
-    trial_review[field] = value
-    if not _set_payload_field(
-        payload,
-        key="mapping_review",
-        value=trial_review,
-        continuity_key=continuity_key,
-    ):
-        return False
-    review.clear()
-    review.update(trial_review)
     return True
 
 
