@@ -22,9 +22,11 @@ from tooling.mapping.deed_to_ir.mapping_review import (
     render_mapping_review_timeline_lines,
 )
 from tooling.mapping.deed_to_ir.mapping_sanity import (
+    AMBIGUOUS_OPERAND_FAMILY_REASON,
     build_course_leg_table,
     build_mapping_sanity_review,
     build_operand_evidence_index,
+    ordered_entity_ids_for_leg,
 )
 from feature_graph.artifacts import create_judge_artifact, create_ir_artifact
 from feature_graph.gaps import JudgeReport
@@ -415,3 +417,195 @@ def test_operand_evidence_index_is_mechanical() -> None:
         }
     )
     assert index["p1_call2_distance"] == ["image:derived:abc"]
+
+
+_CRITICAL_CROP = "image:derived:fba6f159e40d4010896245d6525d4acf"
+
+
+def _single_course_graph(
+    *,
+    node_id: str,
+    provenance_entity_ids: list[str],
+    distance: float = 542.0,
+) -> FeatureGraph:
+    return FeatureGraph(
+        graph_id="binding_scope",
+        nodes=[
+            FeatureNode(
+                id="pob",
+                kind=FeatureKind.POINT,
+                geometry={"type": "Point", "coordinates": [0.0, 0.0]},
+            ),
+            FeatureNode(
+                id=node_id,
+                kind=FeatureKind.CURVE,
+                op_expr=OpExpr(
+                    op_name="CourseTraverse",
+                    operands=["pob"],
+                    params={
+                        "courses": [
+                            {
+                                "bearing": 68.5,
+                                "distance": distance,
+                                "bearing_raw": "N. 68° 30' E.",
+                                "distance_raw": f"{int(distance)} feet",
+                            }
+                        ]
+                    },
+                ),
+                provenance=ProvenanceAttachment(
+                    source_entity_links=[
+                        SourceEntityLink(
+                            entity_id=entity_id,
+                            entity_type="distance" if "distance" in entity_id else "bearing",
+                            source_ref="transcript_edit:resolution_state:test",
+                        )
+                        for entity_id in provenance_entity_ids
+                    ]
+                ),
+            ),
+        ],
+        edges=[],
+    )
+
+
+def _two_parcel_leg1_operand_index() -> dict[str, list[str]]:
+    return {
+        "p1_call1_distance": ["image:derived:p1d1"],
+        "p1_call1_bearing": ["image:derived:p1b1"],
+        "p2_call1_distance": ["image:derived:p2d1"],
+        "p2_call1_bearing": ["image:derived:p2b1"],
+    }
+
+
+def test_br023_case_a_shared_call_ordinals_bind_only_same_parcel_family() -> None:
+    graph = _single_course_graph(
+        node_id="parcel_1_traverse",
+        provenance_entity_ids=["p1_call1_distance", "p1_call1_bearing"],
+    )
+    node = graph.nodes[1]
+    entry = compile_graph(graph).compiled_features["parcel_1_traverse"]
+    table = build_course_leg_table(
+        node=node,
+        compiled_entry=entry,
+        operand_evidence_index=_two_parcel_leg1_operand_index(),
+    )
+    assert table is not None
+    leg1 = table["courses"][0]
+    assert leg1["source_entity_ids"] == ["p1_call1_distance", "p1_call1_bearing"]
+    assert leg1["evidence_refs"] == ["image:derived:p1d1", "image:derived:p1b1"]
+    assert "p2_call1_distance" not in leg1["source_entity_ids"]
+    assert "image:derived:p2d1" not in leg1["evidence_refs"]
+
+
+def test_br023_case_b_partial_direct_provenance_supplements_same_family_only() -> None:
+    graph = _parcel1_graph(leg2_distance=618.0)
+    graph.nodes[1].provenance = ProvenanceAttachment(
+        source_entity_links=[
+            SourceEntityLink(
+                entity_id="p1_call2_bearing",
+                entity_type="bearing",
+                source_ref="transcript_edit:resolution_state:test",
+            )
+        ]
+    )
+    node = graph.nodes[1]
+    entry = compile_graph(graph).compiled_features["parcel_1_traverse"]
+    operand_index = {
+        "p1_call2_distance": [_CRITICAL_CROP],
+        "p2_call2_distance": ["image:derived:parcel2_wrong"],
+    }
+    table = build_course_leg_table(
+        node=node,
+        compiled_entry=entry,
+        operand_evidence_index=operand_index,
+    )
+    leg2 = table["courses"][1]
+    assert leg2["source_entity_ids"] == ["p1_call2_distance", "p1_call2_bearing"]
+    assert leg2["evidence_refs"] == [_CRITICAL_CROP]
+    assert "p2_call2_distance" not in leg2["source_entity_ids"]
+
+
+def test_br023_same_family_unknown_kind_not_supplemented_from_index() -> None:
+    graph = _parcel1_graph(leg2_distance=618.0)
+    graph.nodes[1].provenance = ProvenanceAttachment(
+        source_entity_links=[
+            SourceEntityLink(
+                entity_id="p1_call2_bearing",
+                entity_type="bearing",
+                source_ref="transcript_edit:resolution_state:test",
+            )
+        ]
+    )
+    node = graph.nodes[1]
+    entry = compile_graph(graph).compiled_features["parcel_1_traverse"]
+    operand_index = {
+        "p1_call2_distance": [_CRITICAL_CROP],
+        "p1_call2_note": ["image:derived:note_should_not_bind"],
+    }
+    table = build_course_leg_table(
+        node=node,
+        compiled_entry=entry,
+        operand_evidence_index=operand_index,
+    )
+    leg2 = table["courses"][1]
+    assert leg2["source_entity_ids"] == ["p1_call2_distance", "p1_call2_bearing"]
+    assert "p1_call2_note" not in leg2["source_entity_ids"]
+    assert "image:derived:note_should_not_bind" not in leg2["evidence_refs"]
+
+
+def test_br023_case_c_unambiguous_index_only_fallback() -> None:
+    operand_index = {
+        "p1_call2_distance": [_CRITICAL_CROP],
+        "p1_call2_bearing": ["image:derived:523e479a744742cd992ccb6dbe67dae2"],
+    }
+    entity_ids = ordered_entity_ids_for_leg(
+        source_entity_ids=[],
+        operand_evidence_index=operand_index,
+        leg_index=2,
+    )
+    assert entity_ids == ["p1_call2_distance", "p1_call2_bearing"]
+
+
+def test_br023_case_d_ambiguous_index_only_fallback_is_observable() -> None:
+    operand_index = {
+        "p1_call2_distance": [_CRITICAL_CROP],
+        "p2_call2_distance": ["image:derived:parcel2_wrong"],
+    }
+    graph = _parcel1_graph(leg2_distance=618.0)
+    graph.nodes[1].provenance = None
+    node = graph.nodes[1]
+    entry = compile_graph(graph).compiled_features["parcel_1_traverse"]
+    table = build_course_leg_table(
+        node=node,
+        compiled_entry=entry,
+        operand_evidence_index=operand_index,
+    )
+    leg2 = table["courses"][1]
+    assert leg2.get("source_entity_ids") is None
+    assert leg2["source_entity_ids_reason"] == AMBIGUOUS_OPERAND_FAMILY_REASON
+    assert leg2["evidence_refs"] == []
+    assert leg2["evidence_refs_reason"] == AMBIGUOUS_OPERAND_FAMILY_REASON
+    assert "no_operand_evidence_indexed" not in leg2
+    assert "p1_call2_distance" not in json.dumps(leg2)
+    assert "p2_call2_distance" not in json.dumps(leg2)
+
+
+def test_br023_case_f_run40_shaped_parcel1_leg2_evidence_binding() -> None:
+    graph = _parcel1_graph(leg2_distance=618.0)
+    compile_artifact = create_compile_artifact(
+        artifact_id="compile_run40_shape",
+        graph_id=graph.graph_id,
+        compiled_features=compile_graph(graph).compiled_features,
+    )
+    sanity = build_mapping_sanity_review(
+        graph=graph,
+        compile_artifact=compile_artifact,
+        operand_evidence_index={"p1_call2_distance": [_CRITICAL_CROP]},
+    )
+    leg2 = sanity["course_leg_tables"][0]["courses"][1]
+    assert leg2["distance"] == 618.0
+    assert leg2["source_entity_ids"] == ["p1_call2_distance", "p1_call2_bearing"]
+    assert _CRITICAL_CROP in leg2["evidence_refs"]
+    serialized = json.dumps(sanity)
+    assert "p2_call" not in serialized

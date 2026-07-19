@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import json
 import tempfile
 from pathlib import Path
 
+from feature_graph.compiler import compile_graph
 from feature_graph.models import FeatureGraph, FeatureKind, FeatureNode, OpExpr
 from feature_graph.provenance import ProvenanceAttachment, SourceEntityLink
 from harness.audit.human_timeline import _render_tool_result
@@ -22,6 +24,7 @@ from tooling.mapping.deed_to_ir.mapping_review import (
     compact_mapping_review_for_projection,
     render_mapping_review_timeline_lines,
 )
+from tooling.mapping.deed_to_ir.mapping_sanity import build_course_leg_table
 
 
 _CORRUPTED_DISTANCE = 618.0
@@ -384,3 +387,120 @@ def test_draft_patch_targets_timeline_lines_render() -> None:
     }
     rendered = "\n".join(_render_tool_result(turn))
     assert "draft_patch_targets" in rendered
+
+
+def _two_parcel_course_tables(*, leg2_distance: float) -> list[dict]:
+    courses_p1 = [
+        {"bearing": 68.5, "distance": 542.0, "bearing_raw": "N. 68° 30' E.", "distance_raw": "542 feet"},
+        {
+            "bearing": 267.583333,
+            "distance": leg2_distance,
+            "bearing_raw": "S. 87° 35' W.",
+            "distance_raw": f"{int(leg2_distance)} feet",
+        },
+    ]
+    courses_p2 = [
+        {"bearing": 87.583333, "distance": 400.0, "bearing_raw": "N. 87°35' E.", "distance_raw": "400 feet"},
+    ]
+    operand_index = {
+        "p1_call1_distance": ["image:derived:p1d1"],
+        "p1_call1_bearing": ["image:derived:p1b1"],
+        "p1_call2_distance": ["image:derived:p1d2"],
+        "p1_call2_bearing": ["image:derived:p1b2"],
+        "p2_call1_distance": ["image:derived:p2d1"],
+        "p2_call1_bearing": ["image:derived:p2b1"],
+    }
+    graph = FeatureGraph(
+        graph_id="two_parcel_binding",
+        nodes=[
+            FeatureNode(
+                id="pob",
+                kind=FeatureKind.POINT,
+                geometry={"type": "Point", "coordinates": [0.0, 0.0]},
+            ),
+            FeatureNode(
+                id="parcel_1_traverse",
+                kind=FeatureKind.CURVE,
+                op_expr=OpExpr(
+                    op_name="CourseTraverse",
+                    operands=["pob"],
+                    params={"courses": courses_p1},
+                ),
+                provenance=ProvenanceAttachment(
+                    source_entity_links=[
+                        SourceEntityLink(
+                            entity_id="p1_call1_distance",
+                            entity_type="distance",
+                            source_ref="transcript_edit:resolution_state:test",
+                        ),
+                        SourceEntityLink(
+                            entity_id="p1_call1_bearing",
+                            entity_type="bearing",
+                            source_ref="transcript_edit:resolution_state:test",
+                        ),
+                        SourceEntityLink(
+                            entity_id="p1_call2_distance",
+                            entity_type="distance",
+                            source_ref="transcript_edit:resolution_state:test",
+                        ),
+                        SourceEntityLink(
+                            entity_id="p1_call2_bearing",
+                            entity_type="bearing",
+                            source_ref="transcript_edit:resolution_state:test",
+                        ),
+                    ]
+                ),
+            ),
+            FeatureNode(
+                id="parcel_2_traverse",
+                kind=FeatureKind.CURVE,
+                op_expr=OpExpr(
+                    op_name="CourseTraverse",
+                    operands=["pob"],
+                    params={"courses": courses_p2},
+                ),
+                provenance=ProvenanceAttachment(
+                    source_entity_links=[
+                        SourceEntityLink(
+                            entity_id="p2_call1_distance",
+                            entity_type="distance",
+                            source_ref="transcript_edit:resolution_state:test",
+                        ),
+                        SourceEntityLink(
+                            entity_id="p2_call1_bearing",
+                            entity_type="bearing",
+                            source_ref="transcript_edit:resolution_state:test",
+                        ),
+                    ]
+                ),
+            ),
+        ],
+        edges=[],
+    )
+    compiled = compile_graph(graph).compiled_features
+    tables: list[dict] = []
+    for node in graph.nodes:
+        if node.op_expr is None or node.op_expr.op_name != "CourseTraverse":
+            continue
+        table = build_course_leg_table(
+            node=node,
+            compiled_entry=compiled[node.id],
+            operand_evidence_index=operand_index,
+        )
+        if table is not None:
+            tables.append(table)
+    return tables
+
+
+def test_br023_case_e_draft_patch_targets_contain_no_cross_parcel_contamination() -> None:
+    tables = _two_parcel_course_tables(leg2_distance=_CORRUPTED_DISTANCE)
+    targets = build_draft_patch_targets(course_leg_tables=tables)
+    parcel_1_targets = [row for row in targets if row.get("node_id") == "parcel_1_traverse"]
+    assert parcel_1_targets
+    serialized = json.dumps({"targets": targets, "tables": tables})
+    assert "p2_call" not in json.dumps(parcel_1_targets)
+    assert "image:derived:p2" not in serialized.split("parcel_1_traverse")[1].split("parcel_2_traverse")[0]
+    for target in parcel_1_targets:
+        assert str(target.get("source_entity_id") or "").startswith("p1_")
+        for ref in target.get("evidence_refs") or []:
+            assert "p2" not in ref

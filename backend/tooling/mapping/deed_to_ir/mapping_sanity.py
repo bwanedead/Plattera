@@ -28,6 +28,8 @@ GENERIC_REVIEW_QUESTIONS = [
 
 _CALL_ENTITY_PATTERN = re.compile(r"_call(\d+)_", re.IGNORECASE)
 
+AMBIGUOUS_OPERAND_FAMILY_REASON = "ambiguous_operand_family"
+
 
 def build_operand_evidence_index(resolution_state_snapshot: Mapping[str, Any] | None) -> dict[str, list[str]]:
     """Mechanically index evidence refs by upstream unit/entity id from resolution snapshot."""
@@ -58,6 +60,14 @@ def build_operand_evidence_index(resolution_state_snapshot: Mapping[str, Any] | 
     return index
 
 
+def _call_family_prefix(entity_id: str) -> str | None:
+    """Stable entity-family prefix through the matching call segment (e.g. ``p1_call2_``)."""
+    match = _CALL_ENTITY_PATTERN.search(entity_id)
+    if match is None:
+        return None
+    return entity_id[: match.end()]
+
+
 def _entity_ids_for_leg(source_entity_ids: list[str], leg_index: int) -> list[str]:
     matched: list[str] = []
     for entity_id in source_entity_ids:
@@ -84,6 +94,78 @@ def _entity_ids_from_operand_index_for_leg(
     return matched
 
 
+def _order_entity_ids(entity_ids: list[str]) -> list[str]:
+    combined = list(dict.fromkeys(entity_ids))
+    distance_ids = [entity_id for entity_id in combined if _entity_value_kind(entity_id) == "distance"]
+    bearing_ids = [entity_id for entity_id in combined if _entity_value_kind(entity_id) == "bearing"]
+    other_ids = [
+        entity_id
+        for entity_id in combined
+        if entity_id not in distance_ids and entity_id not in bearing_ids
+    ]
+    return distance_ids + bearing_ids + other_ids
+
+
+def _resolve_leg_entity_binding(
+    *,
+    source_entity_ids: list[str],
+    operand_evidence_index: dict[str, list[str]] | None,
+    leg_index: int,
+) -> tuple[list[str], str | None]:
+    """Resolve course-leg entity IDs with provenance-safe family binding."""
+    linked = _entity_ids_for_leg(source_entity_ids, leg_index)
+    if linked:
+        families = {
+            prefix
+            for entity_id in linked
+            if (prefix := _call_family_prefix(entity_id)) is not None
+        }
+        if not families:
+            return _order_entity_ids(linked), None
+
+        linked_set = set(linked)
+        family_represented_kinds: dict[str, set[str]] = {}
+        for entity_id in linked:
+            prefix = _call_family_prefix(entity_id)
+            if prefix is None:
+                continue
+            kind = _entity_value_kind(entity_id)
+            if kind is not None:
+                family_represented_kinds.setdefault(prefix, set()).add(kind)
+        supplemented = list(linked)
+        for entity_id in _entity_ids_from_operand_index_for_leg(operand_evidence_index, leg_index):
+            if entity_id in linked_set:
+                continue
+            prefix = _call_family_prefix(entity_id)
+            if prefix is None or prefix not in families:
+                continue
+            kind = _entity_value_kind(entity_id)
+            if kind not in ("distance", "bearing"):
+                continue
+            if kind in family_represented_kinds.setdefault(prefix, set()):
+                continue
+            supplemented.append(entity_id)
+            linked_set.add(entity_id)
+            family_represented_kinds[prefix].add(kind)
+        return _order_entity_ids(supplemented), None
+
+    indexed_matches = _entity_ids_from_operand_index_for_leg(operand_evidence_index, leg_index)
+    if not indexed_matches:
+        return [], None
+
+    by_family: dict[str, list[str]] = {}
+    for entity_id in indexed_matches:
+        prefix = _call_family_prefix(entity_id)
+        family_key = prefix if prefix is not None else f"__solo__:{entity_id}"
+        by_family.setdefault(family_key, []).append(entity_id)
+
+    if len(by_family) != 1:
+        return [], AMBIGUOUS_OPERAND_FAMILY_REASON
+
+    sole_family = next(iter(by_family.values()))
+    return _order_entity_ids(sole_family), None
+
+
 def _entity_value_kind(entity_id: str) -> str | None:
     lower = entity_id.lower()
     if "distance" in lower:
@@ -100,28 +182,12 @@ def ordered_entity_ids_for_leg(
     leg_index: int,
 ) -> list[str]:
     """Public helper: order source entity ids for a course leg (distance before bearing)."""
-    return _ordered_entity_ids_for_leg(
+    entity_ids, _reason = _resolve_leg_entity_binding(
         source_entity_ids=source_entity_ids,
         operand_evidence_index=operand_evidence_index,
         leg_index=leg_index,
     )
-
-
-def _ordered_entity_ids_for_leg(
-    *,
-    source_entity_ids: list[str],
-    operand_evidence_index: dict[str, list[str]] | None,
-    leg_index: int,
-) -> list[str]:
-    linked = _entity_ids_for_leg(source_entity_ids, leg_index)
-    indexed = _entity_ids_from_operand_index_for_leg(operand_evidence_index, leg_index)
-    combined = list(dict.fromkeys(linked + indexed))
-    if not combined and source_entity_ids and leg_index == 1 and len(source_entity_ids) == len(linked):
-        return linked
-    distance_ids = [entity_id for entity_id in combined if _entity_value_kind(entity_id) == "distance"]
-    bearing_ids = [entity_id for entity_id in combined if _entity_value_kind(entity_id) == "bearing"]
-    other_ids = [entity_id for entity_id in combined if entity_id not in distance_ids and entity_id not in bearing_ids]
-    return distance_ids + bearing_ids + other_ids
+    return entity_ids
 
 
 def _ordered_evidence_refs_for_entities(
@@ -194,13 +260,14 @@ def build_course_leg_table(
         if not isinstance(raw_course, Mapping):
             continue
         leg_index = index + 1
-        source_entity_ids = _ordered_entity_ids_for_leg(
+        source_entity_ids, binding_reason = _resolve_leg_entity_binding(
             source_entity_ids=all_entity_ids,
             operand_evidence_index=operand_evidence_index,
             leg_index=leg_index,
         )
         if not source_entity_ids and all_entity_ids and len(courses) == 1:
             source_entity_ids = list(all_entity_ids)
+            binding_reason = None
         evidence_refs = _ordered_evidence_refs_for_entities(source_entity_ids, operand_evidence_index)
         row: dict[str, Any] = {"leg_index": leg_index}
         bearing = raw_course.get("bearing")
@@ -217,9 +284,13 @@ def build_course_leg_table(
             row["distance_raw"] = distance_raw.strip()
         if source_entity_ids:
             row["source_entity_ids"] = source_entity_ids
+        elif binding_reason:
+            row["source_entity_ids_reason"] = binding_reason
         row["evidence_refs"] = evidence_refs
         if not evidence_refs:
-            row["evidence_refs_reason"] = "no_operand_evidence_indexed"
+            row["evidence_refs_reason"] = (
+                binding_reason if binding_reason else "no_operand_evidence_indexed"
+            )
         rows.append(row)
 
     if not rows:
