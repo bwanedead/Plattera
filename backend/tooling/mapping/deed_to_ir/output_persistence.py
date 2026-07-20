@@ -540,6 +540,33 @@ def _validate_matching_preview_pointer_coordinate(
     return revision_digits, revision_ref
 
 
+def append_unique_artifact_ref(
+    artifact_refs: Any,
+    ref: Any = None,
+) -> list[str]:
+    """Order-stable dedupe of nonblank string refs; optionally append one more.
+
+    Never coerces non-strings. First-seen order is preserved. ``ref`` is appended
+    only when it is itself a nonblank string and not already retained.
+    """
+    out: list[str] = []
+    seen: set[str] = set()
+    raw_items = artifact_refs if isinstance(artifact_refs, (list, tuple)) else []
+    for item in raw_items:
+        if not isinstance(item, str):
+            continue
+        text = item.strip()
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        out.append(text)
+    if isinstance(ref, str):
+        text = ref.strip()
+        if text and text not in seen:
+            out.append(text)
+    return out
+
+
 def _build_publish_success_result(
     *,
     published: DeedToIrPublishedOutput,
@@ -594,6 +621,7 @@ def _build_publish_success_result(
     }
     if preview_ref:
         outputs["final_package_preview_ref"] = preview_ref
+        artifact_refs = append_unique_artifact_ref(artifact_refs, preview_ref)
     if isinstance(correction_lane_advisory, dict) and correction_lane_advisory:
         outputs["correction_lane_advisory"] = correction_lane_advisory
     if idempotent_replay:

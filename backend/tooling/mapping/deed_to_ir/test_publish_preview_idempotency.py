@@ -84,6 +84,7 @@ def test_first_preview_publication_creates_revision_1(monkeypatch) -> None:
         assert first["executed"] is True
         assert first["outputs"]["output_revision_ref"] == "deed_to_ir:output:rev:0001"
         assert first["outputs"]["final_package_preview_ref"] == preview_ref
+        assert first["artifact_refs"].count(preview_ref) == 1
         assert "idempotent_replay" not in first["outputs"]
 
         output_dir = _output_dir(
@@ -121,6 +122,9 @@ def test_repeat_same_preview_replays_revision_1_without_duplicate(monkeypatch) -
         assert second["executed"] is True
         assert second["outputs"]["output_revision_ref"] == "deed_to_ir:output:rev:0001"
         assert second["outputs"]["idempotent_replay"] is True
+        assert second["outputs"]["final_package_preview_ref"] == preview_ref
+        assert first["artifact_refs"].count(preview_ref) == 1
+        assert second["artifact_refs"].count(preview_ref) == 1
         assert mark_calls["n"] == 0
 
         output_dir = _output_dir(
@@ -261,6 +265,10 @@ def test_direct_legacy_publication_omits_preview_ref_on_pointer(monkeypatch) -> 
         )
         assert result["executed"] is True
         assert "final_package_preview_ref" not in result["outputs"]
+        assert not any(
+            str(ref).startswith("deed_to_ir:final_package_preview")
+            for ref in result.get("artifact_refs") or []
+        )
 
         latest_path = (
             Path(tmp)

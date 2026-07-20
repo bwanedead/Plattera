@@ -19,6 +19,9 @@
   duplicate revision for that matching preview. Direct/legacy publish omits the
   pointer field. Idempotency is latest-pointer-scoped (a newer published preview
   supersedes prior matching). Replay validates mapping/IR selection only.
+- **Preview lineage in artifact_refs:** Preview-backed publication places the same
+  immutable `final_package_preview_ref` in top-level `artifact_refs` (exactly once)
+  so harness `latest_refs` can satisfy completion-anchor preview lineage.
 
 ## Commands
 - Test: `pytest backend/tooling/mapping/deed_to_ir/ -q`

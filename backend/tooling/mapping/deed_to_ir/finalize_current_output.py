@@ -35,7 +35,7 @@ from .finalization_session_persistence import (
 )
 from .finalizer_result_boundary import normalize_finalizer_agent_visible_result
 from .mapping_lineage import read_current_mapping_lineage
-from .output_persistence import publish_deed_to_ir_output
+from .output_persistence import append_unique_artifact_ref, publish_deed_to_ir_output
 from .persistence_io import refusal, retryable_refusal
 from .preview_refs import PREVIEW_REV_PREFIX, parse_preview_ref
 
@@ -500,13 +500,27 @@ def _published_replay(
         outputs = dict(stored.get("outputs") or {})
         outputs["idempotent_replay"] = True
         outputs["finalization_status"] = STATUS_PUBLISHED
-        if session.get("preview_ref") and "final_package_preview_ref" not in outputs:
-            outputs["final_package_preview_ref"] = session.get("preview_ref")
+        resolved_preview, preview_refusal = _resolve_published_replay_preview_ref(
+            session_preview=session.get("preview_ref") if "preview_ref" in session else None,
+            output_preview=(
+                outputs.get("final_package_preview_ref")
+                if "final_package_preview_ref" in outputs
+                else None
+            ),
+        )
+        if preview_refusal is not None:
+            return preview_refusal
+        if resolved_preview is not None:
+            outputs["final_package_preview_ref"] = resolved_preview
+        artifact_refs = append_unique_artifact_ref(
+            stored.get("artifact_refs"),
+            resolved_preview,
+        )
         if session.get("output_revision_ref") and "output_revision_ref" not in outputs:
             outputs["output_revision_ref"] = session.get("output_revision_ref")
         return {
             "executed": True,
-            "artifact_refs": list(stored.get("artifact_refs") or []),
+            "artifact_refs": artifact_refs,
             "outputs": outputs,
         }
 
@@ -525,6 +539,60 @@ def _published_replay(
         if isinstance(outputs, dict):
             outputs["idempotent_replay"] = True
     return result
+
+
+_PUBLISHED_PREVIEW_REPLAY_STATE_INVALID = "published_preview_replay_state_invalid"
+
+
+def _classify_replay_preview_coordinate(raw: Any) -> tuple[str | None, bool]:
+    """Classify one preview coordinate for published replay.
+
+    Returns ``(revision_ref, invalid)``. Absent → ``(None, False)``. Present but
+    not an immutable revision ref → ``(None, True)``.
+    """
+    if raw is None:
+        return None, False
+    if not isinstance(raw, str):
+        return None, True
+    text = raw.strip()
+    if not text:
+        return None, False
+    kind, _digits = parse_preview_ref(text)
+    if kind == "revision" and text.startswith(PREVIEW_REV_PREFIX):
+        return text, False
+    return None, True
+
+
+def _resolve_published_replay_preview_ref(
+    *,
+    session_preview: Any,
+    output_preview: Any,
+) -> tuple[str | None, dict[str, Any] | None]:
+    """Normalize session/output preview coordinates for coherent replay.
+
+    Returns ``(resolved_revision_ref_or_None, refusal_or_None)``.
+    """
+    session_ref, session_invalid = _classify_replay_preview_coordinate(session_preview)
+    output_ref, output_invalid = _classify_replay_preview_coordinate(output_preview)
+    if session_invalid or output_invalid:
+        return None, refusal(
+            _PUBLISHED_PREVIEW_REPLAY_STATE_INVALID,
+            "Published finalization session preview coordinates are malformed or not "
+            "an immutable deed_to_ir:final_package_preview:rev:NNNN revision ref.",
+        )
+    if session_ref is None and output_ref is None:
+        return None, None
+    if session_ref is None:
+        return output_ref, None
+    if output_ref is None:
+        return session_ref, None
+    if session_ref != output_ref:
+        return None, refusal(
+            _PUBLISHED_PREVIEW_REPLAY_STATE_INVALID,
+            "Published finalization session preview_ref disagrees with "
+            "published_result.outputs.final_package_preview_ref.",
+        )
+    return session_ref, None
 
 
 def missing_finalization_decisions_refusal(

@@ -445,6 +445,152 @@ def test_action_sequence_refusal_does_not_terminal() -> None:
     assert outcome.terminal_class is None
 
 
+class _ArtifactRefsDerivedFinalizeSessionManager(ExecutionSessionManager):
+    """Production-shaped: latest_refs derived only from returned artifact_refs."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.steps: list[ExecutionStepRequest] = []
+
+    def step(self, request: ExecutionStepRequest) -> ExecutionStepResult:  # type: ignore[override]
+        self.steps.append(request)
+        outputs = _publish_outputs()
+        # Same shape as output_persistence._build_publish_success_result after BR-027.
+        artifact_refs = (
+            "deed_to_ir:output",
+            "deed_to_ir:output:rev:0001",
+            _MAPPING_B,
+            "feature_graph:control:example",
+            "feature_graph:clean:example",
+            "feature_graph:geometry:example",
+            "feature_graph:compile:example",
+            "feature_graph:judge:example",
+            "feature_graph:ir:example_scope_v1",
+            _PREVIEW_REF,
+        )
+        assert artifact_refs.count(_PREVIEW_REF) == 1
+        latest = {ref: ref for ref in artifact_refs}
+        result = ActionDispatchResult(
+            action_id=request.action_id,
+            executed=True,
+            outputs=outputs,
+            artifact_refs=artifact_refs,
+        )
+        record = SessionExecutionRecord(
+            session_id=request.session_id,
+            run_id="r",
+            request=request,
+            result=result,
+        )
+        return ExecutionStepResult(
+            session_id=request.session_id,
+            idempotency_key=request.idempotency_key,
+            execution_state=ExecutionState.EXECUTED,
+            dashboard=ExecutionDashboard(
+                latest_refs=ExecutionLatestRefs(refs=latest),
+                budgets_remaining={},
+                last_refusal=None,
+            ),
+            refusal=None,
+            record=record,
+        )
+
+
+class _MissingPreviewArtifactRefsFinalizeSessionManager(ExecutionSessionManager):
+    """Outputs claim preview, but artifact_refs omit it (run-41 failure shape)."""
+
+    def step(self, request: ExecutionStepRequest) -> ExecutionStepResult:  # type: ignore[override]
+        outputs = _publish_outputs()
+        artifact_refs = (
+            "deed_to_ir:output",
+            "deed_to_ir:output:rev:0001",
+            _MAPPING_B,
+            "feature_graph:ir:example_scope_v1",
+        )
+        latest = {ref: ref for ref in artifact_refs}
+        result = ActionDispatchResult(
+            action_id=request.action_id,
+            executed=True,
+            outputs=outputs,
+            artifact_refs=artifact_refs,
+        )
+        record = SessionExecutionRecord(
+            session_id=request.session_id,
+            run_id="r",
+            request=request,
+            result=result,
+        )
+        return ExecutionStepResult(
+            session_id=request.session_id,
+            idempotency_key=request.idempotency_key,
+            execution_state=ExecutionState.EXECUTED,
+            dashboard=ExecutionDashboard(
+                latest_refs=ExecutionLatestRefs(refs=latest),
+                budgets_remaining={},
+                last_refusal=None,
+            ),
+            refusal=None,
+            record=record,
+        )
+
+
+def test_producer_artifact_refs_drive_same_turn_completion_anchor() -> None:
+    """Preview must reach latest_refs via artifact_refs — not a hand-seeded preview key."""
+    from harness.runtime.orchestration.completion_anchor import collect_ref_strings
+
+    observer = _RecordingObserver()
+    mem = LoopMemoryState()
+    sm = _ArtifactRefsDerivedFinalizeSessionManager()
+    tracer = _StubTracer()
+    outcome = run_action_sequence_turn_if_present(
+        loop_memory=mem,
+        session_manager=sm,
+        session_id="sess-producer",
+        action_plan=_action_plan(),
+        iteration=1,
+        request_id_prefix="req",
+        run_id="run",
+        run_ctx={"domain_closure_policy": _deed_closure_policy(terminal=True)},
+        tracer=tracer,
+        turn_completion_observer=observer,
+        patch_present=False,
+    )
+    assert outcome.handled is True
+    assert outcome.terminal_class == "completed"
+    assert outcome.terminal_reason_code == "completion_anchor_satisfied"
+    assert observer.records[0]["completion_anchor"]["satisfied"] is True
+    assert observer.records[0]["completion_anchor"]["preview_ref"] == _PREVIEW_REF
+    # Derive from artifact_refs merge shape ({ref: ref}), not a semantic "preview" key.
+    assert "preview" not in mem.continuity.latest_refs
+    assert _PREVIEW_REF in mem.continuity.latest_refs
+    assert _PREVIEW_REF in collect_ref_strings(mem.continuity.latest_refs)
+    step = mem.continuity.kernel_step_result_records[-1]
+    assert step["artifact_refs"].count(_PREVIEW_REF) == 1
+    assert step["outputs_for_continuity"]["final_package_preview_ref"] == _PREVIEW_REF
+
+
+def test_missing_preview_in_artifact_refs_does_not_terminalize() -> None:
+    mem = LoopMemoryState()
+    sm = _MissingPreviewArtifactRefsFinalizeSessionManager()
+    tracer = _StubTracer()
+    outcome = run_action_sequence_turn_if_present(
+        loop_memory=mem,
+        session_manager=sm,
+        session_id="sess-missing-preview-refs",
+        action_plan=_action_plan(),
+        iteration=1,
+        request_id_prefix="req",
+        run_id="run",
+        run_ctx={"domain_closure_policy": _deed_closure_policy(terminal=True)},
+        tracer=tracer,
+        turn_completion_observer=None,
+        patch_present=False,
+    )
+    assert outcome.handled is True
+    assert outcome.terminal_class is None
+    assert _PREVIEW_REF not in mem.continuity.latest_refs
+
+
 class _OneTurnFinalizePack:
     def __init__(self) -> None:
         self.choose_action_calls = 0

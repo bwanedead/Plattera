@@ -752,7 +752,209 @@ def test_retry_publication_uses_br012_idempotency(monkeypatch) -> None:
         assert second["outputs"]["idempotent_replay"] is True
         assert second["outputs"]["final_package_preview_ref"] == preview_ref
         assert second["outputs"]["output_revision_ref"] == output_ref
+        assert first["artifact_refs"].count(preview_ref) == 1
+        assert second["artifact_refs"].count(preview_ref) == 1
         assert "next_required_action" not in second["outputs"]
+
+
+def test_append_unique_artifact_ref_canonical() -> None:
+    from tooling.mapping.deed_to_ir.output_persistence import append_unique_artifact_ref
+
+    preview = "deed_to_ir:final_package_preview:rev:0001"
+    assert append_unique_artifact_ref([preview, preview], preview) == [preview]
+    assert append_unique_artifact_ref(
+        ["a", "b", "a", "c", "b"],
+        None,
+    ) == ["a", "b", "c"]
+    assert append_unique_artifact_ref(
+        ["keep", 42, None, "", "  ", {"x": 1}, "keep", "tail"],
+        preview,
+    ) == ["keep", "tail", preview]
+    # First-publication ordering: base refs then preview appended once.
+    first_pub = [
+        "deed_to_ir:output",
+        "deed_to_ir:output:rev:0001",
+        "feature_graph:mapping:m1",
+        "feature_graph:ir:i1",
+    ]
+    assert append_unique_artifact_ref(first_pub, preview) == [*first_pub, preview]
+    assert append_unique_artifact_ref([*first_pub, preview], preview) == [*first_pub, preview]
+
+
+def test_legacy_published_result_replay_preview_coherence(monkeypatch) -> None:
+    """Normalize session/output preview coordinates; refuse conflict or malformed."""
+    from tooling.mapping.deed_to_ir.finalize_current_output import _published_replay
+    from tooling.mapping.deed_to_ir.preview_refs import PREVIEW_REF, PREVIEW_REV_PREFIX
+
+    preview_ref = f"{PREVIEW_REV_PREFIX}0001"
+    other_preview = f"{PREVIEW_REV_PREFIX}0002"
+    base_refs = [
+        "deed_to_ir:output",
+        "deed_to_ir:output:rev:0001",
+        "feature_graph:mapping:m1",
+        "feature_graph:ir:i1",
+    ]
+    publish_calls = {"n": 0}
+
+    def _forbidden_publish(**_kwargs):
+        publish_calls["n"] += 1
+        raise AssertionError("legacy replay must not re-publish")
+
+    monkeypatch.setattr(
+        "tooling.mapping.deed_to_ir.finalize_current_output.publish_deed_to_ir_output",
+        _forbidden_publish,
+    )
+
+    def _replay(session: dict) -> dict:
+        return _published_replay(
+            dossier_id="d-preview",
+            transcription_id="tx",
+            workspace_id="ws",
+            run_id="run",
+            transcript_edit_source_revision_ref="transcript_edit:working:rev:0001",
+            resolution_state_ref="transcript_edit:resolution_state:x",
+            session=session,
+            persistence=None,
+        )
+
+    # Session-only valid preview repair.
+    session_only = {
+        "status": STATUS_PUBLISHED,
+        "preview_ref": preview_ref,
+        "output_revision_ref": "deed_to_ir:output:rev:0001",
+        "published_result": {
+            "executed": True,
+            "artifact_refs": list(base_refs),
+            "outputs": {
+                "output_revision_ref": "deed_to_ir:output:rev:0001",
+                "finalization_status": STATUS_PUBLISHED,
+            },
+        },
+    }
+    repaired = _replay(session_only)
+    assert repaired["executed"] is True
+    assert repaired["outputs"]["final_package_preview_ref"] == preview_ref
+    assert repaired["artifact_refs"].count(preview_ref) == 1
+    assert publish_calls["n"] == 0
+
+    # Stored-output-only valid preview repair.
+    output_only = {
+        "status": STATUS_PUBLISHED,
+        "output_revision_ref": "deed_to_ir:output:rev:0001",
+        "published_result": {
+            "executed": True,
+            "artifact_refs": list(base_refs),
+            "outputs": {
+                "output_revision_ref": "deed_to_ir:output:rev:0001",
+                "final_package_preview_ref": preview_ref,
+                "finalization_status": STATUS_PUBLISHED,
+            },
+        },
+    }
+    repaired_out = _replay(output_only)
+    assert repaired_out["executed"] is True
+    assert repaired_out["outputs"]["final_package_preview_ref"] == preview_ref
+    assert repaired_out["artifact_refs"].count(preview_ref) == 1
+
+    # Equal coordinates with duplicated stored refs → exactly one preview ref.
+    duplicated = {
+        "status": STATUS_PUBLISHED,
+        "preview_ref": preview_ref,
+        "published_result": {
+            "executed": True,
+            "artifact_refs": [*base_refs, preview_ref, preview_ref, "feature_graph:ir:i1"],
+            "outputs": {
+                "final_package_preview_ref": preview_ref,
+                "finalization_status": STATUS_PUBLISHED,
+            },
+        },
+    }
+    deduped = _replay(duplicated)
+    assert deduped["executed"] is True
+    assert deduped["artifact_refs"].count(preview_ref) == 1
+    assert deduped["artifact_refs"].count("feature_graph:ir:i1") == 1
+
+    # Conflicting coordinates refuse.
+    conflict = {
+        "status": STATUS_PUBLISHED,
+        "preview_ref": preview_ref,
+        "published_result": {
+            "executed": True,
+            "artifact_refs": list(base_refs),
+            "outputs": {
+                "final_package_preview_ref": other_preview,
+                "finalization_status": STATUS_PUBLISHED,
+            },
+        },
+    }
+    refused_conflict = _replay(conflict)
+    assert refused_conflict["executed"] is False
+    assert (
+        refused_conflict["refusal"]["reason_code"]
+        == "published_preview_replay_state_invalid"
+    )
+    assert publish_calls["n"] == 0
+
+    # Present base alias refuses.
+    alias = {
+        "status": STATUS_PUBLISHED,
+        "preview_ref": PREVIEW_REF,
+        "published_result": {
+            "executed": True,
+            "artifact_refs": list(base_refs),
+            "outputs": {"finalization_status": STATUS_PUBLISHED},
+        },
+    }
+    refused_alias = _replay(alias)
+    assert refused_alias["executed"] is False
+    assert (
+        refused_alias["refusal"]["reason_code"]
+        == "published_preview_replay_state_invalid"
+    )
+
+    # Malformed present coordinate refuses.
+    malformed = {
+        "status": STATUS_PUBLISHED,
+        "preview_ref": "not-a-preview-ref",
+        "published_result": {
+            "executed": True,
+            "artifact_refs": list(base_refs),
+            "outputs": {
+                "final_package_preview_ref": preview_ref,
+                "finalization_status": STATUS_PUBLISHED,
+            },
+        },
+    }
+    refused_malformed = _replay(malformed)
+    assert refused_malformed["executed"] is False
+    assert (
+        refused_malformed["refusal"]["reason_code"]
+        == "published_preview_replay_state_invalid"
+    )
+
+    # Genuine no-preview legacy/direct replay remains unchanged.
+    direct = {
+        "status": STATUS_PUBLISHED,
+        "output_revision_ref": "deed_to_ir:output:rev:0001",
+        "published_result": {
+            "executed": True,
+            "artifact_refs": list(base_refs),
+            "outputs": {
+                "output_revision_ref": "deed_to_ir:output:rev:0001",
+                "mapping_artifact_ref": "feature_graph:mapping:m1",
+                "finalization_status": STATUS_PUBLISHED,
+            },
+        },
+    }
+    direct_replay = _replay(direct)
+    assert direct_replay["executed"] is True
+    assert "final_package_preview_ref" not in direct_replay["outputs"]
+    assert not any(
+        str(ref).startswith("deed_to_ir:final_package_preview")
+        for ref in direct_replay["artifact_refs"]
+    )
+    assert direct_replay["artifact_refs"] == base_refs
+    assert publish_calls["n"] == 0
 
 
 def test_decision_mutation_after_preview_is_refused(monkeypatch) -> None:
@@ -809,6 +1011,7 @@ def test_successful_publication_persists_published_without_complete_run_routing(
         _assert_revision_preview_ref(disk["preview_ref"])
         assert disk["preview_ref"] == outputs["final_package_preview_ref"]
         assert disk["output_revision_ref"] == outputs["output_revision_ref"]
+        assert result["artifact_refs"].count(outputs["final_package_preview_ref"]) == 1
 
 
 def test_published_replay_creates_no_preview_or_output(monkeypatch) -> None:
