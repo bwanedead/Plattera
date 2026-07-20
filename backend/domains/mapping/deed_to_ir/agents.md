@@ -8,6 +8,7 @@
 - **Domain vs tooling:** Transcript-edit output loading, input hydration, and IR persistence live in `backend/tooling/mapping/deed_to_ir/` only.
 - **Eight foundation tools:** `hydrate_deed_to_ir_input`, `describe_feature_graph_capabilities`, `save_ir_artifact`, `patch_ir_draft`, `submit_ir_for_mapping`, `finalize_current_deed_to_ir_output`, `hydrate_artifact_refs`, `list_feature_graph_artifacts`.
 - **Semantic-head result views:** The four state-advancing deed-to-IR tools share a provider-owned `deed_to_ir.current_working_head:<sha256(scope)>` continuity key; artifact refs remain historical identities, not continuity keys.
+- **Keyless hydrate_artifact_refs view:** Successful artifact hydrations attach `deed_to_ir.hydrate_artifact_refs.v1` with `continuity_key=None` so operand-to-evidence associations survive pending-result delivery without superseding the working head.
 - **Sole live finalization action:** `finalize_current_deed_to_ir_output`. Lower-level prepare/publish functions are internal compatibility primitives only — not agent-facing tools.
 - **Completion ownership:** Outer `DomainClosurePolicy.publish_action_ids` is empty so partial finalizer calls are not generic pre-dispatch publish attempts. Nested `CompletionAnchorPolicy.publish_action_ids` recognizes successful finalizer publication.
 - **Mapping submission is one action:** `submit_ir_for_mapping` internally compiles, judges, and renders; those are not separate agent workflow actions.

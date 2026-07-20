@@ -364,7 +364,7 @@ def test_capabilities_unrequested_ops_use_compact_index() -> None:
 # --- Composition / BR-019 preservation --------------------------------------
 
 
-def test_composition_wraps_six_actions_preserves_order() -> None:
+def test_composition_wraps_seven_actions_preserves_order() -> None:
     adapter = build_deed_to_ir_runtime_adapter()
     surface = adapter.build_turn_surface(_launch_context())
     assert [b.tool_id for b in surface.tool_bindings] == list(_EXPECTED_TOOL_IDS)
@@ -406,8 +406,31 @@ def test_composition_wraps_six_actions_preserves_order() -> None:
         listed = by_id["list_feature_graph_artifacts"]({})
     assert "agent_result_view" not in listed
 
-
-def test_executor_wire_round_trip_keyless_views() -> None:
+    with patch(
+        "tooling.mapping.deed_to_ir.artifact_hydration.hydrate_artifact_refs",
+        return_value={
+            "executed": True,
+            "outputs": {
+                "results": [
+                    {
+                        "ref_id": "feature_graph:ir:tiny",
+                        "artifact_type": "ir",
+                        "artifact_id": "tiny",
+                    }
+                ],
+                "errors": [],
+                "hydrated_count": 1,
+                "cap_exceeded": False,
+            },
+        },
+    ):
+        artifact_hydrate = by_id["hydrate_artifact_refs"]({"ref_ids": ["feature_graph:ir:tiny"]})
+    assert "agent_result_view" in artifact_hydrate
+    assert artifact_hydrate["agent_result_view"].get("continuity_key") is None
+    assert (
+        artifact_hydrate["agent_result_view"]["schema_id"]
+        == "deed_to_ir.hydrate_artifact_refs.v1"
+    )
     executor = ExecutionExecutor()
     executor.register(
         "hydrate_deed_to_ir_input",
@@ -560,14 +583,15 @@ def test_complementary_reads_remain_keyless() -> None:
     assert second["agent_result_view"].get("continuity_key") is None
 
 
-def test_hydrate_artifact_refs_untouched_by_composition() -> None:
+def test_hydrate_artifact_refs_wrapped_by_composition() -> None:
     from domains.mapping.deed_to_ir.runtime_adapter import composition as comp
 
     source = Path(comp.__file__).read_text(encoding="utf-8")
-    # Exactly six wrap_handler_with_result_view call sites; artifact hydrate/list stay bare.
-    assert source.count("wrap_handler_with_result_view(") == 6
-    assert "wrap_handler_with_result_view(\n                make_hydrate_artifact_refs_handler" not in source
-    assert 'HYDRATE_ARTIFACT_REFS,\n            make_hydrate_artifact_refs_handler' in source.replace(
+    # Seven wrap_handler_with_result_view call sites; list_feature_graph_artifacts stays bare.
+    assert source.count("wrap_handler_with_result_view(") == 7
+    assert "action_id=\"hydrate_artifact_refs\"" in source or "action_id='hydrate_artifact_refs'" in source
+    assert "list_feature_graph_artifacts" in source
+    assert 'wrap_handler_with_result_view(\n                _make_list_fg_artifacts_handler' not in source.replace(
         "\r\n", "\n"
     )
 

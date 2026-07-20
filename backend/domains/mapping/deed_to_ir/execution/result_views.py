@@ -14,6 +14,10 @@ from harness.execution.agent_result_view import (
     agent_result_view_to_wire,
 )
 
+from .artifact_hydration_result_views import (
+    SCHEMA_HYDRATE_ARTIFACT_REFS,
+    build_hydrate_artifact_refs_view,
+)
 from .capability_result_views import (
     SCHEMA_DESCRIBE_FEATURE_GRAPH_CAPABILITIES,
     build_describe_feature_graph_capabilities_view,
@@ -50,6 +54,7 @@ _READ_ACTIONS = frozenset(
     {
         "hydrate_deed_to_ir_input",
         "describe_feature_graph_capabilities",
+        "hydrate_artifact_refs",
     }
 )
 _WRAPPED_ACTIONS = frozenset({*_SUCCESS_ONLY_ACTIONS, _FINALIZER_ACTION, *_READ_ACTIONS})
@@ -78,6 +83,10 @@ def attach_deed_to_ir_result_view(
             return out
         if action_id == "hydrate_deed_to_ir_input":
             view, omission = build_hydrate_deed_to_ir_input_view(
+                outputs, action_inputs=action_inputs
+            )
+        elif action_id == "hydrate_artifact_refs":
+            view, omission = build_hydrate_artifact_refs_view(
                 outputs, action_inputs=action_inputs
             )
         else:
@@ -157,6 +166,7 @@ def _is_successful(result: Mapping[str, Any]) -> bool:
 __all__ = [
     "SCHEMA_DESCRIBE_FEATURE_GRAPH_CAPABILITIES",
     "SCHEMA_FINALIZE_CURRENT_OUTPUT",
+    "SCHEMA_HYDRATE_ARTIFACT_REFS",
     "SCHEMA_HYDRATE_DEED_TO_IR_INPUT",
     "SCHEMA_PATCH_IR_DRAFT",
     "SCHEMA_SAVE_IR_ARTIFACT",

@@ -146,12 +146,16 @@ def _tool_handler_entries(
         ),
         (
             HYDRATE_ARTIFACT_REFS,
-            make_hydrate_artifact_refs_handler(
-                dossier_id=dossier_id,
-                transcription_id=handoff.scope.transcription_id,
-                workspace_id=handoff.scope.workspace_id,
-                run_id=handoff.scope.run_id,
-                handoff_context=handoff_context,
+            wrap_handler_with_result_view(
+                make_hydrate_artifact_refs_handler(
+                    dossier_id=dossier_id,
+                    transcription_id=handoff.scope.transcription_id,
+                    workspace_id=handoff.scope.workspace_id,
+                    run_id=handoff.scope.run_id,
+                    handoff_context=handoff_context,
+                ),
+                action_id="hydrate_artifact_refs",
+                **scope,
             ),
         ),
         (
