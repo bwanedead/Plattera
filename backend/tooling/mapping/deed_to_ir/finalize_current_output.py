@@ -59,6 +59,7 @@ def finalize_current_deed_to_ir_output(
     scope_statuses: Any = None,
     correction_dispositions: Any = None,
     dependency_dispositions: Any = None,
+    closure_statuses: Any = None,
     rationales: Any = None,
     resolution_state_snapshot: Mapping[str, Any] | None = None,
     issues: list[Mapping[str, Any]] | None = None,
@@ -76,6 +77,7 @@ def finalize_current_deed_to_ir_output(
             scope_statuses=scope_statuses,
             correction_dispositions=correction_dispositions,
             dependency_dispositions=dependency_dispositions,
+            closure_statuses=closure_statuses,
             rationales=rationales,
             resolution_state_snapshot=resolution_state_snapshot,
             issues=issues,
@@ -95,6 +97,7 @@ def _finalize_current_deed_to_ir_output_impl(
     scope_statuses: Any = None,
     correction_dispositions: Any = None,
     dependency_dispositions: Any = None,
+    closure_statuses: Any = None,
     rationales: Any = None,
     resolution_state_snapshot: Mapping[str, Any] | None = None,
     issues: list[Mapping[str, Any]] | None = None,
@@ -104,6 +107,7 @@ def _finalize_current_deed_to_ir_output_impl(
         "scope_statuses": scope_statuses,
         "correction_dispositions": correction_dispositions,
         "dependency_dispositions": dependency_dispositions,
+        "closure_statuses": closure_statuses,
         "rationales": rationales,
     }
 
@@ -130,6 +134,11 @@ def _finalize_current_deed_to_ir_output_impl(
     shape_check = validate_decision_map_shapes(request)
     if shape_check.get("executed") is False:
         return shape_check
+
+    # Refuse prior-version / malformed sessions before frozen publish or replay.
+    persisted_check = validate_persisted_finalization_decisions(session)
+    if persisted_check.get("executed") is False:
+        return persisted_check
 
     status = str(session.get("status") or "").strip()
 
@@ -176,10 +185,6 @@ def _finalize_current_deed_to_ir_output_impl(
             "Remap the latest IR, then retry.",
         )
 
-    persisted_check = validate_persisted_finalization_decisions(session)
-    if persisted_check.get("executed") is False:
-        return persisted_check
-
     validated = validate_compact_finalization_decisions(session=session, request=request)
     if validated.get("executed") is False:
         return validated
@@ -211,6 +216,7 @@ def _finalize_current_deed_to_ir_output_impl(
         scope_statuses=completeness["scope_statuses"],
         correction_dispositions=completeness["correction_dispositions"],
         dependency_dispositions=completeness["dependency_dispositions"],
+        closure_statuses=completeness["closure_statuses"],
         rationales=completeness["rationales"],
     )
     if converted.get("executed") is False:
@@ -612,6 +618,7 @@ def missing_finalization_decisions_refusal(
             "scope_ids": list(missing.get("scope_ids") or []),
             "correction_ids": list(missing.get("correction_ids") or []),
             "dependency_ids": list(missing.get("dependency_ids") or []),
+            "closure_ids": list(missing.get("closure_ids") or []),
             "rationale_ids": list(missing.get("rationale_ids") or []),
         }
         if compact is not None:

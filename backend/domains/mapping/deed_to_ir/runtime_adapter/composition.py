@@ -298,6 +298,7 @@ def _make_finalize_current_handler(
                 scope_statuses=inputs.get("scope_statuses"),
                 correction_dispositions=inputs.get("correction_dispositions"),
                 dependency_dispositions=inputs.get("dependency_dispositions"),
+                closure_statuses=inputs.get("closure_statuses"),
                 rationales=inputs.get("rationales"),
                 resolution_state_snapshot=handoff.resolution_state_snapshot,
                 issues=list(handoff.issues) if handoff.issues else None,

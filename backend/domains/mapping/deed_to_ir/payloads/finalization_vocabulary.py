@@ -13,3 +13,4 @@ ALLOWED_CORRECTION_DISPOSITIONS: tuple[str, ...] = (
     "needs_hitl",
 )
 ALLOWED_DEPENDENCY_DISPOSITIONS: tuple[str, ...] = ("include", "not_applicable")
+ALLOWED_CLOSURE_STATUSES: tuple[str, ...] = ("closed", "partial", "blocked")

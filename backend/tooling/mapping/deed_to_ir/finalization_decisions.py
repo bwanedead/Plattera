@@ -10,13 +10,14 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from domains.mapping.deed_to_ir.payloads.published_output import ALLOWED_CLOSURE_DIMENSION_IDS
-
 from .finalization_session import (
+    ALLOWED_CLOSURE_STATUSES,
     ALLOWED_CORRECTION_DISPOSITIONS,
     ALLOWED_DEPENDENCY_DISPOSITIONS,
     ALLOWED_SCOPE_STATUSES,
+    CANONICAL_CLOSURE_DIMENSION_IDS,
     MAX_RATIONALE_CHARS,
+    SCHEMA_VERSION,
     compute_missing_finalization_ids,
     empty_finalization_decisions,
     session_requirement_ids,
@@ -32,6 +33,7 @@ _DECISION_LANES = (
     "scope_statuses",
     "correction_dispositions",
     "dependency_dispositions",
+    "closure_statuses",
     "rationales",
 )
 
@@ -78,36 +80,63 @@ def validate_persisted_finalization_decisions(
     Corrupted or prior-version values refuse with finalization_session_invalid
     so remap can replace the session. Does not prepare or publish.
     """
+    if str(session.get("schema_version") or "").strip() != SCHEMA_VERSION:
+        return retryable_refusal(
+            REASON_SESSION_INVALID,
+            "Persisted finalization session schema is unsupported. Remap the latest IR "
+            "to replace the session, then retry.",
+        )
+
+    requirements = (
+        session.get("requirements") if isinstance(session.get("requirements"), Mapping) else {}
+    )
+    raw_closure_ids = requirements.get("closure_ids")
+    if not isinstance(raw_closure_ids, list):
+        return retryable_refusal(
+            REASON_SESSION_INVALID,
+            "Persisted finalization session lacks the closure requirement lane. Remap "
+            "the latest IR to replace the session, then retry.",
+        )
+    closure_ids = [
+        str(item).strip() for item in raw_closure_ids if str(item or "").strip()
+    ]
+    if closure_ids != list(CANONICAL_CLOSURE_DIMENSION_IDS):
+        return retryable_refusal(
+            REASON_SESSION_INVALID,
+            "Persisted finalization closure requirements are malformed. Remap the "
+            "latest IR to replace the session, then retry.",
+        )
+
     decisions = session.get("decisions")
-    if decisions is None:
-        return {"ok": True}
     if not isinstance(decisions, Mapping):
         return retryable_refusal(
             REASON_SESSION_INVALID,
             "Persisted finalization decisions are malformed. Remap the latest IR "
             "to replace the session, then retry.",
         )
+    for lane in _DECISION_LANES:
+        if lane not in decisions or not isinstance(decisions.get(lane), Mapping):
+            return retryable_refusal(
+                REASON_SESSION_INVALID,
+                f"Persisted finalization decisions lack a valid {lane} lane. Remap "
+                "the latest IR to replace the session, then retry.",
+            )
 
     known = session_requirement_ids(session)
     scope_ids = set(known["scope_ids"])
     correction_ids = set(known["correction_ids"])
     dependency_ids = set(known["dependency_ids"])
-    rationale_ids = scope_ids | correction_ids | dependency_ids
+    closure_known = set(known["closure_ids"])
+    rationale_ids = scope_ids | correction_ids | dependency_ids | closure_known
 
     for lane, known_ids, allowed in (
         ("scope_statuses", scope_ids, set(ALLOWED_SCOPE_STATUSES)),
         ("correction_dispositions", correction_ids, set(ALLOWED_CORRECTION_DISPOSITIONS)),
         ("dependency_dispositions", dependency_ids, set(ALLOWED_DEPENDENCY_DISPOSITIONS)),
+        ("closure_statuses", closure_known, set(ALLOWED_CLOSURE_STATUSES)),
     ):
-        if lane not in decisions:
-            continue
         raw = decisions.get(lane)
-        if not isinstance(raw, Mapping):
-            return retryable_refusal(
-                REASON_SESSION_INVALID,
-                f"Persisted {lane} lane is malformed. Remap the latest IR to replace "
-                "the session, then retry.",
-            )
+        assert isinstance(raw, Mapping)
         for key, value in raw.items():
             kid = str(key or "").strip()
             if not kid or kid not in known_ids:
@@ -124,35 +153,29 @@ def validate_persisted_finalization_decisions(
                     "to replace the session, then retry.",
                 )
 
-    if "rationales" in decisions:
-        raw_rationales = decisions.get("rationales")
-        if not isinstance(raw_rationales, Mapping):
+    raw_rationales = decisions.get("rationales")
+    assert isinstance(raw_rationales, Mapping)
+    for key, value in raw_rationales.items():
+        kid = str(key or "").strip()
+        if not kid or kid not in rationale_ids:
             return retryable_refusal(
                 REASON_SESSION_INVALID,
-                "Persisted rationales lane is malformed. Remap the latest IR to replace "
-                "the session, then retry.",
+                f"Persisted rationales contains unknown id {key!r}. Remap the latest IR "
+                "to replace the session, then retry.",
             )
-        for key, value in raw_rationales.items():
-            kid = str(key or "").strip()
-            if not kid or kid not in rationale_ids:
-                return retryable_refusal(
-                    REASON_SESSION_INVALID,
-                    f"Persisted rationales contains unknown id {key!r}. Remap the latest IR "
-                    "to replace the session, then retry.",
-                )
-            if not isinstance(value, str):
-                return retryable_refusal(
-                    REASON_SESSION_INVALID,
-                    f"Persisted rationale for {kid} is not a string. Remap the latest IR "
-                    "to replace the session, then retry.",
-                )
-            text = value.strip()
-            if not text or len(text) > MAX_RATIONALE_CHARS:
-                return retryable_refusal(
-                    REASON_SESSION_INVALID,
-                    f"Persisted rationale for {kid} is empty or exceeds the length bound. "
-                    "Remap the latest IR to replace the session, then retry.",
-                )
+        if not isinstance(value, str):
+            return retryable_refusal(
+                REASON_SESSION_INVALID,
+                f"Persisted rationale for {kid} is not a string. Remap the latest IR "
+                "to replace the session, then retry.",
+            )
+        text = value.strip()
+        if not text or len(text) > MAX_RATIONALE_CHARS:
+            return retryable_refusal(
+                REASON_SESSION_INVALID,
+                f"Persisted rationale for {kid} is empty or exceeds the length bound. "
+                "Remap the latest IR to replace the session, then retry.",
+            )
 
     return {"ok": True}
 
@@ -171,7 +194,8 @@ def validate_compact_finalization_decisions(
     scope_ids = set(known["scope_ids"])
     correction_ids = set(known["correction_ids"])
     dependency_ids = set(known["dependency_ids"])
-    rationale_ids = scope_ids | correction_ids | dependency_ids
+    closure_ids = set(known["closure_ids"])
+    rationale_ids = scope_ids | correction_ids | dependency_ids | closure_ids
 
     incoming = empty_finalization_decisions()
 
@@ -204,6 +228,16 @@ def validate_compact_finalization_decisions(
     if dependency_result.get("executed") is False:
         return dependency_result
     incoming["dependency_dispositions"] = dependency_result["values"]
+
+    closure_result = _validate_string_map(
+        req.get("closure_statuses"),
+        field="closure_statuses",
+        known_ids=closure_ids,
+        allowed_values=set(ALLOWED_CLOSURE_STATUSES),
+    )
+    if closure_result.get("executed") is False:
+        return closure_result
+    incoming["closure_statuses"] = closure_result["values"]
 
     rationale_result = _validate_rationale_map(
         req.get("rationales"),
@@ -246,14 +280,17 @@ def evaluate_merged_finalization_completeness(
     scope_statuses = _as_str_map(decisions.get("scope_statuses"))
     correction_dispositions = _as_str_map(decisions.get("correction_dispositions"))
     dependency_dispositions = _as_str_map(decisions.get("dependency_dispositions"))
+    closure_statuses = _as_str_map(decisions.get("closure_statuses"))
     rationales = _as_str_map(decisions.get("rationales"))
     missing = compute_missing_finalization_ids(
         scope_ids=known["scope_ids"],
         correction_ids=known["correction_ids"],
         dependency_ids=known["dependency_ids"],
+        closure_ids=known["closure_ids"],
         scope_statuses=scope_statuses,
         correction_dispositions=correction_dispositions,
         dependency_dispositions=dependency_dispositions,
+        closure_statuses=closure_statuses,
         rationales=rationales,
     )
     needs_hitl = any(value == "needs_hitl" for value in correction_dispositions.values())
@@ -265,6 +302,7 @@ def evaluate_merged_finalization_completeness(
         "scope_statuses": scope_statuses,
         "correction_dispositions": correction_dispositions,
         "dependency_dispositions": dependency_dispositions,
+        "closure_statuses": closure_statuses,
         "rationales": rationales,
     }
 
@@ -275,6 +313,7 @@ def convert_compact_decisions_to_prepare_inputs(
     scope_statuses: Mapping[str, str],
     correction_dispositions: Mapping[str, str],
     dependency_dispositions: Mapping[str, str],
+    closure_statuses: Mapping[str, str],
     rationales: Mapping[str, str],
 ) -> dict[str, Any]:
     """Convert compact session decisions into intent-first prepare inputs.
@@ -319,10 +358,16 @@ def convert_compact_decisions_to_prepare_inputs(
         {"scope_id": scope_id, "status": status}
         for scope_id, status in scope_statuses.items()
     ]
-    closure_dispositions = [
-        {"dimension_id": dimension_id, "status": "closed"}
-        for dimension_id in sorted(ALLOWED_CLOSURE_DIMENSION_IDS)
-    ]
+
+    known = session_requirement_ids(session)
+    closure_dispositions: list[dict[str, Any]] = []
+    for dimension_id in known["closure_ids"]:
+        status = str(closure_statuses.get(dimension_id) or "").strip()
+        row: dict[str, Any] = {"dimension_id": dimension_id, "status": status}
+        summary = str(rationales.get(dimension_id) or "").strip()
+        if summary:
+            row["summary"] = summary
+        closure_dispositions.append(row)
 
     correction_decisions: list[dict[str, Any]] = []
     for target_id, disposition in correction_dispositions.items():

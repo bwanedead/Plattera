@@ -300,6 +300,7 @@ def _mapping_outputs(
             "recommended_publish_refs": ["feature_graph:control:r1"],
         },
         "active_finalization_session": {
+            "schema_version": "deed_to_ir.finalization_session.v2",
             "status": "pending_decisions",
             "lineage": {
                 "mapping_artifact_ref": mapping_ref,
@@ -309,11 +310,18 @@ def _mapping_outputs(
                 "scope_ids": ["parcel_1"],
                 "correction_candidates": [{"target_entity_id": "corr_1"}],
                 "dependency_candidates": [],
+                "closure_ids": [
+                    "layer_1_deed_meaning_to_ir_fidelity",
+                    "layer_2_ir_geometry_integrity",
+                    "layer_3_external_dependency_representability_completeness",
+                    "layer_4_map_handoffability_scoped_completion",
+                ],
             },
             "decisions": {
                 "scope_statuses": {},
                 "correction_dispositions": {},
                 "dependency_dispositions": {},
+                "closure_statuses": {},
                 "rationales": {},
             },
         },
@@ -335,7 +343,14 @@ def _mapping_outputs(
 
 
 def _pending_session(*, mapping_ref: str, ir_ref: str) -> dict:
+    from tooling.mapping.deed_to_ir.finalization_session import (
+        CANONICAL_CLOSURE_DIMENSION_IDS,
+        SCHEMA_VERSION,
+        empty_finalization_decisions,
+    )
+
     return {
+        "schema_version": SCHEMA_VERSION,
         "status": "pending_decisions",
         "lineage": {
             "mapping_artifact_ref": mapping_ref,
@@ -345,13 +360,9 @@ def _pending_session(*, mapping_ref: str, ir_ref: str) -> dict:
             "scope_ids": ["parcel_1"],
             "correction_candidates": [{"target_entity_id": "corr_1"}],
             "dependency_candidates": [{"candidate_id": "dep_1"}],
+            "closure_ids": list(CANONICAL_CLOSURE_DIMENSION_IDS),
         },
-        "decisions": {
-            "scope_statuses": {},
-            "correction_dispositions": {},
-            "dependency_dispositions": {},
-            "rationales": {},
-        },
+        "decisions": empty_finalization_decisions(),
     }
 
 
@@ -973,6 +984,9 @@ def test_finalizer_capacity_session_preserves_missing_ids() -> None:
         MAX_SCOPE_RESULTS,
         MAX_UPSTREAM_CORRECTIONS,
     )
+    from tooling.mapping.deed_to_ir.finalization_session import (
+        CANONICAL_CLOSURE_DIMENSION_IDS,
+    )
 
     continuity = build_working_head_continuity_key(**_SCOPE)
     scope_ids = [f"scope-{'s' * 90}-{i:02d}" for i in range(MAX_SCOPE_RESULTS)]
@@ -984,9 +998,11 @@ def test_finalizer_capacity_session_preserves_missing_ids() -> None:
         "scope_ids": [sid for sid in scope_ids if sid not in accepted_scopes],
         "correction_ids": list(correction_ids),
         "dependency_ids": list(dependency_ids),
+        "closure_ids": list(CANONICAL_CLOSURE_DIMENSION_IDS),
         "rationale_ids": [],
     }
     session = {
+        "schema_version": "deed_to_ir.finalization_session.v2",
         "status": "pending_decisions",
         "lineage": {
             "mapping_artifact_ref": "feature_graph:mapping:m1",
@@ -996,11 +1012,13 @@ def test_finalizer_capacity_session_preserves_missing_ids() -> None:
             "scope_ids": scope_ids,
             "correction_candidates": [{"target_entity_id": cid} for cid in correction_ids],
             "dependency_candidates": [{"candidate_id": did} for did in dependency_ids],
+            "closure_ids": list(CANONICAL_CLOSURE_DIMENSION_IDS),
         },
         "decisions": {
             "scope_statuses": accepted_scopes,
             "correction_dispositions": {},
             "dependency_dispositions": {},
+            "closure_statuses": {},
             "rationales": {},
         },
         "diagnostics": [
@@ -1029,6 +1047,7 @@ def test_finalizer_capacity_session_preserves_missing_ids() -> None:
     assert view.payload["missing"]["scope_ids"] == missing["scope_ids"]
     assert view.payload["missing"]["correction_ids"] == missing["correction_ids"]
     assert view.payload["missing"]["dependency_ids"] == missing["dependency_ids"]
+    assert view.payload["missing"]["closure_ids"] == missing["closure_ids"]
     session_payload = view.payload.get("active_finalization_session")
     if session_payload is not None:
         assert "missing" not in session_payload
@@ -1036,6 +1055,12 @@ def test_finalizer_capacity_session_preserves_missing_ids() -> None:
         assert session_payload["requirement_counts"]["scope_ids"] == MAX_SCOPE_RESULTS
         assert session_payload["requirement_counts"]["correction_ids"] == MAX_UPSTREAM_CORRECTIONS
         assert session_payload["requirement_counts"]["dependency_ids"] == MAX_EXTERNAL_DEPENDENCIES
+        assert session_payload["requirement_counts"]["closure_ids"] == 4
+        assert session_payload["allowed_values"]["closure_statuses"] == [
+            "closed",
+            "partial",
+            "blocked",
+        ]
         assert session_payload["decisions"]["scope_statuses"] == accepted_scopes
     else:
         assert view.payload["active_finalization_session_omitted"]["reason"] == "view_budget"
@@ -1218,8 +1243,16 @@ def test_session_diagnostics_drop_before_whole_session() -> None:
             "mapping_artifact_ref": "feature_graph:mapping:m1",
             "source_ir_artifact_ref": "feature_graph:ir:v1",
         },
-        "allowed_values": {"scope_statuses": ["handoffable", "blocked"]},
-        "requirement_counts": {"scope_ids": 1, "correction_ids": 0, "dependency_ids": 0},
+        "allowed_values": {
+            "scope_statuses": ["handoffable", "blocked"],
+            "closure_statuses": ["closed", "partial", "blocked"],
+        },
+        "requirement_counts": {
+            "scope_ids": 1,
+            "correction_ids": 0,
+            "dependency_ids": 0,
+            "closure_ids": 4,
+        },
         "decisions": {"scope_statuses": {"parcel_1": "handoffable"}},
     }
     huge_diags = [{"code": f"d{i}", "message": "D" * 2000} for i in range(20)]

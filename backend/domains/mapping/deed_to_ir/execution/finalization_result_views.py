@@ -137,6 +137,7 @@ def build_finalization_session_result_view_summary(
         "scope_ids": len(requirements.get("scope_ids") or []),
         "correction_ids": len(requirements.get("correction_ids") or []),
         "dependency_ids": len(requirements.get("dependency_ids") or []),
+        "closure_ids": len(requirements.get("closure_ids") or []),
     }
 
     decisions = compact.get("decisions")

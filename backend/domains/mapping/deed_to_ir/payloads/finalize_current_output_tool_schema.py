@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from domains.mapping.deed_to_ir.payloads.finalization_vocabulary import (
+    ALLOWED_CLOSURE_STATUSES,
     ALLOWED_CORRECTION_DISPOSITIONS,
     ALLOWED_DEPENDENCY_DISPOSITIONS,
     ALLOWED_SCOPE_STATUSES,
@@ -38,6 +39,13 @@ def build_finalize_current_deed_to_ir_output_request_json_shape() -> dict[str, A
                     "enum": list(ALLOWED_DEPENDENCY_DISPOSITIONS),
                 },
             },
+            "closure_statuses": {
+                "type": "object",
+                "additionalProperties": {
+                    "type": "string",
+                    "enum": list(ALLOWED_CLOSURE_STATUSES),
+                },
+            },
             "rationales": {
                 "type": "object",
                 "additionalProperties": {
@@ -63,5 +71,18 @@ def build_finalize_current_deed_to_ir_output_example_request() -> dict[str, Any]
         "dependency_dispositions": {
             "parcel_2_continuation_scope": "include",
         },
-        "rationales": {},
+        "closure_statuses": {
+            "layer_1_deed_meaning_to_ir_fidelity": "closed",
+            "layer_2_ir_geometry_integrity": "closed",
+            "layer_3_external_dependency_representability_completeness": "partial",
+            "layer_4_map_handoffability_scoped_completion": "partial",
+        },
+        "rationales": {
+            "layer_3_external_dependency_representability_completeness": (
+                "Continuation dependency remains outside the scoped handoff."
+            ),
+            "layer_4_map_handoffability_scoped_completion": (
+                "Blocked continuation scope keeps map handoff partial."
+            ),
+        },
     }

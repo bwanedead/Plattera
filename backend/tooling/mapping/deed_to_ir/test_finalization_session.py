@@ -11,6 +11,7 @@ from tooling.mapping.deed_to_ir.finalization_scope_inventory import (
     project_finalization_scope_inventory,
 )
 from tooling.mapping.deed_to_ir.finalization_session import (
+    CANONICAL_CLOSURE_DIMENSION_IDS,
     SCHEMA_VERSION,
     SCOPE_INVENTORY_UNAVAILABLE,
     STATUS_PENDING_DECISIONS,
@@ -168,6 +169,9 @@ def test_session_replacement_on_another_remap(monkeypatch) -> None:
             "scope_statuses": {"parcel_1": "handoffable"},
             "correction_dispositions": {},
             "dependency_dispositions": {"parcel_2_continuation_scope": "include"},
+            "closure_statuses": {
+                dimension_id: "closed" for dimension_id in CANONICAL_CLOSURE_DIMENSION_IDS
+            },
             "rationales": {"parcel_1": "prior lineage decision"},
         }
         write_finalization_session(
@@ -202,7 +206,9 @@ def test_session_replacement_on_another_remap(monkeypatch) -> None:
         assert second["lineage"]["mapping_artifact_ref"] == second_mapping
         assert second["lineage"]["source_ir_artifact_ref"] == ir_ref
         assert second["decisions"] == empty_finalization_decisions()
+        assert second["decisions"]["closure_statuses"] == {}
         assert second["decisions"]["rationales"] == {}
+        assert second["requirements"]["closure_ids"] == list(CANONICAL_CLOSURE_DIMENSION_IDS)
 
 
 def test_session_staleness_after_newer_ir_write(monkeypatch) -> None:
@@ -324,16 +330,23 @@ def test_per_turn_prompt_projection(monkeypatch) -> None:
         assert session["lineage"]["source_ir_artifact_ref"] == ir_ref
         assert "parcel_1" in session["missing"]["scope_ids"]
         assert "parcel_2" in session["missing"]["scope_ids"]
+        assert session["missing"]["closure_ids"] == list(CANONICAL_CLOSURE_DIMENSION_IDS)
         assert "allowed_values" in session
         assert "handoffable" in session["allowed_values"]["scope_statuses"]
         assert "include" in session["allowed_values"]["dependency_dispositions"]
         assert "confirmed_source_repair" in session["allowed_values"]["correction_dispositions"]
         assert "ir_only_exception" in session["allowed_values"]["correction_dispositions"]
+        assert session["allowed_values"]["closure_statuses"] == [
+            "closed",
+            "partial",
+            "blocked",
+        ]
         assert "confirmed_from_source" not in session["allowed_values"]["correction_dispositions"]
         assert "suspected" not in session["allowed_values"]["correction_dispositions"]
         # Bounded: no full candidate evidence blobs.
         assert "candidate_deltas" not in session
         assert "correction_candidates" not in session
+        assert session["requirements"]["closure_ids"] == list(CANONICAL_CLOSURE_DIMENSION_IDS)
 
 
 def test_persistence_read_round_trip(tmp_path, monkeypatch) -> None:
@@ -384,6 +397,8 @@ def test_persistence_read_round_trip(tmp_path, monkeypatch) -> None:
     assert compact["missing"]["scope_ids"] == ["parcel_1", "parcel_2"]
     assert compact["missing"]["correction_ids"] == ["p1_call2_distance"]
     assert compact["missing"]["dependency_ids"] == ["parcel_2_continuation_scope"]
+    assert compact["missing"]["closure_ids"] == list(CANONICAL_CLOSURE_DIMENSION_IDS)
+    assert loaded["requirements"]["closure_ids"] == list(CANONICAL_CLOSURE_DIMENSION_IDS)
 
 
 def test_dependency_candidate_via_mapping_blocking_issue() -> None:
@@ -556,6 +571,7 @@ def test_prompt_compaction_rejects_invalid_and_unknown_decisions() -> None:
             "parcel_2_continuation_scope": "include",
             "unknown_dep": "include",
         },
+        "closure_statuses": {},
         "rationales": {
             "parcel_1": oversized,
             "parcel_99": "unknown id rationale",
@@ -576,6 +592,7 @@ def test_prompt_compaction_rejects_invalid_and_unknown_decisions() -> None:
     assert compact["missing"]["scope_ids"] == ["parcel_2"]
     assert compact["missing"]["correction_ids"] == ["p1_call2_distance"]
     assert compact["missing"]["dependency_ids"] == []
+    assert compact["missing"]["closure_ids"] == list(CANONICAL_CLOSURE_DIMENSION_IDS)
     assert "confirmed_source_repair" in compact["allowed_values"]["correction_dispositions"]
     assert "confirmed_from_source" not in compact["allowed_values"]["correction_dispositions"]
 
@@ -595,6 +612,9 @@ def test_prompt_compaction_projects_rationale_ids_not_bodies() -> None:
         "scope_statuses": {"parcel_1": "handoffable"},
         "correction_dispositions": {"p1_call2_distance": "ir_only_exception"},
         "dependency_dispositions": {},
+        "closure_statuses": {
+            dimension_id: "closed" for dimension_id in CANONICAL_CLOSURE_DIMENSION_IDS
+        },
         "rationales": {"p1_call2_distance": full},
     }
     compact = compact_finalization_session_for_prompt(session)
@@ -602,7 +622,11 @@ def test_prompt_compaction_projects_rationale_ids_not_bodies() -> None:
     assert session["decisions"]["rationales"]["p1_call2_distance"] == full
     assert "rationales" not in compact["decisions"]
     assert compact["decisions"]["rationale_ids"] == ["p1_call2_distance"]
+    assert compact["decisions"]["closure_statuses"] == {
+        dimension_id: "closed" for dimension_id in CANONICAL_CLOSURE_DIMENSION_IDS
+    }
     assert compact["missing"]["rationale_ids"] == []
+    assert compact["missing"]["closure_ids"] == []
     assert full not in str(compact)
 
 def test_capacity_diagnostic_survives_full_incoming_diagnostic_budget() -> None:

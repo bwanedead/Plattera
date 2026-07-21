@@ -10,18 +10,22 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 from domains.mapping.deed_to_ir.payloads.finalization_vocabulary import (
+    ALLOWED_CLOSURE_STATUSES,
     ALLOWED_CORRECTION_DISPOSITIONS,
     ALLOWED_DEPENDENCY_DISPOSITIONS,
     ALLOWED_SCOPE_STATUSES,
 )
 from domains.mapping.deed_to_ir.payloads.published_output import (
+    ALLOWED_CLOSURE_DIMENSION_IDS,
     MAX_EXTERNAL_DEPENDENCIES,
     MAX_RATIONALE_LENGTH,
     MAX_SCOPE_RESULTS,
     MAX_UPSTREAM_CORRECTIONS,
 )
 
-SCHEMA_VERSION = "deed_to_ir.finalization_session.v1"
+SCHEMA_VERSION = "deed_to_ir.finalization_session.v2"
+CANONICAL_CLOSURE_DIMENSION_IDS: tuple[str, ...] = tuple(sorted(ALLOWED_CLOSURE_DIMENSION_IDS))
+CLOSURE_REQUIREMENT_COUNT = len(CANONICAL_CLOSURE_DIMENSION_IDS)
 STATUS_PENDING_DECISIONS = "pending_decisions"
 STATUS_PREVIEW_READY = "preview_ready"
 STATUS_PUBLISHED = "published"
@@ -50,6 +54,7 @@ def empty_finalization_decisions() -> dict[str, Any]:
         "scope_statuses": {},
         "correction_dispositions": {},
         "dependency_dispositions": {},
+        "closure_statuses": {},
         "rationales": {},
     }
 
@@ -103,6 +108,7 @@ def build_pending_finalization_session(
             "scope_ids": bounded_scopes,
             "correction_candidates": bounded_corrections,
             "dependency_candidates": bounded_dependencies,
+            "closure_ids": list(CANONICAL_CLOSURE_DIMENSION_IDS),
         },
         "decisions": empty_finalization_decisions(),
         "preview_ref": None,
@@ -165,6 +171,7 @@ def compact_finalization_session_for_prompt(
     scope_ids = list(known["scope_ids"])[:MAX_SCOPE_REQUIREMENTS]
     correction_ids = list(known["correction_ids"])[:MAX_CORRECTION_REQUIREMENTS]
     dependency_ids = list(known["dependency_ids"])[:MAX_DEPENDENCY_REQUIREMENTS]
+    closure_ids = list(known["closure_ids"])[:CLOSURE_REQUIREMENT_COUNT]
 
     accepted_scopes = _accepted_decision_map(
         decisions.get("scope_statuses"),
@@ -184,22 +191,31 @@ def compact_finalization_session_for_prompt(
         allowed_values=ALLOWED_DEPENDENCY_DISPOSITIONS,
         maximum=MAX_DEPENDENCY_REQUIREMENTS,
     )
-    known_ids = set(scope_ids) | set(correction_ids) | set(dependency_ids)
+    accepted_closures = _accepted_decision_map(
+        decisions.get("closure_statuses"),
+        known_ids=set(closure_ids),
+        allowed_values=ALLOWED_CLOSURE_STATUSES,
+        maximum=CLOSURE_REQUIREMENT_COUNT,
+    )
+    known_ids = set(scope_ids) | set(correction_ids) | set(dependency_ids) | set(closure_ids)
     accepted_rationales = _accepted_rationales(
         decisions.get("rationales"),
         known_ids=known_ids,
         maximum=MAX_SCOPE_REQUIREMENTS
         + MAX_CORRECTION_REQUIREMENTS
-        + MAX_DEPENDENCY_REQUIREMENTS,
+        + MAX_DEPENDENCY_REQUIREMENTS
+        + CLOSURE_REQUIREMENT_COUNT,
     )
 
     missing = compute_missing_finalization_ids(
         scope_ids=scope_ids,
         correction_ids=correction_ids,
         dependency_ids=dependency_ids,
+        closure_ids=closure_ids,
         scope_statuses=accepted_scopes,
         correction_dispositions=accepted_corrections,
         dependency_dispositions=accepted_dependencies,
+        closure_statuses=accepted_closures,
         rationales=accepted_rationales,
     )
 
@@ -214,11 +230,13 @@ def compact_finalization_session_for_prompt(
             "scope_statuses": list(ALLOWED_SCOPE_STATUSES),
             "correction_dispositions": list(ALLOWED_CORRECTION_DISPOSITIONS),
             "dependency_dispositions": list(ALLOWED_DEPENDENCY_DISPOSITIONS),
+            "closure_statuses": list(ALLOWED_CLOSURE_STATUSES),
         },
         "requirements": {
             "scope_ids": scope_ids,
             "correction_ids": correction_ids,
             "dependency_ids": dependency_ids,
+            "closure_ids": closure_ids,
         },
     }
     accepted: dict[str, Any] = {}
@@ -228,6 +246,8 @@ def compact_finalization_session_for_prompt(
         accepted["correction_dispositions"] = accepted_corrections
     if accepted_dependencies:
         accepted["dependency_dispositions"] = accepted_dependencies
+    if accepted_closures:
+        accepted["closure_statuses"] = accepted_closures
     if accepted_rationales:
         accepted["rationale_ids"] = list(accepted_rationales.keys())
     if accepted:
@@ -245,15 +265,18 @@ def compute_missing_finalization_ids(
     scope_ids: Sequence[str],
     correction_ids: Sequence[str],
     dependency_ids: Sequence[str],
+    closure_ids: Sequence[str],
     scope_statuses: Mapping[str, str],
     correction_dispositions: Mapping[str, str],
     dependency_dispositions: Mapping[str, str],
+    closure_statuses: Mapping[str, str],
     rationales: Mapping[str, str],
 ) -> dict[str, list[str]]:
     """Exact unresolved decision and rationale IDs for the current session."""
     missing_scope = [sid for sid in scope_ids if sid not in scope_statuses]
     missing_corrections = [cid for cid in correction_ids if cid not in correction_dispositions]
     missing_dependencies = [did for did in dependency_ids if did not in dependency_dispositions]
+    missing_closures = [clid for clid in closure_ids if clid not in closure_statuses]
     missing_rationale: list[str] = []
     for cid, disposition in correction_dispositions.items():
         if disposition == "ir_only_exception" and cid not in rationales:
@@ -261,10 +284,14 @@ def compute_missing_finalization_ids(
     for did, disposition in dependency_dispositions.items():
         if disposition == "not_applicable" and did not in rationales:
             missing_rationale.append(did)
+    for clid, status in closure_statuses.items():
+        if status in {"partial", "blocked"} and clid not in rationales:
+            missing_rationale.append(clid)
     return {
         "scope_ids": missing_scope,
         "correction_ids": missing_corrections,
         "dependency_ids": missing_dependencies,
+        "closure_ids": missing_closures,
         "rationale_ids": missing_rationale,
     }
 
@@ -273,6 +300,13 @@ def session_requirement_ids(session: Mapping[str, Any]) -> dict[str, list[str]]:
     requirements = (
         session.get("requirements") if isinstance(session.get("requirements"), Mapping) else {}
     )
+    raw_closure = requirements.get("closure_ids")
+    if isinstance(raw_closure, list):
+        closure_ids = [
+            str(item).strip() for item in raw_closure if str(item or "").strip()
+        ]
+    else:
+        closure_ids = []
     return {
         "scope_ids": [
             str(item).strip()
@@ -287,6 +321,7 @@ def session_requirement_ids(session: Mapping[str, Any]) -> dict[str, list[str]]:
             requirements.get("dependency_candidates"),
             id_keys=("candidate_id", "dependency_id"),
         ),
+        "closure_ids": closure_ids,
     }
 
 

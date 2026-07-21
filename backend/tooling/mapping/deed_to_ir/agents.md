@@ -51,6 +51,11 @@
   Sole live finalization action: `finalize_current_deed_to_ir_output`
   (`finalization_decisions.py` + `finalize_current_output.py`). Lower-level
   prepare/publish functions are internal compatibility primitives only.
+  Compact decisions include agent-authored `closure_statuses` for the four
+  fixed closure dimension IDs (`closed|partial|blocked`); partial/blocked
+  require a matching rationale. Session schema is
+  `deed_to_ir.finalization_session.v2` — prior sessions refuse with
+  `finalization_session_invalid` (remap); no closed backfill.
   Partial finalizer calls are not generic pre-dispatch publish attempts;
   successful finalizer publication is the completion-anchor event and may
   complete the run in the same turn when the domain anchor is satisfied.

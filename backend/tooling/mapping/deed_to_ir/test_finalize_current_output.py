@@ -9,15 +9,17 @@ from unittest.mock import patch
 from domains.mapping.deed_to_ir.payloads.finalize_current_output_tool_schema import (
     build_finalize_current_deed_to_ir_output_request_json_shape,
 )
-from domains.mapping.deed_to_ir.payloads.published_output import ALLOWED_CLOSURE_DIMENSION_IDS
 from tooling.mapping.deed_to_ir.finalization_decisions import (
     convert_compact_decisions_to_prepare_inputs,
     evaluate_merged_finalization_completeness,
     merge_finalization_decisions,
     validate_compact_finalization_decisions,
+    validate_persisted_finalization_decisions,
 )
 from tooling.mapping.deed_to_ir.finalization_session import (
+    CANONICAL_CLOSURE_DIMENSION_IDS,
     REQUIREMENTS_CAPACITY_EXCEEDED,
+    SCHEMA_VERSION,
     SCOPE_INVENTORY_UNAVAILABLE,
     STATUS_PENDING_DECISIONS,
     STATUS_PREVIEW_READY,
@@ -52,11 +54,30 @@ def _assert_retryable(result: dict, code: str) -> None:
     assert result["refusal"]["retryable"] is True
 
 
+def _all_closed_closure_statuses(**overrides: str) -> dict[str, str]:
+    statuses = {dimension_id: "closed" for dimension_id in CANONICAL_CLOSURE_DIMENSION_IDS}
+    statuses.update(overrides)
+    return statuses
+
+
 def _complete_request(**overrides):
     base = {
         "scope_statuses": {"parcel_1": "handoffable", "parcel_2": "blocked"},
         "correction_dispositions": {"p1_call2_distance": "confirmed_source_repair"},
         "dependency_dispositions": {"parcel_2_continuation_scope": "include"},
+        "closure_statuses": _all_closed_closure_statuses(),
+        "rationales": {},
+    }
+    base.update(overrides)
+    return base
+
+
+def _convert_kwargs(**overrides):
+    base = {
+        "scope_statuses": {"parcel_1": "handoffable", "parcel_2": "blocked"},
+        "correction_dispositions": {"p1_call2_distance": "confirmed_source_repair"},
+        "dependency_dispositions": {"parcel_2_continuation_scope": "include"},
+        "closure_statuses": _all_closed_closure_statuses(),
         "rationales": {},
     }
     base.update(overrides)
@@ -105,7 +126,7 @@ def _session_fixture(**overrides):
 # --- Schema ---
 
 
-def test_action_schema_accepts_four_optional_maps() -> None:
+def test_action_schema_accepts_five_optional_maps() -> None:
     shape = build_finalize_current_deed_to_ir_output_request_json_shape()
     assert shape["type"] == "object"
     assert shape["additionalProperties"] is False
@@ -114,6 +135,7 @@ def test_action_schema_accepts_four_optional_maps() -> None:
         "scope_statuses",
         "correction_dispositions",
         "dependency_dispositions",
+        "closure_statuses",
         "rationales",
     }
     assert props["scope_statuses"]["additionalProperties"]["enum"] == [
@@ -126,6 +148,11 @@ def test_action_schema_accepts_four_optional_maps() -> None:
     assert props["dependency_dispositions"]["additionalProperties"]["enum"] == [
         "include",
         "not_applicable",
+    ]
+    assert props["closure_statuses"]["additionalProperties"]["enum"] == [
+        "closed",
+        "partial",
+        "blocked",
     ]
 
 
@@ -337,6 +364,7 @@ def test_previously_accepted_decisions_need_not_be_resubmitted(monkeypatch) -> N
             ctx,
             scope_statuses={"parcel_1": "handoffable", "parcel_2": "blocked"},
             correction_dispositions={"p1_call2_distance": "confirmed_source_repair"},
+            closure_statuses=_all_closed_closure_statuses(),
         )
         assert first["refusal"]["reason_code"] == "missing_finalization_decisions"
         second = _finalize(
@@ -443,10 +471,7 @@ def test_confirmed_source_repair_conversion() -> None:
     session = _session_fixture()
     converted = convert_compact_decisions_to_prepare_inputs(
         session=session,
-        scope_statuses={"parcel_1": "handoffable", "parcel_2": "blocked"},
-        correction_dispositions={"p1_call2_distance": "confirmed_source_repair"},
-        dependency_dispositions={"parcel_2_continuation_scope": "include"},
-        rationales={},
+        **_convert_kwargs(),
     )
     assert converted.get("ok") is True
     row = converted["correction_decisions"][0]
@@ -462,10 +487,10 @@ def test_ir_only_exception_conversion() -> None:
     session = _session_fixture()
     converted = convert_compact_decisions_to_prepare_inputs(
         session=session,
-        scope_statuses={"parcel_1": "handoffable", "parcel_2": "blocked"},
-        correction_dispositions={"p1_call2_distance": "ir_only_exception"},
-        dependency_dispositions={"parcel_2_continuation_scope": "include"},
-        rationales={"p1_call2_distance": "IR-only exception for scoped handoff."},
+        **_convert_kwargs(
+            correction_dispositions={"p1_call2_distance": "ir_only_exception"},
+            rationales={"p1_call2_distance": "IR-only exception for scoped handoff."},
+        ),
     )
     assert converted.get("ok") is True
     row = converted["correction_decisions"][0]
@@ -512,10 +537,7 @@ def test_dependency_include_and_decline_conversion() -> None:
     session = _session_fixture()
     included = convert_compact_decisions_to_prepare_inputs(
         session=session,
-        scope_statuses={"parcel_1": "handoffable", "parcel_2": "blocked"},
-        correction_dispositions={"p1_call2_distance": "confirmed_source_repair"},
-        dependency_dispositions={"parcel_2_continuation_scope": "include"},
-        rationales={},
+        **_convert_kwargs(),
     )
     assert included["dependency_decisions"] == [
         {
@@ -526,10 +548,11 @@ def test_dependency_include_and_decline_conversion() -> None:
     ]
     declined = convert_compact_decisions_to_prepare_inputs(
         session=session,
-        scope_statuses={"parcel_1": "handoffable", "parcel_2": "handoffable"},
-        correction_dispositions={"p1_call2_distance": "confirmed_source_repair"},
-        dependency_dispositions={"parcel_2_continuation_scope": "not_applicable"},
-        rationales={"parcel_2_continuation_scope": "Not in scoped handoff."},
+        **_convert_kwargs(
+            scope_statuses={"parcel_1": "handoffable", "parcel_2": "handoffable"},
+            dependency_dispositions={"parcel_2_continuation_scope": "not_applicable"},
+            rationales={"parcel_2_continuation_scope": "Not in scoped handoff."},
+        ),
     )
     assert declined["dependency_decisions"] == [
         {
@@ -544,28 +567,455 @@ def test_included_dependency_versus_handoffable_scope_conflict() -> None:
     session = _session_fixture()
     converted = convert_compact_decisions_to_prepare_inputs(
         session=session,
-        scope_statuses={"parcel_1": "handoffable", "parcel_2": "handoffable"},
-        correction_dispositions={"p1_call2_distance": "confirmed_source_repair"},
-        dependency_dispositions={"parcel_2_continuation_scope": "include"},
-        rationales={},
+        **_convert_kwargs(
+            scope_statuses={"parcel_1": "handoffable", "parcel_2": "handoffable"},
+        ),
     )
     assert converted.get("executed") is False
     assert converted["refusal"]["reason_code"] == "finalization_scope_dependency_conflict"
     assert converted["refusal"]["retryable"] is True
 
 
-def test_four_closure_rows_generated_closed() -> None:
+def test_closure_conversion_preserves_agent_authored_statuses_and_summaries() -> None:
+    session = _session_fixture()
+    layer3 = "layer_3_external_dependency_representability_completeness"
+    layer4 = "layer_4_map_handoffability_scoped_completion"
+    converted = convert_compact_decisions_to_prepare_inputs(
+        session=session,
+        **_convert_kwargs(
+            closure_statuses=_all_closed_closure_statuses(
+                **{
+                    layer3: "partial",
+                    layer4: "blocked",
+                }
+            ),
+            rationales={
+                layer3: "Continuation remains outside scoped handoff.",
+                layer4: "Blocked continuation keeps map handoff incomplete.",
+            },
+        ),
+    )
+    assert converted.get("ok") is True
+    closures = converted["closure_dispositions"]
+    assert [row["dimension_id"] for row in closures] == list(CANONICAL_CLOSURE_DIMENSION_IDS)
+    by_id = {row["dimension_id"]: row for row in closures}
+    assert by_id["layer_1_deed_meaning_to_ir_fidelity"] == {
+        "dimension_id": "layer_1_deed_meaning_to_ir_fidelity",
+        "status": "closed",
+    }
+    assert by_id["layer_2_ir_geometry_integrity"]["status"] == "closed"
+    assert "summary" not in by_id["layer_2_ir_geometry_integrity"]
+    assert by_id[layer3] == {
+        "dimension_id": layer3,
+        "status": "partial",
+        "summary": "Continuation remains outside scoped handoff.",
+    }
+    assert by_id[layer4] == {
+        "dimension_id": layer4,
+        "status": "blocked",
+        "summary": "Blocked continuation keeps map handoff incomplete.",
+    }
+    assert {row["status"] for row in closures} == {"closed", "partial", "blocked"}
+
+
+def test_convert_does_not_synthesize_closed_when_statuses_absent() -> None:
     session = _session_fixture()
     converted = convert_compact_decisions_to_prepare_inputs(
         session=session,
-        scope_statuses={"parcel_1": "handoffable", "parcel_2": "blocked"},
-        correction_dispositions={"p1_call2_distance": "confirmed_source_repair"},
-        dependency_dispositions={"parcel_2_continuation_scope": "include"},
-        rationales={},
+        **_convert_kwargs(closure_statuses={}),
     )
+    assert converted.get("ok") is True
     closures = converted["closure_dispositions"]
-    assert {row["dimension_id"] for row in closures} == set(ALLOWED_CLOSURE_DIMENSION_IDS)
-    assert all(row["status"] == "closed" for row in closures)
+    assert [row["dimension_id"] for row in closures] == list(CANONICAL_CLOSURE_DIMENSION_IDS)
+    assert all(row["status"] == "" for row in closures)
+    assert not any(row.get("status") == "closed" for row in closures)
+
+
+def test_fresh_session_exposes_all_four_missing_closure_ids(monkeypatch) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        persistence, _ir, _mapping, _submitted, ctx = _submit_with_lineage(
+            tmp, leg2_distance=_PRACTICE_CORRECT_DISTANCE, monkeypatch=monkeypatch
+        )
+        result = _finalize(persistence, ctx)
+        _assert_retryable(result, "missing_finalization_decisions")
+        missing = result["outputs"]["missing"]
+        assert missing["closure_ids"] == list(CANONICAL_CLOSURE_DIMENSION_IDS)
+        session = result["outputs"]["active_finalization_session"]
+        assert session["missing"]["closure_ids"] == list(CANONICAL_CLOSURE_DIMENSION_IDS)
+        assert session["allowed_values"]["closure_statuses"] == [
+            "closed",
+            "partial",
+            "blocked",
+        ]
+        assert session["requirements"]["closure_ids"] == list(CANONICAL_CLOSURE_DIMENSION_IDS)
+        assert "decisions" not in session or "closure_statuses" not in session.get(
+            "decisions", {}
+        )
+
+
+def test_partial_closure_submission_persists_and_reports_remaining(monkeypatch) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        persistence, _ir, _mapping, _submitted, ctx = _submit_with_lineage(
+            tmp, leg2_distance=_PRACTICE_CORRECT_DISTANCE, monkeypatch=monkeypatch
+        )
+        first_two = {
+            CANONICAL_CLOSURE_DIMENSION_IDS[0]: "closed",
+            CANONICAL_CLOSURE_DIMENSION_IDS[1]: "closed",
+        }
+        result = _finalize(
+            persistence,
+            ctx,
+            **_complete_request(
+                closure_statuses=first_two,
+            ),
+        )
+        _assert_retryable(result, "missing_finalization_decisions")
+        remaining = list(CANONICAL_CLOSURE_DIMENSION_IDS[2:])
+        assert result["outputs"]["missing"]["closure_ids"] == remaining
+        disk = read_finalization_session(
+            dossier_id="d-preview",
+            transcription_id=ctx["transcription_id"],
+            workspace_id=ctx["workspace_id"],
+            run_id=ctx["run_id"],
+        )
+        assert disk is not None
+        assert disk["decisions"]["closure_statuses"] == first_two
+        compact = result["outputs"]["active_finalization_session"]
+        assert compact["decisions"]["closure_statuses"] == first_two
+        assert compact["missing"]["closure_ids"] == remaining
+
+
+def test_unknown_closure_dimension_id_refuses_retryably() -> None:
+    session = _session_fixture()
+    validated = validate_compact_finalization_decisions(
+        session=session,
+        request={"closure_statuses": {"layer_99_unknown": "closed"}},
+    )
+    assert validated.get("executed") is False
+    assert validated["refusal"]["reason_code"] == "finalization_decision_unknown_id"
+    assert validated["refusal"]["retryable"] is True
+
+
+def test_invalid_closure_value_refuses_retryably() -> None:
+    session = _session_fixture()
+    validated = validate_compact_finalization_decisions(
+        session=session,
+        request={
+            "closure_statuses": {
+                CANONICAL_CLOSURE_DIMENSION_IDS[0]: "done",
+            }
+        },
+    )
+    assert validated.get("executed") is False
+    assert validated["refusal"]["reason_code"] == "finalization_decision_invalid"
+    assert validated["refusal"]["retryable"] is True
+
+
+def test_partial_and_blocked_closure_require_rationales() -> None:
+    session = _session_fixture()
+    layer3 = CANONICAL_CLOSURE_DIMENSION_IDS[2]
+    layer4 = CANONICAL_CLOSURE_DIMENSION_IDS[3]
+    validated = validate_compact_finalization_decisions(
+        session=session,
+        request=_complete_request(
+            closure_statuses=_all_closed_closure_statuses(
+                **{layer3: "partial", layer4: "blocked"}
+            ),
+            rationales={},
+        ),
+    )
+    assert validated.get("ok") is True
+    merged = merge_finalization_decisions(session=session, incoming=validated["incoming"])
+    completeness = evaluate_merged_finalization_completeness(merged)
+    assert completeness["complete"] is False
+    assert set(completeness["missing"]["rationale_ids"]) == {layer3, layer4}
+
+
+def test_closed_closure_does_not_require_rationale() -> None:
+    session = _session_fixture()
+    validated = validate_compact_finalization_decisions(
+        session=session,
+        request=_complete_request(),
+    )
+    assert validated.get("ok") is True
+    merged = merge_finalization_decisions(session=session, incoming=validated["incoming"])
+    completeness = evaluate_merged_finalization_completeness(merged)
+    assert completeness["complete"] is True
+    assert completeness["missing"]["rationale_ids"] == []
+    assert completeness["missing"]["closure_ids"] == []
+
+
+def test_pre_version_bump_session_refuses_without_backfill(monkeypatch) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        persistence, _ir, _mapping, _submitted, ctx = _submit_with_lineage(
+            tmp, leg2_distance=_PRACTICE_CORRECT_DISTANCE, monkeypatch=monkeypatch
+        )
+        disk = read_finalization_session(
+            dossier_id="d-preview",
+            transcription_id=ctx["transcription_id"],
+            workspace_id=ctx["workspace_id"],
+            run_id=ctx["run_id"],
+        )
+        assert disk is not None
+        assert disk["schema_version"] == SCHEMA_VERSION
+        legacy = dict(disk)
+        legacy["schema_version"] = "deed_to_ir.finalization_session.v1"
+        legacy["requirements"] = {
+            key: value
+            for key, value in dict(legacy.get("requirements") or {}).items()
+            if key != "closure_ids"
+        }
+        decisions = dict(legacy.get("decisions") or {})
+        decisions.pop("closure_statuses", None)
+        legacy["decisions"] = decisions
+        write_finalization_session(
+            dossier_id="d-preview",
+            transcription_id=ctx["transcription_id"],
+            workspace_id=ctx["workspace_id"],
+            run_id=ctx["run_id"],
+            session=legacy,
+        )
+        check = validate_persisted_finalization_decisions(legacy)
+        assert check.get("executed") is False
+        assert check["refusal"]["reason_code"] == "finalization_session_invalid"
+        result = _finalize(persistence, ctx, **_complete_request())
+        _assert_retryable(result, "finalization_session_invalid")
+        after = read_finalization_session(
+            dossier_id="d-preview",
+            transcription_id=ctx["transcription_id"],
+            workspace_id=ctx["workspace_id"],
+            run_id=ctx["run_id"],
+        )
+        assert after is not None
+        assert after["schema_version"] == "deed_to_ir.finalization_session.v1"
+        assert "closure_statuses" not in (after.get("decisions") or {})
+
+
+def _as_legacy_v1_session(session: dict) -> dict:
+    legacy = dict(session)
+    legacy["schema_version"] = "deed_to_ir.finalization_session.v1"
+    legacy["requirements"] = {
+        key: value
+        for key, value in dict(legacy.get("requirements") or {}).items()
+        if key != "closure_ids"
+    }
+    decisions = dict(legacy.get("decisions") or {})
+    decisions.pop("closure_statuses", None)
+    legacy["decisions"] = decisions
+    return legacy
+
+
+def test_v1_preview_ready_session_refuses_before_publish(monkeypatch) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        persistence, _ir, _mapping, _submitted, ctx = _submit_with_lineage(
+            tmp, leg2_distance=_PRACTICE_CORRECT_DISTANCE, monkeypatch=monkeypatch
+        )
+        disk = read_finalization_session(
+            dossier_id="d-preview",
+            transcription_id=ctx["transcription_id"],
+            workspace_id=ctx["workspace_id"],
+            run_id=ctx["run_id"],
+        )
+        assert disk is not None
+        legacy = _as_legacy_v1_session(disk)
+        legacy["status"] = STATUS_PREVIEW_READY
+        legacy["preview_ref"] = "deed_to_ir:final_package_preview:rev:0001"
+        write_finalization_session(
+            dossier_id="d-preview",
+            transcription_id=ctx["transcription_id"],
+            workspace_id=ctx["workspace_id"],
+            run_id=ctx["run_id"],
+            session=legacy,
+        )
+        with patch(
+            "tooling.mapping.deed_to_ir.finalize_current_output.publish_deed_to_ir_output"
+        ) as publish_mock, patch(
+            "tooling.mapping.deed_to_ir.finalize_current_output.prepare_deed_to_ir_final_package"
+        ) as prepare_mock:
+            result = _finalize(persistence, ctx)
+            _assert_retryable(result, "finalization_session_invalid")
+            publish_mock.assert_not_called()
+            prepare_mock.assert_not_called()
+
+
+def test_v1_published_session_refuses_before_replay(monkeypatch) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        persistence, _ir, _mapping, _submitted, ctx = _submit_with_lineage(
+            tmp, leg2_distance=_PRACTICE_CORRECT_DISTANCE, monkeypatch=monkeypatch
+        )
+        disk = read_finalization_session(
+            dossier_id="d-preview",
+            transcription_id=ctx["transcription_id"],
+            workspace_id=ctx["workspace_id"],
+            run_id=ctx["run_id"],
+        )
+        assert disk is not None
+        legacy = _as_legacy_v1_session(disk)
+        legacy["status"] = STATUS_PUBLISHED
+        legacy["preview_ref"] = "deed_to_ir:final_package_preview:rev:0001"
+        legacy["output_revision_ref"] = "deed_to_ir:output:rev:0001"
+        legacy["published_result"] = {
+            "executed": True,
+            "artifact_refs": ["deed_to_ir:output:rev:0001"],
+            "outputs": {
+                "final_package_preview_ref": "deed_to_ir:final_package_preview:rev:0001",
+                "finalization_status": STATUS_PUBLISHED,
+            },
+        }
+        write_finalization_session(
+            dossier_id="d-preview",
+            transcription_id=ctx["transcription_id"],
+            workspace_id=ctx["workspace_id"],
+            run_id=ctx["run_id"],
+            session=legacy,
+        )
+        with patch(
+            "tooling.mapping.deed_to_ir.finalize_current_output.publish_deed_to_ir_output"
+        ) as publish_mock:
+            result = _finalize(persistence, ctx)
+            _assert_retryable(result, "finalization_session_invalid")
+            publish_mock.assert_not_called()
+            assert result["outputs"].get("idempotent_replay") is not True
+
+
+def test_v2_preview_ready_missing_closure_lane_refuses(monkeypatch) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        persistence, _ir, _mapping, _submitted, ctx = _submit_with_lineage(
+            tmp, leg2_distance=_PRACTICE_CORRECT_DISTANCE, monkeypatch=monkeypatch
+        )
+        disk = read_finalization_session(
+            dossier_id="d-preview",
+            transcription_id=ctx["transcription_id"],
+            workspace_id=ctx["workspace_id"],
+            run_id=ctx["run_id"],
+        )
+        assert disk is not None
+        malformed = dict(disk)
+        malformed["status"] = STATUS_PREVIEW_READY
+        malformed["preview_ref"] = "deed_to_ir:final_package_preview:rev:0001"
+        requirements = dict(malformed.get("requirements") or {})
+        requirements.pop("closure_ids", None)
+        malformed["requirements"] = requirements
+        decisions = dict(malformed.get("decisions") or {})
+        decisions.pop("closure_statuses", None)
+        malformed["decisions"] = decisions
+        write_finalization_session(
+            dossier_id="d-preview",
+            transcription_id=ctx["transcription_id"],
+            workspace_id=ctx["workspace_id"],
+            run_id=ctx["run_id"],
+            session=malformed,
+        )
+        with patch(
+            "tooling.mapping.deed_to_ir.finalize_current_output.publish_deed_to_ir_output"
+        ) as publish_mock:
+            result = _finalize(persistence, ctx)
+            _assert_retryable(result, "finalization_session_invalid")
+            publish_mock.assert_not_called()
+
+
+def test_partial_closure_without_rationale_then_rationale_only_publishes(
+    monkeypatch,
+) -> None:
+    layer3 = CANONICAL_CLOSURE_DIMENSION_IDS[2]
+    rationale = "External continuation incomplete for this handoff."
+    with tempfile.TemporaryDirectory() as tmp:
+        persistence, _ir, _mapping, _submitted, ctx = _submit_with_lineage(
+            tmp, leg2_distance=_PRACTICE_CORRECT_DISTANCE, monkeypatch=monkeypatch
+        )
+        captured: dict[str, object] = {}
+        from tooling.mapping.deed_to_ir import finalize_current_output as finalize_mod
+        from tooling.mapping.deed_to_ir.final_package_preview_persistence import (
+            prepare_deed_to_ir_final_package as real_prepare,
+        )
+
+        def _capture_prepare(**kwargs):
+            captured["closure_dispositions"] = kwargs.get("closure_dispositions")
+            return real_prepare(**kwargs)
+
+        monkeypatch.setattr(
+            finalize_mod,
+            "prepare_deed_to_ir_final_package",
+            _capture_prepare,
+        )
+        first = _finalize(
+            persistence,
+            ctx,
+            **_complete_request(
+                closure_statuses=_all_closed_closure_statuses(**{layer3: "partial"}),
+                rationales={},
+            ),
+        )
+        _assert_retryable(first, "missing_finalization_decisions")
+        assert first["outputs"]["missing"]["rationale_ids"] == [layer3]
+        disk = read_finalization_session(
+            dossier_id="d-preview",
+            transcription_id=ctx["transcription_id"],
+            workspace_id=ctx["workspace_id"],
+            run_id=ctx["run_id"],
+        )
+        assert disk is not None
+        assert disk["decisions"]["closure_statuses"][layer3] == "partial"
+        assert layer3 not in (disk["decisions"].get("rationales") or {})
+
+        second = _finalize(persistence, ctx, rationales={layer3: rationale})
+        assert second["executed"] is True
+        closures = captured["closure_dispositions"]
+        assert isinstance(closures, list)
+        by_id = {row["dimension_id"]: row for row in closures}
+        assert by_id[layer3] == {
+            "dimension_id": layer3,
+            "status": "partial",
+            "summary": rationale,
+        }
+
+
+def test_full_finalizer_publishes_exact_authored_closure_rows(monkeypatch) -> None:
+    layer3 = CANONICAL_CLOSURE_DIMENSION_IDS[2]
+    layer4 = CANONICAL_CLOSURE_DIMENSION_IDS[3]
+    with tempfile.TemporaryDirectory() as tmp:
+        persistence, _ir, _mapping, _submitted, ctx = _submit_with_lineage(
+            tmp, leg2_distance=_PRACTICE_CORRECT_DISTANCE, monkeypatch=monkeypatch
+        )
+        captured: dict[str, object] = {}
+        from tooling.mapping.deed_to_ir import finalize_current_output as finalize_mod
+        from tooling.mapping.deed_to_ir.final_package_preview_persistence import (
+            prepare_deed_to_ir_final_package as real_prepare,
+        )
+
+        def _capture_prepare(**kwargs):
+            captured["closure_dispositions"] = kwargs.get("closure_dispositions")
+            return real_prepare(**kwargs)
+
+        monkeypatch.setattr(
+            finalize_mod,
+            "prepare_deed_to_ir_final_package",
+            _capture_prepare,
+        )
+        result = _finalize(
+            persistence,
+            ctx,
+            **_complete_request(
+                closure_statuses=_all_closed_closure_statuses(
+                    **{layer3: "partial", layer4: "partial"}
+                ),
+                rationales={
+                    layer3: "External continuation incomplete for this handoff.",
+                    layer4: "Scoped map handoff remains partial.",
+                },
+            ),
+        )
+        assert result["executed"] is True
+        closures = captured["closure_dispositions"]
+        assert isinstance(closures, list)
+        assert [row["dimension_id"] for row in closures] == list(CANONICAL_CLOSURE_DIMENSION_IDS)
+        by_id = {row["dimension_id"]: row for row in closures}
+        assert by_id[layer3]["status"] == "partial"
+        assert by_id[layer3]["summary"] == "External continuation incomplete for this handoff."
+        assert by_id[layer4]["status"] == "partial"
+        assert by_id[layer4]["summary"] == "Scoped map handoff remains partial."
+        assert by_id[CANONICAL_CLOSURE_DIMENSION_IDS[0]]["status"] == "closed"
+        assert "summary" not in by_id[CANONICAL_CLOSURE_DIMENSION_IDS[0]]
 
 
 # --- Orchestration / publication ---
@@ -1122,6 +1572,13 @@ def test_no_deterministic_statuses_or_dispositions_before_agent_decisions() -> N
     assert compact["missing"]["scope_ids"] == ["parcel_1"]
     assert compact["missing"]["correction_ids"] == ["p1_call2_distance"]
     assert compact["missing"]["dependency_ids"] == ["dep_1"]
+    assert compact["missing"]["closure_ids"] == list(CANONICAL_CLOSURE_DIMENSION_IDS)
+    assert compact["allowed_values"]["closure_statuses"] == [
+        "closed",
+        "partial",
+        "blocked",
+    ]
+    assert session["requirements"]["closure_ids"] == list(CANONICAL_CLOSURE_DIMENSION_IDS)
 
 
 # --- Persistence hard gates ---
@@ -1299,6 +1756,7 @@ def test_invalid_stored_value_refuses_without_prepare(monkeypatch) -> None:
             "scope_statuses": {"parcel_1": "ready"},
             "correction_dispositions": {},
             "dependency_dispositions": {},
+            "closure_statuses": {},
             "rationales": {},
         }
         write_finalization_session(
@@ -1336,6 +1794,7 @@ def test_unknown_stored_id_refuses_without_prepare(monkeypatch) -> None:
             "scope_statuses": {"parcel_99": "handoffable"},
             "correction_dispositions": {},
             "dependency_dispositions": {},
+            "closure_statuses": {},
             "rationales": {},
         }
         write_finalization_session(
@@ -1373,6 +1832,7 @@ def test_malformed_stored_lane_refuses_without_prepare(monkeypatch) -> None:
             "scope_statuses": ["parcel_1"],
             "correction_dispositions": {},
             "dependency_dispositions": {},
+            "closure_statuses": {},
             "rationales": {},
         }
         write_finalization_session(

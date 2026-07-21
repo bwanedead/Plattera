@@ -446,8 +446,11 @@ def build_deed_to_ir_tool_specs() -> tuple[SemanticToolSpec, ...]:
                 "correction_dispositions: map of known correction_id → "
                 "confirmed_source_repair|ir_only_exception|needs_hitl. "
                 "dependency_dispositions: map of known dependency_id → include|not_applicable. "
+                "closure_statuses: map of all four known closure dimension IDs → closed|partial|blocked; "
+                "partial or blocked requires a rationale keyed by the same dimension ID. "
                 "rationales: map of known requirement_id → rationale text; required only for "
-                "ir_only_exception and not_applicable. Previously accepted decisions need not be resubmitted. "
+                "ir_only_exception, not_applicable, and partial/blocked closure statuses. "
+                "Previously accepted decisions need not be resubmitted. "
                 "Rejects artifact refs and unknown top-level fields."
             ),
             expected_request_json_shape=(
