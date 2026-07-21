@@ -386,7 +386,8 @@ def build_deed_to_ir_tool_specs() -> tuple[SemanticToolSpec, ...]:
             purpose=(
                 "Submit one saved IR artifact for mapping. Internally compiles, judges, projects geometry, "
                 "and renders clean/control maps as deterministic stages of this single submission. "
-                "Compile, judge, and render are not separate agent workflow actions."
+                "Compile, judge, and render are not separate agent workflow actions. Returned sanity facts "
+                "are investigation triggers; material unexplained anomalies remain semantic work."
             ),
             expected_request_shape=(
                 "ir_artifact_ref: required canonical feature_graph:ir:* ref from the current dossier. "
@@ -434,11 +435,14 @@ def build_deed_to_ir_tool_specs() -> tuple[SemanticToolSpec, ...]:
                 "dispositions, and exceptional rationales). Persists partial progress, prepares the "
                 "immutable final-package preview internally, and publishes it. Preferred post-remap path: "
                 "submit_ir_for_mapping → finalize_current_deed_to_ir_output. "
-                "Does not accept mapping/IR/preview refs, closure arrays, or upstream correction rows."
+                "This realizes already-earned semantic conclusions; the session and its allowed values are "
+                "not a semantic-readiness certificate. Does not accept mapping/IR/preview refs, closure "
+                "arrays, or upstream correction rows."
             ),
             expected_request_shape=(
                 "All maps optional. Empty request returns exact missing decision IDs. "
-                "scope_statuses: map of known scope_id → handoffable|blocked. "
+                "scope_statuses: map of known scope_id → handoffable|blocked; handoffable is affirmative "
+                "and requires material mapping anomalies to be repaired or evidence-groundedly explained. "
                 "correction_dispositions: map of known correction_id → "
                 "confirmed_source_repair|ir_only_exception|needs_hitl. "
                 "dependency_dispositions: map of known dependency_id → include|not_applicable. "

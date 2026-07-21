@@ -118,6 +118,10 @@ def test_submit_and_hydrate_tool_specs_mention_mapping_review() -> None:
     assert "to publish, prefer" not in hydrate.expected_result_shape.lower()
     assert "recommended_publish_request" not in hydrate.expected_result_shape
     assert "intent-first preview" not in submit.expected_result_shape.lower()
+    assert "material unexplained anomalies remain semantic work" in submit.purpose.lower()
+    finalize = specs["finalize_current_deed_to_ir_output"]
+    assert "not a semantic-readiness certificate" in finalize.purpose.lower()
+    assert "handoffable is affirmative" in finalize.expected_request_shape.lower()
     for spec in specs.values():
         blob = " ".join(
             [
@@ -235,7 +239,7 @@ def test_procedural_guidance_v23_upstream_corrections_discipline() -> None:
         for b in build_deed_to_ir_domain_pack().build_semantic_prompt_blocks()
         if b.block_id == "deed_to_ir_procedural_guidance"
     )
-    assert block.version == "v35"
+    assert block.version == "v36"
     text = block.text.lower()
     assert "finalize_current_deed_to_ir_output" in text
     assert "prepare_deed_to_ir_final_package" not in text
@@ -256,7 +260,7 @@ def test_procedural_guidance_v24_mapping_sanity_discipline() -> None:
         for b in build_deed_to_ir_domain_pack().build_semantic_prompt_blocks()
         if b.block_id == "deed_to_ir_procedural_guidance"
     )
-    assert block.version == "v35"
+    assert block.version == "v36"
     text = block.text.lower()
     assert "sanity_review" in text
     assert "endpoint displacement" in text
@@ -264,6 +268,11 @@ def test_procedural_guidance_v24_mapping_sanity_discipline() -> None:
     assert "not automatically a deed defect" in text
     assert "full canonical refs" in text
     assert "intentionally open alignments" in text
+    assert "material unexplained mapping anomaly is unresolved semantic work" in text
+    assert "not a semantic-readiness certificate" in text
+    assert "three honest exits" in text
+    assert "evidence was **not inspected**" in text
+    assert "handoffable` is an affirmative semantic conclusion" in text
 
 
 def test_procedural_guidance_v25_correction_lane_discipline() -> None:
@@ -272,7 +281,7 @@ def test_procedural_guidance_v25_correction_lane_discipline() -> None:
         for b in build_deed_to_ir_domain_pack().build_semantic_prompt_blocks()
         if b.block_id == "deed_to_ir_procedural_guidance"
     )
-    assert block.version == "v35"
+    assert block.version == "v36"
     text = block.text.lower()
     assert "finalize_current_deed_to_ir_output" in text
     assert "prepare_deed_to_ir_final_package" not in text
@@ -287,7 +296,7 @@ def test_procedural_guidance_v26_correction_posture_gate() -> None:
         for b in build_deed_to_ir_domain_pack().build_semantic_prompt_blocks()
         if b.block_id == "deed_to_ir_procedural_guidance"
     )
-    assert block.version == "v35"
+    assert block.version == "v36"
     text = block.text.lower()
     assert "correction_posture" in text
     assert "finalize_current_deed_to_ir_output" in text
@@ -299,7 +308,7 @@ def test_procedural_guidance_v27_lineage_lock_discipline() -> None:
         for b in build_deed_to_ir_domain_pack().build_semantic_prompt_blocks()
         if b.block_id == "deed_to_ir_procedural_guidance"
     )
-    assert block.version == "v35"
+    assert block.version == "v36"
     text = block.text.lower()
     assert "lineage_lock" in text or "recommended_publish_refs" in text
     assert "finalize_current_deed_to_ir_output" in text
@@ -311,7 +320,7 @@ def test_procedural_guidance_v28_source_repair_and_finalization_discipline() -> 
         for b in build_deed_to_ir_domain_pack().build_semantic_prompt_blocks()
         if b.block_id == "deed_to_ir_procedural_guidance"
     )
-    assert block.version == "v35"
+    assert block.version == "v36"
     text = block.text.lower()
     assert "finalize_current_deed_to_ir_output" in text
     assert "prepare_deed_to_ir_final_package" not in text
@@ -326,7 +335,7 @@ def test_procedural_guidance_v29_course_updates_and_no_delegate_repair() -> None
         for b in build_deed_to_ir_domain_pack().build_semantic_prompt_blocks()
         if b.block_id == "deed_to_ir_procedural_guidance"
     )
-    assert block.version == "v35"
+    assert block.version == "v36"
     text = block.text.lower()
     assert "course_updates" in text
     assert "draft_patch_targets" in text
@@ -341,7 +350,7 @@ def test_procedural_guidance_v33_intent_first_preflight() -> None:
         for b in build_deed_to_ir_domain_pack().build_semantic_prompt_blocks()
         if b.block_id == "deed_to_ir_procedural_guidance"
     )
-    assert block.version == "v35"
+    assert block.version == "v36"
     text = block.text.lower()
     assert "current_mapping_lineage" in text or "canonical finalization" in text
     assert "preferred endgame" in text or "canonical finalization" in text
@@ -658,6 +667,9 @@ def test_closure_and_handoff_semantics_stable() -> None:
     assert h.summary.strip()
     assert "mapped, which are incomplete or dependency-pending" in " ".join(c.sufficient_when)
     assert "rendered image as closure by itself" in " ".join(c.anti_patterns)
+    assert "every material mapping anomaly" in " ".join(c.sufficient_when)
+    assert "finalization session" in " ".join(c.anti_patterns)
+    assert "source-confirmed" in " ".join(c.anti_patterns)
     assert "agent_kernel" not in (c.summary + h.summary).lower()
 
 

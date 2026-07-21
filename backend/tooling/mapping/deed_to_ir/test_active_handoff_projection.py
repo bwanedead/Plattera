@@ -194,7 +194,7 @@ def test_guidance_covers_scoped_source_limitations_and_active_handoff() -> None:
         for b in pack.build_semantic_prompt_blocks()
         if b.block_id == "deed_to_ir_procedural_guidance"
     )
-    assert block.version == "v35"
+    assert block.version == "v36"
     text = block.text
     assert "active_handoff_context" in text
     assert "sole hot mapping" in text or "sole hot mapping/IR" in text

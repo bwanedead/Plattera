@@ -9,7 +9,7 @@ from ..branch import DEED_TO_IR_DOMAIN_ID
 DEED_TO_IR_PROCEDURAL_GUIDANCE_SOURCE_REF = (
     "backend/domains/mapping/deed_to_ir/prompting/surfaces/procedural_guidance.py"
 )
-DEED_TO_IR_PROCEDURAL_GUIDANCE_VERSION = "v35"
+DEED_TO_IR_PROCEDURAL_GUIDANCE_VERSION = "v36"
 
 DEED_TO_IR_PROCEDURAL_GUIDANCE_TEXT = """\
 Use this guidance to orient deed-to-IR work. This is **guidance**, not a hard script.
@@ -44,10 +44,26 @@ Use this guidance to orient deed-to-IR work. This is **guidance**, not a hard sc
 - Use `unknown` only when the feature kind itself is unknown. A known blocked, partial, or dependency-pending scope is not unknown; represent it as an `annotation` with source/provenance links and handoff notes. Do not fabricate geometry for blocked scope.
 - Do not treat `unknown` nodes with deed prose parked in `graph.metadata` as sufficient map IR.
 - `submit_ir_for_mapping` is the deliberate mapping attempt once structural readiness is honest enough for inspection.
-- After mapping review is honest enough for scoped handoff, call `finalize_current_deed_to_ir_output` — the finalizer prepares and publishes the durable package internally.
+- After mapping review has discharged the mapping sanity debt described below, call `finalize_current_deed_to_ir_output` — the finalizer prepares and publishes the durable package internally.
+
+## The mapping sanity debt law
+- After `submit_ir_for_mapping`, inspect `outputs.mapping_review` before deciding that the current lineage is handoffable. Read the mechanical geometry facts in `sanity_review`, the source associations in its course-leg tables, its `recommended_source_evidence_refs` and review questions, and any `draft_patch_targets` or `correction_posture`.
+- A **material unexplained mapping anomaly is unresolved semantic work**. It cannot be laundered into `handoffable` because compile/judge passed, a map rendered, lineage is current, or the finalizer asks only for compact decisions. Materiality and deed meaning remain agent-authored; deterministic diagnostics are investigation triggers, not verdicts.
+- The lineage-bound finalization session is a realization contract, **not a semantic-readiness certificate**. Its known IDs and allowed values tell you how to express conclusions you have already earned; they do not prove that investigation is complete or make `handoffable` the default.
+- Localize the anomaly before chasing a favored explanation. Use course-leg `source_entity_ids` and `evidence_refs`, `recommended_source_evidence_refs`, and the operand suite to identify a bounded set of contributing calls. If one hypothesis fails, inspect other materially relevant calls rather than generalizing from the failed lookup.
+- Source confirmation requires inspection of actual source evidence (`image:derived:*`, `image:assoc:*`, or an equally direct source artifact). Inherited transcript or resolution values establish provenance and a starting claim, not source confirmation when mapping sanity has put that claim in doubt.
+- A `not_found`, empty, invalid, omitted, or unavailable hydration result means that evidence was **not inspected**. Do not describe the value as source-confirmed. Try another relevant associated ref when one is available; otherwise keep the issue unresolved and choose an honest blocked/HITL posture.
+- Large endpoint displacement is a source-sanity trigger, not automatically a deed defect. Station chains, centerlines, routes, strips, and intentionally open alignments may not close. But an open-alignment explanation is earned only when deed structure or inspected evidence supports it; the mere possibility does not discharge the anomaly.
+- Sanity debt has only three honest exits:
+  1. **Repair** — source evidence or deed structure establishes a defect; patch the current IR (prefer `course_updates` for a surgical CourseTraverse value fix), disclose any upstream correction, and remap before finalization.
+  2. **Explain** — inspected evidence and deed structure establish that the geometry is intentional or the deviation is acceptable; preserve that basis in the agent-authored work state and final handoff.
+  3. **Block** — the anomaly cannot be resolved from available evidence; keep the affected scope non-handoffable, record the unresolved issue/dependency/HITL need, and do not imply that the geometry was validated.
+- Never hide the anomaly by selecting a convenient disposition, by calling it a limitation without evidence, or by finalizing silently. `handoffable` is an affirmative semantic conclusion earned only after every material sanity debt affecting that scope has been repaired or evidence-groundedly explained.
+- For a surgical repair, use `mapping_review.draft_patch_targets` (and `correction_posture.matching_patch_target_id` / `patch_update_shells` when present) with `patch_ir_draft`; prefer `course_updates` over reconstructing full `courses[]` for a simple bearing/distance fix. Shells may locate the field, but the agent authors the corrected value. If any patch occurs after mapping, remap the patched draft before finalization.
+- Do **not** use `delegate_subtask` merely to locate IR patch targets already exposed by the mapping review. Delegation is useful only when it adds a bounded observation that the parent cannot obtain directly.
 
 ## Canonical finalization
-- Preferred endgame: inspect mapping review → repair current IR if necessary → submit the repaired IR for mapping → call `finalize_current_deed_to_ir_output` with only unresolved semantic decision maps. When publication succeeds with `ready_for_completion_candidate=true`, the run completes from that anchor — do not call `complete_run` merely to restate publication bookkeeping.
+- Preferred endgame: inspect mapping review → discharge every material sanity debt by repair, evidence-grounded explanation, or honest block → remap any repaired IR → call `finalize_current_deed_to_ir_output` with only unresolved semantic decision maps. When publication succeeds with `ready_for_completion_candidate=true`, the run completes from that anchor — do not call `complete_run` merely to restate publication bookkeeping.
 - Treat the lineage-bound finalization session from a successful remap as the current finalization candidate. Do not track mapping/IR pairs, preview refs, closure arrays, or strict package rows manually.
 - Author only semantic conclusions the active session still needs:
   - scope statuses: `handoffable` or `blocked`;
@@ -62,28 +78,19 @@ Use this guidance to orient deed-to-IR work. This is **guidance**, not a hard sc
 - If the session is `preview_ready`, retry the same finalizer with **no decision mutations** — publication retries the stored immutable preview.
 - When publication succeeds with `ready_for_completion_candidate=true`, treat the published package as the durable closeout — do not hydrate output/preview/IR/mapping just to restate what the finalizer already returned, and do not call `complete_run` for bookkeeping.
 - Reopen IR only for a material defect in the current IR/mapping/final handoff — not to polish bookkeeping or restate already accepted decisions.
-- Mapping review before finalization remains required. Rendered output is not semantic correctness by itself.
+- Mapping review before finalization remains required, and any material anomaly must have one of the three honest exits above. Rendered output is not semantic correctness by itself.
 - Never treat mechanical mapping facts (compile/judge counts, renders, lineage_current) as semantic closure.
 - Corrections used by final IR must be disclosed via correction dispositions. Blocked scopes and external dependencies must remain explicit. Dependency and correction candidates are evidence, not deterministic conclusions.
 - IR patched after mapping must be remapped before finalization. Published output is the durable closeout package.
 
-## Mapping review and hydration discipline
-- After `submit_ir_for_mapping`, inspect `outputs.mapping_review` first — mapping review is not just compile/judge pass/fail. Inspect mechanical geometry behavior in `mapping_review.sanity_review` (endpoint displacement, course leg tables, source evidence handles). When present, inspect `mapping_review.correction_posture` for mechanical IR-vs-inherited operand deltas and use the compact finalizer correction dispositions above.
+## Mapping lineage and hydration discipline
 - Prefer `outputs.mapping_review.recommended_review_refs` over `@this.result.artifact_refs[]` for ordinary mapping review — do not bulk-hydrate every returned ref by habit. Copyable `*_ref` fields must be full canonical refs; never use truncated display fragments as refs.
-- Large unexplained endpoint displacement is a **source-sanity trigger**, not automatically a deed defect. Do not declare an open traverse limitation until you consider whether the deed description expected closure or a boundary return.
-- If one course leg looks suspicious, hydrate targeted source evidence for that leg (from `sanity_review.recommended_source_evidence_refs` or course leg `evidence_refs`) before finalizing an upstream correction or limitation.
-- Station chains, centerlines, routes, strips, and intentionally open alignments may not close — endpoint displacement is a mechanical fact to interpret, not a universal failure.
 - Hydrate specific refs only when needed: control render for visual map review (leg/gap annotations), geometry ref for feature/coordinate inspection, mapping ref for compact lineage, counts, sanity_review, and draft_patch_targets.
 - For upstream source repair, hydrate targeted transcript-edit evidence refs (`image:derived:*`, `image:assoc:*`) via `hydrate_artifact_refs` — do not bulk-hydrate the entire transcript-edit artifact universe.
 - After a successful remap via `submit_ir_for_mapping`, use `mapping_review.active_handoff_context` (or `current_mapping_lineage` / compatibility `lineage_lock`) as the **sole hot mapping/IR candidate** for the next finalization — do not treat older mappings in `latest_refs` as equally eligible, and do not mix a newer IR ref with an older mapping ref (or vice versa). When hydrating a mapping ref, inspect `lineage_status` (`current` vs `superseded`); a superseded historical mapping remains auditable but is not the finalization candidate.
 - Work items whose explicit `evidence_refs` cite only superseded mapping/IR refs are **historical lineage context**: auditable, but they do not establish a defect in the current mapping and must not reopen otherwise accepted current handoff work.
 - When a source limitation is represented in current IR/mapping as a scoped blocked continuation, treat it as a **durable package limitation** — not an instruction to reopen otherwise accepted current work. Do not create or preserve a global `blocks → final_handoff` relation solely because a source continuation is unavailable. A material defect in current lineage may still block handoff; that distinction remains agent-authored.
 - If any `patch_ir_draft` occurs after mapping, resubmit the patched draft for mapping before finalization — stale mapping lineage is refused retryably.
-
-## Mapping sanity repair (surgical course patch)
-- Normal path: inspect `mapping_review.sanity_review` → use `mapping_review.draft_patch_targets` (and `correction_posture.matching_patch_target_id` / `patch_update_shells` when present) → `patch_ir_draft` with `course_updates` → remap → finalize.
-- Prefer `course_updates` over reconstructing full `courses[]` for a simple bearing/distance fix. Shells may include placeholders; the agent authors the corrected `value`. Deterministic code does not choose deed truth.
-- Do **not** use `delegate_subtask` to locate IR patch targets — the parent already owns the draft/mapping surfaces and the mechanical bridges (`draft_patch_targets` / shells); delegation adds no bounded observation gain for this repair.
 
 ## Supported deed-to-IR authoring pattern
 - **ReferenceFrame** — survey/frame context such as PLSS, local stationing, plat grid, or other external coordinate basis (non-rendered descriptor; not invented ops like `public_land_survey_frame`).
