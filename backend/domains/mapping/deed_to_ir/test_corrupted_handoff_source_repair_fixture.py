@@ -11,8 +11,11 @@ from domains.mapping.deed_to_ir.test_fixtures.synthetic_transcript_edit_evidence
     install_synthetic_transcript_edit_derived_image,
 )
 from domains.mapping.deed_to_ir.test_fixtures.corrupted_handoff_fixture import (
+    _CALL3_CORRUPTION_UNIT_ID,
+    _CALL3_SOURCE_EVIDENCE_REF,
     _CORRUPTION_UNIT_ID,
     _SOURCE_EVIDENCE_REF,
+    assert_call3_source_repair_variant_transcript_agrees_with_corrupted_operand,
     assert_source_repair_variant_transcript_agrees_with_corrupted_operand,
     corrupted_fixture_root,
     extract_corrupted_operand_value,
@@ -35,22 +38,30 @@ from tooling.mapping.deed_to_ir.startup_handoff import build_deed_to_ir_startup_
 _NORMAL_ROOT = normal_fixture_root()
 _SOURCE_REPAIR_ROOT = variant_fixture_root("corrupted_handoff_source_repair")
 _VARIANT_NAME = "corrupted_handoff_source_repair"
+_CALL3_SOURCE_REPAIR_ROOT = variant_fixture_root(
+    "corrupted_handoff_source_repair_call3_distance"
+)
+_CALL3_VARIANT_NAME = "corrupted_handoff_source_repair_call3_distance"
 
 
 def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def _launch_context(**overrides: object) -> dict[str, object]:
+def _launch_context(
+    *,
+    fixture_root: Path = _SOURCE_REPAIR_ROOT,
+    **overrides: object,
+) -> dict[str, object]:
     base: dict[str, object] = {
         "dossier_id": "9f5eecb6-cd7e-483c-b691-b76aa7132e8e",
         "transcription_id": "draft_legal_text_image",
         "run_id": "deed-to-ir-source-repair-test",
         "workspace_id": "deed-to-ir-source-repair-test",
         "max_iterations": 3,
-        "transcript_edit_output_path": str(_SOURCE_REPAIR_ROOT / "transcript_edit_output.json"),
+        "transcript_edit_output_path": str(fixture_root / "transcript_edit_output.json"),
         "resolution_state_ref": "transcript_edit:resolution_state:practice-row-live-20260619-76",
-        "resolution_state_snapshot_path": str(_SOURCE_REPAIR_ROOT / "resolution_state.json"),
+        "resolution_state_snapshot_path": str(fixture_root / "resolution_state.json"),
     }
     base.update(overrides)
     return base
@@ -193,3 +204,127 @@ def test_source_repair_upstream_evidence_ref_hydrates_when_descriptor_exists(
     assert str(tmp_path) not in dumped
     assert isinstance(hydrated.get("image_evidence"), list)
     assert hydrated["image_evidence"][0]["ref_id"] == _SOURCE_EVIDENCE_REF
+
+
+def test_call3_source_repair_fixture_integrity_and_manifest_hashes() -> None:
+    for name in (
+        "fixture_manifest.json",
+        "transcript_edit_output.json",
+        "resolution_state.json",
+    ):
+        assert (_CALL3_SOURCE_REPAIR_ROOT / name).is_file(), name
+
+    manifest = load_fixture_manifest(_CALL3_SOURCE_REPAIR_ROOT)
+    assert manifest["fixture_variant"] == _CALL3_VARIANT_NAME
+    assert "test fixture variant" in manifest["fixture_variant_label"].lower()
+    assert manifest["corruption_target"]["unit_id"] == _CALL3_CORRUPTION_UNIT_ID
+    assert (
+        manifest["corruption_target"]["source_evidence_ref"]
+        == _CALL3_SOURCE_EVIDENCE_REF
+    )
+    files = manifest["files"]
+    transcript = _CALL3_SOURCE_REPAIR_ROOT / "transcript_edit_output.json"
+    resolution = _CALL3_SOURCE_REPAIR_ROOT / "resolution_state.json"
+    assert _sha256(transcript) == files["transcript_edit_output.json"]["sha256"]
+    assert _sha256(resolution) == files["resolution_state.json"]["sha256"]
+
+
+def test_call3_source_repair_corrupts_only_the_intended_resolution_unit() -> None:
+    normal_resolution = load_resolution_state(_NORMAL_ROOT)
+    variant_resolution = load_resolution_state(_CALL3_SOURCE_REPAIR_ROOT)
+    normal_units = dict(iter_covered_units(normal_resolution))
+    variant_units = dict(iter_covered_units(variant_resolution))
+    differing = [uid for uid, row in normal_units.items() if row != variant_units[uid]]
+    assert differing == [_CALL3_CORRUPTION_UNIT_ID]
+
+    assert (
+        extract_corrupted_operand_value(
+            _CALL3_SOURCE_REPAIR_ROOT,
+            unit_id=_CALL3_CORRUPTION_UNIT_ID,
+        )
+        == "280 feet"
+    )
+    assert_call3_source_repair_variant_transcript_agrees_with_corrupted_operand(
+        _CALL3_SOURCE_REPAIR_ROOT
+    )
+    assert (
+        extract_target_evidence_ref(
+            _CALL3_SOURCE_REPAIR_ROOT,
+            unit_id=_CALL3_CORRUPTION_UNIT_ID,
+        )
+        == _CALL3_SOURCE_EVIDENCE_REF
+    )
+
+    normal_transcript = load_transcript_edit_output(_NORMAL_ROOT)
+    variant_transcript = load_transcript_edit_output(_CALL3_SOURCE_REPAIR_ROOT)
+    normal_payload = dict(normal_transcript["revision_snapshot"]["payload"])
+    variant_payload = dict(variant_transcript["revision_snapshot"]["payload"])
+    source_phrase = "180 feet, more or less, to the point of beginning"
+    corrupted_phrase = "280 feet, more or less, to the point of beginning"
+    for lane in ("source_transcript_verbatim", "normalized_or_mapping_transcript"):
+        assert variant_payload.pop(lane) == normal_payload.pop(lane).replace(
+            source_phrase,
+            corrupted_phrase,
+        )
+    assert variant_payload == normal_payload
+
+    normal_without_payload = dict(normal_transcript)
+    variant_without_payload = dict(variant_transcript)
+    normal_without_payload["revision_snapshot"] = dict(
+        normal_transcript["revision_snapshot"]
+    )
+    variant_without_payload["revision_snapshot"] = dict(
+        variant_transcript["revision_snapshot"]
+    )
+    normal_without_payload["revision_snapshot"].pop("payload")
+    variant_without_payload["revision_snapshot"].pop("payload")
+    assert variant_without_payload == normal_without_payload
+
+
+def test_call3_source_repair_mapping_operands_show_corrupted_value() -> None:
+    handoff = build_deed_to_ir_startup_handoff(
+        scope=DeedToIrScope(
+            dossier_id="9f5eecb6-cd7e-483c-b691-b76aa7132e8e",
+            transcription_id="draft_legal_text_image",
+            run_id="deed-to-ir-call3-source-repair-test",
+            workspace_id="deed-to-ir-call3-source-repair-test",
+        ),
+        transcript_edit_output_path=str(
+            _CALL3_SOURCE_REPAIR_ROOT / "transcript_edit_output.json"
+        ),
+        resolution_state_ref=(
+            "transcript_edit:resolution_state:practice-row-live-20260619-76"
+        ),
+        resolution_state_snapshot=load_resolution_state(_CALL3_SOURCE_REPAIR_ROOT),
+    )
+    handler = make_hydrate_deed_to_ir_input_handler(
+        handoff_context=_handoff_tool_context(handoff)
+    )
+    hydrated = handler({"sections": ["mapping_operands"]})
+    rows = hydrated["outputs"]["mapping_operands"]["operands"]
+    call3 = next(
+        row for row in rows if row.get("operand_id") == _CALL3_CORRUPTION_UNIT_ID
+    )
+    assert call3.get("distance_raw") == "280 feet"
+    assert call3.get("evidence_refs") == [_CALL3_SOURCE_EVIDENCE_REF]
+
+
+def test_call3_source_repair_startup_is_path_and_answer_key_free() -> None:
+    adapter = build_deed_to_ir_runtime_adapter()
+    surface = adapter.build_turn_surface(
+        _launch_context(fixture_root=_CALL3_SOURCE_REPAIR_ROOT)
+    )
+    prompt_text = "\n".join(block.content for block in surface.blocks)
+    wire = json.dumps(surface.payload["deed_to_ir_startup_handoff"])
+    for forbidden in (
+        str(_CALL3_SOURCE_REPAIR_ROOT),
+        "corrupted_handoff_source_repair_call3_distance",
+        "corruption_target",
+        "source_supported_value",
+        "fixture_variant",
+        "180 feet",
+        "resolution_state_snapshot_path",
+        "transcript_edit_output_path",
+    ):
+        assert forbidden not in prompt_text
+        assert forbidden not in wire

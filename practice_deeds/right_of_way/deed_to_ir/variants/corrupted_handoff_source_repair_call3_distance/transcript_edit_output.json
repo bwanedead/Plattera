@@ -1,0 +1,88 @@
+{
+  "published_at": "2026-06-18T19:57:40Z",
+  "revision_snapshot": {
+    "base_revision_ref": null,
+    "evidence_refs": [
+      "image:assoc:draft_legal_text_image:original",
+      "t0:raw:draft_1"
+    ],
+    "payload": {
+      "evidence_refs": [
+        "image:assoc:draft_legal_text_image:original",
+        "t0:raw:draft_1",
+        "subtask:turn9:p1_pob_corner_bearing",
+        "subtask:turn9:p1_acreage",
+        "subtask:turn17:p2_distance",
+        "subtask:turn17:p2_offset",
+        "subtask:turn17:p2_call1_bearing",
+        "subtask:turn17:p2_call1_distance"
+      ],
+      "hitl_decisions": [
+        {
+          "choice": "Only this visible image is available; treat the Parcel 2 continuation as unavailable",
+          "note": "Source image genuinely cuts off mid Parcel 2; no continuation page in dossier.",
+          "prompt_id": "hitl-ad8f78d47b3f49c29b593ca39704c173"
+        },
+        {
+          "choice": "Use Range 75 West from the introductory situs",
+          "note": "Prefatory situs governs; parcel-start Range 74 references are deed errors per practice baseline.",
+          "prompt_id": "hitl-33c567d9a2f84db7b6b9bacaaef73067"
+        }
+      ],
+      "issues": [
+        {
+          "downstream_disposition": "Normalized lane uses Range Seventy-five (75) West per consumed HITL; verbatim lane preserves the contradiction.",
+          "issue_id": "range_reference_conflict",
+          "layer": "layer_2_intrinsic_source_integrity",
+          "mapping_blocking": false,
+          "scope": "document / parcel openings",
+          "summary": "The source is internally contradictory: the prefatory situs reads Range Seventy-five (75) West while both parcel descriptions read Range Seventy-four (74) West."
+        },
+        {
+          "downstream_disposition": "Parcel 2 cannot be fully handed forward for mapping beyond the verified visible opening.",
+          "issue_id": "parcel_2_continuation_scope",
+          "layer": "layer_3_external_dependency_completeness",
+          "mapping_blocking": true,
+          "scope": "Parcel 2 after visible first call",
+          "summary": "The visible source ends mid-sentence after Parcel 2's first 400-foot call reaches 'to'. No continuation page exists in the dossier."
+        }
+      ],
+      "normalized_or_mapping_transcript": "Right of Way Deed.\nThis Indenture, made this 3rd day of August, A.D. 1915, by and between Harriet Richard, a widow, of the County of Albany, State of Wyoming, party of the first part, and Laramie Water Company, a corporation formed and existing under and by virtue of the laws of the State of Wyoming, having its office at Laramie, in the County of Albany and State of Wyoming, party of the second part, witnesseth:\n\nThat the party of the first part, for and in consideration of the sum of One Dollar and other valuable considerations to her in hand paid by the party of the second part at or before the execution of this instrument, the receipt of which considerations is hereby acknowledged, has bargained, sold, granted and conveyed unto the party of the second part, its successors and assigns, those two (2) parcels of land situated in the Southwest Quarter of the Northwest Quarter of Section Two (2), Township Fourteen (14) North, Range Seventy-five (75) West of the Sixth Principal Meridian, in the County of Albany, State of Wyoming, the said parcels of land being more particularly described as follows:-\n\nBeginning at a point on the west boundary of Section Two (2), Township Fourteen (14) North, Range Seventy-five (75) West, whence the northwest corner bears N. 4º 00' W., 1638 feet distant, and being 50 feet S. 21º 30' E. from the center line of the South canal of the company; thence N. 68º 30' East parallel to and 50 feet distant from the center line of said canal 542 feet more or less to the north boundary of the Southwest Quarter of the Northwest Quarter of said Section Two (2); thence S. 87º 35' W. along the North boundary of said Southwest Quarter of the Northwest Quarter 518 feet; more or less to the Northwest corner of said Southwest Quarter of the Northwest Quarter; thence S. 4º 00' E. on the West boundary of said Section Two (2) 280 feet, more or less, to the point of beginning; said parcel of land containing 1.9 acres, more or less:-\n\nAnd beginning on the north boundary of the Southwest Quarter of the Northwest Quarter of said Section Two (2), Township Fourteen (14) North, Range Seventy-five (75) West, at a point where the northeast corner of said Section Two (2) bears N. 37º 00' W., 1275 feet distant, and being 50 feet S. 53º 00' W. from the center line of the South canal of the company; Thence N. 87º 35' E. along the North boundary of said Southwest Quarter of the Northwest Quarter, 400 feet, more or less, to [SOURCE CUTS OFF HERE — no continuation page available in dossier]",
+      "parcel_metadata": {
+        "parcels": [
+          {
+            "forwardable": true,
+            "forwardable_scope": "full visible parcel",
+            "governing_range": "Range Seventy-five (75) West",
+            "notes": [
+              "Verbatim source lane preserves the parcel-start Range Seventy-four (74) West wording as an intrinsic source defect.",
+              "Normalized lane applies the consumed governing-range adjudication."
+            ],
+            "parcel_id": "parcel_1"
+          },
+          {
+            "forwardable": false,
+            "forwardable_scope": "verified visible opening only; parcel not fully handoffable",
+            "governing_range": "Range Seventy-five (75) West for normalized visible scope",
+            "notes": [
+              "Visible opening atoms are source-earned.",
+              "Further parcel transcript and mapping are blocked by missing continuation source."
+            ],
+            "parcel_id": "parcel_2"
+          }
+        ]
+      },
+      "source_transcript_verbatim": "Right of Way Deed.\nThis Indenture, made this 3rd day of August, A.D. 1915, by and between Harriet Richard, a widow, of the County of Albany, State of Wyoming, party of the first part, and Laramie Water Company, a corporation formed and existing under and by virtue of the laws of the State of Wyoming, having its office at Laramie, in the County of Albany and State of Wyoming, party of the second part, witnesseth:\n\nThat the party of the first part, for and in consideration of the sum of One Dollar and other valuable considerations to her in hand paid by the party of the second part at or before the execution of this instrument, the receipt of which considerations is hereby acknowledged, has bargained, sold, granted and conveyed unto the party of the second part, its successors and assigns, those two (2) parcels of land situated in the Southwest Quarter of the Northwest Quarter of Section Two (2), Township Fourteen (14) North, Range Seventy-five (75) West of the Sixth Principal Meridian, in the County of Albany, State of Wyoming, the said parcels of land being more particularly described as follows:-\n\nBeginning at a point on the west boundary of Section Two (2), Township Fourteen (14) North, Range Seventy-four (74) West, whence the northwest corner bears N. 4º 00' W., 1638 feet distant, and being 50 feet S. 21º 30' E. from the center line of the South canal of the company; thence N. 68º 30' East parallel to and 50 feet distant from the center line of said canal 542 feet more or less to the north boundary of the Southwest Quarter of the Northwest Quarter of said Section Two (2); thence S. 87º 35' W. along the North boundary of said Southwest Quarter of the Northwest Quarter 518 feet; more or less to the Northwest corner of said Southwest Quarter of the Northwest Quarter; thence S. 4º 00' E. on the West boundary of said Section Two (2) 280 feet, more or less, to the point of beginning; said parcel of land containing 1.9 acres, more or less:-\n\nAnd beginning on the north boundary of the Southwest Quarter of the Northwest Quarter of said Section Two (2), Township Fourteen (14) North, Range Seventy-four (74) West, at a point where the northeast corner of said Section Two (2) bears N. 37º 00' W., 1275 feet distant, and being 50 feet S. 53º 00' W. from the center line of the South canal of the company; Thence N. 87º 35' E. along the North boundary of said Southwest Quarter of the Northwest Quarter, 400 feet, more or less, to [SOURCE CUTS OFF HERE — no continuation page available in dossier]"
+    },
+    "rationale": "Materialize the source-faithful and normalized transcript lanes now that visible-scope determinations and both HITL decisions are integrated.",
+    "ref_id": "transcript_edit:working:rev:0001",
+    "revision": 1,
+    "saved_at": "2026-06-18T19:56:17Z",
+    "schema_version": 1,
+    "tool": "save_transcript_edit"
+  },
+  "schema_version": 1,
+  "source_relative_path": "working/rev_0001.json",
+  "source_revision_ref": "transcript_edit:working:rev:0001",
+  "tool": "publish_transcript_edit_output"
+}

@@ -83,7 +83,7 @@ behavior: efficient publish/complete against a clean inherited handoff.
 
 ### Corrupted handoff repair tests (secondary)
 
-Use only when explicitly asked to run a **corrupted handoff repair test**. Two
+Use only when explicitly asked to run a **corrupted handoff repair test**. Three
 variants exist; pick the one that matches the test goal:
 
 #### 1. Contradiction fixture (`corrupted_handoff_call_distance`)
@@ -116,11 +116,25 @@ practice_deeds/right_of_way/deed_to_ir/variants/corrupted_handoff_source_repair/
   `practice_deeds/right_of_way/transcript_edit/practice-row-live-20260619-76/evidence/derived_images/`
   (see **Upstream lineage fixture / recovery** below)
 
-Both variants are derived from the normal frozen handoff. Manifests label them as
+#### 3. Call 3 source-repair fixture (`corrupted_handoff_source_repair_call3_distance`)
+
+```text
+practice_deeds/right_of_way/deed_to_ir/variants/corrupted_handoff_source_repair_call3_distance/
+```
+
+- corrupts `p1_call3_distance` in resolution state **and** both transcript lanes
+  from source-supported **180 feet** to plausible wrong **280 feet**
+- attaches the existing targeted crop that visibly preserves the correct third-call
+  value; the runtime receives the ref but not the manifest answer key
+- tests generalization beyond the earlier Call 2 `618 → 518` repair: the agent must
+  use map sanity to localize a different course leg, inspect its evidence, repair
+  the IR to the source-supported value, remap, and disclose the upstream correction
+
+All variants are derived from the normal frozen handoff. Manifests label them as
 test fixture variants — not real transcript-edit output. Runtime startup must
 not expose manifest answer keys to the model.
 
-Both use the same `deed_to_ir` run collection and auto-allocated
+All use the same `deed_to_ir` run collection and auto-allocated
 `deed-to-ir-live-r000000XX` ids.
 
 ### Upstream lineage fixture / recovery
@@ -142,7 +156,8 @@ practice_deeds/right_of_way/transcript_edit/practice-row-live-20260619-76/
 
 Purpose:
 
-- preserve upstream handoff + source image + critical `p1_call2_distance` crop
+- preserve upstream handoff + source image + the critical crop that shows the
+  Parcel 1 Call 2 and Call 3 distances
 - recover when mutable local transcript-edit artifacts are damaged (e.g. fake 1×1
   test PNGs overwriting live derived images)
 
@@ -278,6 +293,12 @@ $fixtureRoot = (Resolve-Path "..\practice_deeds\right_of_way\deed_to_ir\variants
 $fixtureRoot = (Resolve-Path "..\practice_deeds\right_of_way\deed_to_ir\variants\corrupted_handoff_source_repair").Path
 ```
 
+**Call 3 source-repair fixture:**
+
+```powershell
+$fixtureRoot = (Resolve-Path "..\practice_deeds\right_of_way\deed_to_ir\variants\corrupted_handoff_source_repair_call3_distance").Path
+```
+
 Shared launch block (set `$fixtureRoot` first):
 
 ```powershell
@@ -331,7 +352,7 @@ Corrupted-run guidance for the testing agent:
   `practice_deeds/right_of_way/deed_to_ir/`
 - record upstream value deltas in **`upstream_corrections`**, not only in `notes`
 
-Success signals (both corrupted variants):
+Success signals (all corrupted variants):
 
 - saves/patches IR
 - submits mapping
@@ -342,9 +363,12 @@ Success signals (both corrupted variants):
   needed and confirmed from source/verbatim/evidence basis
 - sets `resolution_used_by_ir=true` when the final IR used the corrected value
 
-Additional success signals for **source repair** (`corrupted_handoff_source_repair`):
+Additional success signals for either **source repair** variant
+(`corrupted_handoff_source_repair` or
+`corrupted_handoff_source_repair_call3_distance`):
 
-- initially sees corrupted inherited operand/transcript agreement (618 feet)
+- initially sees corrupted inherited operand/transcript agreement (`618 feet` in
+  the Call 2 fixture or `280 feet` in the Call 3 fixture)
 - drafts/maps or otherwise detects geometry/source sanity issue
 - hydrates targeted source evidence refs (`image:derived:*`, `image:assoc:*`) via
   `hydrate_artifact_refs` — not the whole transcript-edit artifact universe
@@ -644,6 +668,7 @@ After a live run, inspect:
 - Upstream transcript-edit lineage backup: `practice_deeds/right_of_way/transcript_edit/practice-row-live-20260619-76/`
 - Corrupted contradiction variant: `practice_deeds/right_of_way/deed_to_ir/variants/corrupted_handoff_call_distance/`
 - Corrupted source-repair variant: `practice_deeds/right_of_way/deed_to_ir/variants/corrupted_handoff_source_repair/`
+- Corrupted Call 3 source-repair variant: `practice_deeds/right_of_way/deed_to_ir/variants/corrupted_handoff_source_repair_call3_distance/`
 - Lineage fixture helpers: `backend/domains/mapping/deed_to_ir/test_fixtures/transcript_edit_lineage_fixture.py`
 - Lineage integrity tests: `backend/domains/mapping/deed_to_ir/test_transcript_edit_lineage_fixture.py`
 - Resolution path loader: `backend/tooling/mapping/deed_to_ir/resolution_state_loading.py`

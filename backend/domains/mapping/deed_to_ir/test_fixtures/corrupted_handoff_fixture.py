@@ -14,10 +14,17 @@ _CORRUPTION_UNIT_ID = "p1_call2_distance"
 _SOURCE_DISTANCE_PATTERN = re.compile(r"\b518\s+feet\b", re.IGNORECASE)
 _CORRUPTED_DISTANCE_PATTERN = re.compile(r"\b618\s+feet\b", re.IGNORECASE)
 _SOURCE_EVIDENCE_REF = "image:derived:fba6f159e40d4010896245d6525d4acf"
+_CALL3_CORRUPTION_UNIT_ID = "p1_call3_distance"
+_CALL3_SOURCE_DISTANCE_PATTERN = re.compile(r"\b180\s+feet\b", re.IGNORECASE)
+_CALL3_CORRUPTED_DISTANCE_PATTERN = re.compile(r"\b280\s+feet\b", re.IGNORECASE)
+_CALL3_SOURCE_EVIDENCE_REF = _SOURCE_EVIDENCE_REF
 
 FIXTURE_VARIANTS: dict[str, Path] = {
     "corrupted_handoff_call_distance": _VARIANTS_ROOT / "corrupted_handoff_call_distance",
     "corrupted_handoff_source_repair": _VARIANTS_ROOT / "corrupted_handoff_source_repair",
+    "corrupted_handoff_source_repair_call3_distance": (
+        _VARIANTS_ROOT / "corrupted_handoff_source_repair_call3_distance"
+    ),
 }
 
 
@@ -68,27 +75,35 @@ def find_resolution_unit(resolution: dict[str, Any], unit_id: str) -> dict[str, 
     return None
 
 
-def extract_corrupted_operand_value(root: Path | None = None) -> str:
-    unit = find_resolution_unit(load_resolution_state(root), _CORRUPTION_UNIT_ID)
+def extract_corrupted_operand_value(
+    root: Path | None = None,
+    *,
+    unit_id: str = _CORRUPTION_UNIT_ID,
+) -> str:
+    unit = find_resolution_unit(load_resolution_state(root), unit_id)
     if unit is None:
-        raise AssertionError(f"missing resolution unit {_CORRUPTION_UNIT_ID}")
+        raise AssertionError(f"missing resolution unit {unit_id}")
     value = unit.get("determined_value")
     if not isinstance(value, str) or not value.strip():
-        raise AssertionError(f"{_CORRUPTION_UNIT_ID} missing determined_value")
+        raise AssertionError(f"{unit_id} missing determined_value")
     return value
 
 
-def extract_target_evidence_ref(root: Path | None = None) -> str:
-    unit = find_resolution_unit(load_resolution_state(root), _CORRUPTION_UNIT_ID)
+def extract_target_evidence_ref(
+    root: Path | None = None,
+    *,
+    unit_id: str = _CORRUPTION_UNIT_ID,
+) -> str:
+    unit = find_resolution_unit(load_resolution_state(root), unit_id)
     if unit is None:
-        raise AssertionError(f"missing resolution unit {_CORRUPTION_UNIT_ID}")
+        raise AssertionError(f"missing resolution unit {unit_id}")
     refs = unit.get("evidence_refs")
     if not isinstance(refs, list):
-        raise AssertionError(f"{_CORRUPTION_UNIT_ID} missing evidence_refs")
+        raise AssertionError(f"{unit_id} missing evidence_refs")
     for ref in refs:
         if isinstance(ref, str) and ref.strip():
             return ref.strip()
-    raise AssertionError(f"{_CORRUPTION_UNIT_ID} has no evidence refs")
+    raise AssertionError(f"{unit_id} has no evidence refs")
 
 
 def transcript_lane_text(root: Path | None = None) -> str:
@@ -118,6 +133,16 @@ def assert_source_repair_variant_transcript_agrees_with_corrupted_operand(root: 
     assert _CORRUPTED_DISTANCE_PATTERN.search(lanes) is not None
     assert _SOURCE_DISTANCE_PATTERN.search(lanes) is None
     assert operand == "618 feet"
+
+
+def assert_call3_source_repair_variant_transcript_agrees_with_corrupted_operand(
+    root: Path | None = None,
+) -> None:
+    operand = extract_corrupted_operand_value(root, unit_id=_CALL3_CORRUPTION_UNIT_ID)
+    lanes = transcript_lane_text(root)
+    assert _CALL3_CORRUPTED_DISTANCE_PATTERN.search(lanes) is not None
+    assert _CALL3_SOURCE_DISTANCE_PATTERN.search(lanes) is None
+    assert operand == "280 feet"
 
 
 def iter_covered_units(resolution: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
