@@ -12,6 +12,7 @@
 - **Native wire only:** Harness accepts and produces the current wire vocabulary only (e.g. `opaque_payload`, `opaque_adapter_payload`, `pack_id`, JSON keys `mission_flow` and `orchestration_kernel`, `loop_family` values aligned with those). Do not add alternate keys, Pydantic aliases, or fallbacks for superseded names.
 - **Inspection:** `observability/summary/` package (`models.py`, thin `build.py`, `orchestration.py`, `payload.py`, shared helpers) is the derived read model; keep it inspection-only (see `docs/architecture/harness/run-summary-build-refactor-brief.md`).
 - **Runtime folders are responsibility-based:** `runtime/orchestration/` holds run-scope and mission-scope orchestration plus their generic mode-support contracts; `runtime/memory/` holds continuity/telemetry/loop-local carriage; `runtime/hitl/` holds HITL transport; CLI payload helpers live in `cli/`; mission payload helpers and derived summaries live in `observability/`.
+- **Practice-packet freeze tooling:** `fixtures/dossier_t0_fixture.py` + `fixtures/dossier_t0_fixture_manifest.py` hold mechanical freeze/validate helpers for immutable local practice packets (distinct from static `test_fixtures/` regression JSON). Product coordinates such as `dossier_id` are allowed only in those two modules and `cli/freeze_dossier_t0_fixture.py`; they remain banned on orchestration, summary, runtime, and any other fixtures modules.
 - **Pending-result delivery:** Typed `ActionDispatchResult` is the sole admission source (`result_delivery_hooks.admit_recorded_execution_result` from action-sequence execution). Semantic prompts project `structured_state.latest_action_results` via pure BR-017 projection; contact acknowledgement runs only after the primary `text_model_caller` returns in `LlmTurnOrchestrationAdapter.choose_action`. Prompt construction must not mutate delivery state. Do not admit from summaries, audit, journal, or tool-result slices. `latest_action_results` is the sole result-continuity prompt lane; durable sequence/step/delegate state remains for audit/hydrate/resume.
 - **Same-turn completion anchor:** Domains may opt in via `CompletionAnchorPolicy.terminal_on_satisfied_anchor`. Evaluation lives in `runtime/orchestration/completion_anchor_terminal.py`; `action_sequence_hooks.py` wires it after a successful sole publish action without synthesizing closure state.
 
@@ -72,11 +73,12 @@ After edits, ensure no reintroduction of superseded wire keys or ownership vocab
 
 - `rg -n "domain_payload|family_coordination|mission_runtime|mission_runtime_ref" backend/harness --glob "*.py"` — should be empty.
 - `rg -n "domain_|\\.get\\(\"domain\"\\)" backend/harness --glob "*.py"` — should be empty (product “domain” layer lives outside this folder; do not add `domain` as a prompt/trace key here).
-- `rg -n "mapping_ready|dossier_id" backend/harness --glob "*.py"` — should be empty (composition/product layers may still use those terms outside this folder).
+- `rg -n "mapping_ready|dossier_id" backend/harness --glob "*.py"` — should be empty on orchestration/summary/runtime surfaces. Allowed exceptions only: `backend/harness/fixtures/dossier_t0_fixture.py`, `backend/harness/fixtures/dossier_t0_fixture_manifest.py`, and `backend/harness/cli/freeze_dossier_t0_fixture.py`.
 - `pytest backend/harness/test_architecture_guardrails.py -q` — should pass before considering the shared harness “clean.”
 
 ## Links
 
+- Docs: `docs/architecture/harness/dependency-practice-dossiers.md`
 - Docs: `docs/architecture/harness/harness-sanity-refactor-brief.md` (especially §13 snapshot, §14 rationale)
 - Docs: `docs/architecture/harness/agent-engine-constitution.md`
 - Docs: `docs/architecture/harness/transcript-edit-live-loop-testing.md`

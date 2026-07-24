@@ -23,9 +23,22 @@ def _python_source_files() -> list[Path]:
     return files
 
 
+def _allows_dossier_id_literal(path: Path) -> bool:
+    """Mechanical T0 practice-packet freeze may name product dossier coordinates."""
+    rel_parts = path.relative_to(HARNESS_ROOT).parts
+    allowed = {
+        ("fixtures", "dossier_t0_fixture.py"),
+        ("fixtures", "dossier_t0_fixture_manifest.py"),
+        ("cli", "freeze_dossier_t0_fixture.py"),
+    }
+    return rel_parts in allowed
+
+
 def _find_literal_occurrences(needle: str) -> list[str]:
     matches: list[str] = []
     for path in _python_source_files():
+        if needle == "dossier_id" and _allows_dossier_id_literal(path):
+            continue
         lines = path.read_text(encoding="utf-8").splitlines()
         for lineno, line in enumerate(lines, start=1):
             if needle in line:
