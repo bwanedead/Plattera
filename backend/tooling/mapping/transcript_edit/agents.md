@@ -13,14 +13,15 @@
 - **Peer T0 rule:** When `run.json` has `completed_drafts`, that list is canonical. Exclude `raw/<transcription_id>.json` (legacy pointer); if it exists, emit `t0_legacy_pointer_file_present`. Extra raw files → `t0_raw_file_not_in_completed_drafts`; missing listed files → `t0_peer_file_missing`.
 - **Hydration cap:** Requests over `max_refs` set `cap_exceeded`, `omitted_ref_ids`, and a `cap_exceeded` error entry; `t0:raw:<transcription_id>` is rejected as `legacy_pointer_alias`.
 - **Point-crop projection:** `point_crop_set_projection.py` is the single mechanical crop-set projector (legacy slicer may import it temporarily). Do not reintroduce a harness-memory copy.
-
+- **Dossier-scoped foundation (unwired):** `dossier_startup_inventory.py`, `dossier_artifact_refs.py`, and `dossier_artifact_hydration.py` aggregate/qualify/hydrate across segments via the leaf inventory + leaf hydrator. Not production-canonical until a later adapter wiring brief. Do not invent active-window harness state here. Every agent-facing inventory field ending in `_ref` / `_refs` must resolve through `DossierStartupInventoryBundle.ref_index`; segment navigation uses `previous_segment_id` / `next_segment_id`.
 ## Allowed changes
 
 - Safer path checks, extra metadata fields on descriptors, additional missing-resource codes.
 
 ## Commands
 
-- Test: from `backend/`, venv active: `pytest tooling/mapping/transcript_edit/test_transcript_edit_startup.py tooling/mapping/transcript_edit/test_transcript_edit_persistence.py -q`
+- Test: from `backend/`, venv active: `pytest tooling/mapping/transcript_edit/test_transcript_edit_startup.py tooling/mapping/transcript_edit/test_transcript_edit_persistence.py tooling/mapping/transcript_edit/test_dossier_startup_inventory.py tooling/mapping/transcript_edit/test_dossier_artifact_hydration.py -q`
+- Topology: from `backend/`, venv active: `pytest services/dossier/test_segment_topology.py -q`
 
 ## Gotchas
 
