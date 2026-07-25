@@ -1,6 +1,7 @@
 """Transcript-edit domain pack."""
 
 from .domain_pack import TranscriptEditDomainPack, build_transcript_edit_domain_pack
+from .execution.dossier_tool_specs import build_dossier_transcript_edit_tool_specs
 from .execution.tool_specs import SemanticToolSpec, build_transcript_edit_tool_specs
 from .manifest import TranscriptEditManifest, build_transcript_edit_manifest
 from .payloads import (
@@ -62,6 +63,7 @@ __all__ = [
     "TranscriptEditSemanticState",
     "VerificationPosture",
     "build_transcript_edit_branch_blocks",
+    "build_dossier_transcript_edit_tool_specs",
     "build_transcript_edit_domain_pack",
     "build_transcript_edit_manifest",
     "build_transcript_edit_closure_policy",

@@ -8,9 +8,10 @@ from __future__ import annotations
 
 from domains.prompting import PromptBlock
 
+from ...payloads import DossierTranscriptEditStartupInventory
 from ..branch import TRANSCRIPT_EDIT_DOMAIN_ID
 
-TRANSCRIPT_EDIT_STARTUP_CONTEXT_VERSION = "v4"
+TRANSCRIPT_EDIT_STARTUP_CONTEXT_VERSION = "v5"
 _STARTUP_CONTEXT_SOURCE_PATH = "backend/domains/mapping/transcript_edit/prompting/surfaces/startup_context.py"
 
 
@@ -29,6 +30,13 @@ def build_startup_context_block(inventory: object) -> PromptBlock:
 
 def _format_startup_context(inventory: object) -> str:
     """Render the startup inventory as instructional prompt text for the LLM."""
+    if isinstance(inventory, DossierTranscriptEditStartupInventory):
+        return _format_dossier_startup_context(inventory)
+    return _format_transcription_startup_context(inventory)
+
+
+def _format_transcription_startup_context(inventory: object) -> str:
+    """Render the established single-transcription startup inventory."""
     lines: list[str] = [
         "## Startup Artifact Context",
         "",
@@ -117,9 +125,9 @@ def _format_startup_context(inventory: object) -> str:
     lines.append(
         "**What each artifact kind returns when hydrated:**\n"
         "- `t0:raw:*` → full transcript text + metadata\n"
-        "- `transcript_edit:*` → saved draft payload + path/metadata\n"
-        "- `image:assoc:*:original` → raw captured source image (model-visible pixels) + metadata\n"
-        "- `image:derived:*` → model-visible derived image evidence (actual pixels) + provenance/metadata\n\n"
+        "- `transcript_edit:*` → saved draft payload + bounded metadata\n"
+        "- `image:assoc:*:original` → raw captured source image (model-visible pixels) + bounded metadata\n"
+        "- `image:derived:*` → model-visible derived image evidence (actual pixels) + bounded provenance metadata\n\n"
         "**Capabilities:** `hydrate_artifact_refs` loads any of the above refs. "
         "`transform_artifact` creates reusable `image:derived:*` refs (model-visible evidence) via crop, expand, zoom, "
         "annotate, render_evidence_locators, point_crops_scaffold, point_crops, point_crops_adjust, and point_crops_view. "
@@ -129,3 +137,98 @@ def _format_startup_context(inventory: object) -> str:
     )
 
     return "\n".join(lines)
+
+
+def _format_dossier_startup_context(
+    inventory: DossierTranscriptEditStartupInventory,
+) -> str:
+    """Render the complete ordered dossier inventory without storage internals."""
+    scope = inventory.scope
+    lines: list[str] = [
+        "## Dossier Startup Artifact Context",
+        "",
+        f"Dossier: `{scope.dossier_id}`",
+        f"Topology fingerprint: `{inventory.topology_fingerprint}`",
+        f"Ordered segment count: {inventory.segment_count}",
+        "",
+        "All refs below are bound to this dossier topology. Use the qualified refs exactly as shown. "
+        "Hydration, transformation, saving, and publication remain agent-directed; the inventory "
+        "does not rank transcription runs or choose a final revision.",
+        "",
+    ]
+
+    for segment in inventory.segments:
+        neighbors: list[str] = []
+        if segment.previous_segment_id is not None:
+            neighbors.append(f"previous `{segment.previous_segment_id}`")
+        if segment.next_segment_id is not None:
+            neighbors.append(f"next `{segment.next_segment_id}`")
+        neighbor_text = f" ({'; '.join(neighbors)})" if neighbors else ""
+        lines.append(
+            f"### Segment {segment.position}: `{segment.segment_id}`{neighbor_text}"
+        )
+        if not segment.runs:
+            lines.append("- No transcription runs are currently bound to this segment.")
+            lines.append("")
+            continue
+        lines.append(
+            "The runs below are peers. Select and reconcile them from source evidence; "
+            "their ordering is identity, not quality."
+        )
+        for run in segment.runs:
+            run_position = (
+                f", run position {run.position}" if run.position is not None else ""
+            )
+            lines.append(
+                f"- Run `{run.transcription_id}`{run_position}"
+            )
+            _append_ref_group(lines, "Source images", run.source_image_refs)
+            _append_ref_group(lines, "T0 drafts", run.t0_draft_refs)
+            if run.working_draft_ref:
+                lines.append(f"  - Working aggregate: `{run.working_draft_ref}`")
+            if run.working_latest_revision_ref:
+                lines.append(
+                    f"  - Latest exact working revision: `{run.working_latest_revision_ref}`"
+                )
+            if run.output_draft_ref:
+                lines.append(f"  - Existing output: `{run.output_draft_ref}`")
+            for missing in run.missing_resources:
+                lines.append(
+                    f"  - Advisory `{missing.code}`: {missing.message}"
+                )
+        lines.append("")
+
+    if inventory.topology_diagnostics:
+        lines.append("### Topology Diagnostics")
+        for diagnostic in inventory.topology_diagnostics:
+            identity = ":".join(
+                value
+                for value in (
+                    diagnostic.segment_id,
+                    diagnostic.transcription_id,
+                )
+                if value
+            )
+            suffix = f" ({identity})" if identity else ""
+            lines.append(f"- `{diagnostic.code}`{suffix}")
+        lines.append("")
+
+    lines.append(
+        "**Dossier-qualified ref shape:** "
+        "`dossier_segment:<segment_id>:run:<transcription_id>:<leaf_ref>`.\n"
+        "- qualified `t0:raw:*` → full peer transcript text + bounded metadata\n"
+        "- qualified `transcript_edit:*` → saved segment draft payload + bounded metadata\n"
+        "- qualified `image:assoc:*:original` → model-visible source pixels + bounded metadata\n"
+        "- qualified `image:derived:*` → model-visible derived pixels + bounded provenance metadata\n\n"
+        "**Capabilities:** hydrate and transform use dossier-qualified refs. "
+        "`save_workspace_artifact` writes only the segment/run lineage named by `target_ref` "
+        "or `base_revision_ref`. `copy_forward_save_workspace_artifact` continues an exact "
+        "qualified working revision. `publish_workspace_artifact` requires "
+        "`source_revision_refs`: one chosen exact qualified working revision per topology segment."
+    )
+    return "\n".join(lines)
+
+
+def _append_ref_group(lines: list[str], label: str, refs: tuple[str, ...]) -> None:
+    if refs:
+        lines.append(f"  - {label}: " + ", ".join(f"`{ref}`" for ref in refs))

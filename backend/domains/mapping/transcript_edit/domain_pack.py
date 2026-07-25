@@ -6,13 +6,15 @@ from dataclasses import asdict, dataclass
 from typing import Any
 
 from domains.mapping.prompting.family_branch import build_mapping_family_branch_blocks
+from .execution.dossier_tool_specs import build_dossier_transcript_edit_tool_specs
 from .execution.subtask_profiles import build_transcript_edit_subtask_profiles
 from .execution.tool_specs import SemanticToolSpec, build_transcript_edit_tool_specs
 from .manifest import TranscriptEditManifest, build_transcript_edit_manifest
-from .payloads import TranscriptEditStartupInventory
+from .payloads import DossierTranscriptEditStartupInventory, TranscriptEditStartupInventory
 from .prompting import (
     PromptBlock,
     build_transcript_edit_branch_blocks,
+    build_transcript_edit_dossier_guidance_block,
     build_transcript_edit_procedural_guidance_blocks,
 )
 from .prompting.surfaces.startup_context import build_startup_context_block
@@ -36,18 +38,35 @@ class TranscriptEditDomainPack:
     def build_runtime_prompt_blocks(
         self,
         *,
-        startup_inventory: TranscriptEditStartupInventory,
+        startup_inventory: (
+            TranscriptEditStartupInventory | DossierTranscriptEditStartupInventory
+        ),
     ) -> tuple[PromptBlock, ...]:
-        return (
-            *self.build_semantic_prompt_blocks(),
-            build_startup_context_block(startup_inventory),
-        )
+        blocks = list(self.build_semantic_prompt_blocks())
+        if isinstance(startup_inventory, DossierTranscriptEditStartupInventory):
+            blocks.append(build_transcript_edit_dossier_guidance_block())
+        blocks.append(build_startup_context_block(startup_inventory))
+        return tuple(blocks)
 
-    def build_tool_specs(self) -> tuple[SemanticToolSpec, ...]:
+    def build_tool_specs(
+        self,
+        *,
+        startup_inventory: (
+            TranscriptEditStartupInventory | DossierTranscriptEditStartupInventory | None
+        ) = None,
+    ) -> tuple[SemanticToolSpec, ...]:
+        if isinstance(startup_inventory, DossierTranscriptEditStartupInventory):
+            return build_dossier_transcript_edit_tool_specs()
         return build_transcript_edit_tool_specs()
 
-    def build_surface_payload(self) -> dict[str, Any]:
-        tool_specs = self.build_tool_specs()
+    def build_surface_payload(
+        self,
+        *,
+        startup_inventory: (
+            TranscriptEditStartupInventory | DossierTranscriptEditStartupInventory | None
+        ) = None,
+    ) -> dict[str, Any]:
+        tool_specs = self.build_tool_specs(startup_inventory=startup_inventory)
         declared_tool_ids = self.manifest.declared_semantic_tool_ids
         spec_tool_ids = tuple(spec.tool_id for spec in tool_specs)
         if spec_tool_ids != declared_tool_ids:

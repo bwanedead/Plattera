@@ -73,11 +73,11 @@ def build_transcript_edit_tool_specs() -> tuple[SemanticToolSpec, ...]:
                 "outputs.hydrated_count: int. "
                 "Kind-specific fields: "
                 "t0:raw:* → {text, metadata}. "
-                "transcript_edit:* → {payload, path}. "
+                "transcript_edit:* → {payload, bounded metadata}. "
                 "image:assoc:*:original → raw captured source image; "
-                "returns {absolute_path, exists, size_bytes, width_height, basename, role} "
+                "returns bounded identity/dimension/role metadata "
                 "— image content is also returned as model-visible evidence (not in outputs). "
-                "image:derived:* → {absolute_path, parent_ref_id, sub_action, params, basename, width_height} "
+                "image:derived:* → {parent_ref_id, sub_action, params, basename, width_height} "
                 "— derived image content also returned as model-visible evidence."
             ),
         ),
