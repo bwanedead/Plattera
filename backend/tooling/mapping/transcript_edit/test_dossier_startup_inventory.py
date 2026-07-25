@@ -36,6 +36,9 @@ def _leaf(
     workspace_id: str | None = None,
     fail: bool = False,
     missing: tuple[MissingResource, ...] = (),
+    working_draft_exists: bool = True,
+    working_draft_ref: str | None = "transcript_edit:working",
+    working_latest_revision: int | None = 1,
 ) -> TranscriptEditStartupInventory:
     if fail:
         raise RuntimeError(f"leaf boom for {transcription_id}")
@@ -68,8 +71,9 @@ def _leaf(
             ),
         ),
         transcript_edit_drafts=TranscriptEditDraftInventory(
-            working_draft_exists=True,
-            working_draft_ref="transcript_edit:working",
+            working_draft_exists=working_draft_exists,
+            working_draft_ref=working_draft_ref if working_draft_exists else None,
+            working_latest_revision=working_latest_revision if working_draft_exists else None,
             output_draft_exists=False,
         ),
         artifact_fingerprint=f"fp-{transcription_id}",
@@ -300,6 +304,43 @@ def test_single_segment_exposes_same_leaf_capabilities() -> None:
     assert run.output_draft_ref is None
     assert run.artifact_fingerprint == leaf.artifact_fingerprint
     assert not hasattr(run, "run_ref")
+
+
+def test_working_latest_revision_ref_projected_and_indexed() -> None:
+    bundle = build_dossier_transcript_edit_startup_inventory_from_segments(
+        dossier_id="d1",
+        segments=(TopologySegmentInput("seg_a", 0, (TopologyRunInput("tx_a", 0),)),),
+        association_positions={"tx_a": 1},
+        leaf_inventory_builder=lambda **kwargs: _leaf(**kwargs, working_latest_revision=3),
+    )
+    run = bundle.inventory.segments[0].runs[0]
+    expected = qualify_leaf_ref(
+        segment_id="seg_a",
+        transcription_id="tx_a",
+        leaf_ref="transcript_edit:working:rev:0003",
+    )
+    assert run.working_latest_revision_ref == expected
+    assert expected in bundle.ref_index.by_ref
+    assert bundle.ref_index.resolve(expected).leaf_ref == "transcript_edit:working:rev:0003"
+
+
+def test_incoherent_working_latest_revision_does_not_invent_ref() -> None:
+    bundle = build_dossier_transcript_edit_startup_inventory_from_segments(
+        dossier_id="d1",
+        segments=(TopologySegmentInput("seg_a", 0, (TopologyRunInput("tx_a", 0),)),),
+        association_positions={"tx_a": 1},
+        leaf_inventory_builder=lambda **kwargs: _leaf(
+            **kwargs,
+            working_draft_exists=True,
+            working_draft_ref="transcript_edit:working",
+            working_latest_revision=None,
+        ),
+    )
+    run = bundle.inventory.segments[0].runs[0]
+    assert run.working_latest_revision_ref is None
+    assert any(
+        m.code == "working_latest_revision_unavailable" for m in run.missing_resources
+    )
 
 
 def json_dumps_safe(obj: object) -> str:

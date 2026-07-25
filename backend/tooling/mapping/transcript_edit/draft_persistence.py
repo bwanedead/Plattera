@@ -91,6 +91,31 @@ def parse_working_revision_ref(ref_id: str) -> str | None:
     return m.group(1) if m else None
 
 
+def working_revision_exists(
+    *,
+    dossier_id: str,
+    transcription_id: str,
+    revision_ref: str,
+    workspace_id: str | None = None,
+    run_id: str | None = None,
+) -> bool:
+    """True when the exact working revision file exists in the scoped workspace.
+
+    Mechanical existence only — does not load or interpret revision contents.
+    """
+    digits = parse_working_revision_ref(revision_ref)
+    if digits is None:
+        return False
+    ws = resolve_workspace_key(workspace_id=workspace_id, run_id=run_id)
+    if not ws:
+        return False
+    try:
+        path = transcript_edit_revision_path(dossier_id, transcription_id, ws, digits)
+    except UnsafeArtifactPathSegmentError:
+        return False
+    return path.is_file()
+
+
 def _refuse_missing_workspace() -> dict[str, Any]:
     return {
         "executed": False,

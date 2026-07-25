@@ -16,7 +16,9 @@ from tooling.mapping.transcript_edit.dossier_artifact_refs import (
 
 def _index_for(*pairs: tuple[str, str, str], dossier_id: str = "d1"):
     entries = []
+    bindings: set[tuple[str, str]] = set()
     for segment_id, transcription_id, leaf_ref in pairs:
+        bindings.add((segment_id, transcription_id))
         qualified = qualify_leaf_ref(
             segment_id=segment_id,
             transcription_id=transcription_id,
@@ -36,6 +38,7 @@ def _index_for(*pairs: tuple[str, str, str], dossier_id: str = "d1"):
         dossier_id=dossier_id,
         topology_fingerprint="fp-test",
         entries=entries,
+        run_bindings=frozenset(bindings),
     )
 
 
@@ -164,7 +167,9 @@ def test_unknown_ref_is_explicit_error() -> None:
     )
     assert out["executed"] is True
     assert out["outputs"]["results"] == []
-    assert any(e.get("code") == "unknown_ref" for e in out["outputs"]["errors"])
+    assert any(
+        e.get("code") == "dossier_ref_run_not_in_topology" for e in out["outputs"]["errors"]
+    )
 
 
 def test_malformed_empty_ref_refuses_request() -> None:
@@ -192,7 +197,9 @@ def test_unknown_ref_partial_success() -> None:
     )
     assert out["executed"] is True
     assert [r["ref_id"] for r in out["outputs"]["results"]] == [q1]
-    assert any(e.get("code") == "unknown_ref" for e in out["outputs"]["errors"])
+    assert any(
+        e.get("code") == "dossier_ref_run_not_in_topology" for e in out["outputs"]["errors"]
+    )
 
 
 def test_leaf_error_does_not_erase_other_segment_success() -> None:

@@ -93,6 +93,11 @@ def build_dossier_transcript_edit_startup_inventory(
     seen_qualified: set[str] = set()
 
     ordered_segments = list(topo.segments)
+    run_bindings: list[tuple[str, str]] = []
+    for segment in ordered_segments:
+        for run in segment.runs:
+            run_bindings.append((segment.segment_id, run.transcription_id))
+
     for idx, segment in enumerate(ordered_segments):
         previous_segment_id = ordered_segments[idx - 1].segment_id if idx > 0 else None
         next_segment_id = (
@@ -158,6 +163,7 @@ def build_dossier_transcript_edit_startup_inventory(
             dossier_id=did,
             topology_fingerprint=topo.topology_fingerprint,
             entries=index_entries,
+            run_bindings=run_bindings,
         )
     except DossierArtifactRefError as exc:
         raise DossierStartupInventoryError(exc.code, exc.detail) from exc
@@ -255,6 +261,24 @@ def _compact_run_inventory(
     working = _qualify(leaf.transcript_edit_drafts.working_draft_ref)
     output = _qualify(leaf.transcript_edit_drafts.output_draft_ref)
 
+    missing = [
+        _project_safe_missing_resource(item) for item in leaf.missing_resources
+    ]
+    working_latest_revision_ref: str | None = None
+    latest_rev = leaf.transcript_edit_drafts.working_latest_revision
+    working_exists = bool(leaf.transcript_edit_drafts.working_draft_exists)
+    if working_exists:
+        if type(latest_rev) is int and latest_rev > 0:
+            leaf_rev_ref = f"transcript_edit:working:rev:{latest_rev:04d}"
+            working_latest_revision_ref = _qualify(leaf_rev_ref)
+        else:
+            missing.append(
+                MissingResource(
+                    code="working_latest_revision_unavailable",
+                    message="Working draft exists but latest revision is missing or incoherent.",
+                )
+            )
+
     return (
         DossierTranscriptRunInventory(
             transcription_id=transcription_id,
@@ -262,11 +286,10 @@ def _compact_run_inventory(
             source_image_refs=source_image_refs,
             t0_draft_refs=t0_draft_refs,
             working_draft_ref=working,
+            working_latest_revision_ref=working_latest_revision_ref,
             output_draft_ref=output,
             artifact_fingerprint=leaf.artifact_fingerprint,
-            missing_resources=tuple(
-                _project_safe_missing_resource(item) for item in leaf.missing_resources
-            ),
+            missing_resources=tuple(missing),
         ),
         entries,
     )

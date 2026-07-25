@@ -21,6 +21,7 @@ class DossierTranscriptRunInventory:
     source_image_refs: tuple[str, ...]
     t0_draft_refs: tuple[str, ...]
     working_draft_ref: str | None
+    working_latest_revision_ref: str | None
     output_draft_ref: str | None
     artifact_fingerprint: str | None
     missing_resources: tuple[MissingResource, ...]
