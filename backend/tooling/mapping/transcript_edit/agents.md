@@ -14,13 +14,14 @@
 - **Hydration cap:** Requests over `max_refs` set `cap_exceeded`, `omitted_ref_ids`, and a `cap_exceeded` error entry; `t0:raw:<transcription_id>` is rejected as `legacy_pointer_alias`.
 - **Point-crop projection:** `point_crop_set_projection.py` is the single mechanical crop-set projector (legacy slicer may import it temporarily). Do not reintroduce a harness-memory copy.
 - **Dossier-scoped foundation (unwired):** `dossier_startup_inventory.py`, `dossier_artifact_refs.py`, `dossier_artifact_hydration.py`, `dossier_action_result_refs.py`, and `dossier_workspace_actions.py` aggregate/qualify/hydrate/route across segments via leaf inventory + leaf handlers. Not production-canonical until a later adapter wiring brief. Do not invent active-window harness state here. Every agent-facing inventory field ending in `_ref` / `_refs` must resolve through `DossierStartupInventoryBundle.ref_index`; segment navigation uses `previous_segment_id` / `next_segment_id`. Runtime-minted `transcript_edit:working:rev:NNNN` and `image:derived:*` may resolve after topology run-binding validation without rebuilding the startup index. Do not wire dossier mode into `TranscriptEditRuntimeAdapter` until dossier-level publication/reconciliation exists.
+- **Dossier publication candidate (read-only, unwired):** `dossier_publication_candidate.py` requires an explicit exact working revision (`transcript_edit:working:rev:NNNN`, dossier-qualified) for every topology segment; it validates coverage/lineage and mechanically stitches transcript lanes. It never chooses among runs/drafts, never writes, and is not production-wired.
 ## Allowed changes
 
 - Safer path checks, extra metadata fields on descriptors, additional missing-resource codes.
 
 ## Commands
 
-- Test: from `backend/`, venv active: `pytest tooling/mapping/transcript_edit/test_transcript_edit_startup.py tooling/mapping/transcript_edit/test_transcript_edit_persistence.py tooling/mapping/transcript_edit/test_dossier_startup_inventory.py tooling/mapping/transcript_edit/test_dossier_artifact_hydration.py tooling/mapping/transcript_edit/test_dossier_artifact_refs.py tooling/mapping/transcript_edit/test_dossier_action_result_refs.py tooling/mapping/transcript_edit/test_dossier_workspace_actions.py -q`
+- Test: from `backend/`, venv active: `pytest tooling/mapping/transcript_edit/test_transcript_edit_startup.py tooling/mapping/transcript_edit/test_transcript_edit_persistence.py tooling/mapping/transcript_edit/test_dossier_startup_inventory.py tooling/mapping/transcript_edit/test_dossier_artifact_hydration.py tooling/mapping/transcript_edit/test_dossier_artifact_refs.py tooling/mapping/transcript_edit/test_dossier_action_result_refs.py tooling/mapping/transcript_edit/test_dossier_workspace_actions.py tooling/mapping/transcript_edit/test_dossier_publication_candidate.py -q`
 - Topology: from `backend/`, venv active: `pytest services/dossier/test_segment_topology.py -q`
 
 ## Gotchas

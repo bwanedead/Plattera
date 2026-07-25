@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from dataclasses import dataclass
 from pathlib import Path
@@ -21,6 +22,120 @@ from .paths import (
 from .startup_inventory import _OUTPUT_REF, _T0_REF_PREFIX, _WORKING_REF
 
 _DRAFT_ALIAS_RE = re.compile(r"^draft_(?P<ordinal>[1-9]\d*)$", re.IGNORECASE)
+_SUPPORTED_REVISION_SCHEMA = 1
+_UNSAFE_REVISION_KEYS = frozenset(
+    {
+        "path",
+        "absolute_path",
+        "workspace_root",
+        "b64",
+        "image_b64",
+        "base64",
+        "bytes",
+        "crop_img",
+        "image_obj",
+    }
+)
+
+
+class ExactWorkingRevisionLoadError(Exception):
+    """Mechanical refusal while loading an exact working revision document."""
+
+    def __init__(self, code: str, detail: str = "") -> None:
+        self.code = str(code)
+        self.detail = str(detail or "")
+        message = self.code if not self.detail else f"{self.code}: {self.detail}"
+        super().__init__(message)
+
+
+@dataclass(frozen=True)
+class ExactWorkingRevisionDocument:
+    """Path-free exact working revision payload plus canonical content hash."""
+
+    leaf_ref: str
+    document: dict[str, Any]
+    content_sha256: str
+
+
+def load_exact_working_revision_document(
+    *,
+    dossier_id: str,
+    transcription_id: str,
+    revision_ref: str,
+    workspace_id: str | None = None,
+    run_id: str | None = None,
+) -> ExactWorkingRevisionDocument:
+    """Load one exact working revision document without exposing host paths."""
+    did = str(dossier_id or "").strip()
+    tid = str(transcription_id or "").strip()
+    leaf = str(revision_ref or "").strip()
+    if not did or not tid:
+        raise ExactWorkingRevisionLoadError("invalid_workspace_scope")
+    digits = parse_working_revision_ref(leaf)
+    if digits is None:
+        raise ExactWorkingRevisionLoadError("ref_not_exact_working_revision", leaf)
+    ws = resolve_workspace_key(workspace_id=workspace_id, run_id=run_id)
+    if not ws:
+        raise ExactWorkingRevisionLoadError("invalid_workspace_scope")
+    try:
+        path = transcript_edit_revision_path(did, tid, ws, digits)
+    except UnsafeArtifactPathSegmentError as exc:
+        raise ExactWorkingRevisionLoadError("invalid_workspace_scope") from exc
+    if not path.is_file():
+        raise ExactWorkingRevisionLoadError("source_revision_not_found", leaf)
+    try:
+        raw = path.read_text(encoding="utf-8")
+        data = json.loads(raw)
+    except Exception as exc:
+        raise ExactWorkingRevisionLoadError("malformed_revision_document", leaf) from exc
+    if not isinstance(data, dict):
+        raise ExactWorkingRevisionLoadError("malformed_revision_document", leaf)
+    schema = data.get("schema_version")
+    if type(schema) is not int or schema != _SUPPORTED_REVISION_SCHEMA:
+        raise ExactWorkingRevisionLoadError("malformed_revision_document", leaf)
+    stored_ref = data.get("ref_id")
+    if type(stored_ref) is not str or stored_ref != leaf:
+        raise ExactWorkingRevisionLoadError("malformed_revision_document", leaf)
+    payload = data.get("payload")
+    if not isinstance(payload, dict):
+        raise ExactWorkingRevisionLoadError("malformed_revision_document", leaf)
+    if "evidence_refs" not in data:
+        raise ExactWorkingRevisionLoadError("malformed_revision_document", leaf)
+    evidence = data.get("evidence_refs")
+    if type(evidence) is not list or any(not isinstance(item, str) for item in evidence):
+        raise ExactWorkingRevisionLoadError("malformed_revision_document", leaf)
+    _assert_revision_content_safe(data, leaf_ref=leaf)
+    # Deep-copy via canonical JSON so callers cannot mutate storage-backed objects.
+    try:
+        canonical = json.dumps(
+            data,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+            allow_nan=False,
+        )
+    except (TypeError, ValueError) as exc:
+        raise ExactWorkingRevisionLoadError("malformed_revision_document", leaf) from exc
+    document = json.loads(canonical)
+    content_sha256 = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    return ExactWorkingRevisionDocument(
+        leaf_ref=leaf,
+        document=document,
+        content_sha256=content_sha256,
+    )
+
+
+def _assert_revision_content_safe(value: Any, *, leaf_ref: str) -> None:
+    """Refuse host/binary keys wholesale; details never include nested values."""
+    if isinstance(value, dict):
+        for key, nested in value.items():
+            if type(key) is str and key in _UNSAFE_REVISION_KEYS:
+                raise ExactWorkingRevisionLoadError("unsafe_revision_content", leaf_ref)
+            _assert_revision_content_safe(nested, leaf_ref=leaf_ref)
+        return
+    if isinstance(value, list):
+        for nested in value:
+            _assert_revision_content_safe(nested, leaf_ref=leaf_ref)
 
 
 def _safe_stem_from_t0_ref(ref_id: str) -> str | None:
