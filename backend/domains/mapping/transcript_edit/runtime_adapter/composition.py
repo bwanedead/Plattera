@@ -22,7 +22,7 @@ from tooling.mapping.transcript_edit.draft_persistence import resolve_workspace_
 
 from ..domain_pack import TranscriptEditDomainPack
 from ..execution.result_views import wrap_handler_with_result_view
-from ..payloads import TranscriptEditStartupInventory
+from ..payloads import DossierTranscriptEditStartupInventory, TranscriptEditStartupInventory
 from ..prompting import PromptBlock
 
 TRANSCRIPT_EDIT_RUNTIME_SURFACE_ID = "transcript_edit"
@@ -45,6 +45,33 @@ def build_transcript_edit_tool_bindings(
     return tuple(ToolBinding(tool_id=tool_id, handler=handler) for tool_id, handler in entries)
 
 
+def compose_transcript_edit_turn_surface(
+    *,
+    domain_pack: TranscriptEditDomainPack,
+    startup_inventory: TranscriptEditStartupInventory | DossierTranscriptEditStartupInventory,
+    tool_bindings: tuple[ToolBinding, ...],
+) -> TurnSurface:
+    """Shared surface packaging: same inventory selects prompts and tool contracts."""
+    if isinstance(startup_inventory, DossierTranscriptEditStartupInventory):
+        payload = domain_pack.build_surface_payload(
+            startup_inventory=startup_inventory,
+        )
+    else:
+        payload = domain_pack.build_surface_payload()
+    bound_tool_ids = [binding.tool_id for binding in tool_bindings]
+    if bound_tool_ids != payload["tool_ids"]:
+        raise ValueError("transcript_edit_runtime_tool_binding_mismatch")
+    all_blocks = _build_turn_blocks(
+        domain_pack.build_runtime_prompt_blocks(startup_inventory=startup_inventory)
+    )
+    return TurnSurface(
+        surface_id=TRANSCRIPT_EDIT_RUNTIME_SURFACE_ID,
+        blocks=all_blocks,
+        payload={_PAYLOAD_NAMESPACE: _jsonable(payload)},
+        tool_bindings=tool_bindings,
+    )
+
+
 def build_transcript_edit_turn_surface(
     *,
     domain_pack: TranscriptEditDomainPack,
@@ -61,17 +88,9 @@ def build_transcript_edit_turn_surface(
         transcription_id=scope.transcription_id,
         workspace_key=workspace_key,
     )
-    payload = domain_pack.build_surface_payload()
-    bound_tool_ids = [binding.tool_id for binding in tool_bindings]
-    if bound_tool_ids != payload["tool_ids"]:
-        raise ValueError("transcript_edit_runtime_tool_binding_mismatch")
-    all_blocks = _build_turn_blocks(
-        domain_pack.build_runtime_prompt_blocks(startup_inventory=startup_inventory)
-    )
-    return TurnSurface(
-        surface_id=TRANSCRIPT_EDIT_RUNTIME_SURFACE_ID,
-        blocks=all_blocks,
-        payload={_PAYLOAD_NAMESPACE: _jsonable(payload)},
+    return compose_transcript_edit_turn_surface(
+        domain_pack=domain_pack,
+        startup_inventory=startup_inventory,
         tool_bindings=tool_bindings,
     )
 

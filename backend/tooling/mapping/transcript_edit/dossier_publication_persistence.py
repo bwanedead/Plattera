@@ -1,4 +1,4 @@
-"""Idempotent append-only dossier transcript-edit output persistence (unwired).
+"""Idempotent append-only dossier transcript-edit output persistence.
 
 Rebuilds a BR-004 candidate from explicit segment revision refs, then persists
 it as an immutable dossier-level output revision. Never chooses among runs or

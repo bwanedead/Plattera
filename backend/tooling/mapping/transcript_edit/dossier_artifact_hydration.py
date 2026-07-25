@@ -1,8 +1,7 @@
 """Read-only dossier-qualified artifact hydration router.
 
 Accepts dossier-qualified refs, resolves them through a validated index, and
-dispatches leaf refs to the existing per-transcription hydrator. Not wired into
-the production runtime adapter by this brief.
+dispatches leaf refs to the existing per-transcription hydrator.
 """
 
 from __future__ import annotations

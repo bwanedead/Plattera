@@ -1,8 +1,7 @@
 """Dossier-scoped transform/save/copy-forward routing over leaf TE primitives.
 
 Resolves dossier-qualified targets, delegates to existing per-transcription
-handlers/functions, and requalifies returned artifact refs. Not wired into the
-production runtime adapter by this brief.
+handlers/functions, and requalifies returned artifact refs.
 """
 
 from __future__ import annotations

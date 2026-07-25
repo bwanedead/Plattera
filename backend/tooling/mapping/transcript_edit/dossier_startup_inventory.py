@@ -1,7 +1,6 @@
 """Build dossier-scoped transcript-edit startup inventory from leaf inventories.
 
-Aggregates compact segment/run descriptors and dossier-qualified refs. Does not
-change production launch wiring.
+Aggregates compact segment/run descriptors and dossier-qualified refs.
 """
 
 from __future__ import annotations

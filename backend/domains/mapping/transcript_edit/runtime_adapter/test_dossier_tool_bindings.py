@@ -1,4 +1,4 @@
-"""Tests for unwired dossier transcript-edit runtime tool bindings."""
+"""Tests for dossier transcript-edit runtime tool bindings."""
 
 from __future__ import annotations
 

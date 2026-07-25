@@ -1,7 +1,6 @@
-"""Unwired dossier-mode transcript-edit tool bindings (BR-002–BR-005 composition).
+"""Dossier-mode transcript-edit tool bindings (BR-002–BR-005 composition).
 
 Assembles existing dossier handlers behind the five shared-capability action IDs.
-Does not change launch behavior, prompts, tool specs, closure, or the harness.
 """
 
 from __future__ import annotations
