@@ -6,10 +6,16 @@ from .composition import (
     build_transcript_edit_turn_surface,
     build_transcript_edit_tool_bindings,
 )
+from .dossier_tool_bindings import (
+    DossierRuntimeBindingError,
+    build_dossier_transcript_edit_tool_bindings,
+)
 
 __all__ = [
     "TRANSCRIPT_EDIT_RUNTIME_SURFACE_ID",
     "TranscriptEditRuntimeAdapter",
+    "DossierRuntimeBindingError",
+    "build_dossier_transcript_edit_tool_bindings",
     "build_transcript_edit_runtime_adapter",
     "build_transcript_edit_turn_surface",
     "build_transcript_edit_tool_bindings",
