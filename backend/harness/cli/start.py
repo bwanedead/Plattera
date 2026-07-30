@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from .run_id_allocator import RunIdAllocatorError, allocate_automatic_run_id
-from .run_layout import RunLayoutError, normalize_run_id
+from .run_layout import RunLayoutError, normalize_run_collection, normalize_run_id
 from .run_state import new_run_state, read_state, write_state
 from .watchdog_spawn import spawn_run_control_watchdog
 from harness.runtime.run_control_sidecar import (
@@ -65,12 +65,12 @@ def build_module_argv(module: str, module_args: list[str]) -> list[str]:
     return [sys.executable, "-m", module, *module_args]
 
 
-def _resolve_run_id(*, explicit_run_id: str | None, loop_kind: str):
+def _resolve_run_id(*, explicit_run_id: str | None, run_collection: str):
     text = str(explicit_run_id or "").strip()
     if text:
         return normalize_run_id(text), None
     try:
-        allocated = allocate_automatic_run_id(run_collection=loop_kind)
+        allocated = allocate_automatic_run_id(run_collection=run_collection)
     except (RunLayoutError, RunIdAllocatorError) as exc:
         raise RunLayoutError(getattr(exc, "code", "run_id_allocation_failed")) from exc
     return allocated.run_id, allocated.run_dir
@@ -85,6 +85,7 @@ def start_run(
     model: str | None = None,
     child_env_extra: dict[str, str] | None = None,
     run_dir: Path | None = None,
+    run_collection: str | None = None,
 ) -> dict[str, Any]:
     model_str = str(model or "").strip()
     extra: dict[str, Any] = {}
@@ -99,6 +100,7 @@ def start_run(
         status="spawning",
         extra=extra or None,
         run_dir=run_dir,
+        run_collection=run_collection,
     )
     paths = state.paths
     human_timeline_path = str((Path(paths.run_dir) / "audit" / "human" / "timeline.md").resolve())
@@ -194,12 +196,20 @@ def main() -> None:
     parser.add_argument(
         "--run-id",
         default=None,
-        help="Explicit run id (default: auto-allocated per loop-kind sequence).",
+        help="Explicit run id (default: auto-allocated per run-collection sequence).",
     )
     parser.add_argument(
         "--loop-kind",
         default="harness_cli",
         help="Feedback-store namespace for HITL inject/watch (default: harness_cli).",
+    )
+    parser.add_argument(
+        "--run-collection",
+        default=None,
+        help=(
+            "Optional storage/retention collection under by_loop_kind/. "
+            "When omitted, derived from --loop-kind. Does not change loop_kind or domain."
+        ),
     )
     parser.add_argument(
         "--mode",
@@ -231,7 +241,15 @@ def main() -> None:
 
     loop_kind = str(args.loop_kind or "harness_cli").strip() or "harness_cli"
     try:
-        run_id, preallocated_run_dir = _resolve_run_id(explicit_run_id=args.run_id, loop_kind=loop_kind)
+        if args.run_collection is None:
+            run_collection = normalize_run_collection(loop_kind)
+        else:
+            # Present argument: never silently fall back to loop_kind on blank/unsafe.
+            run_collection = normalize_run_collection(args.run_collection)
+        run_id, preallocated_run_dir = _resolve_run_id(
+            explicit_run_id=args.run_id,
+            run_collection=run_collection,
+        )
     except RunLayoutError as exc:
         _print_json({"status": "error", "error": exc.code})
         sys.exit(2)
@@ -255,6 +273,7 @@ def main() -> None:
         spawn_argv=spawn_argv,
         model=str(args.model or "").strip() or None,
         run_dir=preallocated_run_dir,
+        run_collection=run_collection,
     )
     _print_json(out)
     if out.get("status", "").startswith("spawn_failed"):

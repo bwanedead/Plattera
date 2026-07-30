@@ -55,9 +55,9 @@ def normalize_run_id(run_id: str) -> str:
     return text
 
 
-def normalize_run_collection(loop_kind: str) -> str:
-    """Mechanically derive a path-safe collection name from ``loop_kind``."""
-    text = str(loop_kind or "").strip()
+def normalize_run_collection(run_collection: str) -> str:
+    """Normalize a path-safe run-collection name (refuses blank/unsafe values)."""
+    text = str(run_collection or "").strip()
     if not text:
         raise RunLayoutError("run_collection_empty")
     if not _RUN_COLLECTION_PATTERN.fullmatch(text):

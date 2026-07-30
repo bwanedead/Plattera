@@ -168,14 +168,18 @@ def new_run_state(
     status: str = "started",
     extra: dict[str, Any] | None = None,
     run_dir: Path | None = None,
+    run_collection: str | None = None,
 ) -> HarnessCliRunState:
-    run_collection = normalize_run_collection(loop_kind)
-    paths = build_paths(run_id=run_id, run_collection=run_collection, run_dir=run_dir)
+    if run_collection is None:
+        collection = normalize_run_collection(loop_kind)
+    else:
+        collection = normalize_run_collection(run_collection)
+    paths = build_paths(run_id=run_id, run_collection=collection, run_dir=run_dir)
     return HarnessCliRunState(
         run_id=run_id,
         pid=pid,
         loop_kind=loop_kind,
-        run_collection=run_collection,
+        run_collection=collection,
         mode=mode,
         paths=paths,
         spawn_argv=list(spawn_argv),

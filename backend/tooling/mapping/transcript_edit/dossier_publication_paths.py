@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from config.paths import dossiers_artifacts_root
+from config.paths import dossiers_transcript_edit_dossier_artifacts_root
 
 from tooling.mapping.transcript_edit.paths import (
     UnsafeArtifactPathSegmentError,
@@ -28,7 +28,7 @@ def dossier_transcript_edit_dossier_workspace_root(
     """Root: artifacts/transcript_edit_dossier/<dossier_id>/<workspace_id>/."""
     did = require_safe_path_segment(dossier_id, field="dossier_id")
     wid = require_safe_path_segment(workspace_id, field="workspace_id")
-    return dossiers_artifacts_root() / "transcript_edit_dossier" / did / wid
+    return dossiers_transcript_edit_dossier_artifacts_root(did) / wid
 
 
 def dossier_transcript_edit_dossier_output_dir(dossier_id: str, workspace_id: str) -> Path:

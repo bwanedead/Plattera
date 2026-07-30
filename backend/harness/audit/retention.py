@@ -141,6 +141,12 @@ def _delete_run_dir(d: Path) -> bool:
 
 
 def _cleanup_transcript_edit_workspace(run_id: str) -> None:
+    """Remove leaf and dossier TE workspace dirs whose name equals the retired run_id."""
+    _cleanup_leaf_transcript_edit_workspaces(run_id)
+    _cleanup_dossier_transcript_edit_workspaces(run_id)
+
+
+def _cleanup_leaf_transcript_edit_workspaces(run_id: str) -> None:
     try:
         from config.paths import dossiers_transcript_edit_artifacts_root
 
@@ -165,6 +171,33 @@ def _cleanup_transcript_edit_workspace(run_id: str) -> None:
                         _LOG.warning("cleanup: failed to remove %s", workspace_dir, exc_info=True)
     except Exception:
         _LOG.warning("cleanup: transcript_edit workspace scan failed", exc_info=True)
+
+
+def _cleanup_dossier_transcript_edit_workspaces(run_id: str) -> None:
+    try:
+        from config.paths import dossiers_transcript_edit_dossier_artifacts_root
+
+        dossier_root = dossiers_transcript_edit_dossier_artifacts_root()
+    except Exception:
+        return
+    if not dossier_root.exists():
+        return
+    try:
+        for dossier_dir in dossier_root.iterdir():
+            if not dossier_dir.is_dir():
+                continue
+            workspace_dir = dossier_dir / run_id
+            if workspace_dir.is_dir() and is_safe_run_dir_in_bucket(workspace_dir, dossier_dir):
+                try:
+                    shutil.rmtree(workspace_dir)
+                    _LOG.info(
+                        "cleanup: removed transcript_edit_dossier workspace %s",
+                        workspace_dir,
+                    )
+                except Exception:
+                    _LOG.warning("cleanup: failed to remove %s", workspace_dir, exc_info=True)
+    except Exception:
+        _LOG.warning("cleanup: transcript_edit_dossier workspace scan failed", exc_info=True)
 
 
 # Backward-compatible helpers for existing tests

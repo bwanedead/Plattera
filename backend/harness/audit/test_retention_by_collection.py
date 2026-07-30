@@ -128,6 +128,52 @@ def test_collection_directories_never_deleted_as_runs(cli_root: Path) -> None:
         assert list_run_dirs_in_bucket(bucket_root, legacy_flat=legacy_flat) == []
 
 
+def test_sixth_curve_run_removes_only_oldest_curve_not_right_of_way(cli_root: Path) -> None:
+    for i, run_id in enumerate(["row1", "row2", "row3", "row4", "row5"]):
+        _make_namespaced_run(
+            cli_root,
+            collection="transcript_edit_right_of_way",
+            run_id=run_id,
+            age=(70 - i * 10),
+        )
+    curve_ids = ["curve1", "curve2", "curve3", "curve4", "curve5", "curve6"]
+    for i, run_id in enumerate(curve_ids):
+        _make_namespaced_run(
+            cli_root,
+            collection="transcript_edit_curve_station_chain",
+            run_id=run_id,
+            age=(70 - i * 10),
+        )
+    _make_namespaced_run(
+        cli_root,
+        collection="transcript_edit_curve_station_chain",
+        run_id="curve-pinned",
+        pinned=True,
+        age=1000,
+    )
+
+    deleted = cleanup_old_cli_runs(keep_n=5)
+    assert deleted == ["curve1"]
+
+    row_bucket = cli_root / BY_LOOP_KIND_DIRNAME / "transcript_edit_right_of_way"
+    curve_bucket = cli_root / BY_LOOP_KIND_DIRNAME / "transcript_edit_curve_station_chain"
+    assert {d.name for d in list_run_dirs_in_bucket(row_bucket, legacy_flat=False)} == {
+        "row1",
+        "row2",
+        "row3",
+        "row4",
+        "row5",
+    }
+    assert {d.name for d in list_run_dirs_in_bucket(curve_bucket, legacy_flat=False)} == {
+        "curve2",
+        "curve3",
+        "curve4",
+        "curve5",
+        "curve6",
+        "curve-pinned",
+    }
+
+
 def test_legacy_flat_bucket_retains_latest_five_independently(cli_root: Path) -> None:
     for i, run_id in enumerate(["legacy1", "legacy2", "legacy3", "legacy4", "legacy5", "legacy6"]):
         _make_run_dir(cli_root, run_id, age=(70 - i * 10))

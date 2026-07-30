@@ -144,6 +144,50 @@ def test_purge_all_cli_runs_cleans_linked_transcript_edit_workspaces(
     assert unrelated.exists()
 
 
+def test_purge_all_cli_runs_cleans_transcript_edit_dossier_workspaces(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    root = tmp_path / "cli_runs"
+    root.mkdir()
+    _make_run_dir(root, "run-dossier-ws")
+
+    te_root = tmp_path / "transcript_edit"
+    te_ws = te_root / "dossier1" / "tx1" / "run-dossier-ws"
+    te_ws.mkdir(parents=True)
+
+    dossier_root = tmp_path / "transcript_edit_dossier"
+    dossier_ws = dossier_root / "dossier1" / "run-dossier-ws"
+    dossier_ws.mkdir(parents=True)
+    (dossier_ws / "output").mkdir()
+    other_ws = dossier_root / "dossier1" / "other-run"
+    other_ws.mkdir(parents=True)
+    other_dossier = dossier_root / "dossier2" / "run-dossier-ws"
+    other_dossier.mkdir(parents=True)
+    # Parent dossier dir must remain even after workspace removal.
+    source_marker = dossier_root / "dossier1" / "KEEP_PARENT"
+    source_marker.write_text("x", encoding="utf-8")
+
+    import harness.cli.run_layout as layout_mod
+    monkeypatch.setattr(layout_mod, "cli_runs_root", lambda: root)
+
+    import config.paths as paths_mod
+    monkeypatch.setattr(paths_mod, "dossiers_transcript_edit_artifacts_root", lambda dossier_id=None: te_root)
+    monkeypatch.setattr(
+        paths_mod,
+        "dossiers_transcript_edit_dossier_artifacts_root",
+        lambda dossier_id=None: dossier_root,
+    )
+
+    purged = purge_all_cli_runs()
+    assert purged == ["run-dossier-ws"]
+    assert not te_ws.exists()
+    assert not dossier_ws.exists()
+    assert not other_dossier.exists()  # same run_id under another dossier is also exact-match
+    assert other_ws.exists()
+    assert source_marker.exists()
+    assert (dossier_root / "dossier1").exists()
+
+
 def test_purge_all_cli_runs_noop_when_root_missing(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     root = tmp_path / "does_not_exist"
 

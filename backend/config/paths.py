@@ -152,6 +152,15 @@ def dossiers_transcript_edit_artifacts_root(dossier_id: str | None = None) -> Pa
     return base if dossier_id is None else base / str(dossier_id)
 
 
+def dossiers_transcript_edit_dossier_artifacts_root(dossier_id: str | None = None) -> Path:
+    """
+    Root for dossier-scale transcript-edit published outputs.
+    Layout: artifacts/transcript_edit_dossier/<dossier_id>/<workspace_id>/...
+    """
+    base = dossiers_artifacts_root() / "transcript_edit_dossier"
+    return base if dossier_id is None else base / str(dossier_id)
+
+
 def dossiers_feature_graphs_artifacts_root(dossier_id: str | None = None) -> Path:
     """
     Root for feature graph artifacts (IR, compile, judge, bundle).

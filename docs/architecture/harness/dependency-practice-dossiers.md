@@ -59,6 +59,62 @@ curve-deed attempt).
 assert that one deed depends on the other. Cross-dossier dependency linking is
 intentionally outside this brief and belongs to later **agent-authored** work.
 
+Source review status:
+
+- `curve_station_chain` is a coherent two-segment instrument and is the
+  approved first dossier-scale transcript-edit test. Its first segment ends
+  mid-description and the second segment continues it.
+- `new_deed` contains valid transcript source for two instruments. Its left
+  page and the top of its right page finish a town-lot deed; the lower right
+  page begins a Lake Hattie right-of-way deed and cuts off. All visible text is
+  usable. A live dossier-scale test waits only on logical instrument-span setup
+  so the two deeds can publish separately without duplicating or dropping the
+  shared physical page.
+
+Semantic inventory:
+
+| Source packet | Physical pages | Legal meaning represented |
+|---|---:|---|
+| `curve_station_chain` | 2 | A Lake Hattie irrigation-system property description: a 200-foot canal strip through Section 36, T14N R77W, followed across the page boundary by station/headworks/dam and additional canal-strip descriptions. It is a likely reference/base alignment candidate, but the packet begins and ends as an excerpt. |
+| `new_deed` — town-lot instrument | 1 full page + top of shared page | Conveyance of Lot 775, Block 22, Town of Wyoming, with warranties, existing-easement exceptions, corporate execution, and notarial acknowledgment. This appears unrelated to the canal dependency chain. |
+| `new_deed` — Lake Hattie instrument | bottom of shared page | A separate deed from George H. Nutting and wife to the Lake Hattie Reservoir & Irrigation Company for a 100-foot strip, fifty feet on each side of a middle line. The available source cuts off before the middle-line description continues. It is processable as partial source, but the visible excerpt alone does not establish the expected station-chain dependency. |
+
+Local `deed_dump` audit:
+
+- `curve_deed_part1.jpg`, `curve_deed_part2.jpg`, `newdeedleft.png`,
+  `newdeedright.png`, and `legal_text_image.jpg` are byte-identical to the
+  existing practice sources.
+- `curve_deed_full.jpg` is also already present in `practice_deeds/`; it is the
+  combined pages 498–499 spread represented by the two curve page images. It
+  supplies wider visual context, but not the missing continuation of the new
+  Lake Hattie deed.
+- The stored curve T0 drafts cover the highlighted canal descriptions but omit
+  substantial unhighlighted page context. That context includes references to
+  Lake Hattie/Pioneer Canal interests acquired under separately recorded
+  Pioneer Canal Company lease instruments. A full-instrument test must account
+  for that T0 incompleteness rather than treating the existing drafts as full
+  page transcriptions.
+- The only newly supplied instrument is a 1937 William I. and Ellen Jensen to
+  Pioneer Canal Company quit-claim text pair. It is a self-contained canal
+  strip description with raw/edited geometry disagreements and no supplied
+  source image. It does not show a dependency on the Lake Hattie station chain.
+
+Dependency conclusion:
+
+- `curve_station_chain` contains a real external-dependency signal: the source
+  refers to separately recorded Pioneer Canal Company lease instruments that
+  are not present in the current corpus. It can therefore test honest
+  dependency discovery and unmatched/pending behavior.
+- The partial George H. Nutting Lake Hattie deed remains the likely dependent
+  instrument, but its available page stops before the middle-line language
+  that would prove or identify the dependency.
+- No file currently in `deed_dump` supplies either the referenced Pioneer Canal
+  lease or the continuation of the George H. Nutting deed. Successful
+  dependency matching cannot yet be proven with two authentic in-corpus deeds.
+  The real curve instrument should cover the unmatched path; a clearly labeled
+  synthetic instrument may later reproduce the referenced identity to exercise
+  successful matching without falsifying the authentic corpus.
+
 ---
 
 ## 3. What is frozen
@@ -80,7 +136,11 @@ Excluded (must not contaminate the packet):
 - dependency decisions
 - any later-phase results outside the T0 baseline
 
-Each fixture represents **one deed with multiple pages**.
+The frozen packet faithfully preserves historical source/T0 state; it does not
+certify that physical page grouping equals legal-instrument grouping.
+`curve_station_chain` is immediately usable as a canonical one-instrument,
+multi-segment test. `new_deed` becomes equally usable once the shared page is
+represented by two non-overlapping logical instrument spans.
 
 ---
 

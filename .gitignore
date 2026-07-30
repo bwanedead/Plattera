@@ -264,6 +264,9 @@ tiles/
 # ========================
 backend/dossiers_data/
 
+# Local deed intake dump (operator-provided source material; do not commit)
+/deed_dump/
+
 # Harness CLI runtime artifacts (do not commit)
 backend/harness/cli_artifacts/
 

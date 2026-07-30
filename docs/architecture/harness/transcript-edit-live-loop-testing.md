@@ -62,7 +62,29 @@ Tester rule of thumb:
 
 ---
 
-## 3. Current Practice Dossier
+## 3. Choose the Intended Test
+
+Transcript edit has one domain, one harness loop, and the same five action IDs.
+The launch scope changes what that same agent can see and publish:
+
+| Tester request | Launch scope | Approved practice input |
+|---|---|---|
+| right-of-way / single-transcription test | `transcription` (or selector absent) | existing right-of-way dossier below |
+| curve / station-chain / multi-page dossier test | `dossier` | `curve_station_chain` below |
+| new-deed mixed-instrument test | setup pending | source is usable; logical instrument spans must be configured first |
+
+`dossier` mode is not a separate transcript-edit pipeline. It gives one
+continuous transcript-edit run the ordered segments of one instrument. The
+agent keeps one holistic work universe while using bounded, self-chosen
+attention windows over individual segments or adjacent boundaries.
+
+The runtime does not spawn a fresh agent per page and does not mechanically
+decide the rolling windows. Each segment keeps its own exact working-revision
+lineage so edits and evidence remain source-local. At publication, the agent
+names one exact working revision per segment, and the tooling mechanically
+assembles the ordered dossier-level transcript.
+
+### 3.1 Single-transcription right-of-way input
 
 The current app-generated right-of-way practice dossier is:
 
@@ -87,6 +109,63 @@ Key expected practice-deed observations:
 - Plot 1 should remain forwardable to mapping once the range conflict is
   resolved; Plot 2 should be marked blocked/incomplete
 
+### 3.2 Dossier-scale curve / station-chain input
+
+The approved first dossier-scale live test is:
+
+- `dossier_id = 892abc34-ed4d-4e85-a0cb-9a5ddc133f31`
+- ordered segment 1: `draft_curve_deed_part1`
+- ordered segment 2: `draft_curve_deed_part2`
+- frozen baseline:
+  `practice_deeds/dependency_chain/curve_station_chain/`
+- source images expected by the app dossier:
+  - `backend/dossiers_data/images/original/draft_curve_deed_part1_original.jpg`
+  - `backend/dossiers_data/images/original/draft_curve_deed_part2_original.jpg`
+
+Read
+[`docs/architecture/harness/dependency-practice-dossiers.md`](./dependency-practice-dossiers.md)
+before judging this run.
+
+This is a real continuity test. Segment 1 ends mid-description with
+`... 144.9 feet to`; segment 2 continues the legal description. Peer T0 drafts
+also disagree on material station, bearing, curve, and distance readings. The
+agent should therefore inspect both T0 candidates and source evidence, follow
+the cross-segment continuation, and author supported per-segment revisions. It
+must not treat the end of segment 1 as missing merely because the sentence
+continues on segment 2.
+
+The stored T0 drafts are also materially incomplete: they focus on highlighted
+canal descriptions and omit substantial unhighlighted page text. The full
+source includes references to Lake Hattie/Pioneer Canal interests acquired
+under separately recorded Pioneer Canal Company lease instruments. The
+transcript-edit agent should recover supported omitted source text, not merely
+choose the best highlighted T0 candidate. Those external references are a real
+dependency-discovery signal; because the referenced instruments are absent,
+the honest downstream posture is unmatched/pending rather than an invented
+link.
+
+Before launch, verify both expected source-image files exist. If either is
+missing, do not run a source-evidence test and do not silently substitute
+another image. Report the missing path so the frozen baseline can be restored.
+
+### 3.3 Mixed-instrument `new_deed` source packet
+
+Dossier `64b66561-6c0a-4702-a6b6-b8b5c076d891` contains usable source and
+should not be discarded. Its two physical pages contain two legal instruments:
+
+1. the left page and top of the right page contain the conveyance and
+   acknowledgment for a town-lot deed; and
+2. the lower part of the right page begins a Lake Hattie right-of-way deed and
+   cuts off mid-description.
+
+Every visible word remains valid transcript-edit work. The setup gap is at
+publication scope: publishing both whole pages as one dossier transcript would
+merge two instruments. Before using this packet for a live dossier-scale test,
+configure logical instrument spans so the shared right page can finish the
+first deed and independently begin the second deed. The partial second deed may
+then proceed honestly as partial source; incompleteness is not a reason to omit
+or refuse to transcribe it.
+
 ---
 
 ## 4. How To Run the Loop from CLI
@@ -99,22 +178,68 @@ cd C:\projects\Plattera
 cd backend
 ```
 
-Start a run:
+Start a single-transcription run:
 
 ```powershell
 $runId = "practice-row-live-20"
 $ctx = "{""dossier_id"":""9f5eecb6-cd7e-483c-b691-b76aa7132e8e"",""transcription_id"":""draft_legal_text_image"",""workspace_id"":""$runId"",""run_id"":""$runId"",""max_iterations"":100}"
-python -m harness.cli.start --run-id $runId --loop-kind transcript_edit --python-module harness.runtime.runner.entrypoint --module-arg=--domain-id --module-arg=transcript_edit --module-arg=--launch-context-json --module-arg=$ctx
+python -m harness.cli.start --run-id $runId --loop-kind transcript_edit --run-collection transcript_edit_right_of_way --python-module harness.runtime.runner.entrypoint --module-arg=--domain-id --module-arg=transcript_edit --module-arg=--launch-context-json --module-arg=$ctx
 ```
 
 Optional model override from CLI (stronger explicit alternative):
 
 ```powershell
-python -m harness.cli.start --run-id $runId --loop-kind transcript_edit --model gpt-5.6-terra --python-module harness.runtime.runner.entrypoint --module-arg=--domain-id --module-arg=transcript_edit --module-arg=--launch-context-json --module-arg=$ctx
+python -m harness.cli.start --run-id $runId --loop-kind transcript_edit --run-collection transcript_edit_right_of_way --model gpt-5.6-terra --python-module harness.runtime.runner.entrypoint --module-arg=--domain-id --module-arg=transcript_edit --module-arg=--launch-context-json --module-arg=$ctx
 ```
 
 Other supported overrides use the same `--model` flag (for example
 `gpt-5.4-mini` or an explicit `gpt-5.6-luna`).
+
+`--run-collection` is storage/retention identity only. Both right-of-way and
+curve launches remain ordinary `transcript_edit` runs (`loop_kind` and domain
+unchanged). Reuse the same collection for repeated attempts against the same
+source so each source keeps an independent latest-five history. Keep
+`workspace_id == run_id` fresh and equal on every clean attempt so the same
+dossier is reused without inheriting previous working artifacts. Each retained
+CLI run keeps its full timeline and turn-level audit package under
+`by_loop_kind/<run_collection>/<run_id>/`.
+
+### Dossier-scale curve / station-chain run
+
+This uses the same `transcript_edit` loop and domain. The explicit scope
+selector is the only launch-class difference. Do not include
+`transcription_id` or `segment_id` in dossier mode.
+
+For the first model-calibration run, use Terra explicitly:
+
+```powershell
+$runId = "curve-station-chain-<fresh-unique-suffix>"
+$ctx = "{""dossier_id"":""892abc34-ed4d-4e85-a0cb-9a5ddc133f31"",""transcript_edit_scope_mode"":""dossier"",""workspace_id"":""$runId"",""run_id"":""$runId"",""max_iterations"":100}"
+python -m harness.cli.start --run-id $runId --loop-kind transcript_edit --run-collection transcript_edit_curve_station_chain --model gpt-5.6-terra --python-module harness.runtime.runner.entrypoint --module-arg=--domain-id --module-arg=transcript_edit --module-arg=--launch-context-json --module-arg=$ctx
+```
+
+Then use the same foreground `watch` / HITL loop documented below. Do not
+launch a separate child run for each segment.
+
+Expected dossier-scale behavior:
+
+1. inventory both ordered segments and all peer T0 drafts
+2. investigate the material T0 disagreements with source evidence
+3. recover material full-page text omitted by the highlight-focused T0 drafts
+4. preserve the separately recorded Pioneer Canal lease references as
+   dependency evidence
+5. review the segment-1 ending jointly with the segment-2 beginning
+6. save authored work into the appropriate qualified per-segment lineages
+7. keep unresolved material honestly open, blocked, or in HITL
+8. select one exact working revision for every topology segment
+9. publish once with plural `source_revision_refs`
+10. produce `transcript_edit:output` and an immutable
+   `transcript_edit:dossier_output:sha256:<fingerprint>` ref
+
+The first Terra run is also a calibration run after the model change. Preserve
+the raw timeline evidence needed to distinguish model reasoning drift from a
+tool-contract or continuity seam. Do not generalize a new harness rule from one
+model run.
 
 Guidance:
 
@@ -411,10 +536,11 @@ remains possible as a fallback, but is not the normal path.
 
 ## 5. Where To Inspect Artifacts
 
-Harness CLI run-state and child logs for **new runs** (namespaced by `--loop-kind`):
+Harness CLI run-state and child logs for **new runs** (namespaced by
+`--run-collection`, defaulting to `--loop-kind` when omitted):
 
 ```text
-backend/harness/cli_artifacts/cli_runs/by_loop_kind/transcript_edit/<run_id>/
+backend/harness/cli_artifacts/cli_runs/by_loop_kind/<run_collection>/<run_id>/
   state.json
   control.json
   kernel_resume.json
@@ -431,6 +557,14 @@ backend/harness/cli_artifacts/cli_runs/by_loop_kind/transcript_edit/<run_id>/
   audit/turn_0002.json
   ...
 ```
+
+Practice collections for transcript-edit sources:
+
+- `transcript_edit_right_of_way`
+- `transcript_edit_curve_station_chain`
+
+Both remain ordinary `transcript_edit` loops; collection names affect storage
+and latest-five retention only.
 
 Legacy flat runs remain at `backend/harness/cli_artifacts/cli_runs/<run_id>/` (for
 example `practice-row-live-20260619-76` from earlier live testing).
@@ -483,6 +617,19 @@ backend/dossiers_data/artifacts/transcript_edit/<dossier_id>/<transcription_id>/
   output/output.json
   manifest.json
 ```
+
+Dossier-scale transcript-edit publication artifacts:
+
+```text
+backend/dossiers_data/artifacts/transcript_edit_dossier/<dossier_id>/<workspace_id>/
+  output/latest.json
+  output/revisions/<candidate_fingerprint>.json
+```
+
+The dossier-level revision contains the mechanically assembled full transcript
+in canonical segment order, plus the exact source revision refs and evidence
+provenance used to build it. It is the downstream handoff artifact; it is not a
+second model-authored giant draft.
 
 T0 source draft inputs remain under:
 
@@ -541,6 +688,18 @@ Always report:
   failure
 - the key observations from `audit/human/timeline.md` when diagnosing turn
   coherence, repeated reads, or itemization quality
+
+For a dossier-scale run, also report:
+
+- whether the agent treated the dossier as one continuous instrument
+- which segment boundaries it reviewed together and why
+- the exact working revision selected for each segment
+- whether it incorrectly treated a page ending as a missing source conclusion
+- whether it used plural `source_revision_refs` with complete segment coverage
+- the dossier output ref and immutable dossier output revision ref
+- whether it recovered the unhighlighted external-instrument references omitted
+  by T0
+- whether observed differences appear attributable to the selected model
 
 If behavior reveals a repeated sane near-miss action shape, preserve the raw
 payload and cite

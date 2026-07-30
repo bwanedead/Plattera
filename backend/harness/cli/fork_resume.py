@@ -117,6 +117,7 @@ def fork_run_from_turn(*, run_id: str, from_turn: int) -> dict[str, Any]:
             **({"model": model_env} if model_env else {}),
         },
         run_dir=allocated.run_dir,
+        run_collection=source_state.run_collection,
     )
     allocated.run_dir.mkdir(parents=True, exist_ok=True)
     write_initial_run_control_sidecar(allocated.run_dir)
@@ -172,6 +173,8 @@ def fork_run_from_turn(*, run_id: str, from_turn: int) -> dict[str, Any]:
         "from_turn": turn,
         "checkpoint_path": str(checkpoint.resolve()),
         "fork_lineage": fork_lineage,
+        "run_collection": child_state.run_collection,
+        "loop_kind": child_state.loop_kind,
         "human_timeline_path": str(allocated.human_timeline_path.resolve()),
         "done_file": child_state.paths.done_file,
         "result_file": child_state.paths.result_file,
