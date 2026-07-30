@@ -51,11 +51,11 @@ def build_transcript_edit_subtask_profiles() -> tuple[dict[str, Any], ...]:
             "profile_id": TRANSCRIPT_EDIT_VISUAL_SOURCE_OBSERVATION_PROFILE_ID,
             "owner": "transcript_edit",
             "description": (
-                "Isolated visual/source observation over supplied image or artifact refs "
-                "for exact readings of marks, words, numerals, bearings, distances, names, "
-                "or short phrases."
+                "Isolated visual/source observation over supplied image, artifact, "
+                "or dossier-qualified refs for exact readings of marks, words, numerals, "
+                "bearings, distances, names, or short phrases."
             ),
-            "allowed_ref_kinds": ["image", "artifact"],
+            "allowed_ref_kinds": ["image", "artifact", "dossier_segment"],
             "prompt_preamble": _VISUAL_SOURCE_OBSERVATION_PREAMBLE,
             "result_schema": _VISUAL_SOURCE_OBSERVATION_RESULT_SCHEMA,
             "max_context_refs": 4,

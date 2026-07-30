@@ -70,7 +70,7 @@ def test_surface_payload_includes_visual_source_observation_subtask_profile() ->
         if row["profile_id"] == TRANSCRIPT_EDIT_VISUAL_SOURCE_OBSERVATION_PROFILE_ID
     )
     assert profile["owner"] == "transcript_edit"
-    assert set(profile["allowed_ref_kinds"]) == {"image", "artifact"}
+    assert set(profile["allowed_ref_kinds"]) == {"image", "artifact", "dossier_segment"}
     result_fields = set(profile["result_schema"]["result"].keys())
     assert result_fields == {
         "task_response",
@@ -107,7 +107,7 @@ def test_visual_source_observation_profile_registers_through_composed_registry()
         surface_payloads={"transcript_edit": payload},
     )
     profile = registry.require(TRANSCRIPT_EDIT_VISUAL_SOURCE_OBSERVATION_PROFILE_ID)
-    assert set(profile.allowed_ref_kinds) == {"image", "artifact"}
+    assert set(profile.allowed_ref_kinds) == {"image", "artifact", "dossier_segment"}
     assert set(profile.result_schema["result"].keys()) == {
         "task_response",
         "source_visible_text",
