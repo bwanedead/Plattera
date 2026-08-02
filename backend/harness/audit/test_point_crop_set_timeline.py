@@ -162,6 +162,69 @@ def test_point_crop_renders_clickable_links_when_paths_resolvable(tmp_path: Path
     assert "b64" not in rendered.lower()
 
 
+def test_qualified_point_crop_links_resolve_via_leaf_descriptor_paths(tmp_path: Path) -> None:
+    """Production-shaped dossier wrappers resolve open-overlay/open-crop via leaf paths."""
+    images = tmp_path / "images"
+    images.mkdir()
+    master = images / "master.png"
+    crop = images / "crop-a.png"
+    master.write_bytes(b"png")
+    crop.write_bytes(b"png")
+
+    master_leaf = "image:derived:master-1"
+    crop_leaf = "image:derived:crop-a"
+    master_ref = f"dossier_segment:seg_a:run:tx_a:{master_leaf}"
+    crop_ref = f"dossier_segment:seg_a:run:tx_a:{crop_leaf}"
+
+    timeline_path = tmp_path / "audit" / "human" / "timeline.md"
+    timeline_path.parent.mkdir(parents=True)
+    outputs = {
+        "derived_ref_id": master_ref,
+        "parent_ref_id": "image:assoc:tx-1:original",
+        "sub_action": "point_crops",
+        "crop_set": {
+            "master_overlay_ref": master_ref,
+            "source_ref": "image:assoc:tx-1:original",
+            "points": [
+                {
+                    "letter": "A",
+                    "alias": "parcel_1_tie_bearing",
+                    "crop_ref": crop_ref,
+                    "point_norm": [0.42, 0.58],
+                    "size": "medium",
+                    "shape": "wide",
+                    "zoom_factor": 2.25,
+                }
+            ],
+            "overlay_role": "point_crop_master",
+        },
+    }
+    turn = {
+        "tool_result_raw": {
+            "artifact_refs": [master_ref, crop_ref],
+            "outputs": outputs,
+        }
+    }
+    index = build_ref_path_index(
+        turn=turn,
+        shared_index={
+            master_leaf: str(master.resolve()),
+            crop_leaf: str(crop.resolve()),
+        },
+    )
+    assert index[master_ref] == str(master.resolve())
+    assert index[crop_ref] == str(crop.resolve())
+    context = ArtifactLinkContext(timeline_path=timeline_path, ref_path_index=index)
+    rendered = "\n".join(render_point_crop_set_tool_output(outputs, link_context=context))
+
+    assert "[open overlay](../../images/master.png)" in rendered
+    assert "[open crop](../../images/crop-a.png)" in rendered
+    assert f"`{master_ref}`" in rendered
+    assert f"`{crop_ref}`" in rendered
+    assert str(master.resolve()) not in rendered
+    assert "absolute_path" not in rendered
+
+
 def test_point_crop_timeline_renders_target_mapping() -> None:
     outputs = _outputs()
     outputs["crop_set"]["points"][0].update(

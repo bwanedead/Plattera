@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import os
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -18,6 +18,7 @@ _MAX_DOSSIER_DIRS = 16
 _MAX_TX_DIRS = 16
 
 _IMAGE_DERIVED_PREFIX = "image:derived:"
+_IMAGE_DERIVED_MARKER = ":image:derived:"
 
 _REF_KEYS = frozenset(
     {
@@ -30,6 +31,17 @@ _REF_KEYS = frozenset(
         "parent_ref_id",
         "previous_crop_set_overlay_ref",
         "view_of_crop_set_overlay_ref",
+    }
+)
+_REF_LIST_KEYS = frozenset(
+    {
+        "artifact_refs",
+        "context_refs",
+        "input_refs",
+        "evidence_refs",
+        "pin_refs",
+        "unpin_refs",
+        "hydrate_next",
     }
 )
 _REF_PAIR_PRIORITY = (
@@ -99,17 +111,25 @@ def build_ref_path_index(
 ) -> dict[str, str]:
     """Build ref_id -> absolute filesystem path from turn metadata and run artifacts."""
     index: dict[str, str] = dict(shared_index or {})
+    collisions: set[str] = set()
+    turn_list = turns or ([] if turn is None else [turn])
     if turn is not None:
-        _collect_ref_paths_from_value(turn, index)
+        _collect_ref_paths_from_value(turn, index, collisions)
     if audit_dir is not None:
-        _collect_descriptor_paths_from_audit_dir(audit_dir, index)
-    if run_dir is not None or turns:
+        _collect_descriptor_paths_from_audit_dir(audit_dir, index, collisions)
+    if run_dir is not None or turns or turn is not None:
         _collect_derived_image_descriptor_paths(
             run_dir=run_dir,
             audit_dir=audit_dir,
-            turns=turns or ([] if turn is None else [turn]),
+            turns=turn_list,
             index=index,
+            collisions=collisions,
         )
+    _reconcile_wrapper_qualified_derived_refs(
+        index=index,
+        collisions=collisions,
+        turns=turn_list,
+    )
     return index
 
 
@@ -121,19 +141,25 @@ def build_run_ref_path_index(
 ) -> dict[str, str]:
     """Build one run-level ref path index for timeline rendering."""
     index: dict[str, str] = {}
-    if turns:
-        for turn in turns:
-            if isinstance(turn, Mapping):
-                _collect_ref_paths_from_value(turn, index)
+    collisions: set[str] = set()
+    turn_list = [turn for turn in (turns or []) if isinstance(turn, Mapping)]
+    for turn in turn_list:
+        _collect_ref_paths_from_value(turn, index, collisions)
     if audit_dir is not None:
-        _collect_descriptor_paths_from_audit_dir(audit_dir, index)
-    if run_dir is not None or turns:
+        _collect_descriptor_paths_from_audit_dir(audit_dir, index, collisions)
+    if run_dir is not None or turn_list:
         _collect_derived_image_descriptor_paths(
             run_dir=run_dir,
             audit_dir=audit_dir,
-            turns=[turn for turn in (turns or []) if isinstance(turn, Mapping)],
+            turns=turn_list,
             index=index,
+            collisions=collisions,
         )
+    _reconcile_wrapper_qualified_derived_refs(
+        index=index,
+        collisions=collisions,
+        turns=turn_list,
+    )
     return index
 
 
@@ -236,24 +262,28 @@ def _resolve_dossiers_artifact_file(ref_id: str) -> Path | None:
     return candidate if candidate.is_file() else None
 
 
-def _collect_ref_paths_from_value(value: Any, index: dict[str, str]) -> None:
+def _collect_ref_paths_from_value(
+    value: Any,
+    index: dict[str, str],
+    collisions: set[str],
+) -> None:
     if isinstance(value, Mapping):
         paired = _pair_ref_and_path(value)
         if paired is not None:
             ref_id, path = paired
-            index.setdefault(ref_id, path)
+            _record_ref_path(index, collisions, ref_id, path)
         for key, nested in value.items():
             if key in _BINARY_KEYS:
                 continue
             if isinstance(key, str) and key.startswith("image:") and isinstance(nested, str):
                 candidate = nested.strip()
                 if candidate and _looks_like_path(candidate):
-                    index.setdefault(key, candidate)
-            _collect_ref_paths_from_value(nested, index)
+                    _record_ref_path(index, collisions, key, candidate)
+            _collect_ref_paths_from_value(nested, index, collisions)
         return
     if isinstance(value, (list, tuple)):
         for item in value:
-            _collect_ref_paths_from_value(item, index)
+            _collect_ref_paths_from_value(item, index, collisions)
 
 
 def _pair_ref_and_path(mapping: Mapping[str, Any]) -> tuple[str, str] | None:
@@ -269,7 +299,11 @@ def _pair_ref_and_path(mapping: Mapping[str, Any]) -> tuple[str, str] | None:
     return None
 
 
-def _collect_descriptor_paths_from_audit_dir(audit_dir: Path, index: dict[str, str]) -> None:
+def _collect_descriptor_paths_from_audit_dir(
+    audit_dir: Path,
+    index: dict[str, str],
+    collisions: set[str],
+) -> None:
     """Bounded scan for descriptor JSON files that map refs to image paths."""
     if not audit_dir.is_dir():
         return
@@ -280,7 +314,7 @@ def _collect_descriptor_paths_from_audit_dir(audit_dir: Path, index: dict[str, s
         if path.name.startswith("turn_"):
             continue
         scanned += 1
-        _load_descriptor_json(path, index)
+        _load_descriptor_json(path, index, collisions)
 
 
 def _collect_derived_image_descriptor_paths(
@@ -289,6 +323,7 @@ def _collect_derived_image_descriptor_paths(
     audit_dir: Path | None,
     turns: list[Mapping[str, Any]],
     index: dict[str, str],
+    collisions: set[str],
 ) -> None:
     """Resolve ``image:derived:*`` refs from persisted derived-image descriptor JSON."""
     run_id = _resolve_run_id(run_dir=run_dir, audit_dir=audit_dir, turns=turns)
@@ -300,11 +335,15 @@ def _collect_derived_image_descriptor_paths(
                 return
             if path.name.endswith("_crop_set.json"):
                 continue
-            if _load_descriptor_json(path, index):
+            if _load_descriptor_json(path, index, collisions):
                 scanned += 1
 
 
-def _load_descriptor_json(path: Path, index: dict[str, str]) -> bool:
+def _load_descriptor_json(
+    path: Path,
+    index: dict[str, str],
+    collisions: set[str],
+) -> bool:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError):
@@ -317,8 +356,101 @@ def _load_descriptor_json(path: Path, index: dict[str, str]) -> bool:
         return False
     if not Path(absolute_path).is_file():
         return False
-    index.setdefault(ref_id, absolute_path)
+    _record_ref_path(index, collisions, ref_id, absolute_path)
     return True
+
+
+def _record_ref_path(
+    index: dict[str, str],
+    collisions: set[str],
+    ref_id: str,
+    absolute_path: str,
+) -> None:
+    """Record a ref→path binding; track multi-path leaf collisions for wrapper safety."""
+    existing = index.get(ref_id)
+    if existing is None:
+        index[ref_id] = absolute_path
+        return
+    if existing != absolute_path:
+        collisions.add(ref_id)
+
+
+def _reconcile_wrapper_qualified_derived_refs(
+    *,
+    index: dict[str, str],
+    collisions: set[str],
+    turns: Sequence[Mapping[str, Any]],
+) -> None:
+    """Bind wrapper-qualified refs to uniquely resolved native ``image:derived:*`` paths."""
+    for qualified in _collect_image_refs_from_turns(turns):
+        leaf = _extract_image_derived_leaf(qualified)
+        if leaf is None or leaf == qualified:
+            continue
+        if leaf in collisions:
+            continue
+        leaf_path = str(index.get(leaf) or "").strip()
+        if not leaf_path:
+            continue
+        if not Path(leaf_path).is_file():
+            continue
+        # Never invent a path from the qualified identity; only reuse the leaf descriptor path.
+        index.setdefault(qualified, leaf_path)
+
+
+def _collect_image_refs_from_turns(turns: Sequence[Mapping[str, Any]]) -> list[str]:
+    found: list[str] = []
+    seen: set[str] = set()
+
+    def _add(ref_id: str) -> None:
+        text = str(ref_id or "").strip()
+        if not text or text in seen:
+            return
+        if text.startswith(_IMAGE_DERIVED_PREFIX) or _IMAGE_DERIVED_MARKER in text:
+            seen.add(text)
+            found.append(text)
+
+    def _walk(value: Any) -> None:
+        if isinstance(value, Mapping):
+            for key, nested in value.items():
+                if key in _BINARY_KEYS:
+                    continue
+                key_text = str(key or "")
+                if key_text in _REF_KEYS and isinstance(nested, str):
+                    _add(nested)
+                elif key_text in _REF_LIST_KEYS and isinstance(nested, (list, tuple)):
+                    for item in nested:
+                        if isinstance(item, str):
+                            _add(item)
+                _walk(nested)
+            return
+        if isinstance(value, (list, tuple)):
+            for item in value:
+                _walk(item)
+
+    for turn in turns:
+        if isinstance(turn, Mapping):
+            _walk(turn)
+    return found
+
+
+def _extract_image_derived_leaf(ref_id: str) -> str | None:
+    """Return an exact delimiter-bounded ``image:derived:*`` leaf, or None."""
+    text = str(ref_id or "").strip()
+    if not text:
+        return None
+    if text.startswith(_IMAGE_DERIVED_PREFIX):
+        opaque = text[len(_IMAGE_DERIVED_PREFIX) :]
+        return text if opaque else None
+    marker_at = text.rfind(_IMAGE_DERIVED_MARKER)
+    if marker_at < 0:
+        return None
+    leaf = text[marker_at + 1 :]
+    if not leaf.startswith(_IMAGE_DERIVED_PREFIX):
+        return None
+    opaque = leaf[len(_IMAGE_DERIVED_PREFIX) :]
+    if not opaque:
+        return None
+    return leaf
 
 
 def _resolve_run_id(

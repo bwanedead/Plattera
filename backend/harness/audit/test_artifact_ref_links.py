@@ -8,6 +8,7 @@ from harness.audit.artifact_ref_links import (
     ArtifactLinkContext,
     build_ref_path_index,
     resolve_artifact_image_link,
+    _extract_image_derived_leaf,
 )
 
 
@@ -99,3 +100,88 @@ def test_inline_budget_respects_cap(tmp_path: Path) -> None:
     assert context.consume_inline() is True
     assert context.consume_inline() is False
     assert context.inline_cap_reached is True
+
+
+def test_extract_image_derived_leaf_is_delimiter_bounded() -> None:
+    assert (
+        _extract_image_derived_leaf(
+            "dossier_segment:seg_a:run:tx_a:image:derived:crop-uuid-001"
+        )
+        == "image:derived:crop-uuid-001"
+    )
+    assert _extract_image_derived_leaf("image:derived:crop-uuid-001") == "image:derived:crop-uuid-001"
+    assert _extract_image_derived_leaf("notimage:derived:crop-uuid-001") is None
+    assert _extract_image_derived_leaf("dossier_segment:seg_a:run:tx_a:image:derived:") is None
+    assert _extract_image_derived_leaf("artifact:sample") is None
+
+
+def test_build_ref_path_index_binds_wrapper_qualified_ref_to_leaf_descriptor(
+    tmp_path: Path,
+) -> None:
+    images = tmp_path / "images"
+    images.mkdir()
+    png = images / "crop.png"
+    png.write_bytes(b"png")
+    leaf = "image:derived:crop-uuid-q1"
+    qualified = f"dossier_segment:seg_a:run:tx_a:{leaf}"
+    # Leaf path from turn metadata; qualified appears only as runtime identity.
+    index = build_ref_path_index(
+        turn={
+            "tool_result_raw": {
+                "artifact_refs": [qualified],
+                "outputs": {
+                    "derived_ref_id": leaf,
+                    "absolute_path": str(png.resolve()),
+                    "crop_ref": qualified,
+                },
+            }
+        }
+    )
+    assert index[leaf] == str(png.resolve())
+    assert index[qualified] == str(png.resolve())
+
+    # Also binds when leaf path arrives via shared_index (descriptor scan) only.
+    index2 = build_ref_path_index(
+        turn={
+            "tool_result_raw": {
+                "artifact_refs": [qualified],
+                "outputs": {"derived_ref_id": qualified, "crop_ref": qualified},
+            }
+        },
+        shared_index={leaf: str(png.resolve())},
+    )
+    assert index2[qualified] == str(png.resolve())
+    assert index2[leaf] == str(png.resolve())
+
+
+def test_wrapper_bind_skips_ambiguous_leaf_paths(tmp_path: Path) -> None:
+    images = tmp_path / "images"
+    images.mkdir()
+    a = images / "a.png"
+    b = images / "b.png"
+    a.write_bytes(b"png")
+    b.write_bytes(b"png")
+    leaf = "image:derived:ambiguous-leaf"
+    qualified = f"dossier_segment:seg_a:run:tx_a:{leaf}"
+    turn = {
+        "tool_result_raw": {
+            "artifact_refs": [qualified],
+            "outputs": {
+                "items": [
+                    {"derived_ref_id": leaf, "absolute_path": str(a.resolve())},
+                    {"derived_ref_id": leaf, "absolute_path": str(b.resolve())},
+                ]
+            },
+        }
+    }
+    index = build_ref_path_index(turn=turn)
+    assert leaf in index  # first-wins retained for unqualified
+    assert qualified not in index
+
+
+def test_fabricated_wrapper_or_unknown_leaf_produces_no_binding() -> None:
+    qualified = "dossier_segment:seg_a:run:tx_a:image:derived:missing-leaf"
+    index = build_ref_path_index(
+        turn={"tool_result_raw": {"artifact_refs": [qualified], "outputs": {"derived_ref_id": qualified}}}
+    )
+    assert qualified not in index
