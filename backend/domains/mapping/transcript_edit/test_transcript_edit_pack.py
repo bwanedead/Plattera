@@ -84,11 +84,14 @@ def test_surface_payload_includes_visual_source_observation_subtask_profile() ->
     assert "source_visible_text" in preamble
     assert "line per visible text line" in preamble or "one line per" in preamble
     assert "partial/cut" in preamble or "partial" in preamble and "cut" in preamble
-    assert "target atom is not visible" in preamble
+    assert "observation packet, not proof" in preamble
+    assert "target_presence is packet-scoped" in preamble
+    assert "completed status means the observation call completed" in preamble
+    assert "does not mean a source value was proven or earned" in preamble
     assert "peer draft" in preamble or "broader mission context" in preamble
     assert "larger transcript-edit run" in preamble
     assert "mission-critical source atom" in preamble
-    assert "requested mark, value, word, or span" in preamble
+    assert "requested target atom" in preamble
     assert "do not cleanly contain the target" in preamble
     assert "nearby anchor words" in preamble
     assert "task_response" in preamble
@@ -200,7 +203,17 @@ def test_procedural_guidance_teaches_delegate_subtask_lightly() -> None:
     assert "audit/ui wiring, not proof" in text
     assert "atom-oriented" in text
     assert "not blind to what the isolated crop can actually provide" in text
-    assert "ask for two outputs" in text
+    assert "structured target outcome" in text
+    assert "target_presence" in text
+    assert "packet_assessment" in text
+    assert "target_anchor_text" in text
+    assert "attempted observation window, not proof" in text
+    assert "status: completed" in text
+    assert "does not earn a value" in text
+    assert "grounds for corroboration, not automatic acceptance or rejection" in text
+    assert "delegate outputs do not become true by vote" in text
+    assert "against the master overlay rather than paying to reread every crop" in text
+    assert "packet outcome, not proof that the source lacks the target" in text
     assert "target atom" in text
     assert "all clearly visible non-partial text" in text
     assert "line-separated" in text
