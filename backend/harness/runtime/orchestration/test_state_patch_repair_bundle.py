@@ -73,6 +73,53 @@ def test_row_validation_failure_records_state_patch_repair_bundle() -> None:
     assert bundle["fragments"]
 
 
+def test_repair_bundle_preserves_atom_local_unit_flag_intent_despite_malformed_field() -> None:
+    """Valid unit posture flags survive in the repair fragment when another field fails."""
+    patch = {
+        "resolution": {
+            "items": [
+                {
+                    "item_id": "visible_map_claims",
+                    "title": "Visible map claims",
+                    "kind": "claim_group",
+                    "status": "open",
+                    "covered_units": [
+                        {
+                            "unit_id": "parcel1_acreage",
+                            "title": "Parcel acreage",
+                            "requires_hitl": True,
+                            "no_further_progress": True,
+                            "reopen_triggers": 42,
+                        }
+                    ],
+                }
+            ]
+        }
+    }
+    bundle = build_state_patch_repair_bundle(
+        state_patch=patch,
+        row_skip_details={
+            "resolution": {
+                "items": [
+                    {
+                        "path": "resolution.items[visible_map_claims]",
+                        "reason_code": "validation_failed",
+                        "row_id": "visible_map_claims",
+                        "validation_errors": [
+                            "resolution.items[visible_map_claims].covered_units[parcel1_acreage].reopen_triggers: wrong type"
+                        ],
+                    }
+                ]
+            }
+        },
+    )
+    assert bundle is not None
+    fragment = bundle["fragments"][0]["fragment"]
+    assert fragment["unit_id"] == "parcel1_acreage"
+    assert fragment["requires_hitl"] is True
+    assert fragment["no_further_progress"] is True
+
+
 def test_bundle_includes_rejected_patch_fragment_not_durable_state() -> None:
     from harness.mission_state import (
         ResolutionCoveredUnit,

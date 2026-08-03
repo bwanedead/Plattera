@@ -201,6 +201,7 @@ def _projection(
     closed_dimensions_without_earned_determination_count: int = 0,
     closed_dimensions_without_basis_count: int = 0,
     items_requires_hitl_count: int = 0,
+    covered_units_requires_hitl_count: int = 0,
 ) -> dict:
     return dict(
         closure_policy=closure_policy,
@@ -213,6 +214,7 @@ def _projection(
         closed_dimensions_without_earned_determination_count=closed_dimensions_without_earned_determination_count,
         closed_dimensions_without_basis_count=closed_dimensions_without_basis_count,
         items_requires_hitl_count=items_requires_hitl_count,
+        covered_units_requires_hitl_count=covered_units_requires_hitl_count,
     )
 
 
@@ -309,6 +311,22 @@ def test_projection_resolution_items_require_hitl_blocks_complete_and_publish() 
     )
     assert "items_require_hitl:2" in result["complete_run_blockers"]
     assert "items_require_hitl:2" in result["publish_blockers"]
+
+
+def test_projection_covered_units_require_hitl_blocks_complete_and_publish() -> None:
+    cs = ClosureState(ready_to_close=True, ready_to_publish=True)
+    policy = {
+        "hard_enforced": True,
+        "enforce_on_complete": True,
+        "enforce_on_publish": True,
+    }
+    result = _call_projection(
+        closure_policy=policy,
+        closure_state=cs,
+        covered_units_requires_hitl_count=3,
+    )
+    assert "covered_units_require_hitl:3" in result["complete_run_blockers"]
+    assert "covered_units_require_hitl:3" in result["publish_blockers"]
 
 
 def test_projection_resolution_items_below_minimum_for_complete() -> None:
@@ -806,6 +824,35 @@ def test_summary_counts_item_blocking_hitl_and_no_further_progress_flags() -> No
     assert result["items_blocking_count"] == 2
     assert result["items_requires_hitl_count"] == 1
     assert result["items_no_further_progress_count"] == 1
+
+
+def test_summary_counts_unit_hitl_and_no_further_progress_separately_from_items() -> None:
+    items = [
+        _item(
+            "g1",
+            requires_hitl=True,
+            covered_units=[
+                ResolutionCoveredUnit(
+                    unit_id="u1",
+                    title="u1",
+                    requires_hitl=True,
+                    no_further_progress=True,
+                ),
+                ResolutionCoveredUnit(
+                    unit_id="u2",
+                    title="u2",
+                    no_further_progress=True,
+                ),
+            ],
+        ),
+        _item("i2"),
+    ]
+    mem = _mem(resolution_items=items)
+    result = build_prompt_observability_summary(mem)
+    assert result["items_requires_hitl_count"] == 1
+    assert result["items_no_further_progress_count"] == 0
+    assert result["covered_units_requires_hitl_count"] == 1
+    assert result["covered_units_no_further_progress_count"] == 2
 
 
 def test_summary_counts_sequence_advisories() -> None:
@@ -2826,6 +2873,33 @@ def test_stalled_no_further_progress_also_triggers_answerability_check() -> None
     mem = _mem(resolution_items=[item])
     result = build_prompt_observability_summary(mem)
     assert result["blocked_without_hitl_answerability_count"] >= 1
+
+
+def test_unit_local_no_further_progress_triggers_answerability_without_parent_stall() -> None:
+    unit = ResolutionCoveredUnit(
+        unit_id="u1",
+        title="u1",
+        status="open",
+        no_further_progress=True,
+    )
+    item = _item("i1", status="open", blocking=False, requires_hitl=False, covered_units=[unit])
+    mem = _mem(resolution_items=[item])
+    result = build_prompt_observability_summary(mem)
+    assert result["blocked_without_hitl_answerability_count"] >= 1
+
+
+def test_unit_requires_hitl_suppresses_answerability_pressure_even_if_parent_lacks_flag() -> None:
+    unit = ResolutionCoveredUnit(
+        unit_id="u1",
+        title="u1",
+        status="open",
+        no_further_progress=True,
+        requires_hitl=True,
+    )
+    item = _item("i1", status="open", blocking=False, requires_hitl=False, covered_units=[unit])
+    mem = _mem(resolution_items=[item])
+    result = build_prompt_observability_summary(mem)
+    assert result["blocked_without_hitl_answerability_count"] == 0
 
 
 # ---------------------------------------------------------------------------

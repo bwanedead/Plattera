@@ -33,6 +33,7 @@ from harness.runtime.orchestration.test_completion_anchor import (
 )
 from harness.runtime.orchestration.orchestrator import run_orchestration_kernel_loop
 from harness.runtime.orchestration.contracts import OrchestratorContext, SharedStateProjection, TerminalEvaluation
+from harness.runtime.orchestration.lifecycle import OrchestrationLifecycle
 from harness.mission_state import new_mission_state, new_resolution_state
 from tooling.mapping.deed_to_ir.publish_gate_feedback import build_final_output_summary
 
@@ -641,6 +642,110 @@ def test_orchestrator_completes_on_single_successful_finalize_turn() -> None:
     assert result.terminal_class == "completed"
     assert result.reason_code == "completion_anchor_satisfied"
     assert result.iterations == 1
+
+
+class _UnitHitlBlocksPublishPack:
+    """Returns a sole publish action while syncing atom-local unit HITL posture."""
+
+    def __init__(self) -> None:
+        self.choose_action_calls = 0
+
+    def initialize(self, context: OrchestratorContext) -> None:
+        pass
+
+    def sync(self, context: OrchestratorContext) -> SharedStateProjection:
+        from harness.mission_state import ClosureState, ResolutionCoveredUnit, ResolutionItem
+
+        ms = new_mission_state(mission_id="m-unit-hitl", loop_family="orchestration_kernel")
+        ms = ms.model_copy(
+            update={
+                "work_universe_posture": "audited",
+                "closure_state": ClosureState(ready_to_publish=True, ready_to_close=True),
+            }
+        )
+        rs = new_resolution_state(
+            items=[
+                ResolutionItem(
+                    item_id="g1",
+                    title="Group",
+                    kind="claim_group",
+                    status="open",
+                    covered_units=[
+                        ResolutionCoveredUnit(
+                            unit_id="u1",
+                            title="Atom",
+                            requires_hitl=True,
+                        )
+                    ],
+                )
+            ]
+        )
+        return SharedStateProjection(mission_state=ms, resolution_state=rs)
+
+    def evaluate_terminal(
+        self,
+        context: OrchestratorContext,
+        projection: SharedStateProjection | None,
+    ) -> TerminalEvaluation | None:
+        return None
+
+    def choose_action(
+        self,
+        context: OrchestratorContext,
+        projection: SharedStateProjection | None,
+    ) -> ActionPlan:
+        self.choose_action_calls += 1
+        if self.choose_action_calls > 1:
+            return ActionPlan(skip_execution=True, rationale="stop after blocked publish")
+        return ActionPlan(
+            actions=(ActionPlanAction("p1", "publish_workspace_artifact", {}),),
+            idempotency_key="ik-unit-hitl-publish",
+            continuity_journal_entry=_PACK_CJ,
+            rationale="Attempt publish while unit HITL remains outstanding.",
+        )
+
+
+def test_unit_level_hitl_blocks_publish_before_completion_anchor_terminal() -> None:
+    """Atom-local requires_hitl fails pre-dispatch closure; no completion_anchor_satisfied."""
+    observer = _RecordingObserver()
+    pack = _UnitHitlBlocksPublishPack()
+    session_manager = _FinalizePublishSessionManager()
+    policy = {
+        "hard_enforced": True,
+        "enforce_on_publish": True,
+        "enforce_on_complete": True,
+        "publish_action_ids": ["publish_workspace_artifact"],
+        "required_dimension_ids": [],
+        "completion_anchor": {
+            "enabled": True,
+            "publish_action_ids": ("publish_workspace_artifact",),
+            "terminal_on_satisfied_anchor": True,
+            "publish_ready_container": "final_output_summary",
+            "publish_ready_field": "ready_for_completion_candidate",
+        },
+    }
+    result = run_orchestration_kernel_loop(
+        orchestration_adapter=pack,
+        session_manager=session_manager,
+        session_id="sess-unit-hitl",
+        run_artifact_ref=None,
+        request_id_prefix="req-unit-hitl",
+        opaque_run_context={"domain_closure_policy": policy},
+        max_iterations=2,
+        lifecycle=OrchestrationLifecycle(turn_completion_observer=observer),
+    )
+    assert session_manager._calls == 0
+    assert session_manager.steps == []
+    assert result.reason_code != "completion_anchor_satisfied"
+    assert result.terminal_class != "completed"
+    assert any(
+        record.get("terminal_decision") == "closure_enforcement_blocked"
+        for record in observer.records
+    )
+    assert not any(
+        record.get("terminal_decision") == "completion_anchor_satisfied"
+        for record in observer.records
+    )
 
 
 def test_action_sequence_without_terminal_opt_in_does_not_set_terminal_class() -> None:

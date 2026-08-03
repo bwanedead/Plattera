@@ -363,6 +363,10 @@ def _detect_semantic_intent_kinds(
                     kinds.append("unit_status_change")
                 if "determination" in unit and str(unit.get("determination") or "").strip().lower() == "earned":
                     kinds.append("unit_status_change")
+                for boolean_key in ("requires_hitl", "no_further_progress"):
+                    if boolean_key in unit:
+                        kinds.append("unit_status_change")
+                        break
 
     mission = state_patch.get("mission")
     if isinstance(mission, Mapping):

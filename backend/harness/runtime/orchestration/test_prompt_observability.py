@@ -158,6 +158,8 @@ def test_build_prompt_observability_summary_reports_loop_health_facts() -> None:
     assert summary["items_blocking_count"] == 1
     assert summary["items_requires_hitl_count"] == 1
     assert summary["items_no_further_progress_count"] == 1
+    assert summary["covered_units_requires_hitl_count"] == 0
+    assert summary["covered_units_no_further_progress_count"] == 0
     assert summary["closed_items_count"] == 2
     assert summary["closed_items_without_earned_determination_count"] == 1
     assert summary["closed_items_without_basis_count"] == 1

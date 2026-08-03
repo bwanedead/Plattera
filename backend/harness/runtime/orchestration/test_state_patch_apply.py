@@ -778,6 +778,146 @@ def test_covered_units_upsert_by_unit_id_and_overlay_fields() -> None:
     assert units["g1-u2"].title == "Unit two"
 
 
+def test_covered_unit_sparse_update_sets_atom_local_posture_flags() -> None:
+    ms, rs = _base_states()
+    _, rs2, _ = apply_state_patch(
+        mission_state=ms,
+        resolution_state=rs,
+        state_patch={
+            "resolution": {
+                "items": [
+                    {
+                        "item_id": "g1",
+                        "title": "Group",
+                        "kind": "claim_group",
+                        "status": "open",
+                        "covered_units": [
+                            {"unit_id": "u1", "title": "Unit one", "status": "open"},
+                            {"unit_id": "u2", "title": "Unit two", "status": "open"},
+                        ],
+                    }
+                ]
+            }
+        },
+    )
+    _, rs3, _ = apply_state_patch(
+        mission_state=ms,
+        resolution_state=rs2,
+        state_patch={
+            "resolution": {
+                "items": [
+                    {
+                        "item_id": "g1",
+                        "covered_units": [
+                            {
+                                "unit_id": "u1",
+                                "requires_hitl": True,
+                                "no_further_progress": True,
+                            }
+                        ],
+                    }
+                ]
+            }
+        },
+    )
+    item = rs3.items[0]
+    units = {u.unit_id: u for u in item.covered_units}
+    assert units["u1"].requires_hitl is True
+    assert units["u1"].no_further_progress is True
+    assert units["u1"].title == "Unit one"
+    assert units["u2"].requires_hitl is False
+    assert units["u2"].no_further_progress is False
+    assert item.requires_hitl is False
+    assert item.no_further_progress is False
+    assert item.blocking is None
+
+
+def test_covered_unit_explicit_false_clears_atom_local_posture_flags() -> None:
+    ms, rs = _base_states()
+    _, rs2, _ = apply_state_patch(
+        mission_state=ms,
+        resolution_state=rs,
+        state_patch={
+            "resolution": {
+                "items": [
+                    {
+                        "item_id": "g1",
+                        "title": "Group",
+                        "kind": "claim_group",
+                        "status": "open",
+                        "covered_units": [
+                            {
+                                "unit_id": "u1",
+                                "title": "Unit one",
+                                "requires_hitl": True,
+                                "no_further_progress": True,
+                            }
+                        ],
+                    }
+                ]
+            }
+        },
+    )
+    _, rs3, _ = apply_state_patch(
+        mission_state=ms,
+        resolution_state=rs2,
+        state_patch={
+            "resolution": {
+                "items": [
+                    {
+                        "item_id": "g1",
+                        "covered_units": [
+                            {
+                                "unit_id": "u1",
+                                "requires_hitl": False,
+                                "no_further_progress": False,
+                            }
+                        ],
+                    }
+                ]
+            }
+        },
+    )
+    unit = rs3.items[0].covered_units[0]
+    assert unit.requires_hitl is False
+    assert unit.no_further_progress is False
+
+
+def test_unit_posture_flag_presence_classifies_as_unit_status_change() -> None:
+    from harness.runtime.orchestration.state_patch_apply import _detect_semantic_intent_kinds
+
+    for value in (True, False):
+        kinds = _detect_semantic_intent_kinds(
+            state_patch={
+                "resolution": {
+                    "items": [
+                        {
+                            "item_id": "g1",
+                            "covered_units": [{"unit_id": "u1", "requires_hitl": value}],
+                        }
+                    ]
+                }
+            },
+            hitl_consumed_prompt_ids=None,
+        )
+        assert "unit_status_change" in kinds
+
+    kinds_nfp = _detect_semantic_intent_kinds(
+        state_patch={
+            "resolution": {
+                "items": [
+                    {
+                        "item_id": "g1",
+                        "covered_units": [{"unit_id": "u1", "no_further_progress": False}],
+                    }
+                ]
+            }
+        },
+        hitl_consumed_prompt_ids=None,
+    )
+    assert "unit_status_change" in kinds_nfp
+
+
 def test_covered_units_empty_list_does_not_wipe_prior_units() -> None:
     ms, rs = _base_states()
     _, rs2, _ = apply_state_patch(

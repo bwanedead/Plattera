@@ -56,6 +56,8 @@ ZERO_INT_FIELDS = (
     "items_blocking_count",
     "items_requires_hitl_count",
     "items_no_further_progress_count",
+    "covered_units_requires_hitl_count",
+    "covered_units_no_further_progress_count",
     "closed_items_count",
     "closed_items_without_earned_determination_count",
     "closed_items_without_basis_count",

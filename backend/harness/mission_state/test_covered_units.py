@@ -21,6 +21,29 @@ def test_covered_unit_allows_optional_fields_to_be_absent() -> None:
     assert unit.determination is None
     assert unit.evidence_refs == []
     assert unit.opaque_payload == {}
+    assert unit.requires_hitl is False
+    assert unit.no_further_progress is False
+
+
+def test_covered_unit_accepts_atom_local_hitl_and_no_further_progress_flags() -> None:
+    unit = ResolutionCoveredUnit.model_validate(
+        {
+            "unit_id": "u1",
+            "title": "U One",
+            "requires_hitl": True,
+            "no_further_progress": True,
+        }
+    )
+    assert unit.requires_hitl is True
+    assert unit.no_further_progress is True
+
+
+def test_covered_unit_old_serialized_row_without_new_flags_still_validates() -> None:
+    unit = ResolutionCoveredUnit.model_validate(
+        {"unit_id": "u1", "title": "Legacy unit", "status": "open"}
+    )
+    assert unit.requires_hitl is False
+    assert unit.no_further_progress is False
 
 
 def test_covered_unit_rejects_unknown_fields() -> None:

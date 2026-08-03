@@ -181,6 +181,58 @@ def test_blocked_item_keeps_blocker_and_next_step_detail() -> None:
     assert item["next_needed_step"] == "Ask the operator which option governs."
 
 
+def test_hot_and_cold_covered_units_project_true_atom_local_posture_flags() -> None:
+    from harness.runtime.orchestration.work_graph_projection import project_cold_covered_unit
+
+    resolution = new_resolution_state(
+        items=[
+            {
+                "item_id": "group-a",
+                "title": "Group",
+                "kind": "claim_group",
+                "status": "closed",
+                "determination": "earned",
+                "covered_units": [
+                    {
+                        "unit_id": "hot-unit",
+                        "title": "Hot posture unit",
+                        "status": "closed",
+                        "determination": "earned",
+                        "requires_hitl": True,
+                        "no_further_progress": True,
+                    },
+                    {
+                        "unit_id": "cold-unit",
+                        "title": "Quiet closed unit",
+                        "status": "closed",
+                        "determination": "earned",
+                        "determined_value": "42",
+                    },
+                ],
+            }
+        ]
+    )
+    projection = build_prompt_work_graph_projection(resolution)
+    units = {u["unit_id"]: u for u in projection["items"][0]["covered_units"]}
+    assert units["hot-unit"]["requires_hitl"] is True
+    assert units["hot-unit"]["no_further_progress"] is True
+    assert "requires_hitl" not in units["cold-unit"]
+    assert "no_further_progress" not in units["cold-unit"]
+
+    cold = project_cold_covered_unit(
+        {
+            "unit_id": "cold-hitl",
+            "title": "Cold with HITL",
+            "status": "closed",
+            "requires_hitl": True,
+            "no_further_progress": True,
+        },
+        hot_refs=frozenset(),
+    )
+    assert cold["requires_hitl"] is True
+    assert cold["no_further_progress"] is True
+
+
 def test_semantic_repair_debt_keeps_repair_feedback_visible() -> None:
     resolution = new_resolution_state(
         items=[

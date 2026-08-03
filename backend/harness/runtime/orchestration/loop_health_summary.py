@@ -94,6 +94,18 @@ def build_prompt_observability_summary(
     items_no_further_progress_count = sum(
         1 for row in resolution_items if bool(getattr(row, "no_further_progress", False))
     )
+    covered_units_requires_hitl_count = sum(
+        1
+        for row in resolution_items
+        for unit in (getattr(row, "covered_units", None) or [])
+        if bool(getattr(unit, "requires_hitl", False))
+    )
+    covered_units_no_further_progress_count = sum(
+        1
+        for row in resolution_items
+        for unit in (getattr(row, "covered_units", None) or [])
+        if bool(getattr(unit, "no_further_progress", False))
+    )
     closed_items_without_earned_determination_count = sum(
         1
         for row in resolution_items
@@ -290,6 +302,7 @@ def build_prompt_observability_summary(
         closed_dimensions_without_earned_determination_count=closed_dimensions_without_earned_determination_count,
         closed_dimensions_without_basis_count=closed_dimensions_without_basis_count,
         items_requires_hitl_count=items_requires_hitl_count,
+        covered_units_requires_hitl_count=covered_units_requires_hitl_count,
     )
     from harness.runtime.orchestration.completion_anchor import (
         apply_completion_anchor_to_closure_readiness,
@@ -402,6 +415,8 @@ def build_prompt_observability_summary(
         "items_blocking_count": items_blocking_count,
         "items_requires_hitl_count": items_requires_hitl_count,
         "items_no_further_progress_count": items_no_further_progress_count,
+        "covered_units_requires_hitl_count": covered_units_requires_hitl_count,
+        "covered_units_no_further_progress_count": covered_units_no_further_progress_count,
         "closed_items_count": closed_items_count,
         "closed_items_without_earned_determination_count": closed_items_without_earned_determination_count,
         "closed_items_without_basis_count": closed_items_without_basis_count,
@@ -1290,16 +1305,15 @@ def _hitl_answerability_metrics(items: list[Any]) -> dict[str, int]:
 
     Three mechanical checks, all advisory:
     - ``blocked_without_hitl_answerability_count``: blocking or no_further_progress
-      item/unit with no requires_hitl and no human_answerability classification set.
+      item/unit with no effective requires_hitl and no human_answerability classification set.
     - ``human_answerable_blocker_without_hitl_count``: item/unit with
-      ``human_answerability == "likely_answerable"`` but no requires_hitl pending.
+      ``human_answerability == "likely_answerable"`` but no effective requires_hitl pending.
     - ``not_answerable_missing_reason_count``: item/unit with
       ``human_answerability == "not_answerable"`` but no hitl_not_applicable_reason.
 
-    Covered units of a blocking/stalled parent item are also checked so that
-    answerability pressure is visible at the atom level, not only the item level.
-    A covered unit is considered stalled when its parent item is blocked/stalled
-    and the unit itself is not yet earned or closed.
+    A covered unit is stalled when its own ``no_further_progress`` is true, or when it is
+    still unresolved under a blocking/stalled parent. Effective HITL coverage for a unit is
+    ``unit.requires_hitl OR parent.requires_hitl``. Unit answerability fields stay unit-local.
     """
     blocked_without = 0
     answerable_without_hitl = 0
@@ -1307,44 +1321,44 @@ def _hitl_answerability_metrics(items: list[Any]) -> dict[str, int]:
     for item in items:
         is_blocking = bool(getattr(item, "blocking", False))
         is_no_further = bool(getattr(item, "no_further_progress", False))
-        is_requires_hitl = bool(getattr(item, "requires_hitl", False))
+        parent_requires_hitl = bool(getattr(item, "requires_hitl", False))
         answerability = _as_optional_text(getattr(item, "human_answerability", None))
         reason = _as_optional_text(getattr(item, "hitl_not_applicable_reason", None))
 
-        is_blocked_or_stalled = is_blocking or is_no_further
-        if not is_blocked_or_stalled:
-            continue
+        parent_blocked_or_stalled = is_blocking or is_no_further
+        if parent_blocked_or_stalled:
+            # Blocked/stalled material item with no HITL and no answerability assessment.
+            if not parent_requires_hitl and (answerability is None or answerability == "unknown"):
+                blocked_without += 1
 
-        # Blocked/stalled material item with no HITL and no answerability assessment.
-        if not is_requires_hitl and (answerability is None or answerability == "unknown"):
-            blocked_without += 1
+            # Agent assessed as likely answerable but hasn't emitted requires_hitl.
+            if answerability == "likely_answerable" and not parent_requires_hitl:
+                answerable_without_hitl += 1
 
-        # Agent assessed as likely answerable but hasn't emitted requires_hitl.
-        if answerability == "likely_answerable" and not is_requires_hitl:
-            answerable_without_hitl += 1
+            # Agent asserted not-answerable but didn't explain why.
+            if answerability == "not_answerable" and not reason:
+                not_answerable_missing_reason += 1
 
-        # Agent asserted not-answerable but didn't explain why.
-        if answerability == "not_answerable" and not reason:
-            not_answerable_missing_reason += 1
-
-        # Also check covered units — atoms where the actual stuck state may live.
-        # A covered unit is considered stalled when its parent is blocked/stalled
-        # and the unit itself is not yet earned or closed.
         for unit in list(getattr(item, "covered_units", None) or []):
             unit_status = str(getattr(unit, "status", "") or "").strip().lower()
             unit_determination = str(getattr(unit, "determination", "") or "").strip().lower()
             unit_is_done = unit_status == "closed" or unit_determination == "earned"
             if unit_is_done:
-                continue  # unit is resolved; skip answerability check
+                continue
 
+            unit_no_further = bool(getattr(unit, "no_further_progress", False))
+            unit_stalled = unit_no_further or parent_blocked_or_stalled
+            if not unit_stalled:
+                continue
+
+            effective_hitl = bool(getattr(unit, "requires_hitl", False)) or parent_requires_hitl
             unit_answerability = _as_optional_text(getattr(unit, "human_answerability", None))
             unit_reason = _as_optional_text(getattr(unit, "hitl_not_applicable_reason", None))
 
-            # Stalled unit in a blocked item with no HITL path and no answerability assessment.
-            if not is_requires_hitl and (unit_answerability is None or unit_answerability == "unknown"):
+            if not effective_hitl and (unit_answerability is None or unit_answerability == "unknown"):
                 blocked_without += 1
 
-            if unit_answerability == "likely_answerable" and not is_requires_hitl:
+            if unit_answerability == "likely_answerable" and not effective_hitl:
                 answerable_without_hitl += 1
 
             if unit_answerability == "not_answerable" and not unit_reason:
@@ -1540,6 +1554,7 @@ def _closure_readiness_projection(
     closed_dimensions_without_earned_determination_count: int,
     closed_dimensions_without_basis_count: int,
     items_requires_hitl_count: int = 0,
+    covered_units_requires_hitl_count: int = 0,
 ) -> dict[str, list[str]]:
     complete_run_blockers: list[str] = []
     publish_blockers: list[str] = []
@@ -1581,6 +1596,13 @@ def _closure_readiness_projection(
 
     if hard_enforced and items_requires_hitl_count > 0:
         blocker = f"items_require_hitl:{items_requires_hitl_count}"
+        if bool((closure_policy or {}).get("enforce_on_complete")):
+            complete_run_blockers.append(blocker)
+        if bool((closure_policy or {}).get("enforce_on_publish")):
+            publish_blockers.append(blocker)
+
+    if hard_enforced and covered_units_requires_hitl_count > 0:
+        blocker = f"covered_units_require_hitl:{covered_units_requires_hitl_count}"
         if bool((closure_policy or {}).get("enforce_on_complete")):
             complete_run_blockers.append(blocker)
         if bool((closure_policy or {}).get("enforce_on_publish")):

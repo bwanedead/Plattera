@@ -148,7 +148,7 @@ def test_choose_action_instruction_includes_tiny_examples() -> None:
     assert 'Minimal existing-row update:' in text
     assert 'Minimal new row:' in text
     assert 'Minimal covered-unit group:' in text
-    assert 'Minimal HITL:' in text
+    assert 'Minimal atom-local HITL:' in text
     assert 'Minimal complete:' in text
     assert '"actions":[{"alias":"load_ref","action_type":"hydrate_artifact_refs"' in text
     assert 'One action with next-turn hydration:' in text
@@ -159,7 +159,9 @@ def test_choose_action_instruction_includes_tiny_examples() -> None:
     assert '@this.result.derived_ref_id' in text
     assert '{"complete_run":true' in text
     assert "Use option A" in text
-    assert "Which source value should govern this item?" in text
+    assert "Which source value should govern this covered unit?" in text
+    assert '"wait_for_human":true' in text.replace(" ", "")
+    assert '"hitl_request"' in text
     assert "Range" not in text
     assert "parcel" not in text.lower()
 
@@ -179,6 +181,11 @@ def test_choose_action_instruction_teaches_covered_units_merge_and_group_rule() 
     assert "`covered_units` list" in text
     assert "do not mix both for the same sub-unit set" in lowered
     assert "do not hide critical sub-units only inside summary prose" in lowered
+    assert "requires_hitl?" in text
+    assert "no_further_progress?" in text
+    assert "need not be elevated to the parent item" in lowered
+    assert '"requires_hitl":true' in text.replace(" ", "")
+    assert "sibling units and the parent item stay unmarked" in lowered
 
 
 def test_choose_action_instruction_teaches_covered_unit_value_fields() -> None:

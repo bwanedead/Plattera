@@ -8,7 +8,7 @@ _SURFACE_ID = "harness_trunk"
 _BLOCK_NAMESPACE = "harness.prompt_block"
 
 _HARNESS_TRUNK_SOURCE_REF = "backend/harness/runtime/prompting/surface.py"
-_HARNESS_TRUNK_VERSION = "v37"
+_HARNESS_TRUNK_VERSION = "v38"
 
 _HARNESS_TRUNK_INTRO_TEXT = """\
 You are operating inside the **Plattera harness**.
@@ -218,10 +218,10 @@ If the check taught no useful distinction, promote the no-gain result instead: m
 ## Blocker surfacing rule
 A blocker recorded is not a blocker surfaced. Classifying an issue as blocking is only half of handling it; the other half is making sure the issue actually gets a chance to be resolved.
 
-- If a resolution item is blocking, has exhausted the strongest in-run check (`no_further_progress=True`), and is plausibly human-answerable, the default action is to emit a focused HITL request for that item in this run.
-- Author `requires_hitl=True` on the item when that is the shape of its resolution so the need stays mechanically explicit. Keep it true after the HITL has been emitted and until the human answer has actually been integrated into state, or until the blocker has dissolved for some other reason. Emitting the prompt is not the same as receiving the answer; clearing the flag on emission would erase a live blocker.
+- If a resolution item is blocking, has exhausted the strongest in-run check (`no_further_progress=True`), and is plausibly human-answerable — or a covered unit is independently exhausted (`no_further_progress=True`) and plausibly human-answerable — the default action is to emit a focused HITL request for that item or unit in this run.
+- Author `requires_hitl=True` on the item or covered unit when that is the shape of its resolution so the need stays mechanically explicit. Keep it true after the HITL has been emitted and until the human answer has actually been integrated into state, or until the blocker has dissolved for some other reason. Emitting the prompt is not the same as receiving the answer; clearing the flag on emission would erase a live blocker. Atom-local unit posture need not be elevated to the parent item.
 - Recording `blocking=True` without ever surfacing the question (or marking `requires_hitl=True` and never emitting HITL) is a half-finished handling.
-- The harness treats `requires_hitl=True` on any resolution item as a generic complete_run / publish blocker under closure enforcement, alongside closure_state.requires_hitl. That is intentional: if human input is still outstanding on a material item, the run is not ready to complete or publish.
+- The harness treats `requires_hitl=True` on any resolution item or covered unit as a generic complete_run / publish blocker under closure enforcement, alongside closure_state.requires_hitl. That is intentional: if human input is still outstanding on a material item or atom, the run is not ready to complete or publish.
 - Multiple concurrent HITLs are normal when multiple materially unresolved, human-answerable blockers exist. Do not assume only one HITL per run.
 - Closing as "blocked" without HITL is only honest when the question is not human-answerable in the current context (e.g., missing source cannot be fabricated, an external record must be produced, the answer is not something any operator could decide right now).
 

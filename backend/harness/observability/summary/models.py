@@ -163,6 +163,8 @@ class PromptObservabilitySummary(BaseModel):
     items_blocking_count: int = Field(default=0, ge=0)
     items_requires_hitl_count: int = Field(default=0, ge=0)
     items_no_further_progress_count: int = Field(default=0, ge=0)
+    covered_units_requires_hitl_count: int = Field(default=0, ge=0)
+    covered_units_no_further_progress_count: int = Field(default=0, ge=0)
     closed_items_count: int = Field(default=0, ge=0)
     closed_items_without_earned_determination_count: int = Field(default=0, ge=0)
     closed_items_without_basis_count: int = Field(default=0, ge=0)

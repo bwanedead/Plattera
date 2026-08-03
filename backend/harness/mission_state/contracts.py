@@ -131,11 +131,18 @@ class ResolutionCoveredUnit(BaseModel):
     value_kind: str | None = Field(default=None, max_length=64)
     candidate_values: list[str] = Field(default_factory=list, max_length=16)
     determined_value: str | None = Field(default=None, max_length=400)
-    # Optional agent-authored answerability classification for blocked/stalled units
-    # inside a blocking or no_further_progress parent item.  Mirrors the same fields
-    # on ResolutionItem so answerability pressure can be tracked at the atom level.
+    # Optional agent-authored answerability classification when the unit is locally
+    # exhausted (`no_further_progress`) or inherits stalled posture from a blocking /
+    # no_further_progress parent.  Mirrors the same fields on ResolutionItem so
+    # answerability pressure can be tracked at the atom level.
     human_answerability: HumanAnswerability | None = None
     hitl_not_applicable_reason: str | None = Field(default=None, max_length=400)
+    # Atom-local posture flags (independent of each other and of the parent item).
+    # requires_hitl: this exact covered unit still needs agent-authored human escalation.
+    # no_further_progress: further in-run work on this unit is not presently justified.
+    # Never synthesize parent-item flags from these; do not add blocking here.
+    requires_hitl: bool = False
+    no_further_progress: bool = False
     opaque_payload: dict[str, Any] = Field(default_factory=dict)
 
 

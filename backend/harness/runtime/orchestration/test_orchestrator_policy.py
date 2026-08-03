@@ -11,6 +11,7 @@ from harness.mission_state import (
     ClosureState,
     new_mission_state,
     new_resolution_state,
+    ResolutionCoveredUnit,
     ResolutionItem,
 )
 from harness.runtime.memory import LoopMemoryState
@@ -61,13 +62,33 @@ def _dim(dimension_id: str, status: str = "closed", *, requires_hitl: bool = Fal
     return ClosureDimension(dimension_id=dimension_id, title=dimension_id, status=status, requires_hitl=requires_hitl)
 
 
-def _item(item_id: str, *, requires_hitl: bool = False) -> ResolutionItem:
+def _item(
+    item_id: str,
+    *,
+    requires_hitl: bool = False,
+    covered_units: list[ResolutionCoveredUnit] | None = None,
+) -> ResolutionItem:
     return ResolutionItem(
         item_id=item_id,
         title=item_id,
         kind="work_unit",
         status="closed",
         requires_hitl=requires_hitl,
+        covered_units=list(covered_units or []),
+    )
+
+
+def _unit(
+    unit_id: str,
+    *,
+    requires_hitl: bool = False,
+    no_further_progress: bool = False,
+) -> ResolutionCoveredUnit:
+    return ResolutionCoveredUnit(
+        unit_id=unit_id,
+        title=unit_id,
+        requires_hitl=requires_hitl,
+        no_further_progress=no_further_progress,
     )
 
 
@@ -244,6 +265,157 @@ def test_closure_enforcement_allows_publish_when_resolution_items_do_not_require
         )
     }
     assert closure_enforcement_failure(run_ctx=ctx, loop_memory=mem, action_plan=plan) is None
+
+
+def test_closure_enforcement_blocks_publish_when_covered_unit_requires_hitl() -> None:
+    mem = _loop_memory_with_closure(
+        dimensions=[_dim("layer_a")],
+        ready_to_publish=True,
+        work_universe_posture="audited",
+        resolution_items=[_item("g1", covered_units=[_unit("u1", requires_hitl=True)])],
+    )
+    plan = ActionPlan(action_type="publish_workspace_artifact")
+    ctx = {
+        "domain_closure_policy": _hard_enforced_policy(
+            enforce_on_complete=False,
+            enforce_on_publish=True,
+        )
+    }
+    result = closure_enforcement_failure(run_ctx=ctx, loop_memory=mem, action_plan=plan)
+    assert result is not None
+    reason_code, message = result
+    assert reason_code == "closure_publish_items_require_hitl"
+    assert "g1/covered_units/u1" in message
+    assert "resolution items or covered units" in message
+
+
+def test_closure_enforcement_blocks_complete_when_covered_unit_requires_hitl() -> None:
+    mem = _loop_memory_with_closure(
+        dimensions=[_dim("layer_a")],
+        ready_to_close=True,
+        work_universe_posture="audited",
+        resolution_items=[_item("g1", covered_units=[_unit("u1", requires_hitl=True)])],
+    )
+    plan = ActionPlan(complete_run=True)
+    ctx = {"domain_closure_policy": _hard_enforced_policy()}
+    result = closure_enforcement_failure(run_ctx=ctx, loop_memory=mem, action_plan=plan)
+    assert result is not None
+    reason_code, message = result
+    assert reason_code == "closure_complete_items_require_hitl"
+    assert "g1/covered_units/u1" in message
+
+
+def test_closure_enforcement_unit_no_further_progress_alone_does_not_block() -> None:
+    mem = _loop_memory_with_closure(
+        dimensions=[_dim("layer_a")],
+        ready_to_publish=True,
+        ready_to_close=True,
+        work_universe_posture="audited",
+        resolution_items=[
+            _item("g1", covered_units=[_unit("u1", no_further_progress=True)])
+        ],
+    )
+    ctx = {"domain_closure_policy": _hard_enforced_policy()}
+    assert (
+        closure_enforcement_failure(
+            run_ctx=ctx,
+            loop_memory=mem,
+            action_plan=ActionPlan(action_type="publish_workspace_artifact"),
+        )
+        is None
+    )
+    assert (
+        closure_enforcement_failure(
+            run_ctx=ctx,
+            loop_memory=mem,
+            action_plan=ActionPlan(complete_run=True),
+        )
+        is None
+    )
+
+
+def test_closure_enforcement_clearing_unit_hitl_allows_publish() -> None:
+    mem = _loop_memory_with_closure(
+        dimensions=[_dim("layer_a")],
+        ready_to_publish=True,
+        work_universe_posture="audited",
+        resolution_items=[
+            _item("g1", covered_units=[_unit("u1", requires_hitl=True)])
+        ],
+    )
+    ctx = {
+        "domain_closure_policy": _hard_enforced_policy(
+            enforce_on_complete=False,
+            enforce_on_publish=True,
+        )
+    }
+    blocked = closure_enforcement_failure(
+        run_ctx=ctx,
+        loop_memory=mem,
+        action_plan=ActionPlan(action_type="publish_workspace_artifact"),
+    )
+    assert blocked is not None
+    assert blocked[0] == "closure_publish_items_require_hitl"
+
+    plan = ActionPlan(
+        action_type="publish_workspace_artifact",
+        state_patch={
+            "resolution": {
+                "items": [
+                    {
+                        "item_id": "g1",
+                        "covered_units": [{"unit_id": "u1", "requires_hitl": False}],
+                    }
+                ]
+            }
+        },
+    )
+    assert closure_enforcement_failure(run_ctx=ctx, loop_memory=mem, action_plan=plan) is None
+
+
+def test_closure_enforcement_blocks_preview_bypass_publish_when_unit_requires_hitl() -> None:
+    preview_ref = "artifact://preview-1"
+    mem = _loop_memory_with_closure(
+        dimensions=[_dim("layer_a")],
+        ready_to_publish=False,
+        work_universe_posture="partial",
+        resolution_items=[_item("g1", covered_units=[_unit("u1", requires_hitl=True)])],
+    )
+    mem.continuity.kernel_step_result_records = [
+        {
+            "action_type": "prepare_preview",
+            "execution_state": "executed",
+            "outputs_for_continuity": {
+                "final_package_preview_ref": preview_ref,
+                "publish_ready_candidate": True,
+            },
+        }
+    ]
+    plan = ActionPlan(
+        action_type="publish_workspace_artifact",
+        action_inputs={"final_package_preview_ref": preview_ref},
+    )
+    policy = _hard_enforced_policy(
+        enforce_on_complete=False,
+        enforce_on_publish=True,
+        required_dimension_ids=[],
+        completion_anchor={
+            "enabled": True,
+            "preview_ready_publish_bypass": True,
+            "preview_prepare_action_ids": ("prepare_preview",),
+            "preview_ready_field": "publish_ready_candidate",
+            "publish_action_ids": ("publish_workspace_artifact",),
+        },
+    )
+    result = closure_enforcement_failure(
+        run_ctx={"domain_closure_policy": policy},
+        loop_memory=mem,
+        action_plan=plan,
+    )
+    assert result is not None
+    reason_code, message = result
+    assert reason_code == "closure_publish_items_require_hitl"
+    assert "g1/covered_units/u1" in message
 
 
 def test_closure_enforcement_does_not_guess_publish_role_without_declared_action_ids() -> None:

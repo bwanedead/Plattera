@@ -127,6 +127,7 @@ def project_cold_covered_unit(payload: Mapping[str, Any], *, hot_refs: frozenset
     if payload.get("determined_value") in (None, "", [], {}):
         _copy_if_present(row, payload, "candidate_values")
     _copy_if_present(row, payload, "reopen_triggers")
+    _copy_true_unit_posture_flags(row, payload)
     _copy_cold_evidence(row, payload, hot_refs=hot_refs)
     return {key: value for key, value in row.items() if value not in (None, "", [], {})}
 
@@ -212,6 +213,7 @@ def _project_covered_unit(unit: Mapping[str, Any], *, policy: PromptWorkGraphPro
             "reopen_triggers",
         ):
             _copy_if_present(row, payload, key)
+        _copy_true_unit_posture_flags(row, payload)
         _copy_hot_evidence(row, payload, hot_refs=policy.hot_refs)
         for key in ("summary", "verification_basis", "next_needed_step", "opaque_payload"):
             _copy_if_present(row, payload, key)
@@ -265,7 +267,11 @@ def _needs_unit_detail(payload: Mapping[str, Any]) -> bool:
     status = str(payload.get("status") or "").strip().lower()
     if status in _OPEN_STATUSES:
         return True
-    return bool(payload.get("next_needed_step"))
+    return bool(
+        payload.get("next_needed_step")
+        or payload.get("requires_hitl")
+        or payload.get("no_further_progress")
+    )
 
 
 def _item_has_hot_evidence(payload: Mapping[str, Any], hot_refs: frozenset[str]) -> bool:
@@ -312,6 +318,14 @@ def _copy_if_present(row: dict[str, Any], payload: Mapping[str, Any], key: str) 
     value = payload.get(key)
     if value not in (None, "", [], {}):
         row[key] = value
+
+
+def _copy_true_unit_posture_flags(row: dict[str, Any], payload: Mapping[str, Any]) -> None:
+    """Project only agent-authored true atom-local posture flags."""
+    if payload.get("requires_hitl") is True:
+        row["requires_hitl"] = True
+    if payload.get("no_further_progress") is True:
+        row["no_further_progress"] = True
 
 
 def _compact_text(value: Any) -> str | None:

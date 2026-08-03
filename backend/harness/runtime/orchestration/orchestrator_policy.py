@@ -180,6 +180,29 @@ def _is_publish_action(
     )
 
 
+def _agent_authored_hitl_coordinates(resolution_state: Any) -> list[str]:
+    """Collect agent-authored HITL coordinates in first-seen order.
+
+    Includes resolution items with ``requires_hitl=True`` and their covered units
+    with ``requires_hitl=True``. Display forms are ``<item_id>`` and
+    ``<item_id>/covered_units/<unit_id>``; do not parse these downstream.
+    """
+    coords: list[str] = []
+    for row in getattr(resolution_state, "items", ()) or ():
+        item_id = str(getattr(row, "item_id", "") or "").strip()
+        if not item_id:
+            continue
+        if bool(getattr(row, "requires_hitl", False)):
+            coords.append(item_id)
+        for unit in getattr(row, "covered_units", ()) or ():
+            if not bool(getattr(unit, "requires_hitl", False)):
+                continue
+            unit_id = str(getattr(unit, "unit_id", "") or "").strip()
+            if unit_id:
+                coords.append(f"{item_id}/covered_units/{unit_id}")
+    return coords
+
+
 def _publish_real_blocker_failure(
     *,
     run_ctx: dict[str, Any],
@@ -214,18 +237,13 @@ def _publish_real_blocker_failure(
         loop_memory=loop_memory,
         action_plan=action_plan,
     )
-    items_requiring_hitl = [
-        str(getattr(row, "item_id", "") or "").strip()
-        for row in (getattr(resolution_state, "items", ()) or ())
-        if bool(getattr(row, "requires_hitl", False))
-    ]
-    items_requiring_hitl = [item_id for item_id in items_requiring_hitl if item_id]
-    if items_requiring_hitl:
+    hitl_coords = _agent_authored_hitl_coordinates(resolution_state)
+    if hitl_coords:
         return (
             "closure_publish_items_require_hitl",
             (
                 "closure enforcement requires HITL integration for one or more resolution items "
-                f"before publish: {items_requiring_hitl}"
+                f"or covered units before publish: {hitl_coords}"
             ),
         )
 
@@ -319,19 +337,14 @@ def closure_enforcement_failure(
         )
 
     resolution_state = effective_resolution_state(loop_memory=loop_memory, action_plan=action_plan)
-    items_requiring_hitl = [
-        str(getattr(row, "item_id", "") or "").strip()
-        for row in (getattr(resolution_state, "items", ()) or ())
-        if bool(getattr(row, "requires_hitl", False))
-    ]
-    items_requiring_hitl = [item_id for item_id in items_requiring_hitl if item_id]
-    if items_requiring_hitl:
+    hitl_coords = _agent_authored_hitl_coordinates(resolution_state)
+    if hitl_coords:
         target = "publish" if is_publish else "complete"
         return (
             f"closure_{target}_items_require_hitl",
             (
                 "closure enforcement requires HITL integration for one or more resolution items "
-                f"before {target}: {items_requiring_hitl}"
+                f"or covered units before {target}: {hitl_coords}"
             ),
         )
 
