@@ -28,6 +28,9 @@ def test_composed_registry_and_projection_preserve_custom_fields() -> None:
             {
                 "status": "completed",
                 "result": {
+                    "target_presence": "present",
+                    "packet_assessment": "fit",
+                    "target_anchor_text": "N. 4° 00' W.",
                     "task_response": "The visible bearing reads N. 4° 00' W.",
                     "source_visible_text": "N. 4° 00' W.",
                     "visual_basis": ["degree numeral stroke resembles a 4"],
@@ -63,4 +66,7 @@ def test_composed_registry_and_projection_preserve_custom_fields() -> None:
     assert projected["profile"] == "transcript_edit.visual_source_observation"
     assert projected["result"]["source_visible_text"] == "N. 4° 00' W."
     assert projected["result"]["visual_basis"] == ["degree numeral stroke resembles a 4"]
+    assert projected["result"]["target_presence"] == "present"
+    assert projected["result"]["packet_assessment"] == "fit"
+    assert projected["result"]["target_anchor_text"] == "N. 4° 00' W."
     assert "confidence" not in projected["result"]

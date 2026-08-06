@@ -35,8 +35,14 @@ def _sample_outputs(*, status: str = "completed", result: dict | None = None) ->
         "input_refs": ["image:derived:abc123"],
         "result": result
         or {
+            "target_presence": "present",
+            "packet_assessment": "fit",
+            "target_anchor_text": "thence North",
+            "task_response": "N. 4° 00' W.",
             "source_visible_text": "N. 4° 00' W., 1638 feet distant,",
-            "task_response": "Observed bearing line.",
+            "visual_basis": ["target bearing is visible after the word North"],
+            "ambiguity": "",
+            "limits": [],
         },
         "subtask_trace": {
             "model": "gpt-5.4",
@@ -235,6 +241,9 @@ def test_record_stores_bounded_fields_and_strips_binary() -> None:
     assert record["target_entity_id"] == "p1_bearing"
     assert record["context_refs"] == ["image:derived:abc123"]
     assert record["status"] == "completed"
+    assert record["result"]["target_presence"] == "present"
+    assert record["result"]["packet_assessment"] == "fit"
+    assert record["result"]["target_anchor_text"] == "thence North"
     assert "source_visible_text" in record["result"]
     trace = record.get("subtask_trace") or {}
     assert trace.get("model") == "gpt-5.4"
@@ -268,6 +277,9 @@ def test_hydrate_delegate_ref_returns_payload_without_rerun() -> None:
     payload = results[0]
     assert payload["kind"] == "delegate_subtask_result"
     assert payload["result"]["source_visible_text"].startswith("N. 4")
+    assert payload["result"]["target_presence"] == "present"
+    assert payload["result"]["packet_assessment"] == "fit"
+    assert payload["result"]["target_anchor_text"] == "thence North"
 
 
 def test_hydrate_unknown_delegate_ref_fails_softly() -> None:
@@ -417,3 +429,177 @@ def test_batch_row_includes_delegate_result_ref() -> None:
         delegate_result_ref="subtask:turn8:read_bearing",
     )
     assert row["delegate_result_ref"] == "subtask:turn8:read_bearing"
+
+
+def test_case_g_packet_outcome_survives_normalize_project_record_hydrate_resume_timeline() -> None:
+    """Case G — production-shaped continuity for structured packet outcome fields."""
+    from domains.mapping.transcript_edit.execution.subtask_profiles import (
+        build_transcript_edit_subtask_profiles,
+    )
+    from harness.audit.human_timeline import render_timeline
+    from harness.runtime.orchestration.subtasks.contracts import DelegateSubtaskRequest
+    from harness.runtime.orchestration.subtasks.projection import project_subtask_output
+    from harness.runtime.orchestration.subtasks.registry import profile_from_mapping
+    from harness.runtime.orchestration.subtasks.runner import normalize_child_output
+
+    profile = profile_from_mapping(build_transcript_edit_subtask_profiles()[0])
+    observation = {
+        "target_presence": "present",
+        "packet_assessment": "fit",
+        "target_anchor_text": "thence North",
+        "task_response": "N. 4° 00' W.",
+        "source_visible_text": "thence North 4° 00' West",
+        "visual_basis": ["target bearing is visible after the word North"],
+        "ambiguity": "",
+        "limits": [],
+    }
+    normalized = normalize_child_output(
+        json.dumps({"status": "completed", "result": observation}),
+        subtask_id="read_parcel1_bearing",
+        request=DelegateSubtaskRequest(
+            profile=profile.profile_id,
+            task="Read the exact visible bearing",
+            context_refs=("image:derived:abc123",),
+            target_entity_id="p1_bearing",
+        ),
+        profile=profile,
+    )
+    assert normalized["status"] == "completed"
+    assert normalized["result"]["target_presence"] == "present"
+    assert normalized["result"]["packet_assessment"] == "fit"
+    assert normalized["result"]["target_anchor_text"] == "thence North"
+
+    projected = project_subtask_output(normalized)
+    assert projected is not None
+    assert projected["result"]["target_presence"] == "present"
+    assert projected["result"]["packet_assessment"] == "fit"
+    assert projected["result"]["target_anchor_text"] == "thence North"
+
+    outputs = {
+        **_sample_outputs(result=dict(projected["result"])),
+        "status": projected["status"],
+        "result": dict(projected["result"]),
+        "subtask_trace": {
+            **(_sample_outputs().get("subtask_trace") or {}),
+            "b64": "MUST_NOT_LEAK",
+            "raw_prompt_text": "MUST_NOT_LEAK",
+            "image_refs": [
+                {
+                    "ref_id": "image:derived:abc123",
+                    "b64": "MUST_NOT_LEAK",
+                    "mime_type": "image/png",
+                }
+            ],
+        },
+    }
+    record = build_delegate_result_record(
+        ref_id="subtask:turn8:read_parcel1_bearing",
+        turn_index=8,
+        alias="read_parcel1_bearing",
+        action_index=1,
+        action_inputs={
+            "profile": profile.profile_id,
+            "task": "Read the exact visible bearing",
+            "target_entity_id": "p1_bearing",
+            "context_refs": ["image:derived:abc123"],
+        },
+        outputs=outputs,
+    )
+    assert record["result"]["target_presence"] == "present"
+    assert record["result"]["packet_assessment"] == "fit"
+    assert record["result"]["target_anchor_text"] == "thence North"
+    assert "MUST_NOT_LEAK" not in json.dumps(record)
+    assert "b64" not in json.dumps(record.get("subtask_trace") or {}).lower()
+
+    hydrated, errors = hydrate_delegate_result_refs(
+        [record],
+        ["subtask:turn8:read_parcel1_bearing"],
+    )
+    assert not errors
+    assert hydrated[0]["result"]["target_presence"] == "present"
+    assert hydrated[0]["result"]["packet_assessment"] == "fit"
+    assert hydrated[0]["result"]["target_anchor_text"] == "thence North"
+
+    loop_memory = LoopMemoryState()
+    register_delegate_result_record(loop_memory.continuity, record)
+    from harness.execution.contracts import ExecutionSessionStartRequest
+
+    executor = ExecutionExecutor()
+    session_manager = ExecutionSessionManager(executor=executor)
+    session_manager.start_session(
+        ExecutionSessionStartRequest(run_id="run-case-g", session_id="sess-case-g")
+    )
+    snapshot = build_kernel_resume_snapshot(
+        loop_memory=loop_memory,
+        session_manager=session_manager,
+        session_id="sess-case-g",
+        next_iteration=9,
+    )
+    restored, start, err = parse_kernel_resume_snapshot(snapshot)
+    assert err is None
+    assert start == 9
+    resume_results, resume_errors = hydrate_delegate_result_refs(
+        restored.continuity.delegate_subtask_results,
+        ["subtask:turn8:read_parcel1_bearing"],
+    )
+    assert not resume_errors
+    assert resume_results[0]["result"]["target_presence"] == "present"
+    assert resume_results[0]["result"]["packet_assessment"] == "fit"
+    assert resume_results[0]["result"]["target_anchor_text"] == "thence North"
+
+    body = render_timeline(
+        [
+            {
+                "turn_index": 8,
+                "parse_ok": True,
+                "tool_request": {
+                    "actions": [
+                        {
+                            "alias": "read_parcel1_bearing",
+                            "action_type": DELEGATE_SUBTASK_ACTION_TYPE,
+                            "action_inputs": {
+                                "profile": profile.profile_id,
+                                "task": "Read the exact visible bearing",
+                                "context_refs": ["image:derived:abc123"],
+                            },
+                        }
+                    ],
+                    "rationale": "case g continuity",
+                },
+                "recent_action_sequence_result": {
+                    "sequence_id": "seq-8",
+                    "source_turn_index": 8,
+                    "items": [
+                        {
+                            "alias": "read_parcel1_bearing",
+                            "action_type": DELEGATE_SUBTASK_ACTION_TYPE,
+                            "execution_state": "executed",
+                            "delegate_result_ref": "subtask:turn8:read_parcel1_bearing",
+                            "delegate_subtask": {
+                                "subtask_id": "read_parcel1_bearing",
+                                "profile": profile.profile_id,
+                                "status": "completed",
+                                "input_refs": ["image:derived:abc123"],
+                                "result": dict(projected["result"]),
+                                "subtask_trace": {
+                                    "model": "gpt-5.4",
+                                    "prompt_char_count": 4000,
+                                    "image_attachment_count": 1,
+                                    "total_seconds": 1.0,
+                                    "retry_count": 0,
+                                },
+                            },
+                        }
+                    ],
+                },
+            }
+        ]
+    )
+    assert "target_presence:" in body
+    assert "`present`" in body or "present" in body
+    assert "packet_assessment:" in body
+    assert "fit" in body
+    assert "target_anchor_text:" in body
+    assert "thence North" in body
+    assert "MUST_NOT_LEAK" not in body
+    assert "b64" not in body.lower()

@@ -71,14 +71,28 @@ def test_surface_payload_includes_visual_source_observation_subtask_profile() ->
     )
     assert profile["owner"] == "transcript_edit"
     assert set(profile["allowed_ref_kinds"]) == {"image", "artifact", "dossier_segment"}
-    result_fields = set(profile["result_schema"]["result"].keys())
-    assert result_fields == {
+    result_fields = list(profile["result_schema"]["result"].keys())
+    assert result_fields == [
+        "target_presence",
+        "packet_assessment",
+        "target_anchor_text",
         "task_response",
         "source_visible_text",
         "visual_basis",
         "ambiguity",
         "limits",
-    }
+    ]
+    assert profile["result_schema"]["result"]["target_presence"] == [
+        "present",
+        "absent",
+        "unclear",
+    ]
+    assert profile["result_schema"]["result"]["packet_assessment"] == [
+        "fit",
+        "off_target",
+        "insufficient_context",
+        "unreadable",
+    ]
     preamble = profile["prompt_preamble"].lower()
     assert "task_response" in preamble
     assert "source_visible_text" in preamble
@@ -111,13 +125,16 @@ def test_visual_source_observation_profile_registers_through_composed_registry()
     )
     profile = registry.require(TRANSCRIPT_EDIT_VISUAL_SOURCE_OBSERVATION_PROFILE_ID)
     assert set(profile.allowed_ref_kinds) == {"image", "artifact", "dossier_segment"}
-    assert set(profile.result_schema["result"].keys()) == {
+    assert list(profile.result_schema["result"].keys()) == [
+        "target_presence",
+        "packet_assessment",
+        "target_anchor_text",
         "task_response",
         "source_visible_text",
         "visual_basis",
         "ambiguity",
         "limits",
-    }
+    ]
 
 
 def test_visual_source_observation_profile_registers_from_nested_runtime_surface_payload() -> None:
@@ -158,6 +175,9 @@ def test_visual_source_observation_profile_normalizes_and_projects_end_to_end() 
             {
                 "status": "completed",
                 "result": {
+                    "target_presence": "present",
+                    "packet_assessment": "fit",
+                    "target_anchor_text": "mark A",
                     "task_response": "mark reads as A",
                     "source_visible_text": "A",
                     "visual_basis": ["tight stroke at center"],
@@ -180,6 +200,146 @@ def test_visual_source_observation_profile_normalizes_and_projects_end_to_end() 
     assert projected["result"]["task_response"] == "mark reads as A"
     assert projected["result"]["source_visible_text"] == "A"
     assert projected["result"]["visual_basis"] == ["tight stroke at center"]
+    assert projected["result"]["target_presence"] == "present"
+    assert projected["result"]["packet_assessment"] == "fit"
+    assert projected["result"]["target_anchor_text"] == "mark A"
+
+
+def test_visual_source_observation_case_b_off_target_preserves_visible_text() -> None:
+    import json
+
+    from harness.runtime.orchestration.subtasks.contracts import DelegateSubtaskRequest
+    from harness.runtime.orchestration.subtasks.projection import project_subtask_output
+    from harness.runtime.orchestration.subtasks.registry import build_composed_subtask_registry
+    from harness.runtime.orchestration.subtasks.runner import normalize_child_output
+
+    payload = build_transcript_edit_domain_pack().build_surface_payload()
+    registry = build_composed_subtask_registry(
+        surface_payloads={"transcript_edit": payload},
+    )
+    profile = registry.require(TRANSCRIPT_EDIT_VISUAL_SOURCE_OBSERVATION_PROFILE_ID)
+    normalized = normalize_child_output(
+        json.dumps(
+            {
+                "status": "completed",
+                "result": {
+                    "target_presence": "absent",
+                    "packet_assessment": "off_target",
+                    "target_anchor_text": "iron pin",
+                    "task_response": None,
+                    "source_visible_text": "to an iron pin",
+                    "visual_basis": ["packet contains a monument phrase, not the requested bearing"],
+                    "ambiguity": "",
+                    "limits": ["requested bearing is not visible in this packet"],
+                },
+            }
+        ),
+        subtask_id="visual_off_target",
+        request=DelegateSubtaskRequest(
+            profile=profile.profile_id,
+            task="Read the requested bearing in the supplied crop.",
+            context_refs=("image:derived:sample:crop_002",),
+        ),
+        profile=profile,
+    )
+    projected = project_subtask_output(normalized)
+    assert projected is not None
+    assert projected["status"] == "completed"
+    assert projected["result"]["target_presence"] == "absent"
+    assert projected["result"]["packet_assessment"] == "off_target"
+    assert projected["result"]["task_response"] is None
+    assert projected["result"]["source_visible_text"] == "to an iron pin"
+
+
+def test_visual_source_observation_case_c_insufficient_context() -> None:
+    import json
+
+    from harness.runtime.orchestration.subtasks.contracts import DelegateSubtaskRequest
+    from harness.runtime.orchestration.subtasks.projection import project_subtask_output
+    from harness.runtime.orchestration.subtasks.registry import build_composed_subtask_registry
+    from harness.runtime.orchestration.subtasks.runner import normalize_child_output
+
+    payload = build_transcript_edit_domain_pack().build_surface_payload()
+    registry = build_composed_subtask_registry(
+        surface_payloads={"transcript_edit": payload},
+    )
+    profile = registry.require(TRANSCRIPT_EDIT_VISUAL_SOURCE_OBSERVATION_PROFILE_ID)
+    normalized = normalize_child_output(
+        json.dumps(
+            {
+                "status": "completed",
+                "result": {
+                    "target_presence": "unclear",
+                    "packet_assessment": "insufficient_context",
+                    "target_anchor_text": None,
+                    "task_response": None,
+                    "source_visible_text": "N. 4",
+                    "visual_basis": ["numeral fragment near crop edge"],
+                    "ambiguity": "degree and direction truncated",
+                    "limits": ["crop too tight to establish the full bearing"],
+                },
+            }
+        ),
+        subtask_id="visual_tight",
+        request=DelegateSubtaskRequest(
+            profile=profile.profile_id,
+            task="Read the requested bearing in the supplied crop.",
+            context_refs=("image:derived:sample:crop_003",),
+        ),
+        profile=profile,
+    )
+    projected = project_subtask_output(normalized)
+    assert projected is not None
+    assert projected["result"]["target_presence"] == "unclear"
+    assert projected["result"]["packet_assessment"] == "insufficient_context"
+    assert projected["result"]["task_response"] is None
+    assert projected["result"]["source_visible_text"] == "N. 4"
+    assert "crop too tight" in projected["result"]["limits"][0]
+
+
+def test_visual_source_observation_case_d_unreadable_completed_is_not_a_proven_value() -> None:
+    import json
+
+    from harness.runtime.orchestration.subtasks.contracts import DelegateSubtaskRequest
+    from harness.runtime.orchestration.subtasks.projection import project_subtask_output
+    from harness.runtime.orchestration.subtasks.registry import build_composed_subtask_registry
+    from harness.runtime.orchestration.subtasks.runner import normalize_child_output
+
+    payload = build_transcript_edit_domain_pack().build_surface_payload()
+    registry = build_composed_subtask_registry(
+        surface_payloads={"transcript_edit": payload},
+    )
+    profile = registry.require(TRANSCRIPT_EDIT_VISUAL_SOURCE_OBSERVATION_PROFILE_ID)
+    normalized = normalize_child_output(
+        json.dumps(
+            {
+                "status": "completed",
+                "result": {
+                    "target_presence": "unclear",
+                    "packet_assessment": "unreadable",
+                    "target_anchor_text": None,
+                    "task_response": None,
+                    "source_visible_text": None,
+                    "visual_basis": ["ink washout across the crop"],
+                    "ambiguity": "",
+                    "limits": ["relevant source content cannot be read from this packet"],
+                },
+            }
+        ),
+        subtask_id="visual_unreadable",
+        request=DelegateSubtaskRequest(
+            profile=profile.profile_id,
+            task="Read the requested bearing in the supplied crop.",
+            context_refs=("image:derived:sample:crop_004",),
+        ),
+        profile=profile,
+    )
+    projected = project_subtask_output(normalized)
+    assert projected is not None
+    assert projected["status"] == "completed"
+    assert projected["result"]["packet_assessment"] == "unreadable"
+    assert projected["result"]["task_response"] is None
+    assert projected["result"]["target_presence"] == "unclear"
 
 
 def test_procedural_guidance_teaches_delegate_subtask_lightly() -> None:

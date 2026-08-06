@@ -250,6 +250,9 @@ def test_qualified_derived_hydrates_and_delegate_preserves_ref(tmp_path, monkeyp
             {
                 "status": "completed",
                 "result": {
+                    "target_presence": "present",
+                    "packet_assessment": "fit",
+                    "target_anchor_text": "A",
                     "task_response": "mark reads A",
                     "source_visible_text": "A",
                     "visual_basis": ["center stroke"],

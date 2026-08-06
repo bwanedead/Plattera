@@ -419,6 +419,9 @@ def test_transcript_edit_visual_batch_executes_with_one_truncated_sibling() -> N
                 {
                     "status": "completed",
                     "result": {
+                        "target_presence": "present",
+                        "packet_assessment": "fit",
+                        "target_anchor_text": "N. 4° 00' W.",
                         "task_response": "Verbose read. " + ("detail. " * 120),
                         "source_visible_text": "N. 4° 00' W.",
                         "visual_basis": ["numeral resembles 4"],
@@ -431,6 +434,9 @@ def test_transcript_edit_visual_batch_executes_with_one_truncated_sibling() -> N
             {
                 "status": "completed",
                 "result": {
+                    "target_presence": "present",
+                    "packet_assessment": "fit",
+                    "target_anchor_text": "N. 2° 00' W.",
                     "task_response": "Crop A reads N. 2° 00' W.",
                     "source_visible_text": "N. 2° 00' W.",
                     "visual_basis": ["numeral resembles 2"],

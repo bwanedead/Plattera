@@ -11,6 +11,14 @@ TRANSCRIPT_EDIT_VISUAL_SOURCE_OBSERVATION_PROFILE_ID = (
 _VISUAL_SOURCE_OBSERVATION_RESULT_SCHEMA = {
     "status": ["completed", "ambiguous", "insufficient_input", "failed"],
     "result": {
+        "target_presence": ["present", "absent", "unclear"],
+        "packet_assessment": [
+            "fit",
+            "off_target",
+            "insufficient_context",
+            "unreadable",
+        ],
+        "target_anchor_text": "string|null",
         "task_response": "string|null",
         "source_visible_text": "string|null",
         "visual_basis": ["string"],

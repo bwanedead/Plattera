@@ -108,7 +108,11 @@ def normalize_result_payload(
         )
     sanitized_raw = _strip_forbidden_keys(dict(raw))
     normalized = _normalize_object(sanitized_raw, result_spec, path="result")
-    return _cap_result_size(normalized, max_chars=profile.max_result_chars)
+    return _cap_result_size(
+        normalized,
+        max_chars=profile.max_result_chars,
+        result_spec=result_spec,
+    )
 
 
 def empty_result_for_profile(
@@ -127,7 +131,7 @@ def empty_result_for_profile(
             "observations": [],
             "limits": [_bound_text(message or "Subtask failed.", _MAX_FIELD_CHARS)],
         }
-    out = _empty_object(result_spec)
+    out = _failed_empty_object(result_spec)
     if message and "limits" in out and isinstance(out["limits"], list):
         out["limits"] = [_bound_text(message, _MAX_FIELD_CHARS)]
     return out
@@ -145,7 +149,7 @@ def project_result_payload(
     if not isinstance(result_spec, Mapping):
         return _project_fallback(result)
     projected = _project_object(result, result_spec)
-    capped, _ = _cap_result_size(projected, max_chars=max_chars)
+    capped, _ = _cap_result_size(projected, max_chars=max_chars, result_spec=result_spec)
     return capped
 
 
@@ -219,7 +223,9 @@ def _normalize_value(value: Any, spec: Any, *, path: str) -> Any:
                 f"Expected enum value at {path}.",
             )
         if isinstance(spec, Mapping):
-            return _empty_object(spec)
+            # Successful normalization must still require nested enums; do not use
+            # framework-failure defaults (which omit enums) on this path.
+            return _normalize_object({}, spec, path=path)
     if _is_primitive_spec(spec):
         return _normalize_primitive(value, spec, path=path)
     if _is_list_spec(spec):
@@ -229,7 +235,7 @@ def _normalize_value(value: Any, spec: Any, *, path: str) -> Any:
     if isinstance(spec, Mapping):
         if not isinstance(value, Mapping):
             if value is None:
-                return _empty_object(spec)
+                return _normalize_object({}, spec, path=path)
             raise SubtaskResultSchemaError(
                 "subtask_result_field_invalid",
                 f"Expected object at {path}.",
@@ -291,15 +297,22 @@ def _normalize_enum(value: Any, spec: list[Any], *, path: str) -> str:
     return text
 
 
-def _empty_object(spec: Mapping[str, Any]) -> dict[str, Any]:
+def _failed_empty_object(spec: Mapping[str, Any]) -> dict[str, Any]:
+    """Build empty defaults for framework-generated failed results only.
+
+    Enum-valued fields are omitted recursively rather than inventing a first-member
+    observation. Successful child-result normalization must not call this helper.
+    """
     out: dict[str, Any] = {}
     for field_name, field_spec in spec.items():
         name = str(field_name)
-        out[name] = _empty_value(field_spec)
+        if _is_enum_spec(field_spec):
+            continue
+        out[name] = _failed_empty_value(field_spec)
     return out
 
 
-def _empty_value(spec: Any) -> Any:
+def _failed_empty_value(spec: Any) -> Any:
     if spec == "string|null":
         return None
     if spec == "string":
@@ -307,9 +320,11 @@ def _empty_value(spec: Any) -> Any:
     if _is_list_spec(spec):
         return []
     if _is_enum_spec(spec):
-        return str(spec[0])
+        # Framework-generated failures must not invent enum observations.
+        # Callers should omit enum fields via ``_failed_empty_object``.
+        raise AssertionError("enum defaults must be omitted, not invented")
     if isinstance(spec, Mapping):
-        return _empty_object(spec)
+        return _failed_empty_object(spec)
     return ""
 
 
@@ -351,16 +366,22 @@ def _cap_result_size(
     result: dict[str, Any],
     *,
     max_chars: int,
+    result_spec: Mapping[str, Any] | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any] | None]:
     original_chars = _json_len(result)
     if original_chars <= int(max_chars):
         return result, None
 
-    shrunk = _shrink_result(result)
+    protected_keys = _enum_field_names(result_spec) if isinstance(result_spec, Mapping) else frozenset()
+    shrunk = _shrink_result(result, protected_keys=protected_keys)
     if _json_len(shrunk) <= int(max_chars):
         return shrunk, _truncation_meta(result, shrunk, original_chars=original_chars)
 
-    aggressive = _aggressive_cap_result(shrunk, max_chars=int(max_chars))
+    aggressive = _aggressive_cap_result(
+        shrunk,
+        max_chars=int(max_chars),
+        protected_keys=protected_keys,
+    )
     return aggressive, _truncation_meta(result, aggressive, original_chars=original_chars)
 
 
@@ -383,6 +404,12 @@ def _diff_truncated_fields(before: Mapping[str, Any], after: Mapping[str, Any], 
     keys = sorted(set(before.keys()) | set(after.keys()))
     for key in keys:
         path = f"{prefix}.{key}" if prefix else str(key)
+        if key not in after:
+            if key in before:
+                fields.append(path)
+            continue
+        if key not in before:
+            continue
         before_value = before.get(key)
         after_value = after.get(key)
         if isinstance(before_value, str) and isinstance(after_value, str):
@@ -405,14 +432,21 @@ def _diff_truncated_fields(before: Mapping[str, Any], after: Mapping[str, Any], 
     return fields
 
 
-def _aggressive_cap_result(result: dict[str, Any], *, max_chars: int) -> dict[str, Any]:
-    capped = _shrink_result(result)
+def _aggressive_cap_result(
+    result: dict[str, Any],
+    *,
+    max_chars: int,
+    protected_keys: frozenset[str] = frozenset(),
+) -> dict[str, Any]:
+    capped = _shrink_result(result, protected_keys=protected_keys)
     guard = 0
     while _json_len(capped) > int(max_chars) and guard < 48:
         guard += 1
         longest_key = None
         longest_len = -1
         for key, value in capped.items():
+            if key in protected_keys:
+                continue
             if isinstance(value, str) and len(value) > longest_len:
                 longest_key = key
                 longest_len = len(value)
@@ -434,22 +468,54 @@ def _aggressive_cap_result(result: dict[str, Any], *, max_chars: int) -> dict[st
             text = str(capped[longest_key])
             capped[longest_key] = text[: max(8, len(text) // 2)]
     if _json_len(capped) > int(max_chars):
-        capped = _minimal_cap_result(capped, max_chars=int(max_chars))
+        capped = _minimal_cap_result(
+            capped,
+            max_chars=int(max_chars),
+            protected_keys=protected_keys,
+        )
+    # Absolute serialized cap: never return an over-budget object.
+    if _json_len(capped) > int(max_chars):
+        capped = {}
     return capped
 
 
-def _minimal_cap_result(result: dict[str, Any], *, max_chars: int) -> dict[str, Any]:
+def _minimal_cap_result(
+    result: dict[str, Any],
+    *,
+    max_chars: int,
+    protected_keys: frozenset[str] = frozenset(),
+) -> dict[str, Any]:
+    """Build a budget-fitting result without substring-truncating protected enums.
+
+    Protected enum values are kept whole when they fit, omitted whole when they do
+    not, and never substring-truncated. The returned object always respects
+    ``max_chars``.
+    """
     minimal: dict[str, Any] = {}
+    # Prefer schema/result order so earlier packet-outcome enums survive first.
+    for key in result:
+        if key not in protected_keys:
+            continue
+        candidate = {**minimal, key: result[key]}
+        if _json_len(candidate) <= int(max_chars):
+            minimal[key] = result[key]
+        # else: omit the whole protected field; never substring-truncate it.
     for key, value in result.items():
+        if key in protected_keys:
+            continue
         if _json_len({**minimal, key: value}) > int(max_chars):
             if isinstance(value, str):
                 remaining = int(max_chars) - _json_len(minimal) - len(str(key)) - 6
                 if remaining > 8:
-                    minimal[key] = value[:remaining]
+                    partial = {**minimal, key: value[:remaining]}
+                    if _json_len(partial) <= int(max_chars):
+                        minimal[key] = value[:remaining]
             elif isinstance(value, list) and value:
                 remaining = int(max_chars) - _json_len(minimal) - len(str(key)) - 8
                 if remaining > 8 and isinstance(value[0], str):
-                    minimal[key] = [value[0][:remaining]]
+                    partial = {**minimal, key: [value[0][:remaining]]}
+                    if _json_len(partial) <= int(max_chars):
+                        minimal[key] = [value[0][:remaining]]
             continue
         minimal[key] = value
         if _json_len(minimal) >= int(max_chars):
@@ -469,9 +535,16 @@ def _json_len(value: Mapping[str, Any]) -> int:
     return len(json.dumps(value, separators=(",", ":"), default=str))
 
 
-def _shrink_result(result: dict[str, Any]) -> dict[str, Any]:
+def _shrink_result(
+    result: dict[str, Any],
+    *,
+    protected_keys: frozenset[str] = frozenset(),
+) -> dict[str, Any]:
     capped: dict[str, Any] = {}
     for key, value in result.items():
+        if key in protected_keys:
+            capped[key] = value
+            continue
         if isinstance(value, str):
             capped[key] = value[:120]
         elif isinstance(value, list):
@@ -487,6 +560,17 @@ def _shrink_result(result: dict[str, Any]) -> dict[str, Any]:
         else:
             capped[key] = value
     return capped
+
+
+def _enum_field_names(spec: Mapping[str, Any] | None) -> frozenset[str]:
+    """Top-level enum field names that must not be substring-truncated under budget pressure."""
+    if not isinstance(spec, Mapping):
+        return frozenset()
+    return frozenset(
+        str(field_name)
+        for field_name, field_spec in spec.items()
+        if _is_enum_spec(field_spec)
+    )
 
 
 def _is_primitive_spec(spec: Any) -> bool:
