@@ -62,8 +62,10 @@ from harness.runtime.model_failure_classifier import (
     MODEL_RESUMABLE_REASON_CODES,
     resume_hint_for_reason_code,
 )
-from harness.runtime.llm.instrumented_caller import instrument_openai_model_caller
-from services.llm.openai import OpenAIService
+from harness.runtime.llm.provider_model_caller import (
+    build_provider_model_caller,
+    ensure_model_provider_ready,
+)
 from .contracts import RuntimeAdapter, RuntimeArtifactTargets, RuntimeRunResult
 
 _LOG = logging.getLogger(__name__)
@@ -344,6 +346,12 @@ class RuntimeRunner:
         composed: ComposedTurnInput,
         upstream_run_lineage: dict[str, Any] | None = None,
     ) -> Any:
+        # Validate resume inputs before constructing the default model caller so
+        # mechanical launch conflicts remain distinct from provider readiness.
+        resume_doc, resume_err = _load_resume_document(context)
+        if resume_err:
+            raise RuntimeRunnerError(resume_err)
+
         model_name = _select_model_name(context)
         model_caller = self._model_caller or _build_default_model_caller(model_name=model_name)
         composed = _with_delegate_subtask_tool(
@@ -356,9 +364,6 @@ class RuntimeRunner:
         for tool_id, handler in composed.tool_handlers.items():
             executor.register(tool_id, handler)
 
-        resume_doc, resume_err = _load_resume_document(context)
-        if resume_err:
-            raise RuntimeRunnerError(resume_err)
         initial_loop_memory = None
         resume_start_iteration = 1
         if resume_doc is not None:
@@ -712,12 +717,8 @@ def _build_operator_interruption_result(
 
 
 def _build_default_model_caller(*, model_name: str) -> Callable[..., Mapping[str, Any] | str]:
-    service = OpenAIService()
-
-    def _call(prompt: str, model: str, **kwargs: Any) -> Mapping[str, Any] | str:
-        return service.call_text(prompt, model or model_name, **kwargs)
-
-    return instrument_openai_model_caller(_call)
+    ensure_model_provider_ready(model_name)
+    return build_provider_model_caller(default_model_name=model_name)
 
 
 def _select_model_name(context: Mapping[str, Any]) -> str:

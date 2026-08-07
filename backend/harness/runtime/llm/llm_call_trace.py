@@ -1,4 +1,4 @@
-"""Generic harness-owned OpenAI LLM call trace builder and extraction helpers."""
+"""Generic harness-owned LLM call trace builder and extraction helpers."""
 
 from __future__ import annotations
 
@@ -188,7 +188,7 @@ def extract_service_tier_requested(
 
 def build_llm_call_trace(
     *,
-    provider: str = "openai",
+    provider: str = "unknown",
     call_role: str,
     call_name: str,
     model: str | None,
@@ -221,7 +221,7 @@ def build_llm_call_trace(
         role = "unknown"
     wall = max(0.0, float(finished_at_epoch_seconds) - float(started_at_epoch_seconds))
     trace: dict[str, Any] = {
-        "provider": str(provider or "openai"),
+        "provider": str(provider or "unknown"),
         "call_role": role,
         "call_name": _bound_text(call_name, 120) or "unknown",
         "model": _bound_text(model, 120) or None,

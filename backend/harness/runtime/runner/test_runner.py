@@ -392,37 +392,235 @@ def test_audit_writer_finalize_called_on_resumable_model_interruption(tmp_path: 
 
 def test_default_model_caller_passes_through_call_options(monkeypatch) -> None:
     """The runner default caller is a plain pass-through; output policy is set by the call site."""
+    from services.llm.base import LLMService
     from services.llm.call_options import LlmCallOptions
+    from services.registry import ServiceRegistry, reset_registry_for_tests
 
+    reset_registry_for_tests()
     calls: list[tuple[str, str, dict[str, object]]] = []
 
-    class FakeOpenAIService:
+    class FakeOpenAIService(LLMService):
+        name = "openai"
+        models = {"gpt-5.4-mini": {"context_window_tokens": 400_000}}
+
+        def is_available(self) -> bool:
+            return True
+
         def call_text(self, prompt: str, model: str, **kwargs):
             calls.append((prompt, model, dict(kwargs)))
             return {"success": True, "text": '{"action_type": null}'}
 
-    monkeypatch.setattr(runner_module, "OpenAIService", FakeOpenAIService)
+        def call_vision(self, prompt: str, image_data: str, model: str, **kwargs):
+            return self.call_text(prompt, model, **kwargs)
 
-    model_caller = runner_module._build_default_model_caller(model_name="gpt-5.4-mini")
-    opts = LlmCallOptions(output_mode="json_object", phase="choose_action")
+    reg = ServiceRegistry(discover=False)
+    reg.accept_llm_service(FakeOpenAIService())
+    monkeypatch.setattr("services.registry._registry", reg)
+    monkeypatch.setattr(
+        "harness.runtime.llm.provider_model_caller.get_registry",
+        lambda: reg,
+    )
 
-    result = model_caller("prompt text", "", call_options=opts)
+    try:
+        model_caller = runner_module._build_default_model_caller(model_name="gpt-5.4-mini")
+        opts = LlmCallOptions(output_mode="json_object", phase="choose_action")
 
-    assert isinstance(result, dict)
-    assert result.get("success") is True
-    assert result.get("text") == '{"action_type": null}'
-    trace = result.get("llm_call_trace")
-    assert isinstance(trace, dict)
-    assert trace.get("call_role") == "parent"
-    assert trace.get("call_name") == "choose_action"
-    assert trace.get("prompt_char_count") == len("prompt text")
-    assert len(calls) == 1
-    prompt_sent, model_sent, kwargs_sent = calls[0]
-    assert prompt_sent == "prompt text"
-    assert model_sent == "gpt-5.4-mini"
-    # call_options is passed through; no json_mode kwarg injected by the runner
-    assert "json_mode" not in kwargs_sent
-    assert kwargs_sent.get("call_options") is opts
+        result = model_caller("prompt text", "", call_options=opts)
+
+        assert isinstance(result, dict)
+        assert result.get("success") is True
+        assert result.get("text") == '{"action_type": null}'
+        trace = result.get("llm_call_trace")
+        assert isinstance(trace, dict)
+        assert trace.get("call_role") == "parent"
+        assert trace.get("call_name") == "choose_action"
+        assert trace.get("provider") == "openai"
+        assert trace.get("prompt_char_count") == len("prompt text")
+        assert len(calls) == 1
+        prompt_sent, model_sent, kwargs_sent = calls[0]
+        assert prompt_sent == "prompt text"
+        assert model_sent == "gpt-5.4-mini"
+        # call_options is passed through; no json_mode kwarg injected by the runner
+        assert "json_mode" not in kwargs_sent
+        assert kwargs_sent.get("call_options") is opts
+    finally:
+        reset_registry_for_tests()
+
+
+def test_default_model_caller_does_not_construct_openai_service_directly(monkeypatch) -> None:
+    from services.llm.base import LLMService
+    from services.registry import ServiceRegistry, reset_registry_for_tests
+
+    reset_registry_for_tests()
+
+    class BoomOpenAI:
+        def __init__(self, *args, **kwargs):
+            raise AssertionError("runner must not construct OpenAIService directly")
+
+    monkeypatch.setattr("services.llm.openai.OpenAIService", BoomOpenAI)
+
+    class FakeService(LLMService):
+        name = "openai"
+        models = {"gpt-5.4-mini": {"context_window_tokens": 400_000}}
+
+        def is_available(self) -> bool:
+            return True
+
+        def call_text(self, prompt: str, model: str, **kwargs):
+            return {"success": True, "text": "{}"}
+
+        def call_vision(self, prompt: str, image_data: str, model: str, **kwargs):
+            return self.call_text(prompt, model, **kwargs)
+
+    reg = ServiceRegistry(discover=False)
+    reg.accept_llm_service(FakeService())
+    monkeypatch.setattr("services.registry._registry", reg)
+    monkeypatch.setattr(
+        "harness.runtime.llm.provider_model_caller.get_registry",
+        lambda: reg,
+    )
+    try:
+        caller = runner_module._build_default_model_caller(model_name="gpt-5.4-mini")
+        assert caller("hi", "gpt-5.4-mini")["success"] is True
+    finally:
+        reset_registry_for_tests()
+
+
+def test_default_model_caller_fails_before_loop_when_provider_unavailable(monkeypatch) -> None:
+    from services.llm.base import LLMService
+    from services.registry import ModelProviderError, ServiceRegistry, reset_registry_for_tests
+
+    reset_registry_for_tests()
+
+    class Unavailable(LLMService):
+        name = "openai"
+        models = {"gpt-5.6-luna": {"context_window_tokens": 400_000}}
+
+        def is_available(self) -> bool:
+            return False
+
+        def call_text(self, prompt: str, model: str, **kwargs):
+            raise AssertionError("must not call")
+
+        def call_vision(self, prompt: str, image_data: str, model: str, **kwargs):
+            raise AssertionError("must not call")
+
+    reg = ServiceRegistry(discover=False)
+    reg.accept_llm_service(Unavailable())
+    monkeypatch.setattr("services.registry._registry", reg)
+    monkeypatch.setattr(
+        "harness.runtime.llm.provider_model_caller.get_registry",
+        lambda: reg,
+    )
+    try:
+        with pytest.raises(ModelProviderError) as raised:
+            runner_module._build_default_model_caller(model_name="gpt-5.6-luna")
+        assert raised.value.reason_code == "model_provider_unavailable"
+    finally:
+        reset_registry_for_tests()
+
+
+@pytest.mark.parametrize(
+    ("scenario", "model_id", "reason_code"),
+    [
+        ("unavailable", "known-unavailable-model", "model_provider_unavailable"),
+        ("unknown", "totally-unknown-model", "model_provider_not_found"),
+        ("ambiguous", "shared-model", "model_provider_ambiguous"),
+    ],
+)
+def test_runner_fails_before_model_loop_for_provider_resolution_errors(
+    tmp_path: Path,
+    monkeypatch,
+    scenario: str,
+    model_id: str,
+    reason_code: str,
+) -> None:
+    """Production-shaped runner boundary: provider readiness fails before the kernel loop."""
+    from services.llm.base import LLMService
+    from services.registry import ServiceRegistry, reset_registry_for_tests
+
+    reset_registry_for_tests()
+    call_log: list[tuple[str, str]] = []
+    kernel_calls: list[str] = []
+
+    class _Fake(LLMService):
+        def __init__(self, *, name: str, models: dict[str, dict], available: bool) -> None:
+            self.name = name
+            self.models = models
+            self._available = available
+
+        def is_available(self) -> bool:
+            return self._available
+
+        def call_text(self, prompt: str, model: str, **kwargs):
+            call_log.append((self.name, model))
+            raise AssertionError("model call must not occur")
+
+        def call_vision(self, prompt: str, image_data: str, model: str, **kwargs):
+            return self.call_text(prompt, model, **kwargs)
+
+    reg = ServiceRegistry(discover=False)
+    if scenario == "unavailable":
+        reg.accept_llm_service(
+            _Fake(
+                name="alpha",
+                models={model_id: {"context_window_tokens": 10_000}},
+                available=False,
+            )
+        )
+    elif scenario == "ambiguous":
+        reg.accept_llm_service(
+            _Fake(name="alpha", models={model_id: {"context_window_tokens": 1}}, available=True)
+        )
+        reg.accept_llm_service(
+            _Fake(name="beta", models={model_id: {"context_window_tokens": 2}}, available=True)
+        )
+    # unknown: leave registry empty of the requested model
+
+    monkeypatch.setattr("services.registry._registry", reg)
+    monkeypatch.setattr(
+        "harness.runtime.llm.provider_model_caller.get_registry",
+        lambda: reg,
+    )
+
+    def _kernel_must_not_run(**kwargs: Any) -> Any:
+        del kwargs
+        kernel_calls.append("entered")
+        raise AssertionError("orchestration kernel must not run")
+
+    monkeypatch.setattr(runner_module, "run_orchestration_kernel_loop", _kernel_must_not_run)
+
+    adapter = FakeSurfaceAdapter(
+        calls=[],
+        surface=TurnSurface(
+            surface_id="surface-a",
+            blocks=(TurnBlock(content="block-1", metadata={}),),
+            payload={},
+            tool_bindings=(),
+        ),
+    )
+    run_id = f"run-provider-{scenario}"
+    _seed_cli_run_state(tmp_path, monkeypatch, run_id)
+    # No injected model_caller — use the production default path.
+    runner = RuntimeRunner(adapter=adapter, targets=_targets(tmp_path))
+
+    try:
+        with pytest.raises(RuntimeRunnerError) as exc_info:
+            runner.run(launch_context={"model": model_id, "run_id": run_id, "max_iterations": 1})
+        assert reason_code in str(exc_info.value)
+        assert exc_info.value.reason_code == reason_code
+        assert call_log == []
+        assert kernel_calls == []
+        result_doc = json.loads((tmp_path / "result.json").read_text(encoding="utf-8"))
+        done_doc = json.loads((tmp_path / "done.json").read_text(encoding="utf-8"))
+        assert result_doc["status"] == "failed"
+        assert result_doc["reason_code"] == reason_code
+        assert done_doc["status"] == "failed"
+        assert done_doc["reason_code"] == reason_code
+        assert result_doc["reason_code"] != "runner_exception"
+        assert result_doc["reason_code"] != "invalid_model_action_json"
+    finally:
+        reset_registry_for_tests()
 
 
 def test_select_model_name_prefers_launch_context_over_cli_env(monkeypatch) -> None:

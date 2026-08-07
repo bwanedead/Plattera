@@ -1,4 +1,4 @@
-"""Wrap harness model callers with generic OpenAI call trace emission."""
+"""Wrap harness model callers with generic LLM call trace emission."""
 
 from __future__ import annotations
 
@@ -19,10 +19,10 @@ from .llm_call_trace import (
 TextModelCaller = Callable[..., Mapping[str, Any] | str]
 
 
-def instrument_openai_model_caller(
+def instrument_model_caller(
     caller: TextModelCaller,
     *,
-    provider: str = "openai",
+    provider: str = "unknown",
     streaming_supported: bool = True,
 ) -> TextModelCaller:
     """Attach ``llm_call_trace`` to mapping responses and exception objects.
@@ -31,7 +31,11 @@ def instrument_openai_model_caller(
     raised by the inner caller receive ``exc.llm_call_trace``. Plain ``str``
     responses are returned unchanged, so audit surfaces cannot collect a trace
     unless the caller is upgraded to return a mapping envelope.
+
+    ``provider`` should be the provider resolved for the actual call.
     """
+
+    resolved_provider = str(provider or "").strip() or "unknown"
 
     def _wrapped(prompt: str, model: str, **kwargs: Any) -> Mapping[str, Any] | str:
         started = time.time()
@@ -63,7 +67,7 @@ def instrument_openai_model_caller(
                     raw_response=result if isinstance(result, Mapping) else None,
                 ),
             )
-            trace["provider"] = provider
+            trace["provider"] = resolved_provider
             if isinstance(result, Mapping):
                 merged = dict(result)
                 merged["llm_call_trace"] = trace
@@ -72,7 +76,7 @@ def instrument_openai_model_caller(
         except Exception as exc:
             finished = time.time()
             trace = build_llm_call_trace(
-                provider=provider,
+                provider=resolved_provider,
                 call_role=call_role,
                 call_name=call_name,
                 model=model,
@@ -95,7 +99,7 @@ def instrument_openai_model_caller(
 
 
 def extract_trace_from_exception(exc: BaseException) -> dict[str, Any] | None:
-    """Read a trace previously attached by :func:`instrument_openai_model_caller`."""
+    """Read a trace previously attached by :func:`instrument_model_caller`."""
     trace = getattr(exc, "llm_call_trace", None)
     if isinstance(trace, Mapping):
         return dict(trace)

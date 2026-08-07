@@ -8,7 +8,7 @@ import pytest
 
 from harness.runtime.llm.instrumented_caller import (
     extract_trace_from_exception,
-    instrument_openai_model_caller,
+    instrument_model_caller,
 )
 from harness.runtime.llm.llm_call_trace import (
     LLM_CALL_TRACE_FIELDS,
@@ -142,7 +142,7 @@ def test_instrumented_caller_passes_service_tier_into_trace() -> None:
     def _fake_caller(prompt: str, model: str, **kwargs):
         return {"success": True, "text": "{}", "service_tier_requested": "flex"}
 
-    wrapped = instrument_openai_model_caller(_fake_caller)
+    wrapped = instrument_model_caller(_fake_caller)
     result = wrapped(
         "hello",
         "gpt-5.4",
@@ -156,7 +156,7 @@ def test_instrumented_caller_string_response_passes_through_without_embedded_tra
     def _fake_caller(prompt: str, model: str, **kwargs):
         return '{"actions":[]}'
 
-    wrapped = instrument_openai_model_caller(_fake_caller)
+    wrapped = instrument_model_caller(_fake_caller)
     result = wrapped("hello", "gpt-5.4")
     assert isinstance(result, str)
     assert "llm_call_trace" not in result
@@ -170,7 +170,7 @@ def test_instrumented_caller_attaches_trace_to_mapping_response() -> None:
             "usage": {"prompt_tokens": 12, "completion_tokens": 3, "total_tokens": 15},
         }
 
-    wrapped = instrument_openai_model_caller(_fake_caller)
+    wrapped = instrument_model_caller(_fake_caller)
     result = wrapped(
         "hello",
         "gpt-5.4",
@@ -188,7 +188,7 @@ def test_instrumented_caller_attaches_trace_to_exception() -> None:
     def _boom(prompt: str, model: str, **kwargs):
         raise RuntimeError("network down")
 
-    wrapped = instrument_openai_model_caller(_boom)
+    wrapped = instrument_model_caller(_boom)
     with pytest.raises(RuntimeError, match="network down") as excinfo:
         wrapped("hello", "gpt-5.4", call_options=LlmCallOptions(phase="delegate_subtask"))
     trace = extract_trace_from_exception(excinfo.value)
@@ -377,7 +377,7 @@ def test_instrumented_caller_streaming_trace_has_phase_timing() -> None:
             "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
         }
 
-    wrapped = instrument_openai_model_caller(_fake_caller)
+    wrapped = instrument_model_caller(_fake_caller)
     result = wrapped(
         "hello",
         "gpt-5.4",

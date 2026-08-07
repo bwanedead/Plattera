@@ -25,7 +25,7 @@ from .continuity_journal import (
     recent_step_records_for_prompt,
     recent_step_result_records_for_prompt,
 )
-from .openai_model_limits import estimate_prompt_tokens_from_chars, resolve_context_window_tokens
+from .model_limits import estimate_prompt_tokens_from_chars, resolve_context_window_tokens
 
 _LOG = logging.getLogger(__name__)
 

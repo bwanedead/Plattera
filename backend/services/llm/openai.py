@@ -183,7 +183,7 @@ class OpenAIService(LLMService):
     
     # context_window_tokens / max_output_tokens: local metadata for harness compaction and budgeting.
     # Not queried from the API at runtime. Models omitted here still work: harness uses a fixed fallback
-    # (see harness.runtime.memory.openai_model_limits).
+    # (see harness.runtime.memory.model_limits).
     models = {
         "gpt-4o": {
             "name": "GPT-4o",
