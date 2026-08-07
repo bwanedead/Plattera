@@ -165,7 +165,73 @@ Conflicts refuse with `dossier_t0_fixture_conflict`. There is no `--force`.
 
 ---
 
-## 5. Related
+## 5. Buildout checkpoint and remaining sequence
+
+Current implemented foundation:
+
+- dossier-scale segment topology, startup inventory, and cross-segment hydration
+- dossier-qualified artifact refs and independently versioned segment workspaces
+- agent-selected exact segment revisions for a stitched publication candidate
+- immutable dossier transcript-edit publication and replay
+- explicit dossier-mode transcript-edit runtime composition
+- source-isolated live-run collections and dossier artifact retention
+- qualified crop links in human timelines
+- atom-local HITL posture on covered units
+- structured visual-observation results that distinguish target presence from
+  packet quality and preserve target-anchor context
+
+This foundation does **not** yet implement the cross-dossier dependency control
+layer. Continue in this order:
+
+1. **Provider-neutral development runtime.** Remove the harness runner's direct
+   OpenAI-service assumption, add the selected development provider/model, and
+   preserve explicit model selection across start, resume, and fork.
+2. **Dossier transcript-edit validation.** Run `curve_station_chain` through the
+   completed dossier path on the selected development model. Verify qualified
+   hydration, visual-observation contracts, atom-local HITL, exact segment
+   revision selection, dossier publication, audit rendering, and terminal
+   behavior.
+3. **Evidence-led batching decision.** Review the validation trace before
+   changing delegate batch limits. Prefer semantically coherent, visually
+   auditable waves, but do not encode a smaller cap merely in response to one
+   complex run or one model's behavior.
+4. **Dependency identity and evidence contract.** Define how a deed may identify
+   an external deed, recorded instrument, alignment, or other feature without
+   treating a retrieval candidate as truth.
+5. **Pending dependency state.** Persist unmatched, ambiguous, confirmed, and
+   blocked dependency relationships separately from transcript-edit and
+   deed-to-IR artifacts.
+6. **Candidate discovery and agent confirmation.** Let deterministic retrieval
+   surface candidates while keeping semantic linkage, rejection, and honest
+   uncertainty agent-authored.
+7. **Dependency-ordered activation.** Revisit a pending child when a plausible
+   parent arrives; process the confirmed parent first when required; then make
+   its published output available to the child without silently rewriting
+   either dossier's history.
+8. **Nested deed-feature projection.** Add the deed-to-IR representation needed
+   for a confirmed external deed or feature to participate in another deed's
+   geometry while retaining provenance and independent lineage.
+9. **Practice coverage.** Use the authentic curve fixture for unmatched/pending
+   behavior. Add a clearly labeled synthetic companion instrument only when
+   needed to prove successful matching and activation.
+
+Deliberately deferred:
+
+- multi-turn delegate self-repair or a second delegate-repair tier; reconsider
+  only if structured packet assessment plus parent corroboration still fails
+  in later runs
+- broad IR grammar/vocabulary expansion; handle it as a separate coverage track
+  once dependency examples reveal concrete missing forms
+- special long-transcript handling in deed-to-IR; first measure the stitched
+  transcript on the provider-neutral runtime before adding another mechanism
+
+The next live test should follow provider integration rather than spending more
+credits tuning behavior against a model that may no longer be the development
+default.
+
+---
+
+## 6. Related
 
 - Practice folder notes: `practice_deeds/agents.md`
 - Ignore policy: `practice_deeds/*` remains local (same pattern as other practice
