@@ -96,16 +96,78 @@ def test_second_provider_model_routes_to_its_own_service() -> None:
         ),
         _FakeLLM(
             name="meta",
-            models={"meta-llama-test": {"context_window_tokens": 128_000}},
+            models={"muse-spark-1.2-contributor": {"context_window_tokens": 1_048_576}},
             call_log=log,
         ),
     )
     caller = build_provider_model_caller(default_model_name="gpt-5.6-luna", registry=reg)
     parent = caller("parent prompt", "gpt-5.6-luna")
-    delegate = caller("delegate prompt", "meta-llama-test")
+    delegate = caller("delegate prompt", "muse-spark-1.2-contributor")
     assert parent["llm_call_trace"]["provider"] == "openai"
     assert delegate["llm_call_trace"]["provider"] == "meta"
-    assert log == [("openai", "gpt-5.6-luna"), ("meta", "meta-llama-test")]
+    assert log == [("openai", "gpt-5.6-luna"), ("meta", "muse-spark-1.2-contributor")]
+
+
+def test_muse_parent_and_openai_delegate_and_inverse() -> None:
+    log: list[tuple[str, str]] = []
+    muse = "muse-spark-1.2-contributor"
+    luna = "gpt-5.6-luna"
+    reg = _registry_with(
+        _FakeLLM(
+            name="openai",
+            models={luna: {"context_window_tokens": 400_000}},
+            call_log=log,
+        ),
+        _FakeLLM(
+            name="meta",
+            models={muse: {"context_window_tokens": 1_048_576}},
+            call_log=log,
+        ),
+    )
+    caller = build_provider_model_caller(default_model_name=muse, registry=reg)
+    assert caller("p", muse)["llm_call_trace"]["provider"] == "meta"
+    assert caller("d", luna)["llm_call_trace"]["provider"] == "openai"
+    # Cached wrappers must not cross-wire after switching providers.
+    assert caller("p2", muse)["llm_call_trace"]["provider"] == "meta"
+    assert log == [("meta", muse), ("openai", luna), ("meta", muse)]
+
+    log.clear()
+    caller2 = build_provider_model_caller(default_model_name=luna, registry=reg)
+    assert caller2("p", luna)["llm_call_trace"]["provider"] == "openai"
+    assert caller2("d", muse)["llm_call_trace"]["provider"] == "meta"
+    assert log == [("openai", luna), ("meta", muse)]
+
+
+def test_image_bearing_delegate_reaches_meta_with_attachment_order() -> None:
+    from services.llm.call_options import LlmCallOptions
+
+    captured: list[Any] = []
+
+    class _CaptureMeta(_FakeLLM):
+        def call_text(self, prompt: str, model: str, **kwargs: Any) -> dict[str, Any]:
+            captured.append(kwargs.get("call_options"))
+            return super().call_text(prompt, model, **kwargs)
+
+    muse = "muse-spark-1.2-contributor"
+    reg = _registry_with(
+        _CaptureMeta(
+            name="meta",
+            models={muse: {"context_window_tokens": 1_048_576}},
+        )
+    )
+    caller = build_provider_model_caller(default_model_name=muse, registry=reg)
+    opts = LlmCallOptions(
+        image_attachments=(
+            {"b64": "ONE", "media_type": "image/png"},
+            {"b64": "TWO", "media_type": "image/jpeg"},
+        ),
+        phase="delegate_subtask",
+    )
+    result = caller("visual delegate", muse, call_options=opts)
+    assert result["llm_call_trace"]["provider"] == "meta"
+    assert captured and captured[0] is not None
+    atts = list(captured[0].image_attachments)
+    assert [a["b64"] for a in atts] == ["ONE", "TWO"]
 
 
 def test_parent_and_delegate_models_through_one_caller() -> None:

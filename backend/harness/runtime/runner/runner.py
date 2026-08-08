@@ -70,7 +70,7 @@ from .contracts import RuntimeAdapter, RuntimeArtifactTargets, RuntimeRunResult
 
 _LOG = logging.getLogger(__name__)
 
-DEFAULT_HARNESS_MODEL = "gpt-5.6-luna"
+DEFAULT_HARNESS_MODEL = "muse-spark-1.2-contributor"
 
 
 class RuntimeRunnerError(RuntimeError):

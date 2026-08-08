@@ -252,14 +252,19 @@ Guidance:
   into a shallow few-turn pass
 - omit `model` from launch context unless you explicitly want to override the
   harness default model
-- the harness default is `gpt-5.6-luna`; omitting `--model` on a new run selects
-  Luna
-- for the stronger explicit alternative, use `--model gpt-5.6-terra`
+- the development harness default is `muse-spark-1.2-contributor`; omitting
+  `--model` on a new run selects Muse Contributor via provider `meta`
+- the launched worker must have `META_MODEL_API_KEY` available (and optional
+  `META_MODEL_API_BASE_URL`; blank/absent uses `https://api.meta.ai/v1`)
+- explicit OpenAI overrides remain supported (for example
+  `--model gpt-5.6-terra` or `--model gpt-5.6-luna`)
 - if both launch context `model` and CLI `--model` are set, launch context
   wins; CLI `--model` is a convenience fallback for runs where the context JSON
   omits `model`
 - resume and fork preserve the run’s recorded model rather than adopting the
   current default
+- Contributor-route traffic may be retained/used by Meta; this is a development
+  default and must be reconsidered before production launch
 
 Check status:
 
@@ -428,7 +433,8 @@ Resume is mechanical. It restores the last completed `kernel_resume.json`
 checkpoint and starts the next turn in the same run directory. It does not
 replay a half-failed LLM call and it does not infer mission meaning. If the run
 was started with an explicit or recorded model, the resumed child preserves that
-model rather than adopting the current harness default (`gpt-5.6-luna`).
+model rather than adopting the current harness default
+(`muse-spark-1.2-contributor`).
 If the run had a pending `control.json`, resume consumes that stale control
 request before spawning the child so the resumed run does not immediately stop
 again.

@@ -428,7 +428,13 @@ def test_resume_preserves_model_override_env(isolated_harness_root, monkeypatch)
 
 @pytest.mark.parametrize(
     "recorded_model",
-    ("gpt-5.4", "gpt-5.4-mini", "gpt-5.6-terra", "gpt-5.6-luna"),
+    (
+        "gpt-5.4",
+        "gpt-5.4-mini",
+        "gpt-5.6-terra",
+        "gpt-5.6-luna",
+        "muse-spark-1.2-contributor",
+    ),
 )
 def test_resume_preserves_recorded_model_identity(
     isolated_harness_root, monkeypatch, recorded_model

@@ -80,7 +80,7 @@ All subsequent steps must use this exact value:
 
   ```powershell
   cd C:\projects\Plattera\backend
-  pyinstaller --noconfirm --onefile --name plattera-backend --hidden-import openai --hidden-import services.llm.openai --add-data "schema\plss_m_and_b.json;backend/schema" main.py
+  pyinstaller --noconfirm --onefile --name plattera-backend --hidden-import openai --hidden-import services.llm.openai --hidden-import services.llm.meta --add-data "schema\plss_m_and_b.json;backend/schema" main.py
   ```
 
 - **Expected output**:

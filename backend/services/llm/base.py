@@ -58,6 +58,10 @@ class LLMService(ABC):
             }
         """
         pass
+
+    def supports_streaming(self) -> bool:
+        """Whether this provider implements harness streaming aggregation."""
+        return True
     
     def get_models(self) -> Dict[str, Dict[str, Any]]:
         """Get all models for this provider"""
@@ -69,4 +73,4 @@ class LLMService(ABC):
         """Check if a model supports vision capabilities"""
         model_info = self.models.get(model, {})
         capabilities = model_info.get("capabilities", [])
-        return "vision" in capabilities 
+        return "vision" in capabilities

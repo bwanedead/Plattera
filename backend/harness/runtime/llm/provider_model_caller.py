@@ -43,11 +43,22 @@ def build_provider_model_caller(
         provider_name = str(getattr(service, "name", "") or "").strip() or "unknown"
         wrapped = wrapped_by_provider.get(provider_name)
         if wrapped is None:
+            # Bind the resolved service by default-arg so later cross-provider
+            # resolutions cannot rewrite this provider's cached caller.
+            def _raw(
+                inner_prompt: str,
+                inner_model: str,
+                *,
+                _service: Any = service,
+                **inner_kwargs: Any,
+            ) -> Mapping[str, Any] | str:
+                return _service.call_text(inner_prompt, inner_model, **inner_kwargs)
 
-            def _raw(inner_prompt: str, inner_model: str, **inner_kwargs: Any) -> Mapping[str, Any] | str:
-                return service.call_text(inner_prompt, inner_model, **inner_kwargs)
-
-            wrapped = instrument_model_caller(_raw, provider=provider_name)
+            wrapped = instrument_model_caller(
+                _raw,
+                provider=provider_name,
+                streaming_supported=bool(service.supports_streaming()),
+            )
             wrapped_by_provider[provider_name] = wrapped
         return wrapped(prompt, effective, **kwargs)
 

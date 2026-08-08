@@ -28,15 +28,15 @@ From the `backend` directory, build the frozen backend executable that Tauri wil
 
 ```powershell
 cd C:\projects\Plattera\backend
-pyinstaller --noconfirm --onefile --name plattera-backend --hidden-import openai --hidden-import services.llm.openai --add-data "schema\plss_m_and_b.json;backend/schema" main.py
+pyinstaller --noconfirm --onefile --name plattera-backend --hidden-import openai --hidden-import services.llm.openai --hidden-import services.llm.meta --add-data "schema\plss_m_and_b.json;backend/schema" main.py
 ```
 
 - **Key flags and why they matter**:
   - **`--onefile`**: produces a single EXE suitable for Tauri sidecar bundling.
   - **`--name plattera-backend`**: matches the logical sidecar name in `tauri.conf.json` and `src-tauri/src/lib.rs`.
-  - **`--hidden-import openai`** and **`--hidden-import services.llm.openai`**:
-    - Ensures the **OpenAI client library** and the **Plattera OpenAI LLM service module** are included in the frozen EXE.
-    - Without these, the EXE can start but will “lose” the OpenAI service and models like `gpt-o4-mini`.
+  - **`--hidden-import openai`**, **`--hidden-import services.llm.openai`**, and **`--hidden-import services.llm.meta`**:
+    - Ensures the **OpenAI client library** and the **Plattera OpenAI / Meta LLM service modules** are included in the frozen EXE.
+    - Without these, the EXE can start but will “lose” LLM services and models like `gpt-o4-mini` or `muse-spark-1.2-contributor`.
   - **`--add-data "schema\plss_m_and_b.json;backend/schema"`**:
     - Packages the PLSS schema file into the bundle.
     - The `;backend/schema` part defines the **target path inside the bundle**, which the code expects.
@@ -322,7 +322,7 @@ pyinstaller command:
 
 .venv) PS C:\projects\Plattera\backend> 
 
-pyinstaller --noconfirm --onefile --name plattera-backend --hidden-import openai --hidden-import services.llm.openai --add-data "schema\plss_m_and_b.json;backend/schema" main.py
+pyinstaller --noconfirm --onefile --name plattera-backend --hidden-import openai --hidden-import services.llm.openai --hidden-import services.llm.meta --add-data "schema\plss_m_and_b.json;backend/schema" main.py
 
 2.
 

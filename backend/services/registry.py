@@ -142,7 +142,7 @@ class ServiceRegistry:
             logging.getLogger(__name__).info(
                 "❄️ Running in frozen mode - manually registering LLM services"
             )
-            known_services = ["openai"]  # keep in sync with PyInstaller hidden-imports
+            known_services = ["openai", "meta"]  # keep in sync with PyInstaller hidden-imports
             for module in known_services:
                 self._register_service_from_module(module, "llm")
             return

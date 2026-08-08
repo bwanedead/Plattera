@@ -41,7 +41,13 @@ def test_strip_removes_run_id_from_equals_form_flag() -> None:
 
 
 def test_strip_preserves_explicit_recorded_models() -> None:
-    for model in ("gpt-5.4", "gpt-5.4-mini", "gpt-5.6-terra", "gpt-5.6-luna"):
+    for model in (
+        "gpt-5.4",
+        "gpt-5.4-mini",
+        "gpt-5.6-terra",
+        "gpt-5.6-luna",
+        "muse-spark-1.2-contributor",
+    ):
         launch = {"run_id": "parent-run", "model": model, "dossier_id": "d1"}
         raw = json.dumps(launch, separators=(",", ":"))
         argv = ["python", "-m", "harness.runtime.runner.entrypoint", f"--launch-context-json={raw}"]

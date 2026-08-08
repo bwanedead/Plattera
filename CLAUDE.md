@@ -35,7 +35,7 @@ npm run tauri:dev                 # desktop shell with hot reload
 ### Production Build (Desktop)
 ```powershell
 # 1. Build backend sidecar (from backend/, venv active)
-pyinstaller --noconfirm --onefile --name plattera-backend --hidden-import openai --hidden-import services.llm.openai --add-data "schema\plss_m_and_b.json;backend/schema" main.py
+pyinstaller --noconfirm --onefile --name plattera-backend --hidden-import openai --hidden-import services.llm.openai --hidden-import services.llm.meta --add-data "schema\plss_m_and_b.json;backend/schema" main.py
 
 # 2. Copy sidecar (from backend/)
 Copy-Item ".\dist\plattera-backend.exe" "..\frontend\src-tauri\bin\plattera-backend-x86_64-pc-windows-msvc.exe" -Force

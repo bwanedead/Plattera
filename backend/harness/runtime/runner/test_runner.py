@@ -623,6 +623,70 @@ def test_runner_fails_before_model_loop_for_provider_resolution_errors(
         reset_registry_for_tests()
 
 
+def test_runner_missing_meta_key_fails_before_kernel_as_provider_unavailable(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Default Muse path must fail closed before the kernel when Meta is unconfigured."""
+    from services.llm.base import LLMService
+    from services.registry import ServiceRegistry, reset_registry_for_tests
+
+    reset_registry_for_tests()
+    muse = "muse-spark-1.2-contributor"
+    kernel_calls: list[str] = []
+
+    class UnavailableMeta(LLMService):
+        name = "meta"
+        models = {muse: {"context_window_tokens": 1_048_576}}
+
+        def is_available(self) -> bool:
+            return False
+
+        def call_text(self, prompt: str, model: str, **kwargs):
+            raise AssertionError("must not call")
+
+        def call_vision(self, prompt: str, image_data: str, model: str, **kwargs):
+            raise AssertionError("must not call")
+
+    reg = ServiceRegistry(discover=False)
+    reg.accept_llm_service(UnavailableMeta())
+    monkeypatch.setattr("services.registry._registry", reg)
+    monkeypatch.setattr(
+        "harness.runtime.llm.provider_model_caller.get_registry",
+        lambda: reg,
+    )
+    monkeypatch.delenv("HARNESS_CLI_MODEL", raising=False)
+
+    def _kernel_must_not_run(**kwargs: Any) -> Any:
+        del kwargs
+        kernel_calls.append("entered")
+        raise AssertionError("orchestration kernel must not run")
+
+    monkeypatch.setattr(runner_module, "run_orchestration_kernel_loop", _kernel_must_not_run)
+    adapter = FakeSurfaceAdapter(
+        calls=[],
+        surface=TurnSurface(
+            surface_id="surface-a",
+            blocks=(TurnBlock(content="block-1", metadata={}),),
+            payload={},
+            tool_bindings=(),
+        ),
+    )
+    run_id = "run-muse-unavailable"
+    _seed_cli_run_state(tmp_path, monkeypatch, run_id)
+    runner = RuntimeRunner(adapter=adapter, targets=_targets(tmp_path))
+    try:
+        with pytest.raises(RuntimeRunnerError) as exc_info:
+            # Omit model so DEFAULT_HARNESS_MODEL (Muse) is selected.
+            runner.run(launch_context={"run_id": run_id, "max_iterations": 1})
+        assert exc_info.value.reason_code == "model_provider_unavailable"
+        assert kernel_calls == []
+        result_doc = json.loads((tmp_path / "result.json").read_text(encoding="utf-8"))
+        assert result_doc["reason_code"] == "model_provider_unavailable"
+        assert result_doc["reason_code"] != "invalid_model_action_json"
+    finally:
+        reset_registry_for_tests()
+
+
 def test_select_model_name_prefers_launch_context_over_cli_env(monkeypatch) -> None:
     monkeypatch.setenv("HARNESS_CLI_MODEL", "gpt-5.4-mini")
     assert runner_module._select_model_name({"model": "gpt-5.4"}) == "gpt-5.4"
@@ -639,10 +703,10 @@ def test_select_model_name_strips_candidates_before_precedence(monkeypatch) -> N
     assert runner_module._select_model_name({"model": "   "}) == "gpt-5.6-terra"
 
     monkeypatch.delenv("HARNESS_CLI_MODEL", raising=False)
-    assert runner_module._select_model_name({"model": "   "}) == "gpt-5.6-luna"
+    assert runner_module._select_model_name({"model": "   "}) == "muse-spark-1.2-contributor"
 
     monkeypatch.setenv("HARNESS_CLI_MODEL", "   ")
-    assert runner_module._select_model_name({"model": "   "}) == "gpt-5.6-luna"
+    assert runner_module._select_model_name({"model": "   "}) == "muse-spark-1.2-contributor"
 
     monkeypatch.setenv("HARNESS_CLI_MODEL", "gpt-5.6-terra")
     assert runner_module._select_model_name({"model": "gpt-5.4-mini"}) == "gpt-5.4-mini"
@@ -1456,18 +1520,18 @@ def test_hitl_routing_uses_canonical_run_id(tmp_path: Path, monkeypatch) -> None
 
 
 # ---------------------------------------------------------------------------
-# Workstream 4: default model is gpt-5.6-luna
+# Workstream 4 / MAPDEP-BR-014: default model is Muse Spark Contributor
 # ---------------------------------------------------------------------------
 
 
-def test_runner_default_model_is_gpt56_luna(monkeypatch) -> None:
-    """Omitting model in launch context should resolve to gpt-5.6-luna."""
+def test_runner_default_model_is_muse_spark_contributor(monkeypatch) -> None:
+    """Omitting model in launch context should resolve to Muse Contributor."""
     monkeypatch.delenv("HARNESS_CLI_MODEL", raising=False)
-    assert runner_module.DEFAULT_HARNESS_MODEL == "gpt-5.6-luna"
-    assert runner_module._select_model_name({}) == "gpt-5.6-luna"
-    assert runner_module._select_model_name({"model": None}) == "gpt-5.6-luna"
-    assert runner_module._select_model_name({"model": ""}) == "gpt-5.6-luna"
-    assert runner_module._select_model_name({"model": "   "}) == "gpt-5.6-luna"
+    assert runner_module.DEFAULT_HARNESS_MODEL == "muse-spark-1.2-contributor"
+    assert runner_module._select_model_name({}) == "muse-spark-1.2-contributor"
+    assert runner_module._select_model_name({"model": None}) == "muse-spark-1.2-contributor"
+    assert runner_module._select_model_name({"model": ""}) == "muse-spark-1.2-contributor"
+    assert runner_module._select_model_name({"model": "   "}) == "muse-spark-1.2-contributor"
 
 
 def test_runner_explicit_model_override_is_preserved() -> None:
@@ -1476,6 +1540,10 @@ def test_runner_explicit_model_override_is_preserved() -> None:
     assert runner_module._select_model_name({"model": "gpt-5.4"}) == "gpt-5.4"
     assert runner_module._select_model_name({"model": "gpt-5.6-terra"}) == "gpt-5.6-terra"
     assert runner_module._select_model_name({"model": "gpt-5.6-luna"}) == "gpt-5.6-luna"
+    assert (
+        runner_module._select_model_name({"model": "muse-spark-1.2-contributor"})
+        == "muse-spark-1.2-contributor"
+    )
     assert runner_module._select_model_name({"model": "gpt-5"}) == "gpt-5"
 
 
