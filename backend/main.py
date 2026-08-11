@@ -15,9 +15,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import time
 
-# 🔧 FIX: Add environment loading (was accidentally removed during import changes)
-from dotenv import load_dotenv
-load_dotenv()  # Load .env file
+# Canonical backend dotenv bootstrap (source-tree ``backend/.env``, override=False).
+from config.environment import load_backend_environment
+
+load_backend_environment()
 
 # Ensure UTF-8 output for console/logging handlers (Windows cp1252 fix)
 try:

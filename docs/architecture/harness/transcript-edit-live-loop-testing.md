@@ -254,8 +254,17 @@ Guidance:
   harness default model
 - the development harness default is `muse-spark-1.2-contributor`; omitting
   `--model` on a new run selects Muse Contributor via provider `meta`
-- the launched worker must have `META_MODEL_API_KEY` available (and optional
-  `META_MODEL_API_BASE_URL`; blank/absent uses `https://api.meta.ai/v1`)
+- place provider credentials in `backend/.env` (Git-ignored). API and harness
+  source-mode entrypoints load that file automatically; an explicitly exported
+  process variable always wins. Resume/fork workers reload the same file when
+  their new process starts:
+
+```dotenv
+# Model provider API keys
+META_MODEL_API_KEY=your_key_here
+```
+
+- optional `META_MODEL_API_BASE_URL`; blank/absent uses `https://api.meta.ai/v1`
 - explicit OpenAI overrides remain supported (for example
   `--model gpt-5.6-terra` or `--model gpt-5.6-luna`)
 - if both launch context `model` and CLI `--model` are set, launch context

@@ -15,12 +15,17 @@ from dataclasses import asdict
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
+from config.environment import load_backend_environment
+
 from .runner import RuntimeRunnerError, run_runtime_from_env
 
 DEFAULT_ADAPTER_FACTORY_REF = "domains:require_domain_adapter_factory"
 
 
 def main(argv: Sequence[str] | None = None):
+    # Process-wide dotenv before adapter/domain load and provider readiness.
+    load_backend_environment()
+
     parser = argparse.ArgumentParser(
         prog="harness.runtime.runner.entrypoint",
         description="Launch a harness runtime run from an opaque domain id and launch-context JSON.",

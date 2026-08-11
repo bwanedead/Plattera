@@ -266,15 +266,24 @@ Guidance:
 - prefer `max_iterations: 100` for roomier live testing
 - automatic ids look like `deed-to-ir-live-r00000001` and increase per collection
 - the development harness default model is `muse-spark-1.2-contributor`; omit
-  `--model` on a new run to select Muse Contributor via provider `meta`. The
-  launched worker must have `META_MODEL_API_KEY` available. Explicit OpenAI
-  overrides remain supported (`--model gpt-5.6-terra`, `--model gpt-5.6-luna`,
-  etc.). Launch-context `model` still wins over CLI `--model`; CLI `--model`
-  remains the fallback when launch context omits the model. Resume and fork
-  preserve the run’s recorded model rather than adopting the current default.
-  Contributor-route traffic may be retained/used by Meta; this is a development
-  default and must be reconsidered before production launch. Example OpenAI
-  override:
+  `--model` on a new run to select Muse Contributor via provider `meta`. Place
+  provider credentials in `backend/.env` (Git-ignored). API and harness
+  source-mode entrypoints load that file automatically; an explicitly exported
+  process variable always wins. Resume/fork workers reload the same file when
+  their new process starts:
+
+```dotenv
+# Model provider API keys
+META_MODEL_API_KEY=your_key_here
+```
+
+  Explicit OpenAI overrides remain supported (`--model gpt-5.6-terra`,
+  `--model gpt-5.6-luna`, etc.). Launch-context `model` still wins over CLI
+  `--model`; CLI `--model` remains the fallback when launch context omits the
+  model. Resume and fork preserve the run’s recorded model rather than adopting
+  the current default. Contributor-route traffic may be retained/used by Meta;
+  this is a development default and must be reconsidered before production
+  launch. Example OpenAI override:
 
 ```powershell
 --model gpt-5.6-terra
