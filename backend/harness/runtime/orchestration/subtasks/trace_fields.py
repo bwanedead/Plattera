@@ -231,7 +231,12 @@ def _llm_trace_timing_token_parts(trace: Mapping[str, Any]) -> list[str]:
     elif trace.get("max_retries_configured") is not None:
         parts.append("retries=?")
     if trace.get("streaming_requested") is not None:
-        parts.append(f"streaming={str(bool(trace['streaming_requested'])).lower()}")
+        requested = str(bool(trace["streaming_requested"])).lower()
+        if "streaming_effective" in trace:
+            effective = str(bool(trace["streaming_effective"])).lower()
+            parts.append(f"streaming=requested={requested} effective={effective}")
+        else:
+            parts.append(f"streaming={requested}")
     if trace.get("provider_wait_seconds") is not None:
         parts.append(f"provider_wait={trace['provider_wait_seconds']}s")
     if trace.get("response_stream_seconds") is not None:

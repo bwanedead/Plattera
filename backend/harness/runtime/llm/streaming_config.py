@@ -1,4 +1,13 @@
-"""Resolve disabled-by-default OpenAI streaming for harness LLM calls."""
+"""Resolve disabled-by-default harness LLM streaming.
+
+Canonical configuration keys:
+
+- environment: ``HARNESS_LLM_STREAMING``
+- run/launch context: ``llm_streaming``, ``streaming``
+
+Streaming is a transport optimization. Provider capability negotiation lives in
+the provider-neutral model caller, not in this config resolver.
+"""
 
 from __future__ import annotations
 
@@ -9,7 +18,7 @@ from typing import Any
 
 from services.llm.call_options import LlmCallOptions
 
-STREAMING_RUN_CONTEXT_KEYS = ("llm_streaming", "openai_streaming", "streaming")
+STREAMING_RUN_CONTEXT_KEYS = ("llm_streaming", "streaming")
 _TRUTHY = frozenset({"1", "true", "yes", "on"})
 _FALSY = frozenset({"0", "false", "no", "off"})
 

@@ -210,12 +210,14 @@ This uses the same `transcript_edit` loop and domain. The explicit scope
 selector is the only launch-class difference. Do not include
 `transcription_id` or `segment_id` in dossier mode.
 
-For the first model-calibration run, use Terra explicitly:
+For the first model-calibration run, use the current harness default.
+Omit `--model` (and omit `model` from launch context) so the recorded default
+is selected; do not pass an explicit OpenAI override.
 
 ```powershell
 $runId = "curve-station-chain-<fresh-unique-suffix>"
 $ctx = "{""dossier_id"":""892abc34-ed4d-4e85-a0cb-9a5ddc133f31"",""transcript_edit_scope_mode"":""dossier"",""workspace_id"":""$runId"",""run_id"":""$runId"",""max_iterations"":100}"
-python -m harness.cli.start --run-id $runId --loop-kind transcript_edit --run-collection transcript_edit_curve_station_chain --model gpt-5.6-terra --python-module harness.runtime.runner.entrypoint --module-arg=--domain-id --module-arg=transcript_edit --module-arg=--launch-context-json --module-arg=$ctx
+python -m harness.cli.start --run-id $runId --loop-kind transcript_edit --run-collection transcript_edit_curve_station_chain --python-module harness.runtime.runner.entrypoint --module-arg=--domain-id --module-arg=transcript_edit --module-arg=--launch-context-json --module-arg=$ctx
 ```
 
 Then use the same foreground `watch` / HITL loop documented below. Do not
@@ -236,10 +238,12 @@ Expected dossier-scale behavior:
 10. produce `transcript_edit:output` and an immutable
    `transcript_edit:dossier_output:sha256:<fingerprint>` ref
 
-The first Terra run is also a calibration run after the model change. Preserve
-the raw timeline evidence needed to distinguish model reasoning drift from a
-tool-contract or continuity seam. Do not generalize a new harness rule from one
-model run.
+The first default-model run is also a calibration run after the model change.
+Preserve the raw timeline evidence needed to distinguish model reasoning drift
+from a tool-contract or continuity seam. Do not generalize a new harness rule
+from one model run. Do not resume or fork an older OpenAI-model run when the
+goal is to evaluate the current harness default — resume/fork preserve the
+recorded model.
 
 Guidance:
 

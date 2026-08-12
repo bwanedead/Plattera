@@ -45,6 +45,7 @@ def test_trace_builder_produces_bounded_serializable_shape() -> None:
     assert set(trace.keys()).issubset(set(LLM_CALL_TRACE_FIELDS))
     assert trace["streaming_requested"] is False
     assert trace["streaming_supported"] is True
+    assert trace["streaming_effective"] is False
     assert trace["wall_seconds"] == 57.4
     assert trace_is_json_serializable(trace)
     json.dumps(trace)
@@ -351,6 +352,7 @@ def test_streaming_trace_includes_first_event_timing() -> None:
         streaming_requested=True,
     )
     assert trace["streaming_requested"] is True
+    assert trace["streaming_effective"] is True
     assert trace["first_response_event_at_epoch_seconds"] == 105.0
     assert trace["provider_wait_seconds"] == 5.0
     assert trace["response_stream_seconds"] == 5.0
@@ -365,6 +367,31 @@ def test_extract_streaming_requested_reads_call_options() -> None:
         kwargs={"stream": True},
     ) is True
     assert extract_streaming_requested() is False
+
+
+def test_requested_unsupported_streaming_does_not_record_stream_timing() -> None:
+    trace = build_llm_call_trace_from_response(
+        raw_response={
+            "success": True,
+            "text": "{}",
+            "first_response_event_at_epoch_seconds": 105.0,
+        },
+        call_role="parent",
+        call_name="choose_action",
+        model="muse-spark-1.2-contributor",
+        prompt_char_count=100,
+        started_at_epoch_seconds=100.0,
+        finished_at_epoch_seconds=110.0,
+        streaming_requested=True,
+        streaming_supported=False,
+        streaming_effective=False,
+    )
+    assert trace["streaming_requested"] is True
+    assert trace["streaming_supported"] is False
+    assert trace["streaming_effective"] is False
+    assert "first_response_event_at_epoch_seconds" not in trace
+    assert "provider_wait_seconds" not in trace
+    assert "response_stream_seconds" not in trace
 
 
 def test_instrumented_caller_streaming_trace_has_phase_timing() -> None:
@@ -385,5 +412,6 @@ def test_instrumented_caller_streaming_trace_has_phase_timing() -> None:
     )
     trace = result["llm_call_trace"]
     assert trace["streaming_requested"] is True
+    assert trace["streaming_effective"] is True
     assert trace["provider_wait_seconds"] is not None
     assert trace["response_stream_seconds"] is not None

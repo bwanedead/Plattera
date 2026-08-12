@@ -33,6 +33,7 @@ LLM_CALL_TRACE_FIELDS: tuple[str, ...] = (
     "request_id",
     "streaming_requested",
     "streaming_supported",
+    "streaming_effective",
     "usage_unavailable_reason",
     "max_retries_configured",
     "retry_count_observed",
@@ -207,6 +208,7 @@ def build_llm_call_trace(
     request_id: str | None = None,
     streaming_requested: bool = False,
     streaming_supported: bool = True,
+    streaming_effective: bool | None = None,
     max_retries_configured: int | None = None,
     retry_count_observed: int | None = None,
     timeout_configured_seconds: float | None = None,
@@ -241,6 +243,11 @@ def build_llm_call_trace(
         "request_id": _bound_text(request_id, 120) or None,
         "streaming_requested": bool(streaming_requested),
         "streaming_supported": bool(streaming_supported),
+        "streaming_effective": (
+            bool(streaming_effective)
+            if streaming_effective is not None
+            else bool(streaming_requested) and bool(streaming_supported)
+        ),
         "max_retries_configured": max_retries_configured,
         "retry_count_observed": retry_count_observed,
         "timeout_configured_seconds": timeout_configured_seconds,
@@ -252,7 +259,11 @@ def build_llm_call_trace(
         trace,
         started_at_epoch_seconds=started_at_epoch_seconds,
         finished_at_epoch_seconds=finished_at_epoch_seconds,
-        streaming_requested=bool(streaming_requested),
+        streaming_effective=(
+            bool(streaming_effective)
+            if streaming_effective is not None
+            else bool(streaming_requested) and bool(streaming_supported)
+        ),
         first_response_event_at_epoch_seconds=first_response_event_at_epoch_seconds,
     )
     return sanitize_llm_call_trace(trace)
@@ -269,6 +280,7 @@ def build_llm_call_trace_from_response(
     finished_at_epoch_seconds: float,
     streaming_requested: bool = False,
     streaming_supported: bool = True,
+    streaming_effective: bool | None = None,
     service_tier_requested: str | None = None,
     max_retries_configured: int | None = None,
     retry_count_observed: int | None = None,
@@ -300,6 +312,11 @@ def build_llm_call_trace_from_response(
         error_type = "provider_failure"
 
     resolved_streaming = streaming_requested or extract_streaming_requested(raw_response=response_map)
+    effective = (
+        bool(streaming_effective)
+        if streaming_effective is not None
+        else bool(resolved_streaming) and bool(streaming_supported)
+    )
     first_event = _coerce_float(response_map.get("first_response_event_at_epoch_seconds"))
 
     return build_llm_call_trace(
@@ -322,6 +339,7 @@ def build_llm_call_trace_from_response(
         request_id=_optional_str(response_map.get("request_id")),
         streaming_requested=resolved_streaming,
         streaming_supported=streaming_supported,
+        streaming_effective=effective,
         first_response_event_at_epoch_seconds=first_event,
         usage_unavailable_reason=_optional_str(response_map.get("usage_unavailable_reason")),
         max_retries_configured=(
@@ -388,7 +406,7 @@ def sanitize_llm_call_trace(trace: Mapping[str, Any]) -> dict[str, Any]:
         if key.endswith("_tokens") or key in {"max_retries_configured", "retry_count_observed"}:
             out[key] = _coerce_int(value)
             continue
-        if key in {"streaming_requested", "streaming_supported"}:
+        if key in {"streaming_requested", "streaming_supported", "streaming_effective"}:
             out[key] = bool(value)
             continue
         if isinstance(value, (dict, list, tuple)):
@@ -399,6 +417,10 @@ def sanitize_llm_call_trace(trace: Mapping[str, Any]) -> dict[str, Any]:
         out["streaming_requested"] = False
     if "streaming_supported" not in out:
         out["streaming_supported"] = True
+    if "streaming_effective" not in out:
+        out["streaming_effective"] = bool(out.get("streaming_requested")) and bool(
+            out.get("streaming_supported", True)
+        )
     return out
 
 
@@ -439,11 +461,11 @@ def _apply_phase_timing_fields(
     *,
     started_at_epoch_seconds: float,
     finished_at_epoch_seconds: float,
-    streaming_requested: bool,
+    streaming_effective: bool,
     first_response_event_at_epoch_seconds: float | None = None,
 ) -> None:
-    """Add first-event timing only for streaming calls with a measured first event."""
-    if not streaming_requested or first_response_event_at_epoch_seconds is None:
+    """Add first-event timing only when streaming actually occurred."""
+    if not streaming_effective or first_response_event_at_epoch_seconds is None:
         return
     first = float(first_response_event_at_epoch_seconds)
     started = float(started_at_epoch_seconds)

@@ -128,6 +128,21 @@ def test_format_delegate_trace_includes_llm_call_trace_tokens() -> None:
     assert "streaming=false" in joined
 
 
+def test_format_delegate_trace_includes_requested_and_effective_streaming() -> None:
+    parts = format_delegate_trace_timing_parts(
+        {
+            "wall_seconds": 10.0,
+            "llm_call_trace": {
+                "streaming_requested": True,
+                "streaming_supported": False,
+                "streaming_effective": False,
+            },
+        }
+    )
+    joined = " ".join(parts)
+    assert "streaming=requested=true effective=false" in joined
+
+
 def test_format_delegate_trace_includes_streaming_phase_timing() -> None:
     parts = format_delegate_trace_timing_parts(
         {

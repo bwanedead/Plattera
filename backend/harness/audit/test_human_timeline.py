@@ -48,7 +48,7 @@ def test_timeline_renders_parent_llm_call_trace(tmp_path: Path) -> None:
     assert "prompt=187161" in body
     assert "input=40086" in body
     assert "cached=1200" in body
-    assert "streaming: requested=false supported=true" in body
+    assert "streaming: requested=false supported=true effective=false" in body
     assert "first_event:" not in body
     assert "provider_wait:" not in body
 
@@ -82,6 +82,7 @@ def test_timeline_renders_streaming_first_event_timing(tmp_path: Path) -> None:
     assert "first_event: 4.0s" in body
     assert "provider_wait: 4.0s" in body
     assert "response_stream: 6.0s" in body
+    assert "streaming: requested=true supported=true effective=true" in body
 
 
 def test_timeline_renders_host_hydration_and_output_gate(tmp_path: Path) -> None:

@@ -48,6 +48,7 @@ def instrument_model_caller(
             kwargs=kwargs,
             call_options=call_opts,
         )
+        streaming_effective = streaming_requested and streaming_supported
         try:
             result = caller(prompt, model, **kwargs)
             finished = time.time()
@@ -61,6 +62,7 @@ def instrument_model_caller(
                 finished_at_epoch_seconds=finished,
                 streaming_requested=streaming_requested,
                 streaming_supported=streaming_supported,
+                streaming_effective=streaming_effective,
                 service_tier_requested=extract_service_tier_requested(
                     kwargs=kwargs,
                     call_options=call_opts,
@@ -85,6 +87,7 @@ def instrument_model_caller(
                 prompt_char_count=prompt_chars,
                 streaming_requested=streaming_requested,
                 streaming_supported=streaming_supported,
+                streaming_effective=streaming_effective,
                 service_tier_requested=extract_service_tier_requested(
                     kwargs=kwargs,
                     call_options=call_opts,

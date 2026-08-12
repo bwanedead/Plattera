@@ -447,6 +447,78 @@ def test_default_model_caller_passes_through_call_options(monkeypatch) -> None:
         reset_registry_for_tests()
 
 
+def test_default_model_caller_downgrades_streaming_when_provider_cannot_stream(monkeypatch) -> None:
+    """Run-context streaming request must not fail a non-streaming provider."""
+    from services.llm.base import LLMService
+    from services.registry import ServiceRegistry, reset_registry_for_tests
+
+    from harness.runtime.llm.llm_call_trace import extract_streaming_requested
+    from harness.runtime.llm.streaming_config import apply_streaming_to_call_options
+    from services.llm.call_options import LlmCallOptions
+
+    reset_registry_for_tests()
+    received: list[dict[str, object]] = []
+
+    class StrictNonStreaming(LLMService):
+        name = "meta"
+        models = {"muse-spark-1.2-contributor": {"context_window_tokens": 1_048_576}}
+
+        def is_available(self) -> bool:
+            return True
+
+        def supports_streaming(self) -> bool:
+            return False
+
+        def call_text(self, prompt: str, model: str, **kwargs):
+            streaming = extract_streaming_requested(
+                kwargs=kwargs,
+                call_options=kwargs.get("call_options"),
+            )
+            received.append({"streaming": streaming, "call_options": kwargs.get("call_options")})
+            if streaming:
+                return {
+                    "success": False,
+                    "error": "streaming_unsupported",
+                    "finish_reason": "streaming_unsupported",
+                    "text": None,
+                    "model": model,
+                }
+            return {"success": True, "text": '{"ok":true}', "model": model}
+
+        def call_vision(self, prompt: str, image_data: str, model: str, **kwargs):
+            return self.call_text(prompt, model, **kwargs)
+
+    reg = ServiceRegistry(discover=False)
+    reg.accept_llm_service(StrictNonStreaming())
+    monkeypatch.setattr("services.registry._registry", reg)
+    monkeypatch.setattr(
+        "harness.runtime.llm.provider_model_caller.get_registry",
+        lambda: reg,
+    )
+    try:
+        caller = runner_module._build_default_model_caller(
+            model_name="muse-spark-1.2-contributor"
+        )
+        original = LlmCallOptions(output_mode="json_object", phase="choose_action")
+        opts = apply_streaming_to_call_options(
+            original,
+            run_context={"llm_streaming": True},
+        )
+        assert opts.streaming is True
+        result = caller("prompt text", "muse-spark-1.2-contributor", call_options=opts)
+        assert result["success"] is True
+        assert result["text"] == '{"ok":true}'
+        assert received[0]["streaming"] is False
+        assert opts.streaming is True
+        trace = result["llm_call_trace"]
+        assert trace["streaming_requested"] is True
+        assert trace["streaming_supported"] is False
+        assert trace["streaming_effective"] is False
+        assert trace["provider"] == "meta"
+    finally:
+        reset_registry_for_tests()
+
+
 def test_default_model_caller_does_not_construct_openai_service_directly(monkeypatch) -> None:
     from services.llm.base import LLMService
     from services.registry import ServiceRegistry, reset_registry_for_tests

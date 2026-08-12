@@ -336,9 +336,16 @@ def _format_llm_call_trace_lines(trace: Mapping[str, Any], *, indent: str = "") 
             f"returned={tier_returned if tier_returned is not None else 'null'}"
         )
     if trace.get("streaming_requested") is not None or trace.get("streaming_supported") is not None:
+        requested = bool(trace.get("streaming_requested"))
+        supported = bool(trace.get("streaming_supported", True))
+        if "streaming_effective" in trace:
+            effective = bool(trace.get("streaming_effective"))
+        else:
+            effective = requested and supported
         lines.append(
-            f"{indent}- streaming: requested={str(bool(trace.get('streaming_requested'))).lower()} "
-            f"supported={str(bool(trace.get('streaming_supported', True))).lower()}"
+            f"{indent}- streaming: requested={str(requested).lower()} "
+            f"supported={str(supported).lower()} "
+            f"effective={str(effective).lower()}"
         )
     if trace.get("retry_count_observed") is not None:
         lines.append(f"{indent}- retries observed: {trace['retry_count_observed']}")
