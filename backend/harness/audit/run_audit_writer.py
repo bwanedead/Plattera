@@ -17,11 +17,20 @@ import os
 import shutil
 import tempfile
 from pathlib import Path
+from collections.abc import Mapping
 from typing import Any
 
 from .event_log import AuditEventLog
 from .human_timeline import write_human_timeline
 from .normalize import audit_jsonable
+from .terminal_projection import (
+    CANONICAL_PROJECTION_FIELDS,
+    PROJECTION_KIND_NATIVE,
+    PROJECTION_KIND_OVERRIDE,
+    build_terminal_projection,
+    effective_iterations,
+    render_run_level_override_section,
+)
 from harness.terminal_taxonomy import classify_terminal_artifact_posture
 
 _LOG = logging.getLogger(__name__)
@@ -174,11 +183,32 @@ class RunAuditWriter:
         try:
             self._dir.mkdir(parents=True, exist_ok=True)
             merged_turns = self._merge_turns_with_disk()
+            iterations = effective_iterations(iterations, merged_turns)
+            projection = build_terminal_projection(
+                projection_kind=PROJECTION_KIND_NATIVE,
+                terminal_class=terminal_class,
+                reason_code=reason_code,
+                iterations=iterations,
+                latest_refs=latest_refs,
+            )
+            terminal_class = str(projection["terminal_class"])
+            reason_code = str(projection["reason_code"])
+            iterations = int(projection["iterations"])
+            latest_refs = dict(projection["latest_refs"])
             self._write_index(run_id, terminal_class, reason_code, iterations, latest_refs, merged_turns)
-            self._write_review(terminal_class, reason_code, iterations, trace_events, latest_refs, merged_turns)
+            self._write_review(
+                terminal_class,
+                reason_code,
+                iterations,
+                trace_events,
+                latest_refs,
+                merged_turns,
+                terminal_projection=projection,
+            )
             write_human_timeline(
                 self._dir,
                 merged_turns,
+                terminal_projection=projection,
                 upstream_run_lineage=self._upstream_run_lineage,
             )
         except Exception:
@@ -267,6 +297,7 @@ class RunAuditWriter:
         trace_events: list[dict[str, Any]],
         latest_refs: dict[str, Any],
         turns: list[dict[str, Any]] | None = None,
+        terminal_projection: dict[str, Any] | None = None,
     ) -> None:
         turns = turns if turns is not None else self._turns
         lines = _build_review_lines(
@@ -276,7 +307,7 @@ class RunAuditWriter:
             iterations=iterations,
             trace_events=trace_events,
             latest_refs=latest_refs,
-            run_terminal_override=None,
+            terminal_projection=terminal_projection,
         )
         (self._dir / "review.md").write_text("\n".join(lines) + "\n", encoding="utf-8")  # type: ignore[operator]
 
@@ -324,21 +355,24 @@ def rewrite_terminal_artifacts(
         last_turn_index = int(turns[-1].get("turn_index") or 0) if turns else None
         session_id = str((turns[-1].get("session_id") if turns else "") or "")
         request_id = str((turns[-1].get("request_id") if turns else "") or "")
-        override_payload = {
-            "terminal_class": terminal_class,
-            "reason_code": reason_code,
-            "iterations": iterations,
-            "latest_refs": latest_refs,
-            "terminal_decision": terminal_decision,
-            "run_id": run_id or None,
-            "session_id": session_id or None,
-            "request_id": request_id or None,
-        }
+        iterations = effective_iterations(iterations, turns)
+        projection = build_terminal_projection(
+            projection_kind=PROJECTION_KIND_OVERRIDE,
+            terminal_class=terminal_class,
+            reason_code=reason_code,
+            iterations=iterations,
+            latest_refs=latest_refs,
+            terminal_decision=terminal_decision,
+        )
+        terminal_class = str(projection["terminal_class"])
+        reason_code = str(projection["reason_code"])
+        iterations = int(projection["iterations"])
+        latest_refs = dict(projection["latest_refs"])
         existing_lineage = _read_existing_upstream_run_lineage(audit_dir)
         write_human_timeline(
             audit_dir,
             turns,
-            run_terminal_override=override_payload,
+            terminal_projection=projection,
             upstream_run_lineage=existing_lineage,
         )
         terminal_artifact_posture = classify_terminal_artifact_posture(
@@ -361,14 +395,16 @@ def rewrite_terminal_artifacts(
             audit_dir / "index.json",
             index_payload,
         )
-        event_log.append(
-            "run_terminal_override",
-            override_payload,
-            turn_index=last_turn_index,
-            run_id=run_id,
-            session_id=session_id or None,
-            request_id=request_id or None,
-        )
+        last_override = _last_event_of_kind(audit_dir, "run_terminal_override")
+        if last_override is None or not _override_event_matches(last_override, projection):
+            event_log.append(
+                "run_terminal_override",
+                dict(projection),
+                turn_index=last_turn_index,
+                run_id=run_id,
+                session_id=session_id or None,
+                request_id=request_id or None,
+            )
         lines = _build_review_lines(
             turns=turns,
             terminal_class=terminal_class,
@@ -376,7 +412,7 @@ def rewrite_terminal_artifacts(
             iterations=iterations,
             trace_events=trace_events,
             latest_refs=latest_refs,
-            run_terminal_override=override_payload,
+            terminal_projection=projection,
         )
         (audit_dir / "review.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
     except Exception:
@@ -405,7 +441,7 @@ def _build_review_lines(
     iterations: int,
     trace_events: list[dict[str, Any]],
     latest_refs: dict[str, Any],
-    run_terminal_override: dict[str, Any] | None = None,
+    terminal_projection: dict[str, Any] | None = None,
 ) -> list[str]:
     tool_seq = _extract_tool_sequence(trace_events)
     repairs = sum(1 for t in turns if t.get("repair_attempted"))
@@ -431,15 +467,14 @@ def _build_review_lines(
         lines.extend(f"- {entry}" for entry in tool_seq)
     else:
         lines.append("*(none recorded)*")
-    if run_terminal_override:
-        lines += [
-            "",
-            "## Run-Level Terminal Override",
-            f"- terminal_class: `{run_terminal_override.get('terminal_class') or 'unknown'}`",
-            f"- reason_code: `{run_terminal_override.get('reason_code') or 'unknown'}`",
-            f"- terminal_decision: `{run_terminal_override.get('terminal_decision') or 'unknown'}`",
-        ]
-    lines += ["", "## Per-Turn Summary"]
+    lines.append("")
+    lines.extend(
+        render_run_level_override_section(
+            terminal_projection,
+            fence_values=True,
+        )
+    )
+    lines += ["## Per-Turn Summary"]
     for t in turns:
         tidx = t.get("turn_index", "?")
         action = (t.get("tool_request") or {}).get("action_type") or (
@@ -505,6 +540,39 @@ def _final_artifact_posture(turns: list[dict[str, Any]]) -> str | None:
         if action_type == "save_workspace_artifact":
             return "working"
     return None
+
+
+def _last_event_of_kind(audit_dir: Path, kind: str) -> dict[str, Any] | None:
+    path = audit_dir / "events.jsonl"
+    if not path.is_file():
+        return None
+    last: dict[str, Any] | None = None
+    try:
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            record = json.loads(line)
+            if isinstance(record, dict) and record.get("kind") == kind:
+                last = record
+    except Exception:
+        return last
+    return last
+
+
+def _canonical_projection_slice(source: Mapping[str, Any]) -> dict[str, Any]:
+    sliced: dict[str, Any] = {key: source.get(key) for key in CANONICAL_PROJECTION_FIELDS}
+    refs = sliced.get("latest_refs")
+    sliced["latest_refs"] = dict(refs) if isinstance(refs, Mapping) else {}
+    return sliced
+
+
+def _override_event_matches(event: Mapping[str, Any], projection: Mapping[str, Any]) -> bool:
+    payload = event.get("payload")
+    if not isinstance(payload, Mapping):
+        return False
+    return audit_jsonable(_canonical_projection_slice(payload)) == audit_jsonable(
+        _canonical_projection_slice(projection)
+    )
 
 
 def _load_turn_records(audit_dir: Path) -> list[dict[str, Any]]:

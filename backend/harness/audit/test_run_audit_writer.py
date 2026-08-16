@@ -6,7 +6,12 @@ from typing import Any
 
 import pytest
 
-from harness.audit.run_audit_writer import RunAuditWriter, _extract_tool_sequence, _write_json_atomic
+from harness.audit.run_audit_writer import (
+    RunAuditWriter,
+    _extract_tool_sequence,
+    _write_json_atomic,
+    rewrite_terminal_artifacts,
+)
 from harness.runtime.orchestration.contracts import ActionPlan
 
 
@@ -744,4 +749,214 @@ def test_finalize_recovers_full_audit_from_disk_turn_files(tmp_path: Path) -> No
 
     # Final artifact projection must surface the working save from disk-only turn 20.
     assert "working" in timeline or "published" in timeline
+
+
+def _assert_terminal_artifacts_agree(
+    run_dir: Path,
+    *,
+    terminal_class: str,
+    reason_code: str,
+    iterations: int,
+    expect_override_section: bool,
+) -> None:
+    audit_dir = run_dir / "audit"
+    idx = json.loads((audit_dir / "index.json").read_text(encoding="utf-8"))
+    review = (audit_dir / "review.md").read_text(encoding="utf-8")
+    timeline = (audit_dir / "human" / "timeline.md").read_text(encoding="utf-8")
+    assert idx["terminal_class"] == terminal_class
+    assert idx["reason_code"] == reason_code
+    assert idx["iterations"] == iterations
+    assert f"**Terminal:** `{terminal_class}`" in review
+    assert f"**Reason:** `{reason_code}`" in review
+    assert f"**Iterations:** {iterations}" in review
+    run_summary, _, remainder = timeline.partition("## Final Run Summary")
+    assert f"- terminal_class: {terminal_class}" in run_summary
+    assert f"- reason_code: {reason_code}" in run_summary
+    assert f"- iterations: {iterations}" in run_summary
+    assert f"- terminal_class: {terminal_class}" in remainder
+    assert f"- reason_code: {reason_code}" in remainder
+    assert f"- iterations: {iterations}" in remainder
+    expected = 1 if expect_override_section else 0
+    assert timeline.count("## Run-Level Terminal Override") == expected
+    assert review.count("## Run-Level Terminal Override") == expected
+
+
+@pytest.mark.parametrize(
+    ("terminal_class", "reason_code", "iterations"),
+    [
+        ("completed", "complete_run", 1),
+        ("failed", "model_call_failed", 1),
+        ("exhausted", "max_iterations_reached", 2),
+        ("waiting_human", "waiting_human_feedback", 1),
+    ],
+)
+def test_native_finalize_projects_canonical_terminal_state(
+    tmp_path: Path,
+    terminal_class: str,
+    reason_code: str,
+    iterations: int,
+) -> None:
+    run_dir = tmp_path / "run-native"
+    writer = RunAuditWriter(run_dir)
+    for turn_index in range(1, iterations + 1):
+        writer.observe_llm_io({"turn_index": turn_index, "parse_ok": True})
+    writer.finalize(
+        terminal_class=terminal_class,
+        reason_code=reason_code,
+        iterations=iterations,
+        latest_refs={"doc": "ref://doc"},
+        trace_events=[],
+    )
+    _assert_terminal_artifacts_agree(
+        run_dir,
+        terminal_class=terminal_class,
+        reason_code=reason_code,
+        iterations=iterations,
+        expect_override_section=False,
+    )
+
+
+def test_finalize_effective_iterations_from_retained_turn(tmp_path: Path) -> None:
+    run_dir = tmp_path / "run-effective-iter"
+    writer = RunAuditWriter(run_dir)
+    writer.observe_llm_io({"turn_index": 1, "parse_ok": False, "parse_reason_code": "model_call_failed"})
+    writer.finalize(
+        terminal_class="failed",
+        reason_code="model_call_failed",
+        iterations=0,
+        latest_refs={},
+        trace_events=[],
+    )
+    _assert_terminal_artifacts_agree(
+        run_dir,
+        terminal_class="failed",
+        reason_code="model_call_failed",
+        iterations=1,
+        expect_override_section=False,
+    )
+
+
+def test_in_progress_refresh_before_finalize(tmp_path: Path) -> None:
+    run_dir = tmp_path / "run-in-progress"
+    writer = RunAuditWriter(run_dir)
+    writer.observe_llm_io({"turn_index": 1, "parse_ok": True})
+    timeline = (run_dir / "audit" / "human" / "timeline.md").read_text(encoding="utf-8")
+    assert "terminal_class: in_progress" in timeline
+    assert "Run-Level Terminal Override" not in timeline
+    assert "- reason_code:" not in timeline.split("## Run Summary")[1].split("TURN")[0]
+
+
+def test_native_refinalize_does_not_duplicate_terminal_sections(tmp_path: Path) -> None:
+    run_dir = tmp_path / "run-refinalize"
+    writer = RunAuditWriter(run_dir)
+    writer.observe_llm_io({"turn_index": 1, "parse_ok": True})
+    kwargs = {
+        "terminal_class": "completed",
+        "reason_code": "complete_run",
+        "iterations": 1,
+        "latest_refs": {},
+        "trace_events": [],
+    }
+    writer.finalize(**kwargs)
+    writer.finalize(**kwargs)
+    timeline = (run_dir / "audit" / "human" / "timeline.md").read_text(encoding="utf-8")
+    review = (run_dir / "audit" / "review.md").read_text(encoding="utf-8")
+    assert timeline.count("## Run Summary") == 1
+    assert timeline.count("## Final Run Summary") == 1
+    assert "Run-Level Terminal Override" not in timeline
+    assert review.count("**Terminal:**") == 1
+    _assert_terminal_artifacts_agree(
+        run_dir,
+        terminal_class="completed",
+        reason_code="complete_run",
+        iterations=1,
+        expect_override_section=False,
+    )
+
+
+def test_rewrite_terminal_artifacts_override_is_idempotent(tmp_path: Path) -> None:
+    run_dir = tmp_path / "run-rewrite"
+    writer = RunAuditWriter(run_dir)
+    writer.observe_llm_io({"turn_index": 1, "parse_ok": True, "terminal_decision": "wait_for_human"})
+    writer.finalize(
+        terminal_class="waiting_human",
+        reason_code="waiting_human_feedback",
+        iterations=1,
+        latest_refs={},
+        trace_events=[],
+    )
+    rewrite_kwargs = {
+        "terminal_class": "paused",
+        "reason_code": "paused_by_operator",
+        "iterations": 1,
+        "latest_refs": {},
+        "trace_events": [],
+        "terminal_decision": "paused",
+        "run_id": "run-rewrite",
+    }
+    rewrite_terminal_artifacts(run_dir, **rewrite_kwargs)
+    rewrite_terminal_artifacts(run_dir, **rewrite_kwargs)
+    _assert_terminal_artifacts_agree(
+        run_dir,
+        terminal_class="paused",
+        reason_code="paused_by_operator",
+        iterations=1,
+        expect_override_section=True,
+    )
+    events = [
+        json.loads(line)
+        for line in (run_dir / "audit" / "events.jsonl").read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    override_events = [event for event in events if event.get("kind") == "run_terminal_override"]
+    assert len(override_events) == 1
+    payload = override_events[0]["payload"]
+    assert payload["projection_kind"] == "override"
+    assert payload["terminal_class"] == "paused"
+    assert payload["reason_code"] == "paused_by_operator"
+    assert payload["latest_refs"] == {}
+
+
+def _override_events(run_dir: Path) -> list[dict[str, Any]]:
+    return [
+        json.loads(line)
+        for line in (run_dir / "audit" / "events.jsonl").read_text(encoding="utf-8").splitlines()
+        if line.strip() and json.loads(line).get("kind") == "run_terminal_override"
+    ]
+
+
+def test_rewrite_changed_latest_refs_appends_new_override_event(tmp_path: Path) -> None:
+    run_dir = tmp_path / "run-rewrite-refs"
+    writer = RunAuditWriter(run_dir)
+    writer.observe_llm_io({"turn_index": 1, "parse_ok": True, "terminal_decision": "wait_for_human"})
+    writer.finalize(
+        terminal_class="waiting_human",
+        reason_code="waiting_human_feedback",
+        iterations=1,
+        latest_refs={"doc": "ref://a"},
+        trace_events=[],
+    )
+    rewrite_kwargs = {
+        "terminal_class": "paused",
+        "reason_code": "paused_by_operator",
+        "iterations": 1,
+        "trace_events": [],
+        "terminal_decision": "paused",
+        "run_id": "run-rewrite-refs",
+    }
+    rewrite_terminal_artifacts(run_dir, latest_refs={"doc": "ref://a"}, **rewrite_kwargs)
+    rewrite_terminal_artifacts(run_dir, latest_refs={"doc": "ref://a"}, **rewrite_kwargs)
+    assert len(_override_events(run_dir)) == 1
+    rewrite_terminal_artifacts(run_dir, latest_refs={"doc": "ref://b"}, **rewrite_kwargs)
+    override_events = _override_events(run_dir)
+    assert len(override_events) == 2
+    assert override_events[-1]["payload"]["latest_refs"] == {"doc": "ref://b"}
+    assert override_events[0]["payload"]["latest_refs"] == {"doc": "ref://a"}
+    _assert_terminal_artifacts_agree(
+        run_dir,
+        terminal_class="paused",
+        reason_code="paused_by_operator",
+        iterations=1,
+        expect_override_section=True,
+    )
 

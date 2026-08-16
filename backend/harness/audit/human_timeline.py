@@ -28,6 +28,7 @@ from typing import Any
 
 from harness.audit.artifact_ref_links import ArtifactLinkContext, build_run_ref_path_index
 from harness.audit.artifact_ref_links import format_ref_with_link, resolve_artifact_image_link
+from harness.audit.terminal_projection import render_run_level_override_section
 from harness.audit.upstream_run_lineage_timeline import render_upstream_runs_section
 from harness.audit.delegate_subtask_timeline import (
     render_delegate_subtask_section,
@@ -81,20 +82,22 @@ _SUBSECTION_BAR = "-" * 80
 def write_human_timeline(
     audit_dir: Path,
     turns: list[dict[str, Any]],
-    run_terminal_override: Mapping[str, Any] | None = None,
+    terminal_projection: Mapping[str, Any] | None = None,
     upstream_run_lineage: Mapping[str, Any] | None = None,
 ) -> None:
     """Render and atomic-write ``<audit_dir>/human/timeline.md`` from ``turns``.
 
     Best-effort: exceptions are logged and suppressed so audit never blocks a
-    live run.
+    live run. Terminal class/reason come from ``terminal_projection`` when the
+    audit lifecycle has finalized or reclassified; mid-run refresh omits it so
+    summaries stay ``in_progress``.
     """
     try:
         target_dir = audit_dir / "human"
         target_dir.mkdir(parents=True, exist_ok=True)
         body = render_timeline(
             turns,
-            run_terminal_override=run_terminal_override,
+            terminal_projection=terminal_projection,
             audit_dir=audit_dir,
             upstream_run_lineage=upstream_run_lineage,
         )
@@ -105,7 +108,7 @@ def write_human_timeline(
 
 def render_timeline(
     turns: list[dict[str, Any]],
-    run_terminal_override: Mapping[str, Any] | None = None,
+    terminal_projection: Mapping[str, Any] | None = None,
     audit_dir: Path | None = None,
     upstream_run_lineage: Mapping[str, Any] | None = None,
 ) -> str:
@@ -132,19 +135,9 @@ def render_timeline(
             downstream_timeline_path=timeline_path,
         )
     )
-    override = _coerce_mapping(run_terminal_override)
-    lines.extend(_render_run_projection(sorted_turns, override, summary_heading="Run Summary"))
-    if override:
-        lines.extend(
-            [
-                "## Run-Level Terminal Override",
-                "",
-                f"- terminal_class: {override.get('terminal_class') or 'unknown'}",
-                f"- reason_code: {override.get('reason_code') or 'unknown'}",
-                f"- terminal_decision: {override.get('terminal_decision') or 'unknown'}",
-                "",
-            ]
-        )
+    projection = _coerce_mapping(terminal_projection)
+    lines.extend(_render_run_projection(sorted_turns, projection, summary_heading="Run Summary"))
+    lines.extend(render_run_level_override_section(projection))
     run_dir = audit_dir.parent if audit_dir is not None else None
     run_ref_path_index = build_run_ref_path_index(
         audit_dir=audit_dir,
@@ -161,7 +154,7 @@ def render_timeline(
             )
         )
         lines.append("")
-    lines.extend(_render_run_projection(sorted_turns, override, summary_heading="Final Run Summary"))
+    lines.extend(_render_run_projection(sorted_turns, projection, summary_heading="Final Run Summary"))
     deed_output_lines = _render_deed_to_ir_final_output_section(
         sorted_turns,
         audit_dir=audit_dir,
@@ -175,26 +168,28 @@ def render_timeline(
 
 def _render_run_projection(
     turns: list[Mapping[str, Any]],
-    override: Mapping[str, Any],
+    projection: Mapping[str, Any],
     *,
     summary_heading: str,
 ) -> list[str]:
-    if not turns and not override:
+    if not turns and not projection:
         return []
     lines: list[str] = [f"## {summary_heading}", ""]
     total_duration = _run_duration_seconds(turns)
-    terminal_class = override.get("terminal_class")
+    terminal_class = projection.get("terminal_class")
     last_terminal_decision = _last_terminal_decision(turns)
-    latest_refs = _latest_refs_snapshot(turns, override)
+    latest_refs = _latest_refs_snapshot(turns, projection)
     lines.append(f"- terminal_class: {terminal_class or 'in_progress'}")
-    reason_code = override.get("reason_code")
+    reason_code = projection.get("reason_code")
     if reason_code:
         lines.append(f"- reason_code: {reason_code}")
+    if "iterations" in projection:
+        lines.append(f"- iterations: {int(projection.get('iterations') or 0)}")
     if last_terminal_decision:
         lines.append(f"- last_terminal_decision: {last_terminal_decision}")
-    override_terminal_decision = override.get("terminal_decision")
-    if override_terminal_decision and override_terminal_decision != last_terminal_decision:
-        lines.append(f"- terminal_decision: {override_terminal_decision}")
+    projection_terminal_decision = projection.get("terminal_decision")
+    if projection_terminal_decision and projection_terminal_decision != last_terminal_decision:
+        lines.append(f"- terminal_decision: {projection_terminal_decision}")
     if total_duration is not None:
         lines.append(f"- total_run_duration: {_format_duration(total_duration)}")
     else:
@@ -2009,9 +2004,9 @@ def _last_terminal_decision(turns: list[Mapping[str, Any]]) -> str | None:
 
 def _latest_refs_snapshot(
     turns: list[Mapping[str, Any]],
-    override: Mapping[str, Any],
+    projection: Mapping[str, Any],
 ) -> dict[str, Any]:
-    latest_refs = _coerce_mapping(override.get("latest_refs"))
+    latest_refs = _coerce_mapping(projection.get("latest_refs"))
     if latest_refs:
         return latest_refs
     for turn in reversed(turns):

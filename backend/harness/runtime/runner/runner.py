@@ -14,6 +14,7 @@ from dataclasses import asdict, dataclass, is_dataclass
 import json
 import logging
 import os
+import sys
 import tempfile
 from pathlib import Path
 import time
@@ -79,6 +80,29 @@ class RuntimeRunnerError(RuntimeError):
     def __init__(self, message: str, *, reason_code: str | None = None) -> None:
         super().__init__(message)
         self.reason_code = str(reason_code or message)
+
+
+def _nonblank_reason_code(value: Any) -> str | None:
+    """Return a stripped reason code only when *value* is a nonblank string."""
+    if not isinstance(value, str):
+        return None
+    stripped = value.strip()
+    return stripped or None
+
+
+def _stable_reason_code_from_exception(exc: BaseException | None) -> str:
+    """Preserve a raised exception's stable reason_code; generic fallback last."""
+    if exc is None:
+        return "runner_exception"
+    direct = _nonblank_reason_code(getattr(exc, "reason_code", None))
+    if direct is not None:
+        return direct
+    failure_record = getattr(exc, "failure_record", None)
+    if isinstance(failure_record, Mapping):
+        nested = _nonblank_reason_code(failure_record.get("reason_code"))
+        if nested is not None:
+            return nested
+    return "runner_exception"
 
 
 class RuntimeRunner:
@@ -467,12 +491,24 @@ class RuntimeRunner:
             # Always flush audit — including when the loop raises (failed runs need
             # forensic artifacts most urgently).  RunAuditWriter.finalize() is
             # best-effort and never propagates exceptions.
+            if loop_result is not None:
+                terminal_class = str(loop_result.terminal_class)
+                reason_code = loop_result.reason_code
+                iterations = int(loop_result.iterations)
+                latest_refs = dict(loop_result.latest_refs) if loop_result.latest_refs else {}
+                trace_events = list(loop_result.trace_events) if loop_result.trace_events else []
+            else:
+                terminal_class = "failed"
+                reason_code = _stable_reason_code_from_exception(sys.exc_info()[1])
+                iterations = 0
+                latest_refs = {}
+                trace_events = []
             audit_writer.finalize(
-                terminal_class=str(loop_result.terminal_class) if loop_result is not None else "failed",
-                reason_code=loop_result.reason_code if loop_result is not None else "runner_exception",
-                iterations=int(loop_result.iterations) if loop_result is not None else 0,
-                latest_refs=dict(loop_result.latest_refs) if loop_result is not None else {},
-                trace_events=list(loop_result.trace_events) if loop_result is not None else [],
+                terminal_class=terminal_class,
+                reason_code=reason_code,
+                iterations=iterations,
+                latest_refs=latest_refs,
+                trace_events=trace_events,
                 run_id=run_id,
             )
 

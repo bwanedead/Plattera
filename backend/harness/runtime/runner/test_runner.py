@@ -251,6 +251,63 @@ def test_runner_writes_mechanical_failure_for_invalid_model_json(tmp_path: Path,
     assert state.status == "failed"
 
 
+def test_runner_model_call_failed_agrees_across_terminal_artifacts(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Production-shaped provider failure after turn 1 must agree on failed/model_call_failed."""
+    adapter = FakeSurfaceAdapter(
+        calls=[],
+        surface=TurnSurface(
+            surface_id="surface-a",
+            blocks=(TurnBlock(content="block-1", metadata={}),),
+            payload={},
+            tool_bindings=(),
+        ),
+    )
+    run_id = "run-model-call-failed"
+    _seed_cli_run_state(tmp_path, monkeypatch, run_id)
+
+    def model_caller(prompt: str, model: str, **_kwargs: Any) -> dict[str, Any]:
+        del prompt, model
+        return {
+            "success": False,
+            "error": "streaming is not supported for this model",
+            "text": None,
+        }
+
+    runner = RuntimeRunner(adapter=adapter, model_caller=model_caller, targets=_targets(tmp_path))
+
+    with pytest.raises(RuntimeRunnerError) as exc_info:
+        runner.run(launch_context={"model": "gpt-5.4-mini", "run_id": run_id, "max_iterations": 2})
+
+    assert exc_info.value.reason_code == "model_call_failed"
+    result_doc = json.loads((tmp_path / "result.json").read_text(encoding="utf-8"))
+    done_doc = json.loads((tmp_path / "done.json").read_text(encoding="utf-8"))
+    assert result_doc["status"] == "failed"
+    assert result_doc["reason_code"] == "model_call_failed"
+    assert done_doc["status"] == "failed"
+    assert done_doc["reason_code"] == "model_call_failed"
+
+    audit_dir = cli_run_state.run_dir(run_id) / "audit"
+    idx = json.loads((audit_dir / "index.json").read_text(encoding="utf-8"))
+    review = (audit_dir / "review.md").read_text(encoding="utf-8")
+    timeline = (audit_dir / "human" / "timeline.md").read_text(encoding="utf-8")
+    assert idx["terminal_class"] == "failed"
+    assert idx["reason_code"] == "model_call_failed"
+    assert idx["iterations"] == 1
+    assert "**Terminal:** `failed`" in review
+    assert "**Reason:** `model_call_failed`" in review
+    assert "**Iterations:** 1" in review
+    assert "- terminal_class: failed" in timeline
+    assert "- reason_code: model_call_failed" in timeline
+    assert "- iterations: 1" in timeline
+    assert "Run-Level Terminal Override" not in timeline
+    assert "Run-Level Terminal Override" not in review
+    assert (audit_dir / "turn_0001.json").is_file()
+    assert result_doc["reason_code"] != "runner_exception"
+    assert idx["reason_code"] != "runner_exception"
+
+
 def test_runner_executes_transcript_edit_tool_and_writes_artifacts(tmp_path: Path, monkeypatch) -> None:
     dossier_root = tmp_path / "dossiers_data"
     dossier_root.mkdir()

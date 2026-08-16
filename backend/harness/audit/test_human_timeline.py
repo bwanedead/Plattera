@@ -4,6 +4,7 @@ from pathlib import Path
 
 from harness.audit.human_timeline import render_timeline
 from harness.audit.run_audit_writer import RunAuditWriter
+from harness.audit.terminal_projection import build_terminal_projection
 
 
 TIMELINE_REL = ("audit", "human", "timeline.md")
@@ -1766,3 +1767,45 @@ def test_timeline_renders_batched_read_action_summaries_when_top_level_outputs_m
     assert "course_call_candidates" in body
     assert "operations: CourseTraverse" in body
     assert "outputs_excerpt: none" not in body
+
+
+def test_native_projection_summaries_omit_override_heading() -> None:
+    body = render_timeline(
+        [{"turn_index": 1, "parse_ok": True}],
+        terminal_projection=build_terminal_projection(
+            projection_kind="native",
+            terminal_class="failed",
+            reason_code="model_call_failed",
+            iterations=1,
+        ),
+    )
+    assert body.count("## Run Summary") == 1
+    assert body.count("## Final Run Summary") == 1
+    assert "- terminal_class: failed" in body
+    assert "- reason_code: model_call_failed" in body
+    assert "- iterations: 1" in body
+    assert "Run-Level Terminal Override" not in body
+    assert body.count("- terminal_class: failed") == 2
+
+
+def test_override_projection_retains_reclassification_section() -> None:
+    body = render_timeline(
+        [{"turn_index": 1, "parse_ok": True, "terminal_decision": "wait_for_human"}],
+        terminal_projection=build_terminal_projection(
+            projection_kind="override",
+            terminal_class="stopped",
+            reason_code="stopped_by_operator",
+            iterations=1,
+            terminal_decision="stopped",
+        ),
+    )
+    assert "- terminal_class: stopped" in body
+    assert "- reason_code: stopped_by_operator" in body
+    assert body.count("## Run-Level Terminal Override") == 1
+    assert "- terminal_decision: stopped" in body.split("## Run-Level Terminal Override")[1]
+
+
+def test_render_timeline_without_projection_stays_in_progress() -> None:
+    body = render_timeline([{"turn_index": 1, "parse_ok": True}])
+    assert "terminal_class: in_progress" in body
+    assert "Run-Level Terminal Override" not in body
