@@ -12,12 +12,16 @@ from services.llm.call_options import LlmCallOptions
 from harness.runtime.llm.streaming_config import apply_streaming_to_call_options
 
 from .action_plan_parser import ModelActionParseError, parse_action_plan_response
+from .action_plan_prose_placement import normalize_misplaced_action_plan_prose
 from .contracts import ActionPlan
 from .subtasks.registry import DEFAULT_SUBTASK_REGISTRY, SubtaskProfileRegistry
 from .tool_batch_policy import DomainActionBatchPolicy, ToolBatchPolicy
 from .llm_prompt_builder import build_repair_prompt_document
 
 TextModelCaller = Callable[..., Mapping[str, Any] | str]
+
+REPAIR_METHOD_DETERMINISTIC_STRUCTURE = "deterministic_structure"
+REPAIR_METHOD_MODEL = "model"
 
 
 @dataclass(frozen=True)
@@ -29,6 +33,8 @@ class RepairAttempt:
     repair_parsed_action_plan: ActionPlan | None
     repair_error: ModelActionParseError | None
     llm_call_trace: Mapping[str, Any] | None = None
+    repair_method: str = REPAIR_METHOD_MODEL
+    repair_transformations: tuple[str, ...] = ()
 
 
 def count_attempted_actions_in_object(payload: Mapping[str, Any]) -> int | None:
@@ -149,6 +155,19 @@ def attempt_repair(
     subtask_profile_registry: SubtaskProfileRegistry = DEFAULT_SUBTASK_REGISTRY,
     run_context: Mapping[str, Any] | None = None,
 ) -> RepairAttempt:
+    parse_kwargs = {
+        "available_tool_ids": available_tool_ids,
+        "tool_batch_policies": tool_batch_policies,
+        "domain_batch_policy": domain_batch_policy,
+        "subtask_profile_registry": subtask_profile_registry,
+    }
+    deterministic = _attempt_deterministic_structure_repair(
+        previous_response_text,
+        parse_kwargs=parse_kwargs,
+    )
+    if deterministic is not None:
+        return deterministic
+
     previous_response_object, repair_targets = _derive_repair_context(
         previous_response_text, str(original_exc)
     )
@@ -172,16 +191,12 @@ def attempt_repair(
     )
     raw_repair: Any = None
     repair_trace: Mapping[str, Any] | None = None
+    transformations: tuple[str, ...] = ()
     try:
         raw_repair = model_caller(repair_prompt_text, model_name, call_options=repair_opts)
         repair_trace = _trace_from_response(raw_repair)
-        plan = parse_action_plan_response(
-            raw_repair,
-            available_tool_ids=available_tool_ids,
-            tool_batch_policies=tool_batch_policies,
-            domain_batch_policy=domain_batch_policy,
-            subtask_profile_registry=subtask_profile_registry,
-        )
+        candidate, transformations = _prepare_prose_placement_candidate(raw_repair)
+        plan = parse_action_plan_response(candidate, **parse_kwargs)
         return RepairAttempt(
             repair_prompt_text=repair_prompt_text,
             repair_raw_response_text=extract_audit_text(raw_repair),
@@ -190,6 +205,8 @@ def attempt_repair(
             repair_parsed_action_plan=plan,
             repair_error=None,
             llm_call_trace=repair_trace,
+            repair_method=REPAIR_METHOD_MODEL,
+            repair_transformations=transformations,
         )
     except ModelActionParseError as exc:
         return RepairAttempt(
@@ -200,6 +217,8 @@ def attempt_repair(
             repair_parsed_action_plan=None,
             repair_error=exc,
             llm_call_trace=repair_trace,
+            repair_method=REPAIR_METHOD_MODEL,
+            repair_transformations=transformations,
         )
     except Exception as exc:
         err = ModelActionParseError("model_caller_exception", "repair attempt raised unexpected exception")
@@ -211,7 +230,52 @@ def attempt_repair(
             repair_parsed_action_plan=None,
             repair_error=err,
             llm_call_trace=_trace_from_exception(exc) or repair_trace,
+            repair_method=REPAIR_METHOD_MODEL,
+            repair_transformations=transformations,
         )
+
+
+def _json_object_or_none(text: str) -> dict[str, Any] | None:
+    try:
+        parsed = json.loads(text)
+    except Exception:
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
+
+def _attempt_deterministic_structure_repair(
+    previous_response_text: str,
+    *,
+    parse_kwargs: Mapping[str, Any],
+) -> RepairAttempt | None:
+    candidate, transformations = _prepare_prose_placement_candidate(previous_response_text)
+    if not transformations:
+        return None
+    try:
+        plan = parse_action_plan_response(candidate, **parse_kwargs)
+    except ModelActionParseError:
+        return None
+    return RepairAttempt(
+        repair_prompt_text="",
+        repair_raw_response_text=previous_response_text,
+        repair_parse_ok=True,
+        repair_parse_reason_code=None,
+        repair_parsed_action_plan=plan,
+        repair_error=None,
+        llm_call_trace=None,
+        repair_method=REPAIR_METHOD_DETERMINISTIC_STRUCTURE,
+        repair_transformations=transformations,
+    )
+
+
+def _prepare_prose_placement_candidate(raw: Any) -> tuple[Any, tuple[str, ...]]:
+    parsed = _json_object_or_none(extract_audit_text(raw))
+    if parsed is None:
+        return raw, ()
+    normalized = normalize_misplaced_action_plan_prose(parsed)
+    if not normalized.transformations:
+        return raw, ()
+    return json.dumps(normalized.payload, ensure_ascii=False), normalized.transformations
 
 
 def _trace_from_response(raw: Any) -> Mapping[str, Any] | None:

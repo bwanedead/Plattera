@@ -1789,6 +1789,56 @@ def test_repair_failed_audit_record_contains_reason_code() -> None:
     assert rr["repair_parsed_action_plan"] is None
 
 
+def test_choose_action_deterministic_prose_placement_skips_model_repair() -> None:
+    records: list[dict[str, Any]] = []
+    nested = {
+        "action_type": None,
+        "action_inputs": {},
+        "skip_execution": True,
+        "wait_for_human": False,
+        "complete_run": False,
+        "state_patch": {
+            "mission": {"active_mode": "investigating"},
+            "resolution": {
+                "active_item_id": "item-1",
+                "items": [
+                    {
+                        "item_id": "item-1",
+                        "title": "Unverified claim",
+                        "kind": "open_question",
+                        "status": "open",
+                    }
+                ],
+            },
+            "rationale": "Keep the authored resolution rows and record why this move earns the next close.",
+            "operator_progress_message": "Updating the resolution graph from the already-authored patch.",
+        },
+        "continuity_journal_entry": {"note": "kept at root"},
+    }
+    calls: list[str] = []
+
+    def caller(prompt: str, model: str, **_kwargs: Any) -> str:
+        del prompt, model
+        calls.append("choose_action")
+        return json.dumps(nested)
+
+    adapter = _minimal_llm_adapter(caller=caller)
+    plan = adapter.choose_action(
+        _orch_context(iterations=8, raw_llm_io_observer=_RawIoRecorder(records)),
+        projection=None,
+    )
+    assert len(calls) == 1
+    assert plan.rationale.startswith("Keep the authored resolution rows")
+    assert plan.operator_progress_message is not None
+    assert plan.state_patch is not None
+    assert "rationale" not in plan.state_patch
+    assert plan.state_patch["resolution"]["active_item_id"] == "item-1"
+    rr = records[0]["repair_records"][0]
+    assert rr["repair_method"] == "deterministic_structure"
+    assert "move_state_patch_rationale_to_root" in rr["repair_transformations"]
+    assert rr["repair_raw_response_text"] == json.dumps(nested)
+
+
 def test_clean_turn_has_empty_repair_records() -> None:
     """No repair on clean turn: repair_records is [] and repair_attempted is False."""
     records: list[dict[str, Any]] = []

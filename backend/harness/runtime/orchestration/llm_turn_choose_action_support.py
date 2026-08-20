@@ -190,6 +190,8 @@ def build_repair_audit_record(repair_attempt: RepairAttempt) -> dict[str, Any]:
         "repair_raw_response_text": repair_attempt.repair_raw_response_text,
         "repair_parse_ok": repair_attempt.repair_parse_ok,
         "repair_parse_reason_code": repair_attempt.repair_parse_reason_code,
+        "repair_method": repair_attempt.repair_method,
+        "repair_transformations": list(repair_attempt.repair_transformations),
         "repaired_action_count": repaired_count,
         "repair_parsed_action_plan": (
             jsonable(repaired_plan) if repaired_plan is not None else None
