@@ -313,7 +313,7 @@ def test_llm_turn_adapter_emits_parse_failed_prompt_event_before_raising() -> No
         prompt_event_observer=_PromptEventRecorder(payloads),
     )
 
-    with pytest.raises(ModelActionParseError):
+    with pytest.raises(RecoverableTurnFailure):
         adapter.choose_action(ctx, projection=None)
 
     assert len(payloads) == 1
@@ -856,7 +856,7 @@ def test_choose_action_repair_sets_contract_feedback_on_success() -> None:
 
 
 def test_choose_action_repair_fails_hard_on_second_failure() -> None:
-    """Both calls return invalid JSON → raises ModelActionParseError."""
+    """Both calls return invalid JSON → raises RecoverableTurnFailure after one model repair."""
     calls: list[str] = []
 
     def caller(prompt: str, model: str, **_kwargs: Any) -> str:
@@ -866,7 +866,7 @@ def test_choose_action_repair_fails_hard_on_second_failure() -> None:
     adapter = _minimal_llm_adapter(caller=caller)
     ctx = _orch_context(iterations=1)
 
-    with pytest.raises(ModelActionParseError):
+    with pytest.raises(RecoverableTurnFailure):
         adapter.choose_action(ctx, projection=None)
 
     assert len(calls) == 2
@@ -1774,7 +1774,7 @@ def test_repair_failed_audit_record_contains_reason_code() -> None:
 
     adapter = _minimal_llm_adapter(caller=caller)
 
-    with pytest.raises(ModelActionParseError):
+    with pytest.raises(RecoverableTurnFailure):
         adapter.choose_action(
             _orch_context(iterations=1, raw_llm_io_observer=_RawIoRecorder(records)),
             projection=None,
@@ -1787,6 +1787,7 @@ def test_repair_failed_audit_record_contains_reason_code() -> None:
     assert rr["repair_parse_ok"] is False
     assert rr["repair_parse_reason_code"] == "invalid_model_action_json"
     assert rr["repair_parsed_action_plan"] is None
+    assert rec["recovery_disposition"] == "queued_turn_recovery"
 
 
 def test_choose_action_deterministic_prose_placement_skips_model_repair() -> None:

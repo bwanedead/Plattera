@@ -30,6 +30,7 @@ from .llm_prompt_builder import (
     prompt_visible_launch_context,
 )
 from .llm_turn_choose_action_support import (
+    build_bounded_contract_feedback,
     build_llm_io_audit_record,
     build_repair_audit_record,
     provider_audit_fields,
@@ -42,7 +43,7 @@ from .llm_turn_lifecycle import (
     emit_prompt_event_observability,
     resolve_choose_action_prompt_mode,
 )
-from .recoverable_turn_failure import RecoverableTurnFailure, is_recoverable_output_failure
+from .recoverable_turn_failure import RecoverableTurnFailure, is_recoverable_output_failure, post_repair_failure
 from .repair_lane import TextModelCaller, attempt_repair, count_attempted_actions_in_text, extract_audit_text
 from .result_delivery_hooks import acknowledge_prompt_result_delivery_contact
 from .resumable_model_interruption import ResumableModelInterruption
@@ -326,12 +327,12 @@ class LlmTurnOrchestrationAdapter(OrchestrationAdapter):
             repair_rec = build_repair_audit_record(repair_attempt)
             repaired_plan = repair_attempt.repair_parsed_action_plan
             if repair_attempt.repair_parse_ok and repaired_plan is not None:
-                context.loop_memory.contract_feedback = {
-                    "reason_code": parse_exc.reason_code,
-                    "message": str(parse_exc),
-                    "repair_attempted": True,
-                    "repair_outcome": "repaired",
-                }
+                context.loop_memory.contract_feedback = build_bounded_contract_feedback(
+                    reason_code=parse_exc.reason_code,
+                    detail=str(parse_exc),
+                    repair_attempted=True,
+                    repair_outcome="repaired",
+                )
                 context.loop_memory.turn_recovery.clear()
                 _emit_observability(parse_ok=True, parse_reason_code="repaired")
                 _audit(
@@ -347,12 +348,12 @@ class LlmTurnOrchestrationAdapter(OrchestrationAdapter):
                 return repaired_plan
             repair_error = repair_attempt.repair_error
             assert repair_error is not None
-            context.loop_memory.contract_feedback = {
-                "reason_code": repair_error.reason_code,
-                "message": str(repair_error),
-                "repair_attempted": True,
-                "repair_outcome": "failed",
-            }
+            context.loop_memory.contract_feedback = build_bounded_contract_feedback(
+                reason_code=repair_error.reason_code,
+                detail=str(repair_error),
+                repair_attempted=True,
+                repair_outcome="failed",
+            )
             _emit_observability(parse_ok=False, parse_reason_code=repair_error.reason_code)
             _audit(
                 parse_ok=False,
@@ -363,7 +364,13 @@ class LlmTurnOrchestrationAdapter(OrchestrationAdapter):
                     extract_audit_text(raw_response)
                 ),
             )
-            raise repair_error
+            raise post_repair_failure(
+                original_exc=parse_exc,
+                repair_attempt=repair_attempt,
+                iteration=int(context.loop_memory.iterations),
+                prompt_mode=prompt_mode,
+                raw_response=raw_response,
+            ) from repair_error
         context.loop_memory.contract_feedback = {}
         context.loop_memory.turn_recovery.clear()
         _emit_observability(parse_ok=True, parse_reason_code=None)

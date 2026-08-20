@@ -13,8 +13,29 @@ from .lifecycle import lifecycle_jsonable
 from .llm_prompt_builder import jsonable
 from harness.runtime.llm.llm_call_trace import collect_llm_call_traces
 
+from .recoverable_turn_failure import PARSE_ERROR_PREVIEW_CHARS, recovery_disposition_for_audit
 from .repair_lane import RepairAttempt, extract_audit_text
 from .tool_batch_policy import ToolBatchPolicy, resolve_policies_for_action_plan_parse
+
+
+def build_bounded_contract_feedback(
+    *,
+    reason_code: str,
+    detail: str,
+    repair_attempted: bool,
+    repair_outcome: str,
+) -> dict[str, Any]:
+    """Prompt-facing contract feedback with a bounded diagnostic preview (not a full dump)."""
+    text = detail if isinstance(detail, str) else str(detail)
+    feedback: dict[str, Any] = {
+        "reason_code": str(reason_code),
+        "repair_attempted": bool(repair_attempted),
+        "repair_outcome": str(repair_outcome),
+    }
+    if text:
+        feedback["message_preview"] = text[:PARSE_ERROR_PREVIEW_CHARS]
+        feedback["message_char_count"] = len(text)
+    return feedback
 
 
 def restore_drained_image_evidence(
@@ -164,6 +185,13 @@ def build_llm_io_audit_record(
             ),
         }
     )
+    recovery_disposition = recovery_disposition_for_audit(
+        parse_ok=parse_ok,
+        parse_reason_code=parse_reason_code,
+        repair_records=repair_records,
+    )
+    if recovery_disposition is not None:
+        record["recovery_disposition"] = recovery_disposition
     if isinstance(prompt_observability_summary, Mapping) and prompt_observability_summary:
         record["prompt_observability_summary"] = dict(prompt_observability_summary)
     llm_traces = collect_llm_call_traces(

@@ -235,17 +235,16 @@ def test_runner_writes_mechanical_failure_for_invalid_model_json(tmp_path: Path,
 
     runner = RuntimeRunner(adapter=adapter, model_caller=model_caller, targets=_targets(tmp_path))
 
-    with pytest.raises(RuntimeRunnerError) as exc_info:
-        runner.run(launch_context={"model": "gpt-5.4-mini", "run_id": run_id})
+    result = runner.run(launch_context={"model": "gpt-5.4-mini", "run_id": run_id})
 
-    assert "invalid_model_action_json" in str(exc_info.value)
+    assert result.status == "failed"
+    assert result.reason_code == "recoverable_turn_failure_budget_exhausted"
     result_doc = json.loads((tmp_path / "result.json").read_text(encoding="utf-8"))
     done_doc = json.loads((tmp_path / "done.json").read_text(encoding="utf-8"))
     assert result_doc["status"] == "failed"
-    assert result_doc["reason_code"] == "invalid_model_action_json"
-    assert result_doc["error"] == "model output was not valid JSON"
+    assert result_doc["reason_code"] == "recoverable_turn_failure_budget_exhausted"
     assert done_doc["status"] == "failed"
-    assert done_doc["reason_code"] == "invalid_model_action_json"
+    assert done_doc["reason_code"] == "recoverable_turn_failure_budget_exhausted"
     state = cli_run_state.read_state(run_id)
     assert state is not None
     assert state.status == "failed"

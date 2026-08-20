@@ -116,7 +116,6 @@ _RESUME_STRUCTURED_STATE_FIELDS = (
 _TURN_RECOVERY_RUN_CONTEXT_FIELDS = (
     "iteration",
     "state_patch_feedback",
-    "contract_feedback",
     "turn_recovery",
     "hitl_state",
     "pending_hitl_requests",
