@@ -24,6 +24,7 @@ from ..domain_pack import TranscriptEditDomainPack
 from ..execution.result_views import wrap_handler_with_result_view
 from ..payloads import DossierTranscriptEditStartupInventory, TranscriptEditStartupInventory
 from ..prompting import PromptBlock
+from .tool_refusal_boundary import wrap_handler_with_refusal_boundary
 
 TRANSCRIPT_EDIT_RUNTIME_SURFACE_ID = "transcript_edit"
 _PROMPT_BLOCK_NAMESPACE = "transcript_edit.prompt_block"
@@ -109,48 +110,63 @@ def _tool_handler_entries(
     return (
         (
             "hydrate_artifact_refs",
-            wrap_handler_with_result_view(
-                make_hydrate_artifact_refs_handler(
-                    dossier_id=dossier_id,
-                    transcription_id=transcription_id,
-                    workspace_key=workspace_key,
+            wrap_handler_with_refusal_boundary(
+                wrap_handler_with_result_view(
+                    make_hydrate_artifact_refs_handler(
+                        dossier_id=dossier_id,
+                        transcription_id=transcription_id,
+                        workspace_key=workspace_key,
+                    ),
+                    action_id="hydrate_artifact_refs",
                 ),
                 action_id="hydrate_artifact_refs",
             ),
         ),
         (
             "transform_artifact",
-            wrap_handler_with_result_view(
-                make_transform_artifact_handler(
-                    dossier_id=dossier_id,
-                    transcription_id=transcription_id,
-                    workspace_key=workspace_key,
+            wrap_handler_with_refusal_boundary(
+                wrap_handler_with_result_view(
+                    make_transform_artifact_handler(
+                        dossier_id=dossier_id,
+                        transcription_id=transcription_id,
+                        workspace_key=workspace_key,
+                    ),
+                    action_id="transform_artifact",
                 ),
                 action_id="transform_artifact",
             ),
         ),
         (
             "save_workspace_artifact",
-            _make_save_handler(
-                dossier_id=dossier_id,
-                transcription_id=transcription_id,
-                workspace_key=workspace_key,
+            wrap_handler_with_refusal_boundary(
+                _make_save_handler(
+                    dossier_id=dossier_id,
+                    transcription_id=transcription_id,
+                    workspace_key=workspace_key,
+                ),
+                action_id="save_workspace_artifact",
             ),
         ),
         (
             "copy_forward_save_workspace_artifact",
-            _make_copy_forward_save_handler(
-                dossier_id=dossier_id,
-                transcription_id=transcription_id,
-                workspace_key=workspace_key,
+            wrap_handler_with_refusal_boundary(
+                _make_copy_forward_save_handler(
+                    dossier_id=dossier_id,
+                    transcription_id=transcription_id,
+                    workspace_key=workspace_key,
+                ),
+                action_id="copy_forward_save_workspace_artifact",
             ),
         ),
         (
             "publish_workspace_artifact",
-            _make_publish_handler(
-                dossier_id=dossier_id,
-                transcription_id=transcription_id,
-                workspace_key=workspace_key,
+            wrap_handler_with_refusal_boundary(
+                _make_publish_handler(
+                    dossier_id=dossier_id,
+                    transcription_id=transcription_id,
+                    workspace_key=workspace_key,
+                ),
+                action_id="publish_workspace_artifact",
             ),
         ),
     )

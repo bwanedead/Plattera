@@ -27,6 +27,7 @@ from tooling.mapping.transcript_edit.dossier_workspace_actions import (
 from tooling.mapping.transcript_edit.draft_persistence import resolve_workspace_key
 
 from ..execution.result_views import wrap_handler_with_result_view
+from .tool_refusal_boundary import apply_tool_refusal_boundary
 
 _MANIFEST_ACTION_IDS = (
     "hydrate_artifact_refs",
@@ -36,29 +37,6 @@ _MANIFEST_ACTION_IDS = (
     "publish_workspace_artifact",
 )
 _PUBLISH_ALLOWED_KEYS = frozenset({"source_revision_refs"})
-_RETRYABLE_PUBLISH_REASON_CODES = frozenset(
-    {
-        "invalid_selection_collection",
-        "invalid_selection_entry",
-        "duplicate_selected_ref",
-        "segment_selection_conflict",
-        "incomplete_segment_coverage",
-        "unexpected_segment_selection",
-        "ref_not_exact_working_revision",
-        "ref_outside_topology",
-        "source_revision_not_found",
-        "malformed_revision_document",
-        "transcript_lane_invalid",
-        "invalid_evidence_ref",
-        "unsafe_revision_content",
-        "dossier_publication_in_progress",
-        "dossier_publication_revision_write_failed",
-        "dossier_publication_pointer_write_failed",
-        # Request-shape refusals owned by this binding.
-        "source_revision_refs_required",
-        "invalid_publish_request",
-    }
-)
 
 
 class DossierRuntimeBindingError(Exception):
@@ -107,7 +85,7 @@ def build_dossier_transcript_edit_tool_bindings(
     publish = _make_publish_handler(bundle=bundle, workspace_key=workspace_key)
 
     return tuple(
-        ToolBinding(tool_id=tool_id, handler=_guard_transport(handler))
+        ToolBinding(tool_id=tool_id, handler=_guard_transport(handler, action_id=tool_id))
         for tool_id, handler in zip(
             _MANIFEST_ACTION_IDS,
             (hydrate, transform, save, copy_forward, publish),
@@ -195,69 +173,52 @@ def _make_publish_handler(
         # Exact request shape: only source_revision_refs. Key presence matters;
         # do not coerce retired singular values.
         if "source_revision_ref" in inputs:
-            return _retryable_refusal(
+            return _error_refusal(
                 "source_revision_refs_required",
                 "Dossier publish requires source_revision_refs (plural); "
                 "source_revision_ref is not accepted.",
             )
         if set(inputs.keys()) != _PUBLISH_ALLOWED_KEYS:
             if "source_revision_refs" not in inputs:
-                return _retryable_refusal(
+                return _error_refusal(
                     "source_revision_refs_required",
                     "source_revision_refs must be a JSON array of dossier-qualified exact revisions.",
                 )
-            return _retryable_refusal(
+            return _error_refusal(
                 "invalid_publish_request",
                 "Dossier publish accepts only source_revision_refs.",
             )
         refs = inputs.get("source_revision_refs")
         if type(refs) is not list:
-            return _retryable_refusal(
+            return _error_refusal(
                 "source_revision_refs_required",
                 "source_revision_refs must be a JSON array of dossier-qualified exact revisions.",
             )
-        result = publish_dossier_transcript_edit_output(
+        return publish_dossier_transcript_edit_output(
             bundle=bundle,
             workspace_key=workspace_key,
             source_revision_refs=refs,
         )
-        return _reclassify_publish_result(result)
 
     return handler
 
 
-def _reclassify_publish_result(result: Any) -> Any:
-    """Mark agent-correctable publish refusals retryable at the dossier binding boundary."""
-    if not isinstance(result, Mapping) or result.get("executed") is True:
-        return result
-    refusal = result.get("refusal")
-    if not isinstance(refusal, Mapping):
-        return result
-    code = refusal.get("reason_code")
-    if code not in _RETRYABLE_PUBLISH_REASON_CODES:
-        return result
-    out = dict(result)
-    out["refusal"] = {
-        **dict(refusal),
-        "retryable": True,
-        "blocked_by_invariant": False,
-        "blocked_by_budget": False,
-    }
-    return out
-
-
-def _guard_transport(handler: Callable[[Any], Any]) -> Callable[[Any], Any]:
+def _guard_transport(handler: Callable[[Any], Any], *, action_id: str) -> Callable[[Any], Any]:
     def wrapped(request: Any) -> Any:
         if not _is_valid_transport(request):
-            return _error_refusal(
-                "invalid_request_transport",
-                "Request must be a mapping or typed request with mapping inputs.",
+            return apply_tool_refusal_boundary(
+                action_id,
+                _error_refusal(
+                    "invalid_request_transport",
+                    "Request must be a mapping or typed request with mapping inputs.",
+                ),
             )
         try:
             raw = handler(request)
         except Exception:
-            return _exception_refusal()
-        return _normalize_tool_result(raw)
+            return apply_tool_refusal_boundary(action_id, _exception_refusal())
+        normalized = _normalize_tool_result(raw)
+        return apply_tool_refusal_boundary(action_id, normalized)
 
     return wrapped
 
@@ -299,20 +260,6 @@ def _error_refusal(code: str, message: str) -> dict[str, Any]:
             "reason_code": code,
             "retryable": False,
             "blocked_by_invariant": True,
-            "blocked_by_budget": False,
-            "missing_inputs": [],
-        },
-        "outputs": {"error": {"code": code, "message": message}},
-    }
-
-
-def _retryable_refusal(code: str, message: str) -> dict[str, Any]:
-    return {
-        "executed": False,
-        "refusal": {
-            "reason_code": code,
-            "retryable": True,
-            "blocked_by_invariant": False,
             "blocked_by_budget": False,
             "missing_inputs": [],
         },

@@ -579,3 +579,5 @@ def test_leaf_mode_composition_unchanged(tmp_path, monkeypatch) -> None:
     )
     assert refused["executed"] is False
     assert refused["refusal"]["reason_code"] == "source_revision_ref_required"
+    assert refused["refusal"]["retryable"] is True
+    assert refused["refusal"]["blocked_by_invariant"] is False

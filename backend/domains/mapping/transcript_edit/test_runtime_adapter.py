@@ -146,7 +146,8 @@ def test_publish_handler_missing_source_ref_refuses() -> None:
     assert result.executed is False
     assert result.refusal is not None
     assert result.refusal.reason_code == "source_revision_ref_required"
-    assert result.refusal.blocked_by_invariant is True
+    assert result.refusal.retryable is True
+    assert result.refusal.blocked_by_invariant is False
 
 
 def test_publish_handler_exception_becomes_refusal(monkeypatch) -> None:
@@ -187,10 +188,12 @@ def test_hydrate_refs_binding_present_with_callable_handler() -> None:
     hydrate_binding = next(b for b in bindings if b.tool_id == "hydrate_artifact_refs")
     assert callable(hydrate_binding.handler)
 
-    # Missing ref_ids returns error result
+    # Missing ref_ids returns error result (retryable at boundary)
     result = hydrate_binding.handler({"max_refs": 4})
     assert result["executed"] is False
     assert result["refusal"]["reason_code"] == "ref_ids_required"
+    assert result["refusal"]["retryable"] is True
+    assert result["refusal"]["blocked_by_invariant"] is False
 
 
 def test_transform_binding_present_with_callable_handler() -> None:

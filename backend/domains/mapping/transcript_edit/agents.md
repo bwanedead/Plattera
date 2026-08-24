@@ -16,6 +16,7 @@
 - **Dossier-mode delegate context refs:** Dossier-mode delegate context refs retain their qualified `dossier_segment` identity; the active dossier hydrator owns validation and leaf resolution. Profile `transcript_edit.visual_source_observation` allows `image`, `artifact`, and `dossier_segment` so generic allowlist checks accept the outer kind while keeping `image` for child image-evidence transport.
 - **Dossier prompt delta:** common transcript-edit doctrine remains canonical. Dossier mode adds one driver block plus the ordered dossier startup context; it treats segments as save/evidence lineages inside one instrument and requires explicit per-segment exact revisions for publication.
 - **Result views:** `execution/result_views.py` owns hydrate/transform `AgentResultView` payloads. Save/copy/publish stay exact-output only. Point-crop projection lives in `tooling/mapping/transcript_edit/point_crop_set_projection.py` (not harness memory).
+- **Refusal retryability:** `runtime_adapter/tool_refusal_boundary.py` is the sole owner of agent-correctable refusal classification for the five transcript-edit tool bindings (leaf and dossier).
 - **TranscriptEditAuthoredDraftPosture** (`working_draft_ref` / `output_draft_ref`) models the agent-authored draft only. `selected_final_ref` is not part of the domain shape.
 - `runtime_adapter/` is the only harness-facing seam; it must not author mission-state, closure, ranking, or undeclared prompt/tool truth.
 
