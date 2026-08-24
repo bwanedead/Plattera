@@ -514,7 +514,7 @@ def test_repair_prompt_document_derives_add_missing_rationale_target() -> None:
         "state_patch": None,
     }
     prior_text = json.dumps(prior_obj)
-    _, targets = _derive_repair_context(
+    _, targets, _extras = _derive_repair_context(
         prior_text,
         "rationale is required on every turn: short decision note with why-this-move and expected-gain",
     )
@@ -541,7 +541,7 @@ def test_repair_prompt_document_derives_add_missing_rationale_on_blank_rationale
         "rationale": "   ",
         "state_patch": None,
     }
-    _, targets = _derive_repair_context(
+    _, targets, _extras = _derive_repair_context(
         json.dumps(prior_obj),
         "rationale must be a non-empty string explaining why this move",
     )
@@ -556,7 +556,7 @@ def test_repair_prompt_document_does_not_derive_rationale_target_when_error_unre
         "action_inputs": {},
         "state_patch": {"closure_state": {"overall_status": "open"}},
     }
-    _, targets = _derive_repair_context(
+    _, targets, _extras = _derive_repair_context(
         json.dumps(prior_obj),
         "move closure_state under mission",
     )

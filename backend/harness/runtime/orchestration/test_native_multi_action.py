@@ -337,7 +337,7 @@ def test_resolve_policies_merges_run_context_and_surface() -> None:
 def test_derive_repair_context_flags_multi_action_native_preservation() -> None:
     prior = _live_four_crop_payload()
     prior["hydrate_next"] = ["@result.derived_ref_id"]
-    _, targets = _derive_repair_context(
+    _, targets, _extras = _derive_repair_context(
         json.dumps(prior),
         "actions cannot be mixed with action_type, action_inputs, action_batch, or top-level hydrate_next",
     )

@@ -96,12 +96,15 @@ def build_prompt_budget_report(
         blocks = surface_packet.get("blocks")
         payloads = surface_packet.get("surface_payloads")
         tool_ids = surface_packet.get("tool_ids")
+        tool_contracts = surface_packet.get("tool_contracts")
         buckets["surface_blocks"] = measure_json_chars(blocks)
         tool_part: dict[str, Any] = {}
         if payloads:
             tool_part["surface_payloads"] = payloads
         if tool_ids is not None:
             tool_part["tool_ids"] = tool_ids
+        if tool_contracts:
+            tool_part["tool_contracts"] = tool_contracts
         buckets["tool_specs_or_surface_payloads"] = measure_json_chars(tool_part or None)
 
     run_context = prompt_body.get("run_context")

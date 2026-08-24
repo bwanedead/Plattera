@@ -125,6 +125,7 @@ def build_repair_prompt_document(
     previous_response_object: dict[str, Any] | None = None,
     repair_targets: list[str] | None = None,
     repair_hints: list[str] | None = None,
+    repair_context_extras: Mapping[str, Any] | None = None,
 ) -> PromptBuildDocument:
     return _build_repair_prompt_document(
         available_tool_ids=available_tool_ids,
@@ -135,6 +136,7 @@ def build_repair_prompt_document(
         previous_response_object=previous_response_object,
         repair_targets=repair_targets,
         repair_hints=repair_hints,
+        repair_context_extras=repair_context_extras,
     )
 
 

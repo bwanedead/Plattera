@@ -22,6 +22,7 @@ from ..memory.delegate_observation_worklist_projection import (
     delegate_observation_reminder_from_context,
 )
 from harness.runtime.memory.result_delivery import ContactReceipt
+from .compact_tool_contracts import project_compact_tool_contracts
 from .contracts import OrchestratorContext, SharedStateProjection
 from .loop_health_summary import build_prompt_observability_summary
 from .prompt_modes import PromptBuildDocument, PromptMode, PromptModeSpec, require_prompt_mode_spec
@@ -64,6 +65,41 @@ _PROMPT_VISIBLE_DOMAIN_CLOSURE_POLICY_KEYS = frozenset(
         "required_output_ref_for_complete",
     }
 )
+_ALLOWED_REPAIR_CONTEXT_EXTRA_KEYS = frozenset(
+    {
+        "nonbatchable_action_type",
+        "affected_action_aliases",
+    }
+)
+_MAX_REPAIR_EXTRA_ACTION_TYPE_CHARS = 120
+_MAX_REPAIR_EXTRA_ALIASES = 8
+_MAX_REPAIR_EXTRA_ALIAS_CHARS = 64
+
+
+def _bounded_repair_context_extra(key: str, value: Any) -> Any | None:
+    """Validate repair extras without coercion; omit malformed/oversized values whole."""
+    if key == "nonbatchable_action_type":
+        if type(value) is not str:
+            return None
+        text = value.strip()
+        if not text or len(text) > _MAX_REPAIR_EXTRA_ACTION_TYPE_CHARS:
+            return None
+        return text
+    if key == "affected_action_aliases":
+        if type(value) is not list:
+            return None
+        if len(value) > _MAX_REPAIR_EXTRA_ALIASES:
+            return None
+        aliases: list[str] = []
+        for item in value:
+            if type(item) is not str:
+                return None
+            text = item.strip()
+            if not text or len(text) > _MAX_REPAIR_EXTRA_ALIAS_CHARS:
+                return None
+            aliases.append(text)
+        return aliases
+    return None
 
 
 def domain_closure_policy_for_ref_projection(
@@ -198,10 +234,19 @@ def build_turn_prompt_document(
         hot_refs=hot_refs,
         opaque_launch_context=opaque_launch_context,
     )
+    surface_packet = surface_packet_document(composed_input)
+    mode_spec = require_prompt_mode_spec(mode)
+    if mode_spec.include_compact_tool_contracts:
+        contracts = project_compact_tool_contracts(
+            composed_input.surface_payloads,
+            available_tool_ids=tuple(composed_input.tool_handlers.keys()),
+        )
+        if contracts:
+            surface_packet = {**surface_packet, "tool_contracts": contracts}
     return _assemble_prompt_document(
         mode=mode,
         doctrine_blocks=doctrine_blocks_document(composed_input),
-        surface_packet=surface_packet_document(composed_input),
+        surface_packet=surface_packet,
         run_context=_build_run_context(
             visible_launch_context,
             context,
@@ -228,6 +273,7 @@ def build_repair_prompt_document(
     previous_response_object: dict[str, Any] | None = None,
     repair_targets: list[str] | None = None,
     repair_hints: list[str] | None = None,
+    repair_context_extras: Mapping[str, Any] | None = None,
 ) -> PromptBuildDocument:
     repair_context: dict[str, Any] = {
         "prior_prompt_mode": prior_prompt_mode,
@@ -241,6 +287,17 @@ def build_repair_prompt_document(
         repair_context["repair_targets"] = repair_targets
     if repair_hints:
         repair_context["repair_hints"] = repair_hints
+    if isinstance(repair_context_extras, Mapping):
+        for key, value in repair_context_extras.items():
+            skey = str(key)
+            if skey not in _ALLOWED_REPAIR_CONTEXT_EXTRA_KEYS:
+                continue
+            if skey in repair_context or value is None:
+                continue
+            bounded = _bounded_repair_context_extra(skey, value)
+            if bounded is None:
+                continue
+            repair_context[skey] = bounded
     return _assemble_prompt_document(
         mode="repair",
         doctrine_blocks=[],
@@ -803,6 +860,8 @@ def _filter_surface_packet(surface_packet: Mapping[str, Any], spec: PromptModeSp
         filtered["surface_payloads"] = dict(surface_packet["surface_payloads"])
     if spec.include_tool_ids and surface_packet.get("tool_ids") is not None:
         filtered["tool_ids"] = list(surface_packet.get("tool_ids", []))
+    if spec.include_compact_tool_contracts and surface_packet.get("tool_contracts"):
+        filtered["tool_contracts"] = list(surface_packet.get("tool_contracts") or [])
     return filtered
 
 

@@ -1951,7 +1951,7 @@ def test_coerce_action_plan_accepts_valid_continuity_journal_entry_when_present(
 def test_derive_repair_context_returns_none_for_non_json() -> None:
     from harness.runtime.orchestration.repair_lane import _derive_repair_context
 
-    obj, targets = _derive_repair_context("not-json", "some parse error")
+    obj, targets, _extras = _derive_repair_context("not-json", "some parse error")
     assert obj is None
     assert targets == []
 
@@ -1959,7 +1959,7 @@ def test_derive_repair_context_returns_none_for_non_json() -> None:
 def test_derive_repair_context_returns_none_for_json_array() -> None:
     from harness.runtime.orchestration.repair_lane import _derive_repair_context
 
-    obj, targets = _derive_repair_context("[1, 2, 3]", "some parse error")
+    obj, targets, _extras = _derive_repair_context("[1, 2, 3]", "some parse error")
     assert obj is None
     assert targets == []
 
@@ -1978,7 +1978,7 @@ def test_derive_repair_context_derives_missing_journal_target_when_error_referen
         "operator_progress_message": None,
         # continuity_journal_entry absent
     }
-    obj, targets = _derive_repair_context(json.dumps(prior), "continuity_journal_entry is required")
+    obj, targets, _extras = _derive_repair_context(json.dumps(prior), "continuity_journal_entry is required")
     assert obj == prior
     assert "add_missing_continuity_journal_entry" in targets
 
@@ -1997,7 +1997,7 @@ def test_derive_repair_context_no_false_positive_for_absent_journal_unrelated_er
         "operator_progress_message": None,
         # continuity_journal_entry absent, but error is unrelated
     }
-    _, targets = _derive_repair_context(json.dumps(prior), "unknown action_type: bad_tool")
+    _, targets, _extras = _derive_repair_context(json.dumps(prior), "unknown action_type: bad_tool")
     # journal absence should NOT be surfaced when the error doesn't reference it
     assert "add_missing_continuity_journal_entry" not in targets
 
@@ -2018,7 +2018,7 @@ def test_derive_repair_context_derives_misplaced_closure_state_target() -> None:
         },
         "operator_progress_message": None,
     }
-    obj, targets = _derive_repair_context(json.dumps(prior), "some error")
+    obj, targets, _extras = _derive_repair_context(json.dumps(prior), "some error")
     assert obj == prior
     assert "move_state_patch_closure_state_under_mission" in targets
 
@@ -2038,7 +2038,7 @@ def test_derive_repair_context_no_false_positive_unknown_key_on_invalid_action_t
         "continuity_journal_entry": {"step": "ok"},
         "operator_progress_message": None,
     }
-    _, targets = _derive_repair_context(json.dumps(prior), "unknown action_type: bad_tool")
+    _, targets, _extras = _derive_repair_context(json.dumps(prior), "unknown action_type: bad_tool")
     assert "remove_unknown_top_level_keys" not in targets
 
 
@@ -2058,7 +2058,7 @@ def test_derive_repair_context_triggers_unknown_key_target_on_unexpected_keys_er
         "operator_progress_message": None,
         "host_only_field": "should not be here",  # triggers the unexpected-key parse error
     }
-    _, targets = _derive_repair_context(
+    _, targets, _extras = _derive_repair_context(
         json.dumps(prior), "unexpected action plan keys: host_only_field"
     )
     assert "remove_unknown_top_level_keys" in targets
@@ -2082,7 +2082,7 @@ def test_derive_repair_context_no_false_positive_for_well_placed_closure_state()
         "continuity_journal_entry": {"step": "ok"},
         "operator_progress_message": None,
     }
-    _, targets = _derive_repair_context(json.dumps(prior), "some unrelated error")
+    _, targets, _extras = _derive_repair_context(json.dumps(prior), "some unrelated error")
     assert "move_state_patch_closure_state_under_mission" not in targets
 
 

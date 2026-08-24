@@ -63,28 +63,30 @@ def count_attempted_actions_in_text(previous_response_text: str) -> int | None:
 def _derive_repair_context(
     previous_response_text: str,
     parse_error_detail: str,
-) -> tuple[dict[str, Any] | None, list[str]]:
-    """Return (previous_response_object, repair_targets) derived from the prior response.
+) -> tuple[dict[str, Any] | None, list[str], dict[str, Any]]:
+    """Return (previous_response_object, repair_targets, repair_extras).
 
     Opportunistically parses the prior response text as JSON.  When the text is a
     valid JSON object, derives structural repair targets from the known shape mistakes.
-    Returns (None, []) when the text is not parseable as a JSON object.
+    Returns (None, [], {}) when the text is not parseable as a JSON object.
     """
     previous_response_object: dict[str, Any] | None = None
     repair_targets: list[str] = []
+    repair_extras: dict[str, Any] = {}
 
     try:
         parsed = json.loads(previous_response_text)
     except Exception:
-        return None, []
+        return None, [], {}
 
     if not isinstance(parsed, dict):
-        return None, []
+        return None, [], {}
 
     previous_response_object = parsed
 
     # Derive structural repair targets from known shape mistakes.
     error_lower = parse_error_detail.lower()
+    nonbatchable_tool_id = _nonbatchable_tool_id_from_parse_error(parse_error_detail)
 
     # Missing continuity journal: only surface as a target when the parse error itself
     # explicitly referenced the field. The field is now optional, so absence alone is not
@@ -115,7 +117,13 @@ def _derive_repair_context(
     if isinstance(parsed.get("actions"), list):
         repair_targets.append("preserve_native_actions_array")
         action_count = len(parsed["actions"])
-        if action_count > 1:
+        if nonbatchable_tool_id is not None and action_count > 1:
+            repair_targets.append("select_one_nonbatchable_action_for_this_turn")
+            repair_extras["nonbatchable_action_type"] = nonbatchable_tool_id
+            aliases = _bounded_aliases_for_action_type(parsed["actions"], nonbatchable_tool_id)
+            if aliases:
+                repair_extras["affected_action_aliases"] = aliases
+        elif action_count > 1:
             repair_targets.append("preserve_multi_action_intent")
         if "exceeds per-tool cap" in error_lower or "exceeds max batch size" in error_lower:
             repair_targets.append("reduce_actions_to_tool_cap_not_single_action")
@@ -123,10 +131,53 @@ def _derive_repair_context(
             parsed.get("hydrate_next") is not None or parsed.get("hydrate_next_reason") is not None
         ):
             repair_targets.append("remove_top_level_hydrate_when_using_per_action_hydrate")
-        if "actions[" in error_lower and action_count > 1:
+        if "actions[" in error_lower and action_count > 1 and nonbatchable_tool_id is None:
             repair_targets.append("repair_or_drop_malformed_action_rows_preserve_valid_rows")
 
-    return previous_response_object, repair_targets
+    return previous_response_object, repair_targets, repair_extras
+
+
+_NONBATCHABLE_ACTION_MARKER = "action_type not batchable:"
+_MAX_AFFECTED_ALIASES = 8
+_MAX_ALIAS_CHARS = 64
+
+
+def _nonbatchable_tool_id_from_parse_error(parse_error_detail: str) -> str | None:
+    """Return tool id when detail contains the exact nonbatchable-action error form."""
+    text = parse_error_detail if isinstance(parse_error_detail, str) else str(parse_error_detail)
+    marker_at = text.find(_NONBATCHABLE_ACTION_MARKER)
+    if marker_at < 0:
+        return None
+    remainder = text[marker_at + len(_NONBATCHABLE_ACTION_MARKER) :].strip()
+    if not remainder:
+        return None
+    tool_id = remainder.split()[0].strip().rstrip(",.;")
+    if not tool_id or len(tool_id) > 120:
+        return None
+    # Exact form ends at the tool id (optionally with trailing punctuation only).
+    after = remainder[len(tool_id) :].strip().rstrip(",.;")
+    if after:
+        return None
+    return tool_id
+
+
+def _bounded_aliases_for_action_type(actions: list[Any], action_type: str) -> list[str]:
+    aliases: list[str] = []
+    for row in actions:
+        if not isinstance(row, Mapping):
+            continue
+        if str(row.get("action_type") or "") != action_type:
+            continue
+        alias = row.get("alias")
+        if type(alias) is not str:
+            continue
+        text = alias.strip()
+        if not text or len(text) > _MAX_ALIAS_CHARS:
+            continue
+        aliases.append(text)
+        if len(aliases) >= _MAX_AFFECTED_ALIASES:
+            break
+    return aliases
 
 
 def should_use_state_repair_lane(feedback: Mapping[str, Any] | None) -> bool:
@@ -168,7 +219,7 @@ def attempt_repair(
     if deterministic is not None:
         return deterministic
 
-    previous_response_object, repair_targets = _derive_repair_context(
+    previous_response_object, repair_targets, repair_extras = _derive_repair_context(
         previous_response_text, str(original_exc)
     )
     repair_prompt = build_repair_prompt_document(
@@ -179,6 +230,7 @@ def attempt_repair(
         previous_response_text=previous_response_text,
         previous_response_object=previous_response_object,
         repair_targets=repair_targets if repair_targets else None,
+        repair_context_extras=repair_extras or None,
     )
     repair_prompt_text = repair_prompt.prompt_text
     repair_opts = apply_streaming_to_call_options(

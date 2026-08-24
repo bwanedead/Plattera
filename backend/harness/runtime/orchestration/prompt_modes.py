@@ -25,6 +25,7 @@ class PromptModeSpec:
     include_surface_packet_blocks: bool
     include_surface_payloads: bool
     include_tool_ids: bool
+    include_compact_tool_contracts: bool
     run_context_fields: tuple[str, ...]
     structured_state_fields: tuple[str, ...]
     mode_packet_key: str | None
@@ -140,6 +141,7 @@ _PROMPT_MODE_SPECS: dict[PromptMode, PromptModeSpec] = {
         include_surface_packet_blocks=True,
         include_surface_payloads=True,
         include_tool_ids=True,
+        include_compact_tool_contracts=False,
         run_context_fields=_FULL_RUN_CONTEXT_FIELDS,
         structured_state_fields=_FULL_STRUCTURED_STATE_FIELDS,
         mode_packet_key=None,
@@ -152,6 +154,7 @@ _PROMPT_MODE_SPECS: dict[PromptMode, PromptModeSpec] = {
         include_surface_packet_blocks=True,
         include_surface_payloads=True,
         include_tool_ids=True,
+        include_compact_tool_contracts=False,
         run_context_fields=_STATE_REPAIR_RUN_CONTEXT_FIELDS,
         structured_state_fields=_STATE_REPAIR_STRUCTURED_STATE_FIELDS,
         mode_packet_key=None,
@@ -164,6 +167,7 @@ _PROMPT_MODE_SPECS: dict[PromptMode, PromptModeSpec] = {
         include_surface_packet_blocks=False,
         include_surface_payloads=False,
         include_tool_ids=True,
+        include_compact_tool_contracts=False,
         run_context_fields=(),
         structured_state_fields=(),
         mode_packet_key="repair_context",
@@ -176,6 +180,7 @@ _PROMPT_MODE_SPECS: dict[PromptMode, PromptModeSpec] = {
         include_surface_packet_blocks=False,
         include_surface_payloads=False,
         include_tool_ids=False,
+        include_compact_tool_contracts=False,
         run_context_fields=(),
         structured_state_fields=(),
         mode_packet_key="compaction_context",
@@ -188,6 +193,7 @@ _PROMPT_MODE_SPECS: dict[PromptMode, PromptModeSpec] = {
         include_surface_packet_blocks=True,
         include_surface_payloads=True,
         include_tool_ids=True,
+        include_compact_tool_contracts=False,
         run_context_fields=_RESUME_RUN_CONTEXT_FIELDS,
         structured_state_fields=_RESUME_STRUCTURED_STATE_FIELDS,
         mode_packet_key=None,
@@ -200,6 +206,7 @@ _PROMPT_MODE_SPECS: dict[PromptMode, PromptModeSpec] = {
         include_surface_packet_blocks=False,
         include_surface_payloads=False,
         include_tool_ids=True,
+        include_compact_tool_contracts=True,
         run_context_fields=_TURN_RECOVERY_RUN_CONTEXT_FIELDS,
         structured_state_fields=_TURN_RECOVERY_STRUCTURED_STATE_FIELDS,
         mode_packet_key=None,
