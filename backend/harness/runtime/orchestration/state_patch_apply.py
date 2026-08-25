@@ -306,6 +306,12 @@ def _repair_hint_from_rejection(
         )
     if reason_code.startswith("mission_"):
         return "Patch only allowed mission keys inside state_patch.mission."
+    if reason_code == "resolution_terminal_row_has_live_work":
+        return (
+            "A closed/earned/resolved row still carries live-work posture. "
+            "Either clear the stale live-work fields because closure is genuinely earned, "
+            "or reopen/reclassify the row because work remains."
+        )
     if reason_code.startswith("resolution_") or reason_code.startswith("items_") or reason_code.startswith("relations_"):
         return "Patch only allowed resolution keys inside state_patch.resolution."
     return None
@@ -450,6 +456,8 @@ def _build_state_patch_feedback(
             "validation_errors",
             "repair_hint",
             "repair_targets",
+            "conflicts",
+            "conflicts_omitted_count",
         ):
             if key in detail:
                 feedback[key] = detail[key]

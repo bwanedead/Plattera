@@ -13,6 +13,7 @@ from typing import Any
 from pydantic import ValidationError
 
 from ...mission_state import EvidenceLocator
+from ...mission_state.terminal_row_consistency import CLOSED_LIKE_STATUSES
 
 MAX_SHAPE_REPAIRS = 20
 MAX_SHAPE_REPAIR_PATH_CHARS = 400
@@ -34,7 +35,7 @@ READ_ONLY_PATCH_FIELDS = frozenset(
     }
 )
 
-_CLOSED_LIKE_STATUSES = frozenset({"closed", "earned", "resolved", "complete"})
+_CLOSED_LIKE_STATUSES = CLOSED_LIKE_STATUSES
 
 
 def repair_state_patch_container_shapes(

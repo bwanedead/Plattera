@@ -19,11 +19,24 @@ from .contracts import (
     new_mission_state,
     new_resolution_state,
 )
+from .terminal_row_consistency import (
+    CLOSED_LIKE_STATUSES,
+    MAX_TERMINAL_ROW_CONFLICTS,
+    REASON_RESOLUTION_TERMINAL_ROW_HAS_LIVE_WORK,
+    TerminalRowConflict,
+    TerminalRowConsistencyResult,
+    evaluate_addressed_terminal_row_consistency,
+    is_resolved_like,
+    live_work_fields_present,
+)
 
 __all__ = [
     "CLOSURE_STATE_VERSION",
     "MISSION_STATE_VERSION",
     "RESOLUTION_STATE_VERSION",
+    "CLOSED_LIKE_STATUSES",
+    "MAX_TERMINAL_ROW_CONFLICTS",
+    "REASON_RESOLUTION_TERMINAL_ROW_HAS_LIVE_WORK",
     "ClosureDimension",
     "ClosureState",
     "EvidenceLocator",
@@ -36,7 +49,12 @@ __all__ = [
     "ResolutionItemHistoryEntry",
     "ResolutionRelation",
     "ResolutionState",
+    "TerminalRowConflict",
+    "TerminalRowConsistencyResult",
     "WorkUniversePosture",
+    "evaluate_addressed_terminal_row_consistency",
+    "is_resolved_like",
+    "live_work_fields_present",
     "new_closure_state",
     "new_mission_state",
     "new_resolution_state",
