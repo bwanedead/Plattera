@@ -5,9 +5,7 @@ No semantic inference: validate or reject; restored fields are carried state onl
 
 from __future__ import annotations
 
-import json
 from collections.abc import Mapping
-from pathlib import Path
 from typing import Any
 
 from pydantic import ValidationError
@@ -652,22 +650,6 @@ def hydrate_session_manager_from_resume_payload(
     mgr = ExecutionSessionManager(executor=executor)
     mgr.hydrate_session(session)
     return mgr, None
-
-
-def load_kernel_resume_snapshot_from_path(path: Path | str) -> tuple[dict[str, Any] | None, str | None]:
-    """Read JSON file; return ``(parsed_dict, error_reason_code)``."""
-    p = Path(path)
-    try:
-        text = p.read_text(encoding="utf-8")
-    except OSError:
-        return None, "resume_snapshot_path_unreadable"
-    try:
-        doc = json.loads(text)
-    except json.JSONDecodeError:
-        return None, "resume_snapshot_json_invalid"
-    if not isinstance(doc, dict):
-        return None, "resume_snapshot_root_not_object"
-    return doc, None
 
 
 def _strict_optional_resume_str_field(

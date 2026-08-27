@@ -24,10 +24,8 @@ from harness.runtime.control import (
     consume_run_control_request,
 )
 from harness.runtime.run_control_sidecar import write_initial_run_control_sidecar
-from harness.runtime.memory.resume_snapshot import (
-    load_kernel_resume_snapshot_from_path,
-    parse_kernel_resume_snapshot,
-)
+from harness.runtime.memory.resume_snapshot import parse_kernel_resume_snapshot
+from harness.runtime.memory.resume_snapshot_storage import load_kernel_resume_snapshot_from_path
 from harness.runtime.model_failure_classifier import MODEL_RESUMABLE_REASON_CODES
 
 

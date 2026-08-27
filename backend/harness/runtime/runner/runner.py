@@ -15,7 +15,6 @@ import json
 import logging
 import os
 import sys
-import tempfile
 from pathlib import Path
 import time
 from typing import Any
@@ -40,10 +39,10 @@ from harness.runtime.run_control_sidecar import (
 )
 from harness.runtime.memory.resume_snapshot import (
     hydrate_session_manager_from_resume_payload,
-    load_kernel_resume_snapshot_from_path,
     merge_launch_latest_refs_with_resume_continuity,
     parse_kernel_resume_snapshot,
 )
+from harness.runtime.memory.resume_snapshot_storage import load_kernel_resume_snapshot_from_path
 from harness.runtime.orchestration.lifecycle import (
     KernelPromptEventTraceObserver,
     OrchestrationLifecycle,
@@ -917,6 +916,8 @@ def _build_audit_writer(
 def _build_resume_checkpoint_writer() -> Callable[[Mapping[str, Any]], None] | None:
     """Return a writer that atomically persists per-turn resume snapshots under the CLI run dir.
 
+    Latest resume stays plain ``kernel_resume.json``. Historical turns use
+    ``resume_checkpoints/turn_NNNN.json.gz`` only (no intermediate uncompressed turn file).
     No-op when the runner is not hosted inside a CLI run (no HARNESS_CLI_RUN_ID).
     """
     cli_run_id = os.environ.get("HARNESS_CLI_RUN_ID", "").strip()
@@ -924,11 +925,15 @@ def _build_resume_checkpoint_writer() -> Callable[[Mapping[str, Any]], None] | N
         return None
     try:
         from harness.cli.resume_paths import (
-            TURN_CHECKPOINTS_DIRNAME,
             kernel_resume_path,
             turn_checkpoint_path_for_next_iteration,
         )
         from harness.cli.run_state import run_dir as cli_run_dir
+        from harness.runtime.memory.resume_snapshot_storage import (
+            dumps_pretty_latest_json,
+            write_gzip_json_atomic,
+            write_plain_json_atomic,
+        )
 
         run_path = cli_run_dir(cli_run_id)
         target = kernel_resume_path(run_path)
@@ -937,34 +942,20 @@ def _build_resume_checkpoint_writer() -> Callable[[Mapping[str, Any]], None] | N
 
     def _write(snapshot: Mapping[str, Any]) -> None:
         try:
-            target.parent.mkdir(parents=True, exist_ok=True)
-            text = json.dumps(dict(snapshot), ensure_ascii=False, indent=2, sort_keys=True)
-
-            def _atomic_write(path: Path) -> None:
-                fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".tmp_resume_", suffix=".json")
-                try:
-                    with os.fdopen(fd, "w", encoding="utf-8") as f:
-                        f.write(text)
-                    os.replace(tmp, path)
-                except Exception:
-                    try:
-                        os.unlink(tmp)
-                    except OSError:
-                        pass
-                    raise
-
-            _atomic_write(target)
-            next_iteration = snapshot.get("next_iteration")
-            if isinstance(next_iteration, int) and next_iteration >= 2:
-                turn_dir = run_path / TURN_CHECKPOINTS_DIRNAME
-                turn_dir.mkdir(parents=True, exist_ok=True)
+            write_plain_json_atomic(target, text=dumps_pretty_latest_json(snapshot))
+        except Exception:
+            _LOG.warning("kernel_resume checkpoint write failed", exc_info=True)
+            return
+        next_iteration = snapshot.get("next_iteration")
+        if isinstance(next_iteration, int) and next_iteration >= 2:
+            try:
                 turn_path = turn_checkpoint_path_for_next_iteration(
                     run_dir=run_path,
                     next_iteration=next_iteration,
                 )
-                _atomic_write(turn_path)
-        except Exception:
-            _LOG.warning("kernel_resume checkpoint write failed", exc_info=True)
+                write_gzip_json_atomic(turn_path, snapshot=snapshot)
+            except Exception:
+                _LOG.warning("kernel_resume turn checkpoint write failed", exc_info=True)
 
     return _write
 

@@ -10,22 +10,23 @@ import argparse
 import json
 import subprocess
 import sys
-from pathlib import Path
 from time import time
 from typing import Any
 
 from harness.runtime.run_control_sidecar import write_initial_run_control_sidecar
 from .fork_spawn_argv import strip_launch_context_identity_for_fork
-from .resume_paths import RESUME_CHECKPOINT_FILENAME, turn_checkpoint_path
+from .resume_paths import (
+    RESUME_CHECKPOINT_FILENAME,
+    resolve_existing_turn_checkpoint,
+    turn_checkpoint_canonical_path,
+)
 from .run_id_allocator import RunIdAllocatorError, allocate_automatic_run_id
 from .run_layout import RunLayoutError
 from .run_state import new_run_state, read_state, run_dir, write_state
 from .start import _backend_cwd, _child_env, _popen_flags
 from .watchdog_spawn import spawn_run_control_watchdog
-from harness.runtime.memory.resume_snapshot import (
-    load_kernel_resume_snapshot_from_path,
-    parse_kernel_resume_snapshot,
-)
+from harness.runtime.memory.resume_snapshot import parse_kernel_resume_snapshot
+from harness.runtime.memory.resume_snapshot_storage import load_kernel_resume_snapshot_from_path
 
 
 def fork_run_from_turn(*, run_id: str, from_turn: int) -> dict[str, Any]:
@@ -42,8 +43,9 @@ def fork_run_from_turn(*, run_id: str, from_turn: int) -> dict[str, Any]:
         return {"status": "refused", "run_id": source_id, "reason_code": "missing_state"}
 
     source_run_dir = run_dir(source_id)
-    checkpoint = turn_checkpoint_path(run_dir=source_run_dir, from_turn=turn)
-    if not checkpoint.is_file():
+    checkpoint = resolve_existing_turn_checkpoint(run_dir=source_run_dir, from_turn=turn)
+    if checkpoint is None:
+        expected = turn_checkpoint_canonical_path(run_dir=source_run_dir, from_turn=turn)
         latest = source_run_dir / RESUME_CHECKPOINT_FILENAME
         suggestion = None
         if latest.is_file():
@@ -53,7 +55,7 @@ def fork_run_from_turn(*, run_id: str, from_turn: int) -> dict[str, Any]:
             "run_id": source_id,
             "reason_code": "turn_checkpoint_missing",
             "from_turn": turn,
-            "expected_checkpoint_path": str(checkpoint.resolve()),
+            "expected_checkpoint_path": str(expected.resolve()),
             "resume_latest_command": suggestion,
         }
 
@@ -201,8 +203,8 @@ def main() -> None:
         required=True,
         type=int,
         help=(
-            "Completed turn to resume after (matches resume_checkpoints/turn_NNNN.json; "
-            "snapshot next_iteration must equal N+1)."
+            "Completed turn to resume after (matches resume_checkpoints/turn_NNNN.json.gz; "
+            "legacy turn_NNNN.json still readable; snapshot next_iteration must equal N+1)."
         ),
     )
     args = parser.parse_args()

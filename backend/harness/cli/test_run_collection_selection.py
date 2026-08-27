@@ -11,10 +11,11 @@ import pytest
 from harness.cli import fork_resume as cli_fork
 from harness.cli import run_state as rs
 from harness.cli import start as cli_start
-from harness.cli.resume_paths import turn_checkpoint_path
+from harness.cli.resume_paths import turn_checkpoint_legacy_path
 from harness.cli.run_layout import BY_LOOP_KIND_DIRNAME, RunLayoutError, normalize_run_collection
 from harness.cli.start import build_stub_argv
 from harness.mission_state import new_mission_state, new_resolution_state
+from harness.runtime.memory.resume_snapshot_storage import write_plain_json_atomic
 
 
 def _minimal_valid_snapshot(*, next_iteration: int = 15) -> dict:
@@ -233,9 +234,11 @@ def test_fork_preserves_source_collection_divergent_from_loop_kind(tmp_path, mon
     )
     source_path.mkdir(parents=True, exist_ok=True)
     rs.write_state(source_state)
-    ckpt = turn_checkpoint_path(run_dir=source_path, from_turn=14)
-    ckpt.parent.mkdir(parents=True, exist_ok=True)
-    ckpt.write_text(json.dumps(_minimal_valid_snapshot(next_iteration=15)), encoding="utf-8")
+    ckpt = turn_checkpoint_legacy_path(run_dir=source_path, from_turn=14)
+    write_plain_json_atomic(
+        ckpt,
+        text=json.dumps(_minimal_valid_snapshot(next_iteration=15), ensure_ascii=False, indent=2, sort_keys=True),
+    )
 
     monkeypatch.setattr(
         cli_fork, "run_dir", lambda run_id: source_path if run_id == source_id else tmp_path / run_id

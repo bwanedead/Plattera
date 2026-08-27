@@ -534,16 +534,19 @@ python -m harness.cli.resume --run-id $runId
 
 ### Fork from a selected turn (child test run)
 
-When per-turn checkpoints exist under `resume_checkpoints/turn_NNNN.json`, fork a
+When per-turn checkpoints exist under `resume_checkpoints/turn_NNNN.json.gz`
+(legacy `turn_NNNN.json` remains readable), fork a
 **new** run from a known mid-run state without mutating the original audit history:
 
 ```powershell
 python -m harness.cli.fork_resume --run-id $runId --from-turn 18
 ```
 
-`turn_NNNN.json` is the durable state **after turn N completed**. The snapshot inside
+`turn_NNNN.json.gz` is the durable state **after turn N completed**. The snapshot inside
 carries `next_iteration = N + 1`, so `--from-turn 18` resumes at turn 19. After turn
-14 completes, use `--from-turn 14` (file `turn_0014.json`), not `turn_0015.json`.
+14 completes, use `--from-turn 14` (file `turn_0014.json.gz`), not `turn_0015.json.gz`.
+If both `.json.gz` and legacy `.json` exist for the same turn, the compressed form is
+selected; a corrupt compressed file is refused without falling back to legacy JSON.
 
 This allocates a new run id (for example `deed-to-ir-live-r00000027`), copies the
 original spawn argv (with embedded launch-context `run_id` / `workspace_id` stripped so
@@ -594,8 +597,8 @@ backend/harness/cli_artifacts/cli_runs/by_loop_kind/deed_to_ir/<runId>/
   state.json
   kernel_resume.json
   resume_checkpoints/
-    turn_0001.json
-    turn_0002.json
+    turn_0001.json.gz
+    turn_0002.json.gz
   done.json
   result.json
   stdout.log
@@ -607,6 +610,9 @@ backend/harness/cli_artifacts/cli_runs/by_loop_kind/deed_to_ir/<runId>/
     turn_0002.json
 ```
 
+Latest-run resume remains plain `kernel_resume.json`. Historical per-turn snapshots are
+written as `turn_NNNN.json.gz` only; older runs may still have uncompressed
+`turn_NNNN.json` files, which fork can read when the compressed form is absent.
 Example deed-to-IR timeline path:
 
 ```text
