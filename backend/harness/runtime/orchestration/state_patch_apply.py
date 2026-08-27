@@ -308,9 +308,14 @@ def _repair_hint_from_rejection(
         return "Patch only allowed mission keys inside state_patch.mission."
     if reason_code == "resolution_terminal_row_has_live_work":
         return (
+            "Resolution item and covered-unit patches are sparse per-field overlays. "
+            "Omitting a field preserves its existing value. "
+            "To clear next_needed_step, send it explicitly as null. "
+            "To clear requires_hitl or no_further_progress, send false. "
             "A closed/earned/resolved row still carries live-work posture. "
             "Either clear the stale live-work fields because closure is genuinely earned, "
-            "or reopen/reclassify the row because work remains."
+            "or reopen/reclassify the row because work remains. "
+            "The harness does not choose which is correct and does not apply clears automatically."
         )
     if reason_code.startswith("resolution_") or reason_code.startswith("items_") or reason_code.startswith("relations_"):
         return "Patch only allowed resolution keys inside state_patch.resolution."
@@ -458,6 +463,8 @@ def _build_state_patch_feedback(
             "repair_targets",
             "conflicts",
             "conflicts_omitted_count",
+            "conflict_identity",
+            "same_conflict_streak",
         ):
             if key in detail:
                 feedback[key] = detail[key]

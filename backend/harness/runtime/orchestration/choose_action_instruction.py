@@ -64,6 +64,8 @@ The runtime merges mechanically:
 - omitted stable fields remain unchanged
 - only included fields are overwritten
 
+Resolution item and covered-unit patches are sparse per-field overlays. Omitting a field preserves its existing value. To clear `next_needed_step`, send it explicitly as `null`. To clear `requires_hitl` or `no_further_progress`, send `false`.
+
 Existing rows:
 - send identity + changed fields only
 - do not resend stable titles, kinds, summaries, active ids, or other unchanged metadata

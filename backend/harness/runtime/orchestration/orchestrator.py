@@ -68,7 +68,10 @@ from .state_patch_apply import (
     sync_state_patch_after_committed_gate,
     sync_state_patch_when_no_step_dispatched,
 )
-from .state_patch_consistency import block_contradictory_closed_resolution_before_dispatch
+from .state_patch_consistency import (
+    REASON_STATE_PATCH_CONSISTENCY_REPAIR_BUDGET_EXHAUSTED,
+    block_contradictory_closed_resolution_before_dispatch,
+)
 from .trace_collector import KernelTraceCollector
 
 _LOG = logging.getLogger(__name__)
@@ -379,7 +382,7 @@ def run_orchestration_kernel_loop(
 
         # Earliest post-parse / pre-dispatch consistency gate: before pin, HITL,
         # user-message, observability, or policy-block paths that may commit patches.
-        if block_contradictory_closed_resolution_before_dispatch(
+        consistency_gate = block_contradictory_closed_resolution_before_dispatch(
             loop_memory=loop_memory,
             action_plan=action_plan,
             tracer=tracer,
@@ -388,7 +391,23 @@ def run_orchestration_kernel_loop(
             session_manager=session_manager,
             session_id=session_id,
             turn_completion_observer=active_lifecycle.turn_completion_observer,
-        ):
+        )
+        if consistency_gate is not None:
+            if consistency_gate.repair_budget_exhausted:
+                return build_kernel_loop_result(
+                    loop_memory=loop_memory,
+                    terminal_class="failed",
+                    reason_code=REASON_STATE_PATCH_CONSISTENCY_REPAIR_BUDGET_EXHAUSTED,
+                    iterations=iterations,
+                    session_id=session_id,
+                    run_artifact_ref=run_artifact_ref,
+                    tracer=tracer,
+                    session_manager=session_manager,
+                    terminal_summary=(
+                        "Identical terminal-row state_patch consistency repairs "
+                        "exhausted the fixed identical-conflict budget."
+                    ),
+                )
             continue
 
         patch_present = bool(action_plan.state_patch)

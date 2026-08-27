@@ -42,7 +42,9 @@ STATE_REPAIR_INSTRUCTION: str = (
     + ACTION_PLAN_SCHEMA_TEXT
     + """State-repair rules:
 - Preserve already-earned mission understanding unless current evidence actually changes it.
-- Treat state_patch_feedback as the repair target. Use its reason_code, failing_path, validation_errors, repair_targets, repair_hint, row_skips, and row_skip_details when present.
+- Treat state_patch_feedback as the repair target. Use its reason_code, failing_path, validation_errors, repair_targets, repair_hint, row_skips, row_skip_details, and state_patch_repair_bundle when present.
+- Resolution item and covered-unit patches are sparse per-field overlays. Omitting a field preserves its existing value. To clear next_needed_step, send it explicitly as null. To clear requires_hitl or no_further_progress, send false.
+- When state_patch_feedback reports a terminal-row / live-work conflict, the carried fragments were authored but not persisted. If closure remains honestly earned, merge required_clear_delta into that fragment and resubmit it. If work remains, do not apply the clear delta merely to satisfy the validator; author a nonterminal/reopened posture and retain an honest next step. The harness does not choose which is correct and does not apply clears automatically.
 - Prefer the smallest acceptable delta: patch only the failing mission.success_conditions row, closure_state dimension row, or resolution item rows instead of rewriting large blocks.
 - Keep already-earned findings, evidence refs, and closed items intact unless the repair target itself requires correction.
 - If semantic intent is still fine and only state shape was malformed, prefer a minimal no-dispatch state-authoring turn.

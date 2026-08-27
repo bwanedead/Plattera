@@ -34,10 +34,18 @@ from harness.runtime.orchestration.lifecycle import OrchestrationLifecycle
 from harness.runtime.orchestration.orchestrator import run_orchestration_kernel_loop
 from harness.runtime.orchestration.state_patch_apply import apply_state_patch
 from harness.runtime.orchestration.state_patch_consistency import (
+    MAX_IDENTICAL_TERMINAL_ROW_CONFLICT_REJECTIONS,
+    REASON_STATE_PATCH_CONSISTENCY_REPAIR_BUDGET_EXHAUSTED,
     block_contradictory_closed_resolution_before_dispatch,
     evaluate_state_patch_terminal_row_consistency,
     record_terminal_row_consistency_rejection,
 )
+from harness.runtime.orchestration.state_patch_repair_bundle import (
+    REASON_TERMINAL_ROW_LIVE_WORK,
+    build_terminal_row_consistency_repair_bundle,
+    project_state_patch_repair_bundle_for_prompt,
+)
+from harness.runtime.orchestration.repair_lane import should_use_state_repair_lane
 from harness.runtime.orchestration.trace_collector import KernelTraceCollector
 
 _PACK_CJ = {"pack_continuity_stub": True}
@@ -356,6 +364,7 @@ def test_rejection_leaves_mission_resolution_refs_and_deliveries_unchanged() -> 
         tracer=KernelTraceCollector(session_id="s", request_id="r"),
         iteration=1,
         result=result,
+        state_patch=_close_item_patch(status="closed"),
     )
 
     assert mem.continuity.mission_state == before_ms
@@ -368,6 +377,12 @@ def test_rejection_leaves_mission_resolution_refs_and_deliveries_unchanged() -> 
     assert fb["conflicts"][0]["coordinate"] == "resolution.items[item-1]"
     assert "genuinely earned" in fb["repair_hint"]
     assert "reopen/reclassify" in fb["repair_hint"]
+    assert "Omitting a field preserves" in fb["repair_hint"]
+    assert fb["same_conflict_streak"] == 1
+    bundle = fb["state_patch_repair_bundle"]
+    assert bundle["reason"] == REASON_TERMINAL_ROW_LIVE_WORK
+    assert bundle["fragments"][0]["required_clear_delta"] == {"next_needed_step": None}
+    assert should_use_state_repair_lane(fb) is True
 
 
 def test_feedback_bounds_beyond_32_conflicts() -> None:
@@ -509,9 +524,13 @@ def test_checkpoint_resume_parity_for_pre_dispatch_verdict() -> None:
         session_id="sess-resume",
         turn_completion_observer=None,
     )
-    assert blocked is True
+    assert blocked is not None
+    assert blocked.blocked is True
+    assert blocked.repair_budget_exhausted is False
     assert snapshots
     fb1 = copy.deepcopy(mem.continuity.state_patch_feedback)
+    assert fb1["same_conflict_streak"] == 1
+    assert "state_patch_repair_bundle" in fb1
 
     restored, _next_it, err = parse_kernel_resume_snapshot(snapshots[0])
     assert err is None
@@ -525,6 +544,8 @@ def test_checkpoint_resume_parity_for_pre_dispatch_verdict() -> None:
     assert result2.reason_code == fb1["reason_code"]
     assert result2.as_dict()["conflicts"] == fb1["conflicts"]
     assert result2.conflicts_omitted_count == fb1["conflicts_omitted_count"]
+    assert restored.continuity.state_patch_feedback["same_conflict_streak"] == 1
+    assert restored.continuity.state_patch_feedback["conflict_identity"] == fb1["conflict_identity"]
 
 
 def test_accepted_patch_still_merges_with_live_apply_semantics() -> None:
@@ -815,3 +836,550 @@ def test_rejected_plan_does_not_mutate_pins_hitl_user_messages_or_refs() -> None
         result.runtime_state["state_patch_feedback"]["reason_code"]
         == REASON_RESOLUTION_TERMINAL_ROW_HAS_LIVE_WORK
     )
+
+
+# --- MAPDEP-BR-023: sparse-clear bundle, streak, identical-conflict budget ---
+
+
+def test_sparse_omit_remains_conflicting_and_bundle_carries_null_clear() -> None:
+    mem = _seed_memory([_seed_item(next_needed_step="verify unit chain")])
+    patch = _close_item_patch(status="closed")
+    result = evaluate_state_patch_terminal_row_consistency(
+        mission_state=mem.continuity.mission_state,
+        resolution_state=mem.continuity.resolution_state,
+        state_patch=patch,
+    )
+    assert result is not None
+    assert result.conflicts[0].fields == ("next_needed_step",)
+    bundle = build_terminal_row_consistency_repair_bundle(state_patch=patch, result=result)
+    assert bundle is not None
+    assert bundle["reason"] == REASON_TERMINAL_ROW_LIVE_WORK
+    assert "Omitting a field preserves" in bundle["instruction"]
+    frag = bundle["fragments"][0]
+    assert frag["path"] == "resolution.items[item-1]"
+    assert frag["conflicting_fields"] == ["next_needed_step"]
+    assert frag["required_clear_delta"] == {"next_needed_step": None}
+    assert frag["fragment"]["status"] == "closed"
+    assert "next_needed_step" not in frag["fragment"]
+
+
+def test_requires_hitl_and_no_further_progress_clear_deltas() -> None:
+    mem = _seed_memory(
+        [_seed_item(next_needed_step=None, requires_hitl=True, no_further_progress=True)]
+    )
+    patch = _close_item_patch(status="closed")
+    result = evaluate_state_patch_terminal_row_consistency(
+        mission_state=mem.continuity.mission_state,
+        resolution_state=mem.continuity.resolution_state,
+        state_patch=patch,
+    )
+    assert result is not None
+    assert set(result.conflicts[0].fields) == {"requires_hitl", "no_further_progress"}
+    bundle = build_terminal_row_consistency_repair_bundle(state_patch=patch, result=result)
+    assert bundle is not None
+    assert bundle["fragments"][0]["required_clear_delta"] == {
+        "requires_hitl": False,
+        "no_further_progress": False,
+    }
+
+
+def test_only_conflicting_fields_appear_in_required_clear_delta() -> None:
+    mem = _seed_memory([_seed_item(requires_hitl=True)])
+    patch = _close_item_patch(status="closed")
+    result = evaluate_state_patch_terminal_row_consistency(
+        mission_state=mem.continuity.mission_state,
+        resolution_state=mem.continuity.resolution_state,
+        state_patch=patch,
+    )
+    assert result is not None
+    assert result.conflicts[0].fields == ("next_needed_step", "requires_hitl")
+    bundle = build_terminal_row_consistency_repair_bundle(state_patch=patch, result=result)
+    assert bundle is not None
+    assert bundle["fragments"][0]["required_clear_delta"] == {
+        "next_needed_step": None,
+        "requires_hitl": False,
+    }
+    assert "no_further_progress" not in bundle["fragments"][0]["required_clear_delta"]
+
+
+def test_resubmit_with_explicit_clears_passes_and_merges() -> None:
+    mem = _seed_memory([_seed_item()])
+    corrected = _close_item_patch(
+        status="closed",
+        next_needed_step=None,
+        requires_hitl=False,
+        no_further_progress=False,
+    )
+    assert (
+        evaluate_state_patch_terminal_row_consistency(
+            mission_state=mem.continuity.mission_state,
+            resolution_state=mem.continuity.resolution_state,
+            state_patch=corrected,
+        )
+        is None
+    )
+    _ms, rs, _ = apply_state_patch(
+        mission_state=mem.continuity.mission_state,
+        resolution_state=mem.continuity.resolution_state,
+        state_patch=corrected,
+    )
+    assert rs.items[0].status == "closed"
+    assert rs.items[0].next_needed_step is None
+
+
+def test_covered_unit_coordinate_fragment_and_parent_item_fragment() -> None:
+    mem = _seed_memory(
+        [
+            _seed_item(
+                next_needed_step="parent step",
+                covered_units=[
+                    ResolutionCoveredUnit(
+                        unit_id="unit-2",
+                        title="Unit",
+                        status="open",
+                        next_needed_step="unit step",
+                    )
+                ],
+            )
+        ]
+    )
+    patch = {
+        "resolution": {
+            "items": [
+                {
+                    "item_id": "item-1",
+                    "status": "closed",
+                    "covered_units": [{"unit_id": "unit-2", "status": "closed"}],
+                }
+            ]
+        }
+    }
+    result = evaluate_state_patch_terminal_row_consistency(
+        mission_state=mem.continuity.mission_state,
+        resolution_state=mem.continuity.resolution_state,
+        state_patch=patch,
+    )
+    assert result is not None
+    bundle = build_terminal_row_consistency_repair_bundle(state_patch=patch, result=result)
+    assert bundle is not None
+    paths = {row["path"] for row in bundle["fragments"]}
+    assert "resolution.items[item-1]" in paths
+    assert "resolution.items[item-1].covered_units[unit-2]" in paths
+    unit_frag = next(
+        row for row in bundle["fragments"] if "covered_units" in row["path"]
+    )
+    assert unit_frag["fragment"]["unit_id"] == "unit-2"
+    assert unit_frag["required_clear_delta"] == {"next_needed_step": None}
+
+
+def test_terminal_bundle_bounds_large_summary_and_strips_raw_payloads() -> None:
+    from harness.mission_state import TerminalRowConflict, TerminalRowConsistencyResult
+
+    patch = {
+        "resolution": {
+            "items": [
+                {
+                    "item_id": "item-1",
+                    "status": "closed",
+                    "summary": "S" * 5000,
+                    "raw_prompt_text": "SECRET_PROMPT",
+                    "prompt_text": "SECRET_PROMPT",
+                    "image_bytes": b"raw",
+                }
+            ]
+        }
+    }
+    result = TerminalRowConsistencyResult(
+        reason_code=REASON_RESOLUTION_TERMINAL_ROW_HAS_LIVE_WORK,
+        conflicts=(
+            TerminalRowConflict(
+                coordinate="resolution.items[item-1]",
+                fields=("next_needed_step",),
+            ),
+        ),
+        conflicts_omitted_count=0,
+    )
+    bundle = build_terminal_row_consistency_repair_bundle(state_patch=patch, result=result)
+    assert bundle is not None
+    frag = bundle["fragments"][0]["fragment"]
+    assert "raw_prompt_text" not in frag
+    assert "prompt_text" not in frag
+    assert "image_bytes" not in frag
+    serialized = str(bundle)
+    assert "SECRET_PROMPT" not in serialized
+    assert len(serialized) < 8000
+
+
+def test_terminal_bundle_reports_omission_beyond_fragment_capacity() -> None:
+    from harness.mission_state import TerminalRowConflict, TerminalRowConsistencyResult
+    from harness.runtime.orchestration.state_patch_repair_bundle import MAX_FRAGMENTS
+
+    conflicts = tuple(
+        TerminalRowConflict(
+            coordinate=f"resolution.items[item-{i}]",
+            fields=("next_needed_step",),
+        )
+        for i in range(MAX_FRAGMENTS + 4)
+    )
+    patch = {
+        "resolution": {
+            "items": [
+                {"item_id": f"item-{i}", "status": "closed"} for i in range(len(conflicts))
+            ]
+        }
+    }
+    result = TerminalRowConsistencyResult(
+        reason_code=REASON_RESOLUTION_TERMINAL_ROW_HAS_LIVE_WORK,
+        conflicts=conflicts,
+        conflicts_omitted_count=2,
+    )
+    bundle = build_terminal_row_consistency_repair_bundle(state_patch=patch, result=result)
+    assert bundle is not None
+    assert len(bundle["fragments"]) == MAX_FRAGMENTS
+    assert bundle["conflicts_omitted_count"] == 4 + 2
+
+
+def test_same_conflict_streak_increments_and_resets_on_coordinate_change() -> None:
+    mem = _seed_memory(
+        [
+            _seed_item(item_id="a", next_needed_step="stale-a"),
+            _seed_item(item_id="b", next_needed_step="stale-b"),
+        ]
+    )
+    tracer = KernelTraceCollector(session_id="s", request_id="r")
+    patch_a = _close_item_patch("a", status="closed")
+    result_a = evaluate_state_patch_terminal_row_consistency(
+        mission_state=mem.continuity.mission_state,
+        resolution_state=mem.continuity.resolution_state,
+        state_patch=patch_a,
+    )
+    assert result_a is not None
+    streak1 = record_terminal_row_consistency_rejection(
+        loop_memory=mem, tracer=tracer, iteration=1, result=result_a, state_patch=patch_a
+    )
+    assert streak1 == 1
+    assert mem.continuity.state_patch_feedback["same_conflict_streak"] == 1
+
+    streak2 = record_terminal_row_consistency_rejection(
+        loop_memory=mem, tracer=tracer, iteration=2, result=result_a, state_patch=patch_a
+    )
+    assert streak2 == 2
+
+    patch_b = _close_item_patch("b", status="closed")
+    result_b = evaluate_state_patch_terminal_row_consistency(
+        mission_state=mem.continuity.mission_state,
+        resolution_state=mem.continuity.resolution_state,
+        state_patch=patch_b,
+    )
+    assert result_b is not None
+    streak_reset = record_terminal_row_consistency_rejection(
+        loop_memory=mem, tracer=tracer, iteration=3, result=result_b, state_patch=patch_b
+    )
+    assert streak_reset == 1
+    assert mem.continuity.state_patch_feedback["same_conflict_streak"] == 1
+
+
+def test_accepted_patch_clears_prior_rejection_streak() -> None:
+    from harness.runtime.orchestration.state_patch_apply import (
+        apply_action_plan_state_patch_to_loop_memory,
+    )
+
+    mem = _seed_memory([_seed_item()])
+    tracer = KernelTraceCollector(session_id="s", request_id="r")
+    bad = _close_item_patch(status="closed")
+    result = evaluate_state_patch_terminal_row_consistency(
+        mission_state=mem.continuity.mission_state,
+        resolution_state=mem.continuity.resolution_state,
+        state_patch=bad,
+    )
+    assert result is not None
+    record_terminal_row_consistency_rejection(
+        loop_memory=mem, tracer=tracer, iteration=1, result=result, state_patch=bad
+    )
+    assert mem.continuity.state_patch_feedback["same_conflict_streak"] == 1
+
+    good = ActionPlan(
+        skip_execution=True,
+        state_patch=_close_item_patch(
+            status="closed",
+            next_needed_step=None,
+            requires_hitl=False,
+            no_further_progress=False,
+        ),
+        continuity_journal_entry=_PACK_CJ,
+    )
+    apply_action_plan_state_patch_to_loop_memory(
+        loop_memory=mem,
+        action_plan=good,
+        tracer=tracer,
+        iteration=2,
+    )
+    fb = mem.continuity.state_patch_feedback
+    assert fb["outcome"] == "applied"
+    assert "same_conflict_streak" not in fb
+
+
+class _RepeatOmitPack(_InheritSyncMixin):
+    """Repeatedly omit next_needed_step on a terminal covered-unit close."""
+
+    def __init__(self, *, max_omits: int) -> None:
+        self.max_omits = max_omits
+        self.omits = 0
+
+    def evaluate_terminal(self, context, projection):
+        return None
+
+    def choose_action(self, context, projection):
+        self.omits += 1
+        if self.omits <= self.max_omits:
+            return ActionPlan(
+                actions=(
+                    ActionPlanAction(
+                        action_type="save_workspace_artifact",
+                        action_inputs={"draft_payload": {"n": self.omits}},
+                        alias=f"save-{self.omits}",
+                    ),
+                ),
+                state_patch={
+                    "resolution": {
+                        "items": [
+                            {
+                                "item_id": "item-1",
+                                "covered_units": [
+                                    {"unit_id": "unit-2", "status": "closed"}
+                                ],
+                            }
+                        ]
+                    }
+                },
+                continuity_journal_entry=_PACK_CJ,
+            )
+        return ActionPlan(
+            skip_execution=True,
+            state_patch={
+                "resolution": {
+                    "items": [
+                        {
+                            "item_id": "item-1",
+                            "covered_units": [
+                                {
+                                    "unit_id": "unit-2",
+                                    "status": "closed",
+                                    "next_needed_step": None,
+                                }
+                            ],
+                        }
+                    ]
+                }
+            },
+            continuity_journal_entry=_PACK_CJ,
+        )
+
+
+def _seed_unit_live_work_memory() -> LoopMemoryState:
+    return _seed_memory(
+        [
+            _seed_item(
+                next_needed_step=None,
+                covered_units=[
+                    ResolutionCoveredUnit(
+                        unit_id="unit-2",
+                        title="Curve station",
+                        status="open",
+                        next_needed_step="verify station chain",
+                    )
+                ],
+            )
+        ]
+    )
+
+
+def test_three_identical_rejections_remain_retryable_fourth_exhausts() -> None:
+    assert MAX_IDENTICAL_TERMINAL_ROW_CONFLICT_REJECTIONS == 4
+    sm = RecordingSessionManager()
+    mem = _seed_unit_live_work_memory()
+    pack = _RepeatOmitPack(max_omits=10)
+    result = run_orchestration_kernel_loop(
+        orchestration_adapter=pack,
+        session_manager=sm,
+        session_id="sess-budget",
+        run_artifact_ref=None,
+        request_id_prefix="req-budget",
+        opaque_run_context={},
+        max_iterations=8,
+        initial_loop_memory=mem,
+    )
+    assert result.terminal_class == "failed"
+    assert result.reason_code == REASON_STATE_PATCH_CONSISTENCY_REPAIR_BUDGET_EXHAUSTED
+    assert sm.steps == []
+    assert sm.write_side_effects == 0
+    fb = result.runtime_state["state_patch_feedback"]
+    assert fb["same_conflict_streak"] == 4
+    assert fb["outcome"] == "rejected"
+    assert "state_patch_repair_bundle" in fb
+    assert result.terminal_summary is not None
+    assert "identical" in result.terminal_summary.lower()
+
+
+def test_corrected_patch_after_retries_succeeds_within_budget() -> None:
+    sm = RecordingSessionManager()
+    mem = _seed_unit_live_work_memory()
+    pack = _RepeatOmitPack(max_omits=2)
+
+    class _RecoverPack(_RepeatOmitPack):
+        def evaluate_terminal(self, context, projection):
+            if context.loop_memory.iterations >= 4:
+                return TerminalEvaluation(terminal_class="completed", reason_code="done")
+            return None
+
+    result = run_orchestration_kernel_loop(
+        orchestration_adapter=_RecoverPack(max_omits=2),
+        session_manager=sm,
+        session_id="sess-recover",
+        run_artifact_ref=None,
+        request_id_prefix="req-recover",
+        opaque_run_context={},
+        max_iterations=8,
+        initial_loop_memory=mem,
+    )
+    assert result.terminal_class == "completed"
+    unit = result.runtime_state["resolution_state"].items[0].covered_units[0]
+    assert unit.status == "closed"
+    assert unit.next_needed_step is None
+    assert sm.steps == []
+
+
+def test_checkpoint_at_streak_3_then_same_rejection_exhausts() -> None:
+    mem = _seed_unit_live_work_memory()
+    plan = ActionPlan(
+        actions=(
+            ActionPlanAction(
+                action_type="save_workspace_artifact",
+                action_inputs={"draft_payload": {"x": 1}},
+                alias="save",
+            ),
+        ),
+        state_patch={
+            "resolution": {
+                "items": [
+                    {
+                        "item_id": "item-1",
+                        "covered_units": [{"unit_id": "unit-2", "status": "closed"}],
+                    }
+                ]
+            }
+        },
+    )
+    snapshots: list[dict[str, Any]] = []
+
+    def _writer(snap: dict[str, Any]) -> None:
+        snapshots.append(dict(snap))
+
+    lifecycle = OrchestrationLifecycle(resume_checkpoint_writer=_writer)
+    sm = RecordingSessionManager()
+    for it in (1, 2, 3):
+        outcome = block_contradictory_closed_resolution_before_dispatch(
+            loop_memory=mem,
+            action_plan=plan,
+            tracer=KernelTraceCollector(session_id="s", request_id=f"r{it}"),
+            iteration=it,
+            lifecycle=lifecycle,
+            session_manager=sm,
+            session_id="sess-streak3",
+            turn_completion_observer=None,
+        )
+        assert outcome is not None
+        assert outcome.repair_budget_exhausted is False
+    assert mem.continuity.state_patch_feedback["same_conflict_streak"] == 3
+    assert snapshots
+
+    restored, _next_it, err = parse_kernel_resume_snapshot(snapshots[-1])
+    assert err is None
+    assert restored.continuity.state_patch_feedback["same_conflict_streak"] == 3
+
+    class _ResumeExhaust(_InheritSyncMixin):
+        def evaluate_terminal(self, context, projection):
+            return None
+
+        def choose_action(self, context, projection):
+            return plan
+
+    result = run_orchestration_kernel_loop(
+        orchestration_adapter=_ResumeExhaust(),
+        session_manager=RecordingSessionManager(),
+        session_id="sess-streak3-resume",
+        run_artifact_ref=None,
+        request_id_prefix="req-streak3-resume",
+        opaque_run_context={},
+        max_iterations=2,
+        initial_loop_memory=restored,
+    )
+    assert result.terminal_class == "failed"
+    assert result.reason_code == REASON_STATE_PATCH_CONSISTENCY_REPAIR_BUDGET_EXHAUSTED
+    assert result.runtime_state["state_patch_feedback"]["same_conflict_streak"] == 4
+
+
+def test_different_conflict_sets_do_not_prematurely_exhaust() -> None:
+    mem = _seed_memory(
+        [
+            _seed_item(item_id="a", next_needed_step="a"),
+            _seed_item(item_id="b", next_needed_step="b"),
+            _seed_item(item_id="c", next_needed_step="c"),
+            _seed_item(item_id="d", next_needed_step="d"),
+        ]
+    )
+    lifecycle = OrchestrationLifecycle()
+    sm = RecordingSessionManager()
+    for idx, item_id in enumerate(("a", "b", "c", "d"), start=1):
+        plan = ActionPlan(
+            actions=(
+                ActionPlanAction(
+                    action_type="save_workspace_artifact",
+                    action_inputs={"draft_payload": {"i": idx}},
+                    alias=f"s{idx}",
+                ),
+            ),
+            state_patch=_close_item_patch(item_id, status="closed"),
+        )
+        outcome = block_contradictory_closed_resolution_before_dispatch(
+            loop_memory=mem,
+            action_plan=plan,
+            tracer=KernelTraceCollector(session_id="s", request_id=f"r{idx}"),
+            iteration=idx,
+            lifecycle=lifecycle,
+            session_manager=sm,
+            session_id="sess-diff",
+            turn_completion_observer=None,
+        )
+        assert outcome is not None
+        assert outcome.repair_budget_exhausted is False
+        assert mem.continuity.state_patch_feedback["same_conflict_streak"] == 1
+
+
+def test_state_repair_prompt_receives_bundle_without_new_lane() -> None:
+    from harness.runtime.orchestration.repair_instruction import STATE_REPAIR_INSTRUCTION
+
+    mem = _seed_memory([_seed_item()])
+    patch = _close_item_patch(status="closed")
+    result = evaluate_state_patch_terminal_row_consistency(
+        mission_state=mem.continuity.mission_state,
+        resolution_state=mem.continuity.resolution_state,
+        state_patch=patch,
+    )
+    assert result is not None
+    record_terminal_row_consistency_rejection(
+        loop_memory=mem,
+        tracer=None,
+        iteration=1,
+        result=result,
+        state_patch=patch,
+    )
+    fb = mem.continuity.state_patch_feedback
+    assert should_use_state_repair_lane(fb) is True
+    projected = project_state_patch_repair_bundle_for_prompt(fb)
+    assert projected is not None
+    assert projected["reason"] == REASON_TERMINAL_ROW_LIVE_WORK
+    assert projected["fragments"][0]["required_clear_delta"] == {"next_needed_step": None}
+    assert "Omitting a field preserves" in STATE_REPAIR_INSTRUCTION
+    assert "state_patch_repair_bundle" in STATE_REPAIR_INSTRUCTION
+    assert "required_clear_delta" in STATE_REPAIR_INSTRUCTION

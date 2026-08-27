@@ -6,69 +6,50 @@ turn can repair integration without redoing evidence. Mechanical only.
 
 from __future__ import annotations
 
-import json
 import re
 from collections.abc import Mapping
 from typing import Any
 
+from .state_patch_repair_sanitization import (
+    json_chars,
+    sanitize_fragment,
+    truncate_mapping_values,
+)
+
 SCHEMA_VERSION = 1
 REASON_ROWS_SKIPPED = "state_patch_rows_skipped"
+REASON_TERMINAL_ROW_LIVE_WORK = "terminal_row_live_work_conflict"
 REPAIR_INSTRUCTION = (
     "Repair the rejected patch shape/content directly. "
     "Do not redo evidence unless the evidence itself is missing or unusable."
+)
+TERMINAL_ROW_REPAIR_INSTRUCTION = (
+    "The fragments below were authored by the agent but were not persisted. "
+    "Resolution item and covered-unit patches are sparse per-field overlays. "
+    "Omitting a field preserves its existing value. "
+    "To clear next_needed_step, send it explicitly as null. "
+    "To clear requires_hitl or no_further_progress, send false. "
+    "If closure remains honestly earned, merge required_clear_delta into that fragment "
+    "and resubmit it. "
+    "If work remains, do not apply the clear delta merely to satisfy the validator; "
+    "author a nonterminal/reopened posture and retain an honest next step. "
+    "The harness does not apply the fragment or clear delta automatically."
 )
 PROMPT_INSTRUCTION = (
     "Prior state_patch integration failed or skipped rows. "
     "Repair the rejected patch directly before redoing evidence. "
     "The rejected fragments below may contain determinations/evidence that were not persisted."
 )
+_CLEAR_DELTA_BY_FIELD = {
+    "next_needed_step": None,
+    "requires_hitl": False,
+    "no_further_progress": False,
+}
 
 MAX_FRAGMENTS = 5
 MAX_VALIDATION_ERRORS_PER_FRAGMENT = 5
-MAX_FRAGMENT_SERIALIZED_CHARS = 1500
 MAX_TOTAL_BUNDLE_CHARS = 6000
 MAX_PATH_CHARS = 400
-
-_STRIP_FRAGMENT_KEYS = frozenset(
-    {
-        "b64",
-        "bytes",
-        "raw_image",
-        "raw_image_data",
-        "image_bytes",
-        "raw_prompt_text",
-        "raw_llm_response_text",
-        "prompt_text",
-    }
-)
-_PRESERVE_FRAGMENT_KEYS = frozenset(
-    {
-        "item_id",
-        "unit_id",
-        "status",
-        "determination",
-        "determined_value",
-        "evidence_refs",
-        "evidence_locators",
-        "verification_basis",
-        "closure_summary",
-        "reopen_triggers",
-        "summary",
-        "title",
-        "kind",
-        "candidate_values",
-        "label",
-        "value_kind",
-        "next_needed_step",
-        "completion_criteria",
-        "notes",
-        "blocking",
-        "requires_hitl",
-        "no_further_progress",
-        "structure_kind",
-        "materiality",
-    }
-)
 
 _COVERED_UNIT_PATH_RE = re.compile(
     r"\.covered_units\[([^\]]+)\]|\.covered_units\[(\d+)\]"
@@ -119,6 +100,49 @@ def build_state_patch_repair_bundle(
     return bundle
 
 
+def build_terminal_row_consistency_repair_bundle(
+    *,
+    state_patch: Mapping[str, Any],
+    result: Any,
+) -> dict[str, Any] | None:
+    """Build a bounded repair bundle for terminal-row / live-work conflicts.
+
+    ``result`` is a ``TerminalRowConsistencyResult`` (or compatible mapping-like
+    object with ``conflicts`` and ``conflicts_omitted_count``). Mechanical only:
+    carries agent-authored fragments and clear-syntax deltas; does not apply them.
+    """
+    if not isinstance(state_patch, Mapping):
+        return None
+    conflicts = getattr(result, "conflicts", None)
+    if not isinstance(conflicts, (list, tuple)) or not conflicts:
+        return None
+    omitted_base = int(getattr(result, "conflicts_omitted_count", 0) or 0)
+
+    fragments: list[dict[str, Any]] = []
+    for conflict in conflicts:
+        fragment_row = _fragment_from_terminal_conflict(state_patch, conflict)
+        if fragment_row is None:
+            continue
+        fragments.append(fragment_row)
+        if len(fragments) >= MAX_FRAGMENTS:
+            break
+
+    if not fragments:
+        return None
+
+    retained = len(fragments)
+    capacity_omitted = max(0, len(conflicts) - retained) + omitted_base
+    bundle: dict[str, Any] = {
+        "schema_version": SCHEMA_VERSION,
+        "reason": REASON_TERMINAL_ROW_LIVE_WORK,
+        "instruction": TERMINAL_ROW_REPAIR_INSTRUCTION,
+        "fragments": _bound_fragments(fragments),
+    }
+    if capacity_omitted:
+        bundle["conflicts_omitted_count"] = capacity_omitted
+    return _bound_total_bundle(bundle)
+
+
 def project_state_patch_repair_bundle_for_prompt(
     feedback: Mapping[str, Any] | None,
 ) -> dict[str, Any] | None:
@@ -129,8 +153,87 @@ def project_state_patch_repair_bundle_for_prompt(
     if not isinstance(bundle, Mapping) or not bundle.get("fragments"):
         return None
     projected = dict(bundle)
-    projected["prompt_instruction"] = PROMPT_INSTRUCTION
+    # Terminal-row bundles already carry their own instruction; do not overlay
+    # the skip-row prompt_instruction as a competing authority.
+    if str(projected.get("reason") or "").strip() != REASON_TERMINAL_ROW_LIVE_WORK:
+        projected["prompt_instruction"] = PROMPT_INSTRUCTION
     return _bound_total_bundle(projected)
+
+
+def required_clear_delta_for_fields(fields: Any) -> dict[str, Any]:
+    """Return mechanical clear syntax for the named live-work fields only."""
+    if not isinstance(fields, (list, tuple)):
+        return {}
+    delta: dict[str, Any] = {}
+    for name in fields:
+        key = str(name or "").strip()
+        if key in _CLEAR_DELTA_BY_FIELD:
+            delta[key] = _CLEAR_DELTA_BY_FIELD[key]
+    # Preserve JSON-null clears through the same sanitizer used for fragments.
+    sanitized, _ = sanitize_fragment(delta)
+    return sanitized
+
+
+def _fragment_from_terminal_conflict(
+    state_patch: Mapping[str, Any],
+    conflict: Any,
+) -> dict[str, Any] | None:
+    if isinstance(conflict, Mapping):
+        coordinate = str(conflict.get("coordinate") or "").strip()
+        fields_raw = conflict.get("fields") or ()
+    else:
+        coordinate = str(getattr(conflict, "coordinate", "") or "").strip()
+        fields_raw = getattr(conflict, "fields", ()) or ()
+    fields = tuple(str(f).strip() for f in fields_raw if str(f).strip())
+    if not coordinate or not fields:
+        return None
+
+    item_id, unit_id = _parse_resolution_coordinate(coordinate)
+    fragment: dict[str, Any] | None = None
+    if item_id:
+        patch_item = _find_patch_item(state_patch, item_id)
+        if patch_item is not None and unit_id:
+            patch_unit = _find_patch_unit(patch_item, unit_id)
+            if patch_unit is not None:
+                fragment = dict(patch_unit)
+        elif patch_item is not None:
+            # Parent-item conflict: carry item-own fields without nested units noise.
+            fragment = {
+                key: value
+                for key, value in patch_item.items()
+                if key != "covered_units"
+            }
+
+    if fragment is None:
+        fragment = {}
+
+    sanitized, truncated = sanitize_fragment(fragment)
+    clear_delta = required_clear_delta_for_fields(fields)
+    row: dict[str, Any] = {
+        "path": coordinate[:MAX_PATH_CHARS],
+        "reason_code": REASON_TERMINAL_ROW_LIVE_WORK,
+        "conflicting_fields": list(fields),
+        "fragment": sanitized,
+        "required_clear_delta": clear_delta,
+        "validation_errors": [
+            f"contradictory live-work fields after sparse merge: {', '.join(fields)}"
+        ][:MAX_VALIDATION_ERRORS_PER_FRAGMENT],
+    }
+    if truncated:
+        row["truncated"] = True
+    return row
+
+
+def _parse_resolution_coordinate(coordinate: str) -> tuple[str, str | None]:
+    """Return (item_id, unit_id_or_none) for a resolution coordinate path."""
+    item_id = _bracket_id(coordinate, prefix="resolution.items[")
+    if not item_id:
+        return "", None
+    unit_match = _COVERED_UNIT_PATH_RE.search(coordinate)
+    if not unit_match:
+        return item_id, None
+    unit_id = (unit_match.group(1) or unit_match.group(2) or "").strip()
+    return item_id, unit_id or None
 
 
 def _fragment_from_item_skip(
@@ -167,7 +270,7 @@ def _fragment_from_item_skip(
             return None
         fragment = dict(patch_item) if isinstance(patch_item, Mapping) else {}
 
-    sanitized, truncated = _sanitize_fragment(fragment)
+    sanitized, truncated = sanitize_fragment(fragment)
     if not sanitized and not validation_errors:
         return None
 
@@ -194,7 +297,7 @@ def _fragment_from_relation_skip(
     if patch_relation is None and not validation_errors:
         return None
     fragment = dict(patch_relation) if isinstance(patch_relation, Mapping) else {}
-    sanitized, truncated = _sanitize_fragment(fragment)
+    sanitized, truncated = sanitize_fragment(fragment)
     row: dict[str, Any] = {
         "path": path[:MAX_PATH_CHARS] or f"resolution.relations[{index if index is not None else '?'}]",
         "reason_code": reason_code,
@@ -296,94 +399,69 @@ def _normalize_validation_errors(raw: Any) -> list[str]:
     return out
 
 
-def _sanitize_fragment(fragment: Mapping[str, Any]) -> tuple[dict[str, Any], bool]:
-    truncated = False
-    out: dict[str, Any] = {}
-    for key, value in fragment.items():
-        key_text = str(key)
-        if key_text in _STRIP_FRAGMENT_KEYS or key_text.endswith("_b64"):
-            truncated = True
-            continue
-        if isinstance(value, (bytes, bytearray)):
-            truncated = True
-            continue
-        if isinstance(value, str) and len(value) > 800:
-            out[key_text] = value[:800]
-            truncated = True
-            continue
-        if isinstance(value, list) and key_text in {"evidence_locators", "history", "context_notes"}:
-            out[key_text] = _sanitize_nested_list(value)
-            continue
-        if isinstance(value, Mapping):
-            nested, nested_truncated = _sanitize_fragment(value)
-            if nested:
-                out[key_text] = nested
-            if nested_truncated:
-                truncated = True
-            continue
-        out[key_text] = value
-
-    # Prefer useful repair keys; drop unknown heavy keys if fragment is large.
-    if len(json.dumps(out, ensure_ascii=False, default=str)) > MAX_FRAGMENT_SERIALIZED_CHARS:
-        trimmed: dict[str, Any] = {}
-        for key in _PRESERVE_FRAGMENT_KEYS:
-            if key in out:
-                trimmed[key] = out[key]
-        if not trimmed:
-            trimmed = {k: out[k] for k in list(out.keys())[:12]}
-        out = trimmed
-        truncated = True
-
-    serialized = json.dumps(out, ensure_ascii=False, default=str)
-    if len(serialized) > MAX_FRAGMENT_SERIALIZED_CHARS:
-        out = _truncate_mapping_values(out, max_chars=MAX_FRAGMENT_SERIALIZED_CHARS)
-        truncated = True
-    return out, truncated
-
-
-def _sanitize_nested_list(value: list[Any]) -> list[Any]:
-    cleaned: list[Any] = []
-    for row in value[:8]:
-        if isinstance(row, Mapping):
-            nested, _ = _sanitize_fragment(row)
-            cleaned.append(nested)
-        elif isinstance(row, str):
-            cleaned.append(row[:400])
-        else:
-            cleaned.append(row)
-    return cleaned
-
-
-def _truncate_mapping_values(payload: Mapping[str, Any], *, max_chars: int) -> dict[str, Any]:
-    out = dict(payload)
-    while out and len(json.dumps(out, ensure_ascii=False, default=str)) > max_chars:
-        longest_key = max(
-            out.keys(),
-            key=lambda k: len(json.dumps(out[k], ensure_ascii=False, default=str)),
-        )
-        current = out[longest_key]
-        if isinstance(current, str) and len(current) > 80:
-            out[longest_key] = current[: max(40, len(current) // 2)]
-        else:
-            del out[longest_key]
-    return out
-
-
 def _bound_fragments(fragments: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return fragments[:MAX_FRAGMENTS]
 
 
+def _payload_over_budget(payload: Mapping[str, Any]) -> bool:
+    try:
+        return json_chars(payload) > MAX_TOTAL_BUNDLE_CHARS
+    except (TypeError, ValueError):
+        return True
+
+
+def _set_terminal_omission_count(
+    payload: dict[str, Any],
+    *,
+    initial_omitted: int,
+    dropped: int,
+) -> None:
+    if str(payload.get("reason") or "").strip() != REASON_TERMINAL_ROW_LIVE_WORK:
+        return
+    total = initial_omitted + dropped
+    if total > 0:
+        payload["conflicts_omitted_count"] = total
+    elif "conflicts_omitted_count" in payload:
+        # Keep an explicit zero only when already present; otherwise omit.
+        payload["conflicts_omitted_count"] = 0
+
+
 def _bound_total_bundle(bundle: Mapping[str, Any]) -> dict[str, Any]:
+    """Fit the bundle under ``MAX_TOTAL_BUNDLE_CHARS`` with an honest omission marker.
+
+    For terminal-row bundles, ``conflicts_omitted_count`` is updated on each
+    fragment drop so every subsequent fit measurement includes the final marker.
+    After last-fragment shrinking, the strict compact JSON length is checked again.
+    """
     payload = dict(bundle)
-    while payload.get("fragments") and len(json.dumps(payload, ensure_ascii=False, default=str)) > MAX_TOTAL_BUNDLE_CHARS:
+    is_terminal = str(payload.get("reason") or "").strip() == REASON_TERMINAL_ROW_LIVE_WORK
+    initial_omitted = int(payload.get("conflicts_omitted_count") or 0) if is_terminal else 0
+    dropped = 0
+
+    while payload.get("fragments"):
+        if not _payload_over_budget(payload):
+            break
         frags = list(payload.get("fragments") or [])
         if len(frags) <= 1:
             payload["truncated"] = True
             payload["fragments"] = [_shrink_last_fragment(frags[0])] if frags else []
+            # Omission marker (if any) already reflects prior drops; re-check size.
+            if _payload_over_budget(payload) and payload.get("fragments"):
+                payload["fragments"] = [
+                    _shrink_last_fragment_hard(payload["fragments"][0])
+                ]
             break
         frags.pop()
+        dropped += 1
         payload["fragments"] = frags
         payload["truncated"] = True
+        if is_terminal:
+            _set_terminal_omission_count(
+                payload,
+                initial_omitted=initial_omitted,
+                dropped=dropped,
+            )
+
     return payload
 
 
@@ -391,8 +469,23 @@ def _shrink_last_fragment(fragment_row: Mapping[str, Any]) -> dict[str, Any]:
     row = dict(fragment_row)
     fragment = row.get("fragment")
     if isinstance(fragment, Mapping):
-        shrunk, truncated = _sanitize_fragment(fragment)
-        row["fragment"] = _truncate_mapping_values(shrunk, max_chars=600)
+        shrunk, truncated = sanitize_fragment(fragment)
+        row["fragment"] = truncate_mapping_values(shrunk, max_chars=600)
         if truncated:
             row["truncated"] = True
+    clear_delta = row.get("required_clear_delta")
+    if isinstance(clear_delta, Mapping):
+        sanitized_delta, _ = sanitize_fragment(clear_delta)
+        row["required_clear_delta"] = sanitized_delta
+    return row
+
+
+def _shrink_last_fragment_hard(fragment_row: Mapping[str, Any]) -> dict[str, Any]:
+    """Further shrink a sole remaining fragment when still over the total budget."""
+    row = _shrink_last_fragment(fragment_row)
+    fragment = row.get("fragment")
+    if isinstance(fragment, Mapping):
+        row["fragment"] = truncate_mapping_values(fragment, max_chars=200)
+    # Drop non-essential diagnostic lists while retaining repair coordinates.
+    row.pop("validation_errors", None)
     return row

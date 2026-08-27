@@ -12,9 +12,13 @@ from harness.runtime.orchestration.state_patch_apply import (
 )
 from harness.runtime.orchestration.state_patch_repair_bundle import (
     MAX_FRAGMENTS,
-    MAX_FRAGMENT_SERIALIZED_CHARS,
+    REASON_TERMINAL_ROW_LIVE_WORK,
     build_state_patch_repair_bundle,
+    build_terminal_row_consistency_repair_bundle,
     project_state_patch_repair_bundle_for_prompt,
+)
+from harness.runtime.orchestration.state_patch_repair_sanitization import (
+    MAX_FRAGMENT_SERIALIZED_CHARS,
 )
 
 
@@ -471,3 +475,43 @@ def test_bundle_handles_single_item_mapping_patch_shape() -> None:
     bundle = build_state_patch_repair_bundle(state_patch=patch, row_skip_details=details)
     assert bundle is not None
     assert bundle["fragments"][0]["fragment"]["determined_value"] == "value"
+
+
+def test_terminal_row_consistency_repair_bundle_wire_shape() -> None:
+    from harness.mission_state import (
+        REASON_RESOLUTION_TERMINAL_ROW_HAS_LIVE_WORK,
+        TerminalRowConflict,
+        TerminalRowConsistencyResult,
+    )
+
+    patch = {
+        "resolution": {
+            "items": [
+                {
+                    "item_id": "item-1",
+                    "status": "closed",
+                    "covered_units": [{"unit_id": "u1", "status": "closed"}],
+                }
+            ]
+        }
+    }
+    result = TerminalRowConsistencyResult(
+        reason_code=REASON_RESOLUTION_TERMINAL_ROW_HAS_LIVE_WORK,
+        conflicts=(
+            TerminalRowConflict(
+                coordinate="resolution.items[item-1].covered_units[u1]",
+                fields=("next_needed_step",),
+            ),
+        ),
+        conflicts_omitted_count=0,
+    )
+    bundle = build_terminal_row_consistency_repair_bundle(state_patch=patch, result=result)
+    assert bundle is not None
+    assert bundle["schema_version"] == 1
+    assert bundle["reason"] == REASON_TERMINAL_ROW_LIVE_WORK
+    frag = bundle["fragments"][0]
+    assert frag["path"] == "resolution.items[item-1].covered_units[u1]"
+    assert frag["conflicting_fields"] == ["next_needed_step"]
+    assert frag["required_clear_delta"] == {"next_needed_step": None}
+    assert frag["fragment"]["unit_id"] == "u1"
+    assert frag["fragment"]["status"] == "closed"
