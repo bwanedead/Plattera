@@ -26,6 +26,7 @@ from .paths import (
     transcript_edit_derived_images_dir,
 )
 from .artifact_hydration import _load_derived_image_descriptor
+from .derived_image_persistence import DerivedImagePersistError, persist_derived_image
 from .root_projection import (
     copy_projection_fields,
     enrich_point_geometry_with_projection,
@@ -786,29 +787,7 @@ def make_transform_artifact_handler(
             return _error_result(resolve_error["code"], resolve_error["message"])
         assert source_path is not None
 
-        # Apply transform
-        try:
-            derived_path, width_height, transform_metadata = _apply_transform(
-                source_path,
-                sub_action,
-                params,
-                source_ref_id=ref_id,
-            )
-        except _TransformParamError as exc:
-            # Param errors discovered at transform time (e.g. after image open) are retryable.
-            return _param_error("invalid_transform_params", str(exc), repair_hint=exc.repair_hint)
-        except Exception as exc:
-            return _error_result("transform_failed", f"Transform failed: {exc}")
-
-        _attach_source_window_metadata(
-            transform_metadata,
-            dossier_id=dossier_id,
-            transcription_id=transcription_id,
-            workspace_key=workspace_key,
-            source_ref=ref_id,
-            sub_action=sub_action,
-        )
-
+        # Apply transform (in-memory; persistence is run-owned below).
         if sub_action == "point_crops_scaffold":
             try:
                 from PIL import Image  # type: ignore[import]
@@ -833,6 +812,28 @@ def make_transform_artifact_handler(
                 transform_metadata=transform_metadata,
             )
 
+        try:
+            rendered_image, width_height, transform_metadata = _apply_transform(
+                source_path,
+                sub_action,
+                params,
+                source_ref_id=ref_id,
+            )
+        except _TransformParamError as exc:
+            # Param errors discovered at transform time (e.g. after image open) are retryable.
+            return _param_error("invalid_transform_params", str(exc), repair_hint=exc.repair_hint)
+        except Exception as exc:
+            return _error_result("transform_failed", f"Transform failed: {exc}")
+
+        _attach_source_window_metadata(
+            transform_metadata,
+            dossier_id=dossier_id,
+            transcription_id=transcription_id,
+            workspace_key=workspace_key,
+            source_ref=ref_id,
+            sub_action=sub_action,
+        )
+
         # Special multi-output handling for point_crops is handled earlier (clean-source unwrap).
 
         # Normal single-output path for all other sub-actions
@@ -845,18 +846,24 @@ def make_transform_artifact_handler(
             "sub_action": sub_action,
             "params": params,
             "transform_metadata": transform_metadata,
-            "absolute_path": str(derived_path.resolve()),
-            "basename": derived_path.name,
-            "size_bytes": derived_path.stat().st_size if derived_path.exists() else None,
-            "width_height": width_height,
         }
         try:
-            derived_dir = transcript_edit_derived_images_dir(dossier_id, transcription_id, workspace_key)
-            derived_dir.mkdir(parents=True, exist_ok=True)
-            desc_path = derived_dir / f"{derived_uuid}.json"
-            desc_path.write_text(json.dumps(descriptor, ensure_ascii=False, indent=2), encoding="utf-8")
-        except Exception as exc:
-            return _error_result("derived_persist_failed", f"Could not save derived descriptor: {exc}")
+            persisted = persist_derived_image(
+                dossier_id=dossier_id,
+                transcription_id=transcription_id,
+                workspace_id=workspace_key,
+                derived_uuid=derived_uuid,
+                image=rendered_image,
+                descriptor=descriptor,
+                expected_width_height=width_height,
+            )
+        except DerivedImagePersistError as exc:
+            return _error_result(exc.code, exc.message)
+        except Exception:
+            return _error_result(
+                "derived_persist_failed",
+                "Could not persist derived image into the run workspace.",
+            )
 
         result: dict[str, Any] = {
             "executed": True,
@@ -865,8 +872,8 @@ def make_transform_artifact_handler(
                 "derived_ref_id": derived_ref_id,
                 "parent_ref_id": ref_id,
                 "sub_action": sub_action,
-                "basename": derived_path.name,
-                "width_height": width_height,
+                "basename": persisted.basename,
+                "width_height": list(persisted.width_height),
             },
         }
         if transform_metadata:
@@ -874,7 +881,7 @@ def make_transform_artifact_handler(
         overlay_role = _overlay_role_from_metadata(transform_metadata)
         if overlay_role:
             result["outputs"]["overlay_role"] = overlay_role
-        evidence = image_evidence_from_path(derived_ref_id, derived_path)
+        evidence = image_evidence_from_path(derived_ref_id, persisted.absolute_path)
         if evidence:
             result["image_evidence"] = [evidence]
         return result
@@ -1495,9 +1502,12 @@ def _apply_transform(
     params: dict[str, Any],
     *,
     source_ref_id: str,
-) -> tuple[Path, tuple[int, int] | None, dict[str, Any]]:
-    """Apply a PIL transform and save result to a temp path alongside the source; return (path, wh)."""
-    from PIL import Image, ImageDraw, ImageFont  # type: ignore[import]
+) -> tuple[Any, tuple[int, int] | None, dict[str, Any]]:
+    """Apply a PIL transform in memory; return ``(image, width_height, metadata)``.
+
+    Does not write beside the source. Callers persist via ``derived_image_persistence``.
+    """
+    from PIL import Image, ImageDraw  # type: ignore[import]
 
     img = Image.open(source)
     transform_metadata: dict[str, Any] = {}
@@ -1695,19 +1705,11 @@ def _apply_transform(
             "locator_summaries": locator_summaries,
         }
 
-    elif sub_action == "point_crops":
-        try:
-            transform_metadata = compute_point_crops(img, params)
-        except PointCropParamError as exc:
-            raise _TransformParamError(str(exc), repair_hint=exc.repair_hint) from exc
-        wh = (transform_metadata["master_pil"].width, transform_metadata["master_pil"].height)
-        return source, wh, transform_metadata
+    else:
+        raise ValueError(f"Unsupported transform sub_action for in-memory render: {sub_action!r}")
 
-    out_suffix = ".png"
-    out_path = source.parent / (source.stem + f"_derived_{_uuid_mod.uuid4().hex[:8]}{out_suffix}")
-    img.save(out_path)
-    wh: tuple[int, int] | None = (img.width, img.height)
-    return out_path, wh, transform_metadata
+    wh = (int(img.width), int(img.height))
+    return img, wh, transform_metadata
 
 
 def _attach_rendered_ref(metadata: dict[str, Any], *, rendered_ref: str) -> None:
