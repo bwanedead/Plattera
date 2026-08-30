@@ -26,12 +26,19 @@ from .paths import (
 )
 from .artifact_hydration import _load_derived_image_descriptor
 from .derived_image_persistence import DerivedImagePersistError, persist_derived_image
+from .derived_image_recipe import (
+    RecipeValidationError,
+    build_derived_image_recipe,
+    fingerprint_validated_recipe,
+)
 from .derived_image_rendering import (
     TransformParamError as _TransformParamError,
     _ANNOTATION_TYPES,
     _validate_adjust,
     _validate_box,
     _validate_box_norm,
+    compute_image_identity,
+    pillow_version,
     render_generic_derived_image,
 )
 from .root_projection import (
@@ -843,12 +850,36 @@ def make_transform_artifact_handler(
         derived_uuid = _uuid_mod.uuid4().hex
         derived_ref_id = f"{_IMAGE_DERIVED_PREFIX}{derived_uuid}"
         _attach_rendered_ref(transform_metadata, rendered_ref=derived_ref_id)
+        try:
+            source_identity = compute_image_identity(path=source_path)
+            output_identity = compute_image_identity(image=rendered_image)
+            recipe = build_derived_image_recipe(
+                source_ref_id=ref_id,
+                source_content_sha256=source_identity["content_sha256"],
+                source_pixel_sha256=source_identity["pixel_sha256"],
+                source_mode=source_identity["mode"],
+                source_width_height=source_identity["width_height"],
+                sub_action=sub_action,
+                params=params,
+                pillow_version=pillow_version(),
+                expected_pixel_sha256=output_identity["pixel_sha256"],
+                expected_mode=output_identity["mode"],
+                expected_width_height=output_identity["width_height"],
+            )
+            fingerprint = fingerprint_validated_recipe(recipe)
+        except (RecipeValidationError, Exception):
+            return _error_result(
+                "derived_recipe_invalid",
+                "Could not build a valid reconstruction recipe for the derived image.",
+            )
         descriptor: dict[str, Any] = {
             "ref_id": derived_ref_id,
             "parent_ref_id": ref_id,
             "sub_action": sub_action,
             "params": params,
             "transform_metadata": transform_metadata,
+            "recipe": recipe,
+            "recipe_fingerprint": fingerprint,
         }
         try:
             persisted = persist_derived_image(

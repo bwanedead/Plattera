@@ -14,16 +14,12 @@ import config.paths as paths_mod
 import tooling.mapping.transcript_edit.paths as te_paths_mod
 from tooling.mapping.transcript_edit.artifact_transform import make_transform_artifact_handler
 from tooling.mapping.transcript_edit.derived_image_recipe import (
-    SCHEMA_VERSION as RECIPE_SCHEMA,
     RENDERER_ID as RECIPE_RENDERER_ID,
-    build_candidate_recipe,
-    recipe_fingerprint,
 )
 from tooling.mapping.transcript_edit.derived_image_rendering import (
     GENERIC_SUB_ACTIONS,
     RENDERER_ID,
     compute_image_identity,
-    pillow_version,
     render_generic_derived_image,
 )
 from tooling.mapping.transcript_edit.derived_image_storage_audit import (
@@ -177,6 +173,7 @@ def test_generic_reconstruction_verified_pixel_exact(
     assert len(rows) == 1
     assert rows[0]["storage_posture"] == "run_owned"
     assert rows[0]["reconstruction_posture"] == "verified_pixel_exact"
+    assert rows[0]["recipe_source"] == "persisted"
     assert rows[0]["recipe_fingerprint"] and rows[0]["recipe_fingerprint"].startswith("sha256:")
     # Pixel match must not be mislabeled as byte equality.
     assert rows[0]["byte_equal_to_reconstruction"] in {True, False, None}
@@ -529,32 +526,55 @@ def test_audit_is_read_only(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
     assert after == before
 
 
-def test_recipe_contract_roundtrip(tmp_path: Path) -> None:
-    img = Image.new("RGB", (20, 10), color=(5, 6, 7))
-    p = tmp_path / "s.png"
-    img.save(p)
-    ident = compute_image_identity(path=p)
-    rendered = render_generic_derived_image(
-        p, "crop", {"box_norm": [0.0, 0.0, 0.5, 1.0]}, source_ref_id="image:assoc:tx:original"
+def test_historical_recipeless_descriptor_audits_without_rewrite(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Pre-recipe descriptors remain auditable; audit must not rewrite them."""
+    handler, ref_id, root, _src = _make_transform(tmp_path, monkeypatch)
+    result = handler({"ref_id": ref_id, "sub_action": "crop", "params": {"box_norm": [0, 0, 0.5, 0.5]}})
+    derived = result["outputs"]["derived_ref_id"]
+    uuid = derived.removeprefix("image:derived:")
+    di = root / "artifacts" / "transcript_edit" / "d1" / "tx-1" / "ws-1" / "derived_images"
+    desc_path = di / f"{uuid}.json"
+    desc = json.loads(desc_path.read_text(encoding="utf-8"))
+    desc.pop("recipe", None)
+    desc.pop("recipe_fingerprint", None)
+    desc_path.write_text(json.dumps(desc, ensure_ascii=False, indent=2), encoding="utf-8")
+    before_bytes = desc_path.read_bytes()
+    before_mtime = desc_path.stat().st_mtime_ns
+    before_tree = _snapshot_tree(root)
+
+    report = run_derived_image_storage_audit(dossier_id="d1", workspace_id="ws-1")
+    row = next(a for a in report["artifacts"] if a.get("ref_id") == derived)
+    assert row["recipe_source"] in {"inferred", "unavailable"}
+    assert row["reconstruction_posture"] == "verified_pixel_exact"
+    assert desc_path.read_bytes() == before_bytes
+    assert desc_path.stat().st_mtime_ns == before_mtime
+    assert _snapshot_tree(root) == before_tree
+
+
+def test_malformed_persisted_recipe_emits_diagnostic_and_stays_read_only(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    handler, ref_id, root, _src = _make_transform(tmp_path, monkeypatch)
+    result = handler({"ref_id": ref_id, "sub_action": "crop", "params": {"box_norm": [0, 0, 0.5, 0.5]}})
+    derived = result["outputs"]["derived_ref_id"]
+    uuid = derived.removeprefix("image:derived:")
+    di = root / "artifacts" / "transcript_edit" / "d1" / "tx-1" / "ws-1" / "derived_images"
+    desc_path = di / f"{uuid}.json"
+    desc = json.loads(desc_path.read_text(encoding="utf-8"))
+    desc["recipe"] = {"broken": True, "schema_version": "nope"}
+    desc["recipe_fingerprint"] = "sha256:" + ("0" * 64)
+    desc_path.write_text(json.dumps(desc, ensure_ascii=False, indent=2), encoding="utf-8")
+    before = _snapshot_tree(root)
+
+    report = run_derived_image_storage_audit(dossier_id="d1", workspace_id="ws-1")
+    row = next(a for a in report["artifacts"] if a.get("ref_id") == derived)
+    assert row["recipe_source"] == "persisted"
+    assert any(
+        str(d.get("code") or "").startswith("persisted_recipe_") for d in report["diagnostics"]
     )
-    out_ident = compute_image_identity(image=rendered.image)
-    recipe = build_candidate_recipe(
-        source_ref_id="image:assoc:tx:original",
-        source_content_sha256=ident["content_sha256"],
-        source_pixel_sha256=ident["pixel_sha256"],
-        source_mode=ident["mode"],
-        source_width_height=ident["width_height"],
-        sub_action="crop",
-        params={"box_norm": [0.0, 0.0, 0.5, 1.0]},
-        pillow_version=pillow_version(),
-        expected_pixel_sha256=out_ident["pixel_sha256"],
-        expected_mode=out_ident["mode"],
-        expected_width_height=out_ident["width_height"],
-    )
-    assert recipe["schema_version"] == RECIPE_SCHEMA
-    fp = recipe_fingerprint(recipe)
-    assert fp.startswith("sha256:")
-    assert len(fp) == len("sha256:") + 64
+    assert _snapshot_tree(root) == before
 
 
 def test_scope_refusal_without_dossier_or_all() -> None:

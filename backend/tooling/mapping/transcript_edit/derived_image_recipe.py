@@ -1,7 +1,7 @@
-"""Strict candidate recipe contract for transcript-edit derived images.
+"""Strict derived-image recipe contract for transcript-edit derived images.
 
-Audit-only identity shape: JSON-native, path-free, allowlisted fields.
-No filesystem I/O. Does not write recipes into production descriptors.
+Canonical production recipe identity shape: JSON-native, path-free, allowlisted fields.
+No filesystem I/O. Persisted on new generic derived-image descriptors; path-free.
 """
 
 from __future__ import annotations
@@ -44,11 +44,11 @@ _FORBIDDEN_IDENTITY_KEYS = frozenset(
 
 
 class RecipeValidationError(Exception):
-    """Strict refusal for an invalid or non-canonical candidate recipe."""
+    """Strict refusal for an invalid or non-canonical derived-image recipe."""
 
     def __init__(self, code: str, message: str = "") -> None:
         self.code = str(code or "recipe_invalid")
-        self.message = str(message or "Candidate recipe validation failed.")
+        self.message = str(message or "Derived-image recipe validation failed.")
         super().__init__(f"{self.code}: {self.message}" if self.message else self.code)
 
 
@@ -94,7 +94,7 @@ def sha256_hex(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def build_candidate_recipe(
+def build_derived_image_recipe(
     *,
     source_ref_id: str,
     source_content_sha256: str,
@@ -108,7 +108,7 @@ def build_candidate_recipe(
     expected_mode: str,
     expected_width_height: Any,
 ) -> dict[str, Any]:
-    """Build and validate a path-free candidate recipe dict."""
+    """Build and validate a path-free derived-image recipe dict."""
     recipe = {
         "schema_version": SCHEMA_VERSION,
         "source": {
@@ -128,11 +128,11 @@ def build_candidate_recipe(
             ),
         },
     }
-    return validate_candidate_recipe(recipe)
+    return validate_derived_image_recipe(recipe)
 
 
-def validate_candidate_recipe(recipe: Any) -> dict[str, Any]:
-    """Return a normalized deep copy of a valid candidate recipe, or raise."""
+def validate_derived_image_recipe(recipe: Any) -> dict[str, Any]:
+    """Return a normalized deep copy of a valid derived-image recipe, or raise."""
     if type(recipe) is not dict:
         raise RecipeValidationError("recipe_not_object", "Recipe must be a JSON object.")
     _require_exact_keys(recipe, _TOP_KEYS, field="recipe")
@@ -221,8 +221,84 @@ def validate_candidate_recipe(recipe: Any) -> dict[str, Any]:
 
 def recipe_fingerprint(recipe: Any) -> str:
     """Return ``sha256:<hex>`` over the canonical identity JSON of a validated recipe."""
-    normalized = validate_candidate_recipe(recipe)
+    return fingerprint_validated_recipe(validate_derived_image_recipe(recipe))
+
+
+def fingerprint_validated_recipe(normalized: dict[str, Any]) -> str:
+    """Fingerprint a recipe already returned by ``build``/``validate`` (no re-validation)."""
+    if type(normalized) is not dict:
+        raise RecipeValidationError("recipe_not_object", "Recipe must be a JSON object.")
     return f"sha256:{sha256_hex(canonical_json_bytes(normalized))}"
+
+
+def assert_recipe_descriptor_coherence(
+    *,
+    recipe: Any,
+    recipe_fingerprint_value: Any,
+    parent_ref_id: Any,
+    sub_action: Any,
+    params: Any,
+) -> dict[str, Any]:
+    """Validate recipe + fingerprint and require descriptor source/transform agreement."""
+    normalized = validate_derived_image_recipe(recipe)
+    expected_fp = fingerprint_validated_recipe(normalized)
+    if type(recipe_fingerprint_value) is not str or recipe_fingerprint_value != expected_fp:
+        raise RecipeValidationError(
+            "recipe_fingerprint_mismatch",
+            "recipe_fingerprint does not match the validated recipe identity.",
+        )
+    if type(parent_ref_id) is not str or parent_ref_id != normalized["source"]["ref_id"]:
+        raise RecipeValidationError(
+            "recipe_descriptor_mismatch",
+            "recipe.source.ref_id must equal descriptor.parent_ref_id.",
+        )
+    if type(sub_action) is not str or sub_action != normalized["transform"]["sub_action"]:
+        raise RecipeValidationError(
+            "recipe_descriptor_mismatch",
+            "recipe.transform.sub_action must equal descriptor.sub_action.",
+        )
+    try:
+        params_match = canonical_json_bytes(params) == canonical_json_bytes(
+            normalized["transform"]["params"]
+        )
+    except RecipeValidationError as exc:
+        raise RecipeValidationError(
+            "recipe_descriptor_mismatch",
+            "recipe.transform.params must canonically equal descriptor.params.",
+        ) from exc
+    if not params_match:
+        raise RecipeValidationError(
+            "recipe_descriptor_mismatch",
+            "recipe.transform.params must canonically equal descriptor.params.",
+        )
+    return normalized
+
+
+def assert_recipe_output_identity(
+    recipe: dict[str, Any],
+    *,
+    pixel_sha256: str,
+    mode: str,
+    width_height: Any,
+    already_validated: bool = False,
+) -> None:
+    """Require recipe.expected_output to match observed output pixel identity."""
+    normalized = recipe if already_validated else validate_derived_image_recipe(recipe)
+    if type(normalized) is not dict or "expected_output" not in normalized:
+        raise RecipeValidationError("recipe_not_object", "Recipe must be a JSON object.")
+    expected = normalized["expected_output"]
+    wh = _as_width_height_list(width_height, field="output.width_height")
+    if (
+        type(pixel_sha256) is not str
+        or pixel_sha256 != expected["pixel_sha256"]
+        or type(mode) is not str
+        or mode != expected["mode"]
+        or wh != expected["width_height"]
+    ):
+        raise RecipeValidationError(
+            "recipe_output_mismatch",
+            "Staged output identity does not match recipe.expected_output.",
+        )
 
 
 def _require_exact_keys(obj: dict[str, Any], allowed: frozenset[str], *, field: str) -> None:

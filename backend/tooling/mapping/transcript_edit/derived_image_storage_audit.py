@@ -64,6 +64,8 @@ def _ensure_complete_postures(records: list[dict[str, Any]]) -> None:
         refp = rec.get("reference_posture")
         if refp not in _REFERENCE_POSTURES:
             rec["reference_posture"] = "unreferenced_observed"
+        if rec.get("recipe_source") not in {"persisted", "inferred", "unavailable"}:
+            rec["recipe_source"] = "unavailable"
 
 
 def _build_duplicate_groups(
@@ -124,6 +126,7 @@ def _to_artifact_row(rec: dict[str, Any]) -> dict[str, Any]:
         "sub_action": rec.get("sub_action"),
         "byte_equal_to_reconstruction": rec.get("byte_equal_to_reconstruction"),
         "recipe_fingerprint": rec.get("recipe_fingerprint"),
+        "recipe_source": rec.get("recipe_source") or "unavailable",
         "parent_ref_id": rec.get("parent_ref_id"),
     }
 

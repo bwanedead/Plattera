@@ -110,6 +110,7 @@ def make_record(
         "sub_action": sub_action,
         "byte_equal_to_reconstruction": None,
         "recipe_fingerprint": None,
+        "recipe_source": "unavailable",
         "parent_ref_id": parent_ref_id,
         "_abs_image_path": abs_image_path,
         "_abs_descriptor_path": abs_descriptor_path,

@@ -22,11 +22,58 @@ from tooling.mapping.transcript_edit.artifact_hydration import (
 from tooling.mapping.transcript_edit.artifact_transform import make_transform_artifact_handler
 from tooling.mapping.transcript_edit.derived_image_persistence import (
     REASON_DERIVED_PERSIST_FAILED,
+    REASON_RECIPE_DESCRIPTOR_MISMATCH,
+    REASON_RECIPE_FINGERPRINT_MISMATCH,
+    REASON_RECIPE_OUTPUT_MISMATCH,
+    REASON_RECIPE_REQUIRED,
     DerivedImagePersistError,
     persist_derived_image,
 )
 from tooling.mapping.transcript_edit.dossier_artifact_refs import qualify_leaf_ref
+from tooling.mapping.transcript_edit.derived_image_recipe import (
+    build_derived_image_recipe,
+    recipe_fingerprint,
+)
+from tooling.mapping.transcript_edit.derived_image_rendering import (
+    compute_image_identity,
+    pillow_version,
+)
 from tooling.mapping.transcript_edit.paths import transcript_edit_derived_images_dir
+
+
+def _valid_recipe_descriptor(
+    *,
+    source_path,
+    source_ref,
+    image,
+    parent_ref,
+    sub_action,
+    params,
+    derived_ref,
+):
+    src = compute_image_identity(path=source_path)
+    out = compute_image_identity(image=image)
+    recipe = build_derived_image_recipe(
+        source_ref_id=source_ref,
+        source_content_sha256=src["content_sha256"],
+        source_pixel_sha256=src["pixel_sha256"],
+        source_mode=src["mode"],
+        source_width_height=src["width_height"],
+        sub_action=sub_action,
+        params=params,
+        pillow_version=pillow_version(),
+        expected_pixel_sha256=out["pixel_sha256"],
+        expected_mode=out["mode"],
+        expected_width_height=out["width_height"],
+    )
+    return {
+        "ref_id": derived_ref,
+        "parent_ref_id": parent_ref,
+        "sub_action": sub_action,
+        "params": params,
+        "recipe": recipe,
+        "recipe_fingerprint": recipe_fingerprint(recipe),
+    }
 
 
 def _dossiers_root(tmp_path: Path) -> Path:
@@ -40,6 +87,12 @@ def _tiny_png_bytes(width: int = 100, height: int = 80) -> bytes:
     buf = io.BytesIO()
     img.save(buf, format="PNG")
     return buf.getvalue()
+
+
+def _assert_no_derived_residue(derived_dir: Path, uid: str) -> None:
+    assert not (derived_dir / f"{uid}.png").exists()
+    assert not (derived_dir / f"{uid}.json").exists()
+    assert list(derived_dir.glob(f".{uid}.*.staging.*")) == []
 
 
 def _write_association(root: Path, dossier_id: str, transcription_id: str, image_path: Path) -> None:
@@ -285,6 +338,19 @@ def test_persist_staged_write_failure_contains(tmp_path: Path, monkeypatch: pyte
     source = tmp_path / "canon.png"
     source.write_bytes(_tiny_png_bytes())
     before = _source_snapshot(source)
+    uid = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    parent = "image:assoc:tx-1:original"
+    params = {"box_norm": [0.0, 0.0, 0.5, 0.5]}
+    proxy = Image.new("RGB", (100, 80), color=(10, 20, 30))
+    descriptor = _valid_recipe_descriptor(
+        source_path=source,
+        source_ref=parent,
+        image=proxy,
+        parent_ref=parent,
+        sub_action="crop",
+        params=params,
+        derived_ref=f"image:derived:{uid}",
+    )
 
     class _Boom:
         def save(self, *_a: Any, **_k: Any) -> None:
@@ -295,9 +361,9 @@ def test_persist_staged_write_failure_contains(tmp_path: Path, monkeypatch: pyte
             dossier_id="d1",
             transcription_id="tx-1",
             workspace_id="ws-1",
-            derived_uuid="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            derived_uuid=uid,
             image=_Boom(),
-            descriptor={"ref_id": "image:derived:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+            descriptor=descriptor,
             expected_width_height=(100, 80),
         )
     assert excinfo.value.code == REASON_DERIVED_PERSIST_FAILED
@@ -305,8 +371,7 @@ def test_persist_staged_write_failure_contains(tmp_path: Path, monkeypatch: pyte
     assert "\\" not in excinfo.value.message
     assert "/" not in excinfo.value.message or "Could not stage" in excinfo.value.message
     derived_dir = transcript_edit_derived_images_dir("d1", "tx-1", "ws-1")
-    assert not (derived_dir / "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png").exists()
-    assert not (derived_dir / "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.json").exists()
+    _assert_no_derived_residue(derived_dir, uid)
     _assert_source_unchanged(source, before)
 
 
@@ -320,15 +385,29 @@ def test_persist_verify_failure_cleans_staging(
     source.write_bytes(_tiny_png_bytes())
     before = _source_snapshot(source)
     img = Image.new("RGB", (100, 80), color=(10, 20, 30))
+    uid = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    parent = "image:assoc:tx-1:original"
+    params = {"box_norm": [0.0, 0.0, 0.5, 0.5]}
+    descriptor = _valid_recipe_descriptor(
+        source_path=source,
+        source_ref=parent,
+        image=img,
+        parent_ref=parent,
+        sub_action="crop",
+        params=params,
+        derived_ref=f"image:derived:{uid}",
+    )
 
-    def _bad_verify(path: Path, *, expected_wh: tuple[int, int] | None) -> tuple[int, int]:
+    def _bad_verify(
+        path: Path, *, expected_wh: tuple[int, int] | None
+    ) -> tuple[tuple[int, int], dict[str, Any]]:
         raise DerivedImagePersistError(
             REASON_DERIVED_PERSIST_FAILED,
             "Staged derived image could not be verified as a readable image.",
         )
 
     monkeypatch.setattr(
-        "tooling.mapping.transcript_edit.derived_image_persistence._verify_staged_image",
+        "tooling.mapping.transcript_edit.derived_image_persistence._staged_image_identity",
         _bad_verify,
     )
     with pytest.raises(DerivedImagePersistError):
@@ -336,13 +415,13 @@ def test_persist_verify_failure_cleans_staging(
             dossier_id="d1",
             transcription_id="tx-1",
             workspace_id="ws-1",
-            derived_uuid="bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            derived_uuid=uid,
             image=img,
-            descriptor={"ref_id": "image:derived:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
+            descriptor=descriptor,
             expected_width_height=(100, 80),
         )
     derived_dir = transcript_edit_derived_images_dir("d1", "tx-1", "ws-1")
-    leftovers = list(derived_dir.glob("*bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb*"))
+    leftovers = list(derived_dir.glob(f"*{uid}*"))
     assert leftovers == []
     _assert_source_unchanged(source, before)
 
@@ -364,6 +443,17 @@ def test_persist_promotion_conflict_refuses(
     preexisting.write_bytes(b"preexisting")
 
     img = Image.new("RGB", (100, 80), color=(1, 2, 3))
+    parent = "image:assoc:tx-1:original"
+    params = {"box_norm": [0.0, 0.0, 0.5, 0.5]}
+    descriptor = _valid_recipe_descriptor(
+        source_path=source,
+        source_ref=parent,
+        image=img,
+        parent_ref=parent,
+        sub_action="crop",
+        params=params,
+        derived_ref=f"image:derived:{uid}",
+    )
     with pytest.raises(DerivedImagePersistError) as excinfo:
         persist_derived_image(
             dossier_id="d1",
@@ -371,7 +461,7 @@ def test_persist_promotion_conflict_refuses(
             workspace_id="ws-1",
             derived_uuid=uid,
             image=img,
-            descriptor={"ref_id": f"image:derived:{uid}"},
+            descriptor=descriptor,
             expected_width_height=(100, 80),
         )
     assert "already exists" in excinfo.value.message.lower()
@@ -391,6 +481,17 @@ def test_persist_descriptor_failure_removes_unreferenced_image(
     before = _source_snapshot(source)
     img = Image.new("RGB", (100, 80), color=(9, 9, 9))
     uid = "dddddddddddddddddddddddddddddddd"
+    parent = "image:assoc:tx-1:original"
+    params = {"box_norm": [0.0, 0.0, 0.5, 0.5]}
+    descriptor = _valid_recipe_descriptor(
+        source_path=source,
+        source_ref=parent,
+        image=img,
+        parent_ref=parent,
+        sub_action="crop",
+        params=params,
+        derived_ref=f"image:derived:{uid}",
+    )
 
     def _fail_desc(path: Path, descriptor: Any) -> None:
         raise DerivedImagePersistError(
@@ -409,12 +510,11 @@ def test_persist_descriptor_failure_removes_unreferenced_image(
             workspace_id="ws-1",
             derived_uuid=uid,
             image=img,
-            descriptor={"ref_id": f"image:derived:{uid}"},
+            descriptor=descriptor,
             expected_width_height=(100, 80),
         )
     derived_dir = transcript_edit_derived_images_dir("d1", "tx-1", "ws-1")
-    assert not (derived_dir / f"{uid}.png").exists()
-    assert not (derived_dir / f"{uid}.json").exists()
+    _assert_no_derived_residue(derived_dir, uid)
     _assert_source_unchanged(source, before)
 
 
@@ -429,6 +529,17 @@ def test_persist_cleanup_failure_still_refuses_success(
     before = _source_snapshot(source)
     img = Image.new("RGB", (100, 80), color=(4, 5, 6))
     uid = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+    parent = "image:assoc:tx-1:original"
+    params = {"box_norm": [0.0, 0.0, 0.5, 0.5]}
+    descriptor = _valid_recipe_descriptor(
+        source_path=source,
+        source_ref=parent,
+        image=img,
+        parent_ref=parent,
+        sub_action="crop",
+        params=params,
+        derived_ref=f"image:derived:{uid}",
+    )
 
     def _fail_desc(path: Path, descriptor: Any) -> None:
         raise DerivedImagePersistError(
@@ -455,7 +566,7 @@ def test_persist_cleanup_failure_still_refuses_success(
             workspace_id="ws-1",
             derived_uuid=uid,
             image=img,
-            descriptor={"ref_id": f"image:derived:{uid}"},
+            descriptor=descriptor,
             expected_width_height=(100, 80),
         )
     assert excinfo.value.code == REASON_DERIVED_PERSIST_FAILED
@@ -497,6 +608,17 @@ def test_descriptor_race_after_discovery_never_overwrites(
         _link_inject_descriptor_race,
     )
     img = Image.new("RGB", (100, 80), color=(7, 8, 9))
+    parent = "image:assoc:tx-1:original"
+    params = {"box_norm": [0.0, 0.0, 0.5, 0.5]}
+    descriptor = _valid_recipe_descriptor(
+        source_path=source,
+        source_ref=parent,
+        image=img,
+        parent_ref=parent,
+        sub_action="crop",
+        params=params,
+        derived_ref=f"image:derived:{uid}",
+    )
     with pytest.raises(DerivedImagePersistError) as excinfo:
         persist_derived_image(
             dossier_id="d1",
@@ -504,7 +626,7 @@ def test_descriptor_race_after_discovery_never_overwrites(
             workspace_id="ws-1",
             derived_uuid=uid,
             image=img,
-            descriptor={"ref_id": f"image:derived:{uid}", "sub_action": "crop"},
+            descriptor=descriptor,
             expected_width_height=(100, 80),
         )
     assert excinfo.value.code == REASON_DERIVED_PERSIST_FAILED
@@ -534,6 +656,17 @@ def test_preexisting_descriptor_bytes_unchanged(
     before_desc = _source_snapshot(desc_path)
 
     img = Image.new("RGB", (100, 80), color=(11, 12, 13))
+    parent = "image:assoc:tx-1:original"
+    params = {"box_norm": [0.0, 0.0, 0.5, 0.5]}
+    descriptor = _valid_recipe_descriptor(
+        source_path=source,
+        source_ref=parent,
+        image=img,
+        parent_ref=parent,
+        sub_action="crop",
+        params=params,
+        derived_ref=f"image:derived:{uid}",
+    )
     with pytest.raises(DerivedImagePersistError) as excinfo:
         persist_derived_image(
             dossier_id="d1",
@@ -541,7 +674,7 @@ def test_preexisting_descriptor_bytes_unchanged(
             workspace_id="ws-1",
             derived_uuid=uid,
             image=img,
-            descriptor={"ref_id": f"image:derived:{uid}"},
+            descriptor=descriptor,
             expected_width_height=(100, 80),
         )
     assert "already exists" in excinfo.value.message.lower()
@@ -566,6 +699,18 @@ def test_non_json_native_descriptor_refuses_cleanly(
     keep.write_text("stay", encoding="utf-8")
 
     img = Image.new("RGB", (100, 80), color=(14, 15, 16))
+    parent = "image:assoc:tx-1:original"
+    params = {"box_norm": [0.0, 0.0, 0.5, 0.5]}
+    descriptor = _valid_recipe_descriptor(
+        source_path=source,
+        source_ref=parent,
+        image=img,
+        parent_ref=parent,
+        sub_action="crop",
+        params=params,
+        derived_ref=f"image:derived:{uid}",
+    )
+    descriptor["bad"] = float("nan")
     with pytest.raises(DerivedImagePersistError) as excinfo:
         persist_derived_image(
             dossier_id="d1",
@@ -573,14 +718,12 @@ def test_non_json_native_descriptor_refuses_cleanly(
             workspace_id="ws-1",
             derived_uuid=uid,
             image=img,
-            descriptor={"ref_id": f"image:derived:{uid}", "bad": float("nan")},
+            descriptor=descriptor,
             expected_width_height=(100, 80),
         )
     assert excinfo.value.code == REASON_DERIVED_PERSIST_FAILED
     assert "json" in excinfo.value.message.lower() or "serializ" in excinfo.value.message.lower()
-    assert not (derived_dir / f"{uid}.png").exists()
-    assert not (derived_dir / f"{uid}.json").exists()
-    assert list(derived_dir.glob(f".{uid}.*.staging.*")) == []
+    _assert_no_derived_residue(derived_dir, uid)
     assert keep.read_text(encoding="utf-8") == "stay"
     _assert_source_unchanged(source, before)
 
@@ -612,6 +755,17 @@ def test_staging_unlink_failure_after_image_link_refuses_success(
 
     monkeypatch.setattr(Path, "unlink", _fail_staging_unlink)
     img = Image.new("RGB", (100, 80), color=(17, 18, 19))
+    parent = "image:assoc:tx-1:original"
+    params = {"box_norm": [0.0, 0.0, 0.5, 0.5]}
+    descriptor = _valid_recipe_descriptor(
+        source_path=source,
+        source_ref=parent,
+        image=img,
+        parent_ref=parent,
+        sub_action="crop",
+        params=params,
+        derived_ref=f"image:derived:{uid}",
+    )
     with pytest.raises(DerivedImagePersistError) as excinfo:
         persist_derived_image(
             dossier_id="d1",
@@ -619,7 +773,7 @@ def test_staging_unlink_failure_after_image_link_refuses_success(
             workspace_id="ws-1",
             derived_uuid=uid,
             image=img,
-            descriptor={"ref_id": f"image:derived:{uid}"},
+            descriptor=descriptor,
             expected_width_height=(100, 80),
         )
     assert excinfo.value.code == REASON_DERIVED_PERSIST_FAILED
@@ -802,3 +956,183 @@ def test_scope_containment_modules_do_not_touch_forbidden_surfaces() -> None:
             if isinstance(node, ast.Import):
                 for alias in node.names:
                     assert not alias.name.startswith("harness.runtime")
+
+
+_PERSIST_RECIPE_SMOKE = [
+    ("crop", {"box_norm": [0.0, 0.0, 0.5, 0.5]}),
+    (
+        "render_evidence_locators",
+        {
+            "locators": [
+                {
+                    "ref_id": "image:assoc:tx-1:original",
+                    "locator_kind": "image_region",
+                    "label": "region",
+                    "box_norm": [0.1, 0.2, 0.4, 0.5],
+                }
+            ]
+        },
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    "sub_action,params",
+    _PERSIST_RECIPE_SMOKE,
+    ids=[c[0] for c in _PERSIST_RECIPE_SMOKE],
+)
+def test_generic_handler_persists_recipe_and_fingerprint(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, sub_action: str, params: dict[str, Any]
+) -> None:
+    handler, ref_id, _source = _make_handler(tmp_path, monkeypatch)
+    if sub_action == "render_evidence_locators":
+        params = {
+            "locators": [
+                {
+                    "ref_id": ref_id,
+                    "locator_kind": "image_region",
+                    "label": "region",
+                    "box_norm": [0.1, 0.2, 0.4, 0.5],
+                }
+            ]
+        }
+    result = handler({"ref_id": ref_id, "sub_action": sub_action, "params": params})
+    assert result["executed"] is True, result
+    derived = result["outputs"]["derived_ref_id"]
+    desc = _load_derived_image_descriptor("d1", "tx-1", "ws-1", derived)
+    assert desc is not None
+    assert "recipe" in desc
+    assert desc["recipe_fingerprint"].startswith("sha256:")
+    assert desc["recipe"]["source"]["ref_id"] == ref_id
+    assert desc["recipe"]["transform"]["sub_action"] == sub_action
+
+
+def test_derived_to_derived_recipe_binds_immediate_parent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    handler, ref_id, _source = _make_handler(tmp_path, monkeypatch)
+    parent = handler(
+        {"ref_id": ref_id, "sub_action": "crop", "params": {"box_norm": [0.0, 0.0, 0.8, 0.8]}}
+    )
+    assert parent["executed"] is True
+    parent_ref = parent["outputs"]["derived_ref_id"]
+    child = handler(
+        {
+            "ref_id": parent_ref,
+            "sub_action": "zoom",
+            "params": {"box_norm": [0.0, 0.0, 0.5, 0.5], "factor": 1.0},
+        }
+    )
+    assert child["executed"] is True
+    child_ref = child["outputs"]["derived_ref_id"]
+    child_desc = _load_derived_image_descriptor("d1", "tx-1", "ws-1", child_ref)
+    assert child_desc is not None
+    assert child_desc["parent_ref_id"] == parent_ref
+    assert child_desc["recipe"]["source"]["ref_id"] == parent_ref
+
+
+@pytest.mark.parametrize(
+    "mutate,expected_code",
+    [
+        ("descriptor", REASON_RECIPE_DESCRIPTOR_MISMATCH),
+        ("fingerprint", REASON_RECIPE_FINGERPRINT_MISMATCH),
+        ("output", REASON_RECIPE_OUTPUT_MISMATCH),
+        ("missing", REASON_RECIPE_REQUIRED),
+    ],
+    ids=["descriptor", "fingerprint", "output", "required"],
+)
+def test_recipe_gate_refuses_without_residue(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    mutate: str,
+    expected_code: str,
+) -> None:
+    from tooling.mapping.transcript_edit.derived_image_recipe import recipe_fingerprint
+
+    root = _dossiers_root(tmp_path)
+    monkeypatch.setattr(te_paths_mod, "dossiers_root", lambda: root)
+    monkeypatch.setattr(paths_mod, "dossiers_root", lambda: root)
+    source = tmp_path / "canon.png"
+    source.write_bytes(_tiny_png_bytes())
+    img = Image.new("RGB", (100, 80), color=(21, 22, 23))
+    uid = "11111111111111111111111111111111"
+    parent = "image:assoc:tx-1:original"
+    params = {"box_norm": [0.0, 0.0, 0.5, 0.5]}
+    derived_dir = transcript_edit_derived_images_dir("d1", "tx-1", "ws-1")
+    derived_dir.mkdir(parents=True, exist_ok=True)
+
+    if mutate == "missing":
+        descriptor = {
+            "ref_id": f"image:derived:{uid}",
+            "parent_ref_id": parent,
+            "sub_action": "crop",
+            "params": params,
+        }
+    else:
+        descriptor = _valid_recipe_descriptor(
+            source_path=source,
+            source_ref=parent,
+            image=img,
+            parent_ref=parent,
+            sub_action="crop",
+            params=params,
+            derived_ref=f"image:derived:{uid}",
+        )
+        if mutate == "descriptor":
+            descriptor["recipe"] = dict(descriptor["recipe"])
+            descriptor["recipe"]["source"] = dict(descriptor["recipe"]["source"])
+            descriptor["recipe"]["source"]["ref_id"] = (
+                "image:derived:ffffffffffffffffffffffffffffffff"
+            )
+            descriptor["recipe_fingerprint"] = recipe_fingerprint(descriptor["recipe"])
+        elif mutate == "fingerprint":
+            descriptor["recipe_fingerprint"] = "sha256:" + ("f" * 64)
+        elif mutate == "output":
+            bad_recipe = dict(descriptor["recipe"])
+            bad_recipe["expected_output"] = dict(bad_recipe["expected_output"])
+            bad_recipe["expected_output"]["pixel_sha256"] = "e" * 64
+            descriptor["recipe"] = bad_recipe
+            descriptor["recipe_fingerprint"] = recipe_fingerprint(bad_recipe)
+
+    with pytest.raises(DerivedImagePersistError) as excinfo:
+        persist_derived_image(
+            dossier_id="d1",
+            transcription_id="tx-1",
+            workspace_id="ws-1",
+            derived_uuid=uid,
+            image=img,
+            descriptor=descriptor,
+            expected_width_height=(100, 80),
+        )
+    assert excinfo.value.code == expected_code
+    _assert_no_derived_residue(derived_dir, uid)
+
+
+def test_point_crops_descriptors_have_no_recipe_key(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    handler, ref_id, _source = _make_handler(tmp_path, monkeypatch)
+    result = handler(
+        {
+            "ref_id": ref_id,
+            "sub_action": "point_crops",
+            "params": {
+                "points": [
+                    {
+                        "alias": "parcel_1_tie_bearing",
+                        "point_norm": [0.42, 0.58],
+                        "size": "medium",
+                        "shape": "wide",
+                    }
+                ]
+            },
+        }
+    )
+    assert result["executed"] is True, result
+    master = result["outputs"]["derived_ref_id"]
+    crop = result["outputs"]["crop_set"]["points"][0]["crop_ref"]
+    for ref in (master, crop):
+        desc = _load_derived_image_descriptor("d1", "tx-1", "ws-1", ref)
+        assert desc is not None
+        assert "recipe" not in desc
+        assert "recipe_fingerprint" not in desc
