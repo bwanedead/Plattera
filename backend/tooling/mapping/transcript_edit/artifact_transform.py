@@ -24,7 +24,12 @@ from .paths import (
     UnsafeArtifactPathSegmentError,
     transcript_edit_derived_images_dir,
 )
-from .artifact_hydration import _load_derived_image_descriptor
+from .derived_image_descriptor import (
+    DerivedImageDescriptorError,
+    classify_coordinates_image,
+    load_derived_image_descriptor,
+    load_derived_image_descriptor_dict,
+)
 from .derived_image_persistence import DerivedImagePersistError, persist_derived_image
 from .derived_image_recipe import (
     RecipeValidationError,
@@ -654,7 +659,7 @@ def make_transform_artifact_handler(
                     "point_crops_adjust ref_id must be a prior point_crops master overlay ref (image:derived:*).",
                     repair_hint="Set ref_id to outputs.derived_ref_id from a prior point_crops call.",
                 )
-            master_desc = _load_derived_image_descriptor(
+            master_desc = load_derived_image_descriptor_dict(
                 dossier_id, transcription_id, workspace_key, ref_id
             )
             if master_desc is None:
@@ -729,7 +734,7 @@ def make_transform_artifact_handler(
                     "point_crops_view ref_id must be a prior point_crops master overlay ref (image:derived:*).",
                     repair_hint="Set ref_id to outputs.derived_ref_id from a prior point_crops call.",
                 )
-            master_desc = _load_derived_image_descriptor(
+            master_desc = load_derived_image_descriptor_dict(
                 dossier_id, transcription_id, workspace_key, ref_id
             )
             if master_desc is None:
@@ -1218,13 +1223,29 @@ def _resolve_source_path(
         return Path(raw["absolute_path"]), None
 
     if ref_id.startswith(_IMAGE_DERIVED_PREFIX):
-        desc = _load_derived_image_descriptor(dossier_id, transcription_id, workspace_key, ref_id)
-        if desc is None:
+        try:
+            loaded = load_derived_image_descriptor(
+                dossier_id=dossier_id,
+                transcription_id=transcription_id,
+                workspace_id=workspace_key,
+                ref_id=ref_id,
+            )
+        except DerivedImageDescriptorError:
             return None, {"code": "derived_ref_not_found", "message": "Derived image ref not found."}
-        p = Path(str(desc.get("absolute_path") or ""))
-        if not p.is_file():
-            return None, {"code": "derived_image_missing", "message": str(p)}
-        return p, None
+        # Transform input I/O uses mechanical coordinates — never descriptor absolute_path,
+        # and never follows a symlink at the canonical PNG path.
+        status = classify_coordinates_image(loaded.coordinates)
+        if status == "absent":
+            return None, {
+                "code": "derived_image_missing",
+                "message": "Derived image file does not exist.",
+            }
+        if status != "safe_regular_file":
+            return None, {
+                "code": "derived_image_missing",
+                "message": "Derived image path is unsafe or unreadable.",
+            }
+        return loaded.coordinates.image_path, None
 
     return None, {"code": "unsupported_ref_kind", "message": "transform_artifact only supports image:assoc:* and image:derived:* refs."}
 

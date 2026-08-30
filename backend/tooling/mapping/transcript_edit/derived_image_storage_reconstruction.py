@@ -9,8 +9,6 @@ from typing import Any
 
 from .derived_image_recipe import (
     RecipeValidationError,
-    assert_recipe_descriptor_coherence,
-    assert_recipe_output_identity,
     build_derived_image_recipe,
     is_json_native,
     recipe_fingerprint,
@@ -21,6 +19,10 @@ from .derived_image_rendering import (
     compute_image_identity,
     pillow_version as _pillow_version,
     render_generic_derived_image,
+)
+from .derived_image_resolution import (
+    DerivedImageResolutionError,
+    reconstruct_generic_from_persisted_recipe,
 )
 
 _ASSOC_REF_RE = re.compile(r"^image:assoc:([^:]+):original$")
@@ -75,7 +77,7 @@ def resolve_source(
     are walked only to detect cycles — grandparents are never used as a fallback
     when the immediate derived parent image is missing.
 
-    Returns ``(path, None)`` on success, ``(None, "cycle")`` on a ref cycle,
+    Returns ``(path, None)`` on success, ``(None, \"cycle\")`` on a ref cycle,
     or ``(None, None)`` when the immediate source cannot be located.
     """
     visited: set[str] = set()
@@ -167,6 +169,82 @@ def _point_crop_is_simple_box_reconstructable(rec: dict[str, Any]) -> bool:
     return True
 
 
+def _append_persisted_recipe_diagnostic(
+    diagnostics: list[dict[str, Any]],
+    *,
+    ref_id: Any,
+    code: str,
+) -> None:
+    diagnostics.append({"code": code, "detail": {"ref_id": ref_id}})
+
+
+def _attempt_persisted_recipe_reconstruction(
+    rec: dict[str, Any],
+    diagnostics: list[dict[str, Any]],
+    *,
+    stored_pixel_sha256: str | None,
+    stored_content_sha256: str | None,
+    abs_image: Path | None,
+) -> bool:
+    """Use the BR-006 reconstruction seam for generic persisted recipes.
+
+    Returns True when this path fully handled the record (caller should return).
+    Malformed persisted recipes never fall back to inferred legacy recipes.
+    """
+    dossier_id = str(rec.get("_dossier_id") or "")
+    tx_id = str(rec.get("_tx_id") or "")
+    ws_id = str(rec.get("_ws_id") or "")
+    ref_id = rec.get("ref_id")
+    obj = rec.get("_obj") if isinstance(rec.get("_obj"), dict) else {}
+    if type(ref_id) is not str or not dossier_id or not tx_id or not ws_id:
+        rec["reconstruction_posture"] = "not_attempted_incomplete_recipe"
+        rec["byte_equal_to_reconstruction"] = None
+        return True
+
+    try:
+        recon = reconstruct_generic_from_persisted_recipe(
+            dossier_id=dossier_id,
+            transcription_id=tx_id,
+            workspace_id=ws_id,
+            ref_id=ref_id,
+            descriptor=obj,
+        )
+    except (DerivedImageResolutionError, Exception) as exc:
+        code = (
+            f"persisted_recipe_{exc.code}"
+            if isinstance(exc, DerivedImageResolutionError)
+            else "persisted_recipe_invalid"
+        )
+        _append_persisted_recipe_diagnostic(diagnostics, ref_id=ref_id, code=code)
+        rec["reconstruction_posture"] = "not_attempted_incomplete_recipe"
+        rec["byte_equal_to_reconstruction"] = None
+        return True
+
+    rec["recipe_fingerprint"] = obj.get("recipe_fingerprint")
+    if abs_image is None or not abs_image.is_file():
+        # missing_image + exact recipe reconstruction
+        rec["reconstruction_posture"] = "verified_pixel_exact"
+        rec["byte_equal_to_reconstruction"] = None
+        return True
+
+    pixel_match: bool | None = (
+        (recon.pixel_sha256 == stored_pixel_sha256) if stored_pixel_sha256 else None
+    )
+    recon_content = _png_content_sha256(recon.image)
+    if recon_content is not None and stored_content_sha256:
+        rec["byte_equal_to_reconstruction"] = recon_content == stored_content_sha256
+    else:
+        rec["byte_equal_to_reconstruction"] = None
+
+    if pixel_match is True:
+        rec["reconstruction_posture"] = "verified_pixel_exact"
+    elif pixel_match is False:
+        rec["reconstruction_posture"] = "verified_pixel_mismatch"
+    else:
+        rec["reconstruction_posture"] = "not_attempted_incomplete_recipe"
+    return True
+
+
 def attempt_reconstruction(
     rec: dict[str, Any],
     records_by_ref: dict[str, dict[str, Any]],
@@ -183,13 +261,29 @@ def attempt_reconstruction(
     obj = rec.get("_obj") if isinstance(rec.get("_obj"), dict) else None
     persisted_recipe = obj.get("recipe") if obj else None
     persisted_fp = obj.get("recipe_fingerprint") if obj else None
+    has_persisted_recipe_fields = persisted_recipe is not None or persisted_fp is not None
 
-    if persisted_recipe is not None or persisted_fp is not None:
+    if has_persisted_recipe_fields:
         rec["recipe_source"] = "persisted"
     else:
         rec["recipe_source"] = "unavailable"
 
-    if not abs_image or not abs_image.is_file():
+    image_present = bool(abs_image and abs_image.is_file())
+
+    if not image_present:
+        if (
+            sub_action in GENERIC_SUB_ACTIONS
+            and has_persisted_recipe_fields
+            and isinstance(obj, dict)
+        ):
+            _attempt_persisted_recipe_reconstruction(
+                rec,
+                diagnostics,
+                stored_pixel_sha256=stored_pixel_sha256,
+                stored_content_sha256=stored_content_sha256,
+                abs_image=None,
+            )
+            return
         rec["reconstruction_posture"] = "stored_image_unreadable"
         rec["byte_equal_to_reconstruction"] = None
         return
@@ -205,38 +299,18 @@ def attempt_reconstruction(
             rec["byte_equal_to_reconstruction"] = None
             return
 
-        if persisted_recipe is not None or persisted_fp is not None:
-            try:
-                stored_id = compute_image_identity(path=abs_image)
-                validated = assert_recipe_descriptor_coherence(
-                    recipe=persisted_recipe,
-                    recipe_fingerprint_value=persisted_fp,
-                    parent_ref_id=parent_ref_id,
-                    sub_action=sub_action,
-                    params=params,
-                )
-                assert_recipe_output_identity(
-                    validated,
-                    pixel_sha256=str(stored_id.get("pixel_sha256") or ""),
-                    mode=str(stored_id.get("mode") or ""),
-                    width_height=stored_id.get("width_height") or [0, 0],
-                )
-                rec["recipe_fingerprint"] = str(persisted_fp)
-            except RecipeValidationError as exc:
-                diagnostics.append(
-                    {
-                        "code": f"persisted_recipe_{exc.code}",
-                        "detail": {"ref_id": rec.get("ref_id")},
-                    }
-                )
-            except Exception:
-                diagnostics.append(
-                    {
-                        "code": "persisted_recipe_invalid",
-                        "detail": {"ref_id": rec.get("ref_id")},
-                    }
-                )
+        if has_persisted_recipe_fields and isinstance(obj, dict):
+            # Shared seam owns recipe coherence + lineage; audit only compares to stored bytes.
+            _attempt_persisted_recipe_reconstruction(
+                rec,
+                diagnostics,
+                stored_pixel_sha256=stored_pixel_sha256,
+                stored_content_sha256=stored_content_sha256,
+                abs_image=abs_image,
+            )
+            return
 
+        # Historical recipe-less inference (unchanged).
         source_path, err = resolve_source(parent_ref_id, dossier_id, records_by_ref)
         if err == "cycle":
             diagnostics.append(
@@ -290,32 +364,31 @@ def attempt_reconstruction(
         else:
             rec["byte_equal_to_reconstruction"] = None
 
-        if rec.get("recipe_source") != "persisted":
-            fp: str | None = None
-            try:
-                if all(
-                    src_id.get(k)
-                    for k in ("content_sha256", "pixel_sha256", "mode", "width_height")
-                ) and all(ren_id.get(k) for k in ("pixel_sha256", "mode", "width_height")):
-                    recipe = build_derived_image_recipe(
-                        source_ref_id=parent_ref_id,
-                        source_content_sha256=src_id["content_sha256"],
-                        source_pixel_sha256=src_id["pixel_sha256"],
-                        source_mode=src_id["mode"],
-                        source_width_height=src_id["width_height"],
-                        sub_action=sub_action,
-                        params=params,
-                        pillow_version=_pillow_version(),
-                        expected_pixel_sha256=ren_id["pixel_sha256"],
-                        expected_mode=ren_id["mode"],
-                        expected_width_height=ren_id["width_height"],
-                    )
-                    fp = recipe_fingerprint(recipe)
-                    rec["recipe_source"] = "inferred"
-            except (RecipeValidationError, Exception):
-                fp = None
-                rec["recipe_source"] = "unavailable"
-            rec["recipe_fingerprint"] = fp
+        fp: str | None = None
+        try:
+            if all(
+                src_id.get(k)
+                for k in ("content_sha256", "pixel_sha256", "mode", "width_height")
+            ) and all(ren_id.get(k) for k in ("pixel_sha256", "mode", "width_height")):
+                recipe = build_derived_image_recipe(
+                    source_ref_id=parent_ref_id,
+                    source_content_sha256=src_id["content_sha256"],
+                    source_pixel_sha256=src_id["pixel_sha256"],
+                    source_mode=src_id["mode"],
+                    source_width_height=src_id["width_height"],
+                    sub_action=sub_action,
+                    params=params,
+                    pillow_version=_pillow_version(),
+                    expected_pixel_sha256=ren_id["pixel_sha256"],
+                    expected_mode=ren_id["mode"],
+                    expected_width_height=ren_id["width_height"],
+                )
+                fp = recipe_fingerprint(recipe)
+                rec["recipe_source"] = "inferred"
+        except (RecipeValidationError, Exception):
+            fp = None
+            rec["recipe_source"] = "unavailable"
+        rec["recipe_fingerprint"] = fp
 
         if pixel_match is True:
             rec["reconstruction_posture"] = "verified_pixel_exact"

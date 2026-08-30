@@ -276,7 +276,7 @@ def test_crop_middle_source_window_has_room_all_sides(tmp_path, monkeypatch):
 
 
 def test_derived_crop_source_window_uses_root_edge_facts(tmp_path, monkeypatch):
-    from tooling.mapping.transcript_edit.artifact_hydration import _load_derived_image_descriptor
+    from tooling.mapping.transcript_edit.derived_image_descriptor import load_derived_image_descriptor_dict as _load_derived_image_descriptor
 
     handler, ref_id = _make_handler(tmp_path, monkeypatch, d="d1", tx="tx-1", ws="ws-1")
     parent = handler({
@@ -333,7 +333,7 @@ def test_reference_overlay_produces_derived_ref(tmp_path, monkeypatch):
 
 
 def test_reference_overlay_default_grid_is_denser(tmp_path, monkeypatch):
-    from tooling.mapping.transcript_edit.artifact_hydration import _load_derived_image_descriptor
+    from tooling.mapping.transcript_edit.derived_image_descriptor import load_derived_image_descriptor_dict as _load_derived_image_descriptor
 
     handler, ref_id = _make_handler(tmp_path, monkeypatch, d="d1", tx="tx-1", ws="ws-1")
     result = handler({"ref_id": ref_id, "sub_action": "reference_overlay", "params": {}})
@@ -390,7 +390,7 @@ def test_point_crops_scaffold_produces_one_derived_image(tmp_path, monkeypatch):
 
 
 def test_point_crops_scaffold_output_metadata_and_no_crop_sidecars(tmp_path, monkeypatch):
-    from tooling.mapping.transcript_edit.artifact_hydration import _load_derived_image_descriptor
+    from tooling.mapping.transcript_edit.derived_image_descriptor import load_derived_image_descriptor_dict as _load_derived_image_descriptor
 
     handler, ref_id = _make_handler(tmp_path, monkeypatch, d="d1", tx="tx-1", ws="ws-1")
     result = handler({"ref_id": ref_id, "sub_action": "point_crops_scaffold", "params": {"show": ["grid"]}})
@@ -428,7 +428,7 @@ def test_point_crops_scaffold_output_metadata_and_no_crop_sidecars(tmp_path, mon
 
 
 def test_point_crops_scaffold_image_has_visible_grid_pixels(tmp_path, monkeypatch):
-    from tooling.mapping.transcript_edit.artifact_hydration import _load_derived_image_descriptor
+    from tooling.mapping.transcript_edit.derived_image_descriptor import load_derived_image_descriptor_dict as _load_derived_image_descriptor
     from tooling.mapping.transcript_edit.coordinate_lattice import _GRID_MAJOR_COLOR
     from PIL import Image
 
@@ -448,7 +448,7 @@ def test_point_crops_scaffold_image_has_visible_grid_pixels(tmp_path, monkeypatc
 
 
 def test_point_crops_scaffold_has_reference_cell_label_backing(tmp_path, monkeypatch):
-    from tooling.mapping.transcript_edit.artifact_hydration import _load_derived_image_descriptor
+    from tooling.mapping.transcript_edit.derived_image_descriptor import load_derived_image_descriptor_dict as _load_derived_image_descriptor
     from tooling.mapping.transcript_edit.coordinate_lattice import _GRID_LABEL_BG_COLOR
     from PIL import Image
 
@@ -468,7 +468,7 @@ def test_point_crops_scaffold_has_reference_cell_label_backing(tmp_path, monkeyp
 
 
 def test_point_crops_from_scaffold_ref_crops_clean_source_pixels(tmp_path, monkeypatch):
-    from tooling.mapping.transcript_edit.artifact_hydration import _load_derived_image_descriptor
+    from tooling.mapping.transcript_edit.derived_image_descriptor import load_derived_image_descriptor_dict as _load_derived_image_descriptor
     from PIL import Image
 
     handler, source_ref = _make_handler(tmp_path, monkeypatch, d="d1", tx="tx-1", ws="ws-1")
@@ -503,7 +503,7 @@ def test_point_crops_from_scaffold_ref_crops_clean_source_pixels(tmp_path, monke
 
 
 def test_point_crops_adjust_repairs_legacy_polluted_source_ref(tmp_path, monkeypatch):
-    from tooling.mapping.transcript_edit.artifact_hydration import _load_derived_image_descriptor
+    from tooling.mapping.transcript_edit.derived_image_descriptor import load_derived_image_descriptor_dict as _load_derived_image_descriptor
     from tooling.mapping.transcript_edit.paths import transcript_edit_derived_images_dir
     from PIL import Image
 
@@ -569,7 +569,7 @@ def _overlay_foundation_snapshot(overlay: dict) -> dict:
 
 
 def test_scaffold_and_reference_overlay_share_coordinate_foundation(tmp_path, monkeypatch) -> None:
-    from tooling.mapping.transcript_edit.artifact_hydration import _load_derived_image_descriptor
+    from tooling.mapping.transcript_edit.derived_image_descriptor import load_derived_image_descriptor_dict as _load_derived_image_descriptor
     from tooling.mapping.transcript_edit.coordinate_lattice import _GRID_LABEL_BG_COLOR
     from PIL import Image
 
@@ -601,7 +601,7 @@ def test_scaffold_and_reference_overlay_share_coordinate_foundation(tmp_path, mo
 
 
 def test_point_crops_view_can_still_paint_boxes_for_diagnostic(tmp_path, monkeypatch) -> None:
-    from tooling.mapping.transcript_edit.artifact_hydration import _load_derived_image_descriptor
+    from tooling.mapping.transcript_edit.derived_image_descriptor import load_derived_image_descriptor_dict as _load_derived_image_descriptor
     from tooling.mapping.transcript_edit.point_crops import _BOX_FILL_ALPHA
     from PIL import Image
 
@@ -1613,7 +1613,7 @@ def test_point_crops_labels_and_colors_are_deterministic(tmp_path, monkeypatch):
 
 
 def test_point_crops_master_and_crop_descriptors_hydrate_with_metadata(tmp_path, monkeypatch):
-    from tooling.mapping.transcript_edit.artifact_hydration import _load_derived_image_descriptor
+    from tooling.mapping.transcript_edit.derived_image_descriptor import load_derived_image_descriptor_dict as _load_derived_image_descriptor
 
     handler, ref_id = _make_handler(tmp_path, monkeypatch, d="d1", tx="tx-1", ws="ws-1")
     result = handler({"ref_id": ref_id, **_point_crops_request()})
@@ -1741,7 +1741,7 @@ def test_point_crops_normalizes_mixed_case_size_and_shape(tmp_path, monkeypatch)
 
 
 def test_point_crops_no_b64_in_persisted_descriptors(tmp_path, monkeypatch):
-    from tooling.mapping.transcript_edit.artifact_hydration import _load_derived_image_descriptor
+    from tooling.mapping.transcript_edit.derived_image_descriptor import load_derived_image_descriptor_dict as _load_derived_image_descriptor
     from tooling.mapping.transcript_edit.paths import transcript_edit_derived_images_dir
 
     handler, ref_id = _make_handler(tmp_path, monkeypatch, d="d1", tx="tx-1", ws="ws-1")
@@ -1861,7 +1861,7 @@ def test_point_crops_geometry_metadata_stays_source_based(tmp_path, monkeypatch)
 
 
 def test_point_crops_persisted_crop_descriptor_records_zoom_metadata(tmp_path, monkeypatch):
-    from tooling.mapping.transcript_edit.artifact_hydration import _load_derived_image_descriptor
+    from tooling.mapping.transcript_edit.derived_image_descriptor import load_derived_image_descriptor_dict as _load_derived_image_descriptor
 
     handler, ref_id = _make_handler(tmp_path, monkeypatch, d="d1", tx="tx-1", ws="ws-1")
     result = handler({"ref_id": ref_id, **_point_crops_request(size="small", shape="wide")})
@@ -2200,7 +2200,7 @@ def test_point_crop_scale_bounds_reject() -> None:
 
 
 def test_point_crop_scale_metadata_persists_in_sidecar_and_descriptor(tmp_path, monkeypatch) -> None:
-    from tooling.mapping.transcript_edit.artifact_hydration import _load_derived_image_descriptor
+    from tooling.mapping.transcript_edit.derived_image_descriptor import load_derived_image_descriptor_dict as _load_derived_image_descriptor
 
     handler, ref_id = _make_handler(tmp_path, monkeypatch, d="d1", tx="tx-1", ws="ws-1")
     result = handler({
@@ -2752,7 +2752,7 @@ def test_point_crops_default_show_omits_box_but_still_creates_crop_refs(tmp_path
 
 
 def test_point_crops_show_box_accepted_but_suppressed_on_master_overlay(tmp_path, monkeypatch) -> None:
-    from tooling.mapping.transcript_edit.artifact_hydration import _load_derived_image_descriptor
+    from tooling.mapping.transcript_edit.derived_image_descriptor import load_derived_image_descriptor_dict as _load_derived_image_descriptor
     from PIL import Image
 
     handler, ref_id = _make_handler(tmp_path, monkeypatch, d="d1", tx="tx-1", ws="ws-1")
@@ -2832,7 +2832,7 @@ def test_point_crops_adjust_preserves_and_updates_explicit_dimensions(tmp_path, 
 
 
 def test_point_crops_master_overlay_pin_renders_at_point_norm(tmp_path, monkeypatch) -> None:
-    from tooling.mapping.transcript_edit.artifact_hydration import _load_derived_image_descriptor
+    from tooling.mapping.transcript_edit.derived_image_descriptor import load_derived_image_descriptor_dict as _load_derived_image_descriptor
     from tooling.mapping.transcript_edit.point_crops import _BULLSEYE_TICK_LEN, _PIN_RADIUS
     from PIL import Image
 
@@ -2903,7 +2903,7 @@ def test_point_crops_master_overlay_includes_grid_metadata(tmp_path, monkeypatch
 
 
 def test_point_crops_master_overlay_renders_dense_grid_on_image_area(tmp_path, monkeypatch):
-    from tooling.mapping.transcript_edit.artifact_hydration import _load_derived_image_descriptor
+    from tooling.mapping.transcript_edit.derived_image_descriptor import load_derived_image_descriptor_dict as _load_derived_image_descriptor
 
     handler, ref_id = _make_handler(tmp_path, monkeypatch, d="d1", tx="tx-1", ws="ws-1")
     result = handler({"ref_id": ref_id, **_point_crops_request()})
@@ -2928,7 +2928,7 @@ def test_point_crops_master_overlay_renders_dense_grid_on_image_area(tmp_path, m
 
 
 def test_point_crops_master_overlay_renders_marker_and_letter_without_box_fill(tmp_path, monkeypatch):
-    from tooling.mapping.transcript_edit.artifact_hydration import _load_derived_image_descriptor
+    from tooling.mapping.transcript_edit.derived_image_descriptor import load_derived_image_descriptor_dict as _load_derived_image_descriptor
     from tooling.mapping.transcript_edit.point_crops import _letter_position_near_pin, _pin_center_px
     from PIL import Image
 
@@ -2958,7 +2958,7 @@ def test_point_crops_default_show_remains_pin_and_letter_only(tmp_path, monkeypa
 
 
 def test_point_crops_adjust_master_overlay_suppresses_visual_boxes(tmp_path, monkeypatch) -> None:
-    from tooling.mapping.transcript_edit.artifact_hydration import _load_derived_image_descriptor
+    from tooling.mapping.transcript_edit.derived_image_descriptor import load_derived_image_descriptor_dict as _load_derived_image_descriptor
     from PIL import Image
 
     handler, source_ref = _make_handler(tmp_path, monkeypatch, d="d1", tx="tx-1", ws="ws-1")
@@ -3009,7 +3009,7 @@ def test_point_crops_overlay_render_metadata_has_no_paths_or_b64(tmp_path, monke
 
 
 def test_reference_overlay_preserves_lattice_label_style(tmp_path, monkeypatch) -> None:
-    from tooling.mapping.transcript_edit.artifact_hydration import _load_derived_image_descriptor
+    from tooling.mapping.transcript_edit.derived_image_descriptor import load_derived_image_descriptor_dict as _load_derived_image_descriptor
 
     handler, ref_id = _make_handler(tmp_path, monkeypatch, d="d1", tx="tx-1", ws="ws-1")
     result = handler({"ref_id": ref_id, "sub_action": "reference_overlay", "params": {}})
@@ -3020,7 +3020,7 @@ def test_reference_overlay_preserves_lattice_label_style(tmp_path, monkeypatch) 
 
 
 def test_point_crops_per_point_crop_refs_exclude_grid(tmp_path, monkeypatch):
-    from tooling.mapping.transcript_edit.artifact_hydration import _load_derived_image_descriptor
+    from tooling.mapping.transcript_edit.derived_image_descriptor import load_derived_image_descriptor_dict as _load_derived_image_descriptor
 
     handler, ref_id = _make_handler(tmp_path, monkeypatch, d="d1", tx="tx-1", ws="ws-1")
     result = handler({"ref_id": ref_id, **_point_crops_request()})
@@ -3208,7 +3208,7 @@ def test_point_crops_adjust_shift_norm_clamps_at_bounds(tmp_path, monkeypatch):
 
 
 def test_point_crops_adjust_creates_new_refs_and_preserves_old_hydration(tmp_path, monkeypatch):
-    from tooling.mapping.transcript_edit.artifact_hydration import _load_derived_image_descriptor
+    from tooling.mapping.transcript_edit.derived_image_descriptor import load_derived_image_descriptor_dict as _load_derived_image_descriptor
 
     handler, source_ref = _make_handler(tmp_path, monkeypatch, d="d1", tx="tx-1", ws="ws-1")
     created = _create_two_point_crop_set(handler, source_ref)
@@ -3229,7 +3229,7 @@ def test_point_crops_adjust_creates_new_refs_and_preserves_old_hydration(tmp_pat
 
 
 def test_point_crops_adjust_sidecar_and_descriptors_include_lineage(tmp_path, monkeypatch):
-    from tooling.mapping.transcript_edit.artifact_hydration import _load_derived_image_descriptor
+    from tooling.mapping.transcript_edit.derived_image_descriptor import load_derived_image_descriptor_dict as _load_derived_image_descriptor
     from tooling.mapping.transcript_edit.paths import transcript_edit_derived_images_dir
 
     handler, source_ref = _make_handler(tmp_path, monkeypatch, d="d1", tx="tx-1", ws="ws-1")
@@ -3403,7 +3403,7 @@ def test_point_crops_accepts_bounded_graph_ref(tmp_path, monkeypatch):
 
 
 def test_point_crops_persists_target_mapping_on_points_sidecar_and_descriptors(tmp_path, monkeypatch):
-    from tooling.mapping.transcript_edit.artifact_hydration import _load_derived_image_descriptor
+    from tooling.mapping.transcript_edit.derived_image_descriptor import load_derived_image_descriptor_dict as _load_derived_image_descriptor
     from tooling.mapping.transcript_edit.paths import transcript_edit_derived_images_dir
 
     handler, ref_id = _make_handler(tmp_path, monkeypatch, d="d1", tx="tx-1", ws="ws-1")
@@ -3617,7 +3617,7 @@ def test_point_crops_inside_crop_projects_to_root_source(tmp_path, monkeypatch):
 
 
 def test_point_crops_on_derived_crop_persists_root_crop_frame_edge_room(tmp_path, monkeypatch):
-    from tooling.mapping.transcript_edit.artifact_hydration import _load_derived_image_descriptor
+    from tooling.mapping.transcript_edit.derived_image_descriptor import load_derived_image_descriptor_dict as _load_derived_image_descriptor
     from tooling.mapping.transcript_edit.paths import transcript_edit_derived_images_dir
 
     handler, source_ref = _make_handler(tmp_path, monkeypatch, d="d1", tx="tx-1", ws="ws-1")
@@ -3704,7 +3704,7 @@ def test_point_crops_inside_per_point_crop_composes_projection_chain(tmp_path, m
 
 
 def test_point_crops_projection_metadata_persists_in_descriptors(tmp_path, monkeypatch):
-    from tooling.mapping.transcript_edit.artifact_hydration import _load_derived_image_descriptor
+    from tooling.mapping.transcript_edit.derived_image_descriptor import load_derived_image_descriptor_dict as _load_derived_image_descriptor
     from tooling.mapping.transcript_edit.paths import transcript_edit_derived_images_dir
 
     handler, source_ref = _make_handler(tmp_path, monkeypatch, d="d1", tx="tx-1", ws="ws-1")

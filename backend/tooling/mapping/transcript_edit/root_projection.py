@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .artifact_hydration import _load_derived_image_descriptor
+from .derived_image_descriptor import load_derived_image_descriptor_dict
 from .image_loading import hydrate_source_image_context
 
 _IMAGE_ASSOC_PREFIX = "image:assoc:"
@@ -232,7 +232,7 @@ def resolve_root_projection_context(
             )
         seen.add(current_ref)
 
-        desc = _load_derived_image_descriptor(dossier_id, transcription_id, workspace_key, current_ref)
+        desc = load_derived_image_descriptor_dict(dossier_id, transcription_id, workspace_key, current_ref)
         if desc is None:
             return ProjectionContext(
                 local_source_ref=local_ref,

@@ -6,16 +6,16 @@ The handler factory closes over the launch scope so the LLM request only carries
 
 from __future__ import annotations
 
-import json
 from collections.abc import Callable
 from typing import Any
 
 from .draft_loading import hydrate_t0_draft_refs, hydrate_transcript_edit_working_draft
-from .image_loading import hydrate_source_image_context, image_evidence_from_path
-from .paths import (
-    UnsafeArtifactPathSegmentError,
-    transcript_edit_derived_images_dir,
+from .derived_image_descriptor import (
+    DerivedImageDescriptorError,
+    classify_coordinates_image,
+    load_derived_image_descriptor,
 )
+from .image_loading import hydrate_source_image_context, image_evidence_from_path
 
 _T0_PREFIX = "t0:raw:"
 _IMAGE_ASSOC_PREFIX = "image:assoc:"
@@ -180,19 +180,26 @@ def make_hydrate_artifact_refs_handler(
                     "message": "workspace_id or run_id is required to hydrate image:derived refs.",
                 })
                 continue
-            desc = _load_derived_image_descriptor(dossier_id, transcription_id, workspace_key, rid)
-            if desc is None:
+            try:
+                loaded = load_derived_image_descriptor(
+                    dossier_id=dossier_id,
+                    transcription_id=transcription_id,
+                    workspace_id=workspace_key,
+                    ref_id=rid,
+                )
+            except DerivedImageDescriptorError:
+                loaded = None
+            if loaded is None:
                 errors.append({"ref_id": rid, "code": "not_found", "message": "Derived image ref not found."})
             else:
+                desc = loaded.descriptor
                 results.append({"ref_id": rid, "kind": "derived_image", **desc})
-                abs_path = desc.get("absolute_path")
-                if abs_path:
-                    from pathlib import Path as _Path
-                    dp = _Path(str(abs_path))
-                    if dp.is_file():
-                        evidence = image_evidence_from_path(rid, dp)
-                        if evidence:
-                            image_evidence_collected.append(evidence)
+                # Evidence I/O uses mechanical coordinates — never descriptor absolute_path,
+                # and never follows a symlink at the canonical PNG path.
+                if classify_coordinates_image(loaded.coordinates) == "safe_regular_file":
+                    evidence = image_evidence_from_path(rid, loaded.coordinates.image_path)
+                    if evidence:
+                        image_evidence_collected.append(evidence)
 
         for rid in unknown_refs:
             errors.append({"ref_id": rid, "code": "unknown_ref_kind", "message": "Ref prefix not recognized."})
@@ -211,31 +218,6 @@ def make_hydrate_artifact_refs_handler(
         return result
 
     return handler
-
-
-def _load_derived_image_descriptor(
-    dossier_id: str,
-    transcription_id: str,
-    workspace_key: str,
-    ref_id: str,
-) -> dict[str, Any] | None:
-    uuid = ref_id[len(_IMAGE_DERIVED_PREFIX):]
-    if not uuid or "/" in uuid or "\\" in uuid or ".." in uuid:
-        return None
-    try:
-        derived_dir = transcript_edit_derived_images_dir(dossier_id, transcription_id, workspace_key)
-    except UnsafeArtifactPathSegmentError:
-        return None
-    desc_path = derived_dir / f"{uuid}.json"
-    if not desc_path.is_file():
-        return None
-    try:
-        data = json.loads(desc_path.read_text(encoding="utf-8"))
-    except Exception:
-        return None
-    if not isinstance(data, dict):
-        return None
-    return data
 
 
 def _error_result(code: str, message: str) -> dict[str, Any]:

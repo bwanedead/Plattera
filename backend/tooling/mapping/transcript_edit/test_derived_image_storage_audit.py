@@ -257,16 +257,29 @@ def test_parent_cycle_a_to_b_to_a(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     b_desc_path = derived_dir / f"{b_uuid}.json"
     a_desc = json.loads(a_desc_path.read_text(encoding="utf-8"))
     b_desc = json.loads(b_desc_path.read_text(encoding="utf-8"))
-    a_desc["parent_ref_id"] = b_ref
-    b_desc["parent_ref_id"] = a_ref
+    from tooling.mapping.transcript_edit.derived_image_recipe import recipe_fingerprint
+
+    for desc, other in ((a_desc, b_ref), (b_desc, a_ref)):
+        recipe = dict(desc["recipe"])
+        recipe["source"] = dict(recipe["source"])
+        recipe["source"]["ref_id"] = other
+        desc["parent_ref_id"] = other
+        desc["recipe"] = recipe
+        desc["recipe_fingerprint"] = recipe_fingerprint(recipe)
     a_desc_path.write_text(json.dumps(a_desc), encoding="utf-8")
     b_desc_path.write_text(json.dumps(b_desc), encoding="utf-8")
+    (derived_dir / f"{a_uuid}.png").unlink()
+    (derived_dir / f"{b_uuid}.png").unlink()
 
     report = run_derived_image_storage_audit(dossier_id="d1", workspace_id="ws-1")
     by_ref = {row["ref_id"]: row for row in report["artifacts"] if row.get("ref_id")}
     assert by_ref[a_ref]["reconstruction_posture"] == "not_attempted_incomplete_recipe"
     assert by_ref[b_ref]["reconstruction_posture"] == "not_attempted_incomplete_recipe"
-    assert any(d.get("code") == "parent_cycle_detected" for d in report["diagnostics"])
+    assert any(
+        str(d.get("code") or "").endswith("lineage_cycle")
+        or d.get("code") == "parent_cycle_detected"
+        for d in report["diagnostics"]
+    )
 
 
 def test_harness_shaped_structural_refs(
@@ -338,12 +351,12 @@ def test_chained_lineage_and_missing_parent(tmp_path: Path, monkeypatch: pytest.
     parent_png.unlink()
     report2 = run_derived_image_storage_audit(dossier_id="d1", workspace_id="ws-1")
     by_ref2 = {a["ref_id"]: a for a in report2["artifacts"] if a.get("ref_id")}
+    parent_row = by_ref2[parent_ref]
     child_row = by_ref2[child["outputs"]["derived_ref_id"]]
-    assert child_row["reconstruction_posture"] in {
-        "not_attempted_missing_source",
-        "stored_image_unreadable",
-        "render_failed",
-    }
+    # BR-006: missing parent PNG remains reconstructable via persisted recipes.
+    assert parent_row["storage_posture"] == "missing_image"
+    assert parent_row["reconstruction_posture"] == "verified_pixel_exact"
+    assert child_row["reconstruction_posture"] == "verified_pixel_exact"
 
 
 def test_point_crop_master_unsupported_crop_reconstructable(

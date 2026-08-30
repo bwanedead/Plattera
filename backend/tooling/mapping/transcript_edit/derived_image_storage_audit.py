@@ -197,7 +197,7 @@ def run_derived_image_storage_audit(
         rec["ref_id"]: rec for rec in all_records if rec.get("ref_id")
     }
     for rec in all_records:
-        if rec.get("storage_posture") != "run_owned":
+        if rec.get("storage_posture") not in {"run_owned", "missing_image"}:
             continue
         attempt_reconstruction(rec, records_by_ref, all_diagnostics)
 

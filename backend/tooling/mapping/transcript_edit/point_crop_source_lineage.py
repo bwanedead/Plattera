@@ -6,7 +6,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from .artifact_hydration import _load_derived_image_descriptor
+from .derived_image_descriptor import load_derived_image_descriptor_dict
 from .coordinate_lattice import (
     OVERLAY_ROLE_POINT_CROP_MASTER,
     OVERLAY_ROLE_POINT_CROP_PLACEMENT_SCAFFOLD,
@@ -69,7 +69,7 @@ def resolve_point_crop_source_lineage(
     dossier_id: str,
     transcription_id: str,
     workspace_key: str,
-    loader: Callable[[str, str, str, str], dict[str, Any] | None] = _load_derived_image_descriptor,
+    loader: Callable[[str, str, str, str], dict[str, Any] | None] = load_derived_image_descriptor_dict,
 ) -> tuple[PointCropSourceLineage | None, dict[str, str] | None]:
     """Resolve the clean source ref to open for point-crop pixel generation."""
     clean_ref = str(ref_id or "").strip()
@@ -105,7 +105,7 @@ def repair_stored_point_crop_source_ref(
     transcription_id: str,
     workspace_key: str,
     placement_surface_ref: str | None = None,
-    loader: Callable[[str, str, str, str], dict[str, Any] | None] = _load_derived_image_descriptor,
+    loader: Callable[[str, str, str, str], dict[str, Any] | None] = load_derived_image_descriptor_dict,
 ) -> tuple[PointCropSourceLineage | None, dict[str, str] | None]:
     """Unwrap a stored crop-set source_ref when legacy metadata pointed at control overlays."""
     clean_ref = str(source_ref or "").strip()

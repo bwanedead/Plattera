@@ -15,9 +15,9 @@ from PIL import Image
 
 import config.paths as paths_mod
 import tooling.mapping.transcript_edit.paths as te_paths_mod
-from tooling.mapping.transcript_edit.artifact_hydration import (
-    _load_derived_image_descriptor,
-    make_hydrate_artifact_refs_handler,
+from tooling.mapping.transcript_edit.artifact_hydration import make_hydrate_artifact_refs_handler
+from tooling.mapping.transcript_edit.derived_image_descriptor import (
+    load_derived_image_descriptor_dict as _load_derived_image_descriptor,
 )
 from tooling.mapping.transcript_edit.artifact_transform import make_transform_artifact_handler
 from tooling.mapping.transcript_edit.derived_image_persistence import (
