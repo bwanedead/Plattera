@@ -9,6 +9,10 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from tooling.mapping.transcript_edit.artifact_ref_contract import (
+    ACTION_RESULT_COLLECTION_REF_KEYS,
+    ACTION_RESULT_SINGLE_REF_KEYS,
+)
 from tooling.mapping.transcript_edit.dossier_artifact_refs import (
     DossierArtifactRefError,
     DossierArtifactRefIndex,
@@ -17,36 +21,6 @@ from tooling.mapping.transcript_edit.dossier_artifact_refs import (
     qualify_leaf_ref,
 )
 
-# Explicit artifact-ref field vocabulary — do not rewrite every ``*_ref`` string.
-_SINGLE_REF_KEYS = frozenset(
-    {
-        "ref_id",
-        "derived_ref_id",
-        "parent_ref_id",
-        "root_source_ref",
-        "source_ref",
-        "working_draft_ref",
-        "aggregate_working_ref",
-        "base_revision_ref",
-        "source_revision_ref",
-        "previous_crop_set_overlay_ref",
-        "view_of_crop_set_overlay_ref",
-        "adjustment_source_ref",
-        "crop_set_overlay_ref",
-        "master_overlay_ref",
-        "crop_ref",
-        "local_source_ref",
-        "placement_surface_ref",
-        "source_unwrapped_from_ref",
-        "rendered_ref",
-    }
-)
-_COLLECTION_REF_KEYS = frozenset(
-    {
-        "artifact_refs",
-        "evidence_refs",
-    }
-)
 _HOST_OR_BINARY_KEYS = frozenset(
     {
         "absolute_path",
@@ -265,14 +239,14 @@ def _remap_value(
                 continue
             if not preserve_binary and key in _HOST_OR_BINARY_KEYS:
                 continue
-            if key in _SINGLE_REF_KEYS and isinstance(nested, str):
+            if key in ACTION_RESULT_SINGLE_REF_KEYS and isinstance(nested, str):
                 out[key] = _remap_ref_string(
                     nested,
                     ref_index=ref_index,
                     target=target,
                 )
                 continue
-            if key in _COLLECTION_REF_KEYS:
+            if key in ACTION_RESULT_COLLECTION_REF_KEYS:
                 out[key] = _remap_ref_collection(
                     nested,
                     ref_index=ref_index,

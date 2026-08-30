@@ -256,6 +256,45 @@ def test_unqualified_foreign_assoc_ref_keeps_original_owner() -> None:
     )
 
 
+def test_audit_only_ref_lanes_pass_through_action_result_remap_unchanged() -> None:
+    """BR-004 audit lanes must not expand production dossier result remapping."""
+    from tooling.mapping.transcript_edit.derived_image_storage_references import (
+        iter_structural_derived_refs,
+    )
+
+    index = _index()
+    target = DossierArtifactRefTarget(
+        segment_id="seg_a",
+        transcription_id="tx_a",
+        leaf_ref="image:assoc:tx_a:original",
+    )
+    derived = "image:derived:abcdef0123456789abcdef0123456789"
+    aggregate = "transcript_edit:working"
+    leaf = {
+        "executed": True,
+        "artifact_refs": [derived],
+        "primary_evidence_ref": derived,
+        "annotated_evidence_ref": derived,
+        "context_refs": [derived],
+        "latest_refs": {"focus": derived, "working": aggregate},
+        "outputs": {"basename": "out.png"},
+    }
+    out = remap_dossier_action_result(result=leaf, ref_index=index, target=target)
+    q_derived = qualify_leaf_ref(
+        segment_id="seg_a",
+        transcription_id="tx_a",
+        leaf_ref=derived,
+    )
+    assert out["artifact_refs"] == [q_derived]
+    assert out["primary_evidence_ref"] == derived
+    assert out["annotated_evidence_ref"] == derived
+    assert out["context_refs"] == [derived]
+    assert out["latest_refs"] == {"focus": derived, "working": aggregate}
+    # Audit vocabulary still recognizes the audit-only structural lanes.
+    found = set(iter_structural_derived_refs(out))
+    assert derived in found
+
+
 def test_unknown_strings_are_not_guessed_into_refs() -> None:
     index = _index()
     target = DossierArtifactRefTarget(
