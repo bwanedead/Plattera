@@ -6,6 +6,7 @@ Inventory, reconstruction, and reference analysis live in sibling modules.
 """
 from __future__ import annotations
 
+import re
 from collections import defaultdict
 from pathlib import Path
 from typing import Any
@@ -23,6 +24,8 @@ from .derived_image_storage_references import assign_reference_postures, build_r
 from .paths import UnsafeArtifactPathSegmentError, require_safe_path_segment
 
 SCHEMA_VERSION = "transcript_edit.derived_image_storage_audit.v1"
+
+_CONTENT_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 _RECONSTRUCTION_POSTURES = frozenset(
     {
@@ -72,11 +75,21 @@ def _build_duplicate_groups(
     records: list[dict[str, Any]],
     max_groups: int,
 ) -> tuple[list[dict[str, Any]], int, int]:
+    """Group by content hash only when records have mechanically verified physical bytes.
+
+    Descriptor-only logical hashes (e.g. missing_image reconstruction) have no positive
+    size_bytes and stay excluded. Posture is not a gate — canonical, legacy, orphan,
+    conflicting, and run-owned physical PNGs all participate when size/hash evidence is real.
+    """
     sha_groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for rec in records:
+        size = rec.get("size_bytes")
+        if type(size) is not int or size <= 0:
+            continue
         cs = rec.get("content_sha256")
-        if cs:
-            sha_groups[cs].append(rec)
+        if type(cs) is not str or not _CONTENT_SHA256_RE.fullmatch(cs.strip()):
+            continue
+        sha_groups[cs.strip()].append(rec)
 
     total_group_count = 0
     total_wasted_bytes = 0

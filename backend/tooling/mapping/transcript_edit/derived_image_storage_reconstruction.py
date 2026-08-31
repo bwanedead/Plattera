@@ -225,6 +225,9 @@ def _attempt_persisted_recipe_reconstruction(
         # missing_image + exact recipe reconstruction
         rec["reconstruction_posture"] = "verified_pixel_exact"
         rec["byte_equal_to_reconstruction"] = None
+        # Expose logical descriptor content coordinate; size_bytes stay unset (0 stored).
+        if recon.content_sha256:
+            rec["content_sha256"] = recon.content_sha256
         return True
 
     pixel_match: bool | None = (

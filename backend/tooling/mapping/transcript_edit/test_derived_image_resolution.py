@@ -733,3 +733,195 @@ def test_transform_ignores_tampered_absolute_path_for_chained_source(
     decoy_id = compute_image_identity(image=decoy_crop)
     child_id = compute_image_identity(path=child_png)
     assert child_id["pixel_sha256"] != decoy_id["pixel_sha256"]
+
+
+# --- STORAGE-BR-007: descriptor content identity ---
+
+
+def test_stored_resolution_reports_stored_bytes_verified(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    handler, ref_id, root, _src = _make_handler(tmp_path, monkeypatch)
+    result = handler(
+        {"ref_id": ref_id, "sub_action": "crop", "params": {"box_norm": [0.0, 0.0, 0.5, 0.5]}}
+    )
+    derived = result["outputs"]["derived_ref_id"]
+    png = _derived_dir(root) / f"{derived.removeprefix('image:derived:')}.png"
+    file_hash = hashlib.sha256(png.read_bytes()).hexdigest()
+    resolved = resolve_derived_image_for_read(
+        dossier_id="d1", transcription_id="tx-1", workspace_id="ws-1", ref_id=derived
+    )
+    assert resolved.content_identity_posture == "stored_bytes_verified"
+    assert resolved.content_sha256 == file_hash
+    assert resolved.representation_kind == "stored_bytes"
+
+
+def test_tampered_descriptor_content_sha_with_png_refuses(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    handler, ref_id, root, _src = _make_handler(tmp_path, monkeypatch)
+    result = handler(
+        {"ref_id": ref_id, "sub_action": "crop", "params": {"box_norm": [0.0, 0.0, 0.5, 0.5]}}
+    )
+    derived = result["outputs"]["derived_ref_id"]
+    desc = _load_desc(root, derived)
+    desc["content_sha256"] = "a" * 64
+    _write_desc(root, derived, desc)
+    with pytest.raises(DerivedImageResolutionError) as exc:
+        resolve_derived_image_for_read(
+            dossier_id="d1", transcription_id="tx-1", workspace_id="ws-1", ref_id=derived
+        )
+    assert exc.value.code == "content_identity_mismatch"
+    assert "\\" not in exc.value.message
+    assert "/" not in exc.value.message or "does not match" in exc.value.message
+
+
+@pytest.mark.parametrize(
+    "bad_value",
+    [
+        pytest.param("not-a-hash", id="short"),
+        pytest.param("A" * 64, id="uppercase"),
+        pytest.param(123, id="numeric"),
+        pytest.param(None, id="null"),
+    ],
+)
+def test_malformed_descriptor_content_sha_refuses(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, bad_value: Any
+) -> None:
+    handler, ref_id, root, _src = _make_handler(tmp_path, monkeypatch)
+    result = handler(
+        {"ref_id": ref_id, "sub_action": "crop", "params": {"box_norm": [0.0, 0.0, 0.5, 0.5]}}
+    )
+    derived = result["outputs"]["derived_ref_id"]
+    desc = _load_desc(root, derived)
+    desc["content_sha256"] = bad_value
+    _write_desc(root, derived, desc)
+    with pytest.raises(DerivedImageResolutionError) as exc:
+        resolve_derived_image_for_read(
+            dossier_id="d1", transcription_id="tx-1", workspace_id="ws-1", ref_id=derived
+        )
+    assert exc.value.code == "content_identity_invalid"
+    assert "\\" not in exc.value.message
+
+
+def test_missing_png_returns_persisted_descriptor_coordinate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    handler, ref_id, root, _src = _make_handler(tmp_path, monkeypatch)
+    result = handler(
+        {"ref_id": ref_id, "sub_action": "crop", "params": {"box_norm": [0.0, 0.0, 0.5, 0.5]}}
+    )
+    derived = result["outputs"]["derived_ref_id"]
+    desc = _load_desc(root, derived)
+    coord = desc["content_sha256"]
+    assert type(coord) is str and len(coord) == 64
+    _unlink_png(root, derived)
+    resolved = resolve_derived_image_for_read(
+        dossier_id="d1", transcription_id="tx-1", workspace_id="ws-1", ref_id=derived
+    )
+    assert resolved.representation_kind == "reconstructed_recipe"
+    assert resolved.content_identity_posture == "persisted_descriptor_coordinate"
+    assert resolved.content_sha256 == coord
+
+
+def test_historical_stored_without_content_sha_still_resolves(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    handler, ref_id, root, _src = _make_handler(tmp_path, monkeypatch)
+    result = handler(
+        {"ref_id": ref_id, "sub_action": "crop", "params": {"box_norm": [0.0, 0.0, 0.5, 0.5]}}
+    )
+    derived = result["outputs"]["derived_ref_id"]
+    png = _derived_dir(root) / f"{derived.removeprefix('image:derived:')}.png"
+    file_hash = hashlib.sha256(png.read_bytes()).hexdigest()
+    desc = _load_desc(root, derived)
+    desc.pop("content_sha256", None)
+    _write_desc(root, derived, desc)
+    resolved = resolve_derived_image_for_read(
+        dossier_id="d1", transcription_id="tx-1", workspace_id="ws-1", ref_id=derived
+    )
+    assert resolved.content_identity_posture == "stored_bytes_verified"
+    assert resolved.content_sha256 == file_hash
+
+
+def test_historical_missing_png_without_content_sha_unavailable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    handler, ref_id, root, _src = _make_handler(tmp_path, monkeypatch)
+    result = handler(
+        {"ref_id": ref_id, "sub_action": "crop", "params": {"box_norm": [0.0, 0.0, 0.5, 0.5]}}
+    )
+    derived = result["outputs"]["derived_ref_id"]
+    desc = _load_desc(root, derived)
+    desc.pop("content_sha256", None)
+    _write_desc(root, derived, desc)
+    _unlink_png(root, derived)
+    resolved = resolve_derived_image_for_read(
+        dossier_id="d1", transcription_id="tx-1", workspace_id="ws-1", ref_id=derived
+    )
+    assert resolved.representation_kind == "reconstructed_recipe"
+    assert resolved.content_identity_posture == "unavailable"
+    assert resolved.content_sha256 is None
+    assert resolved.pixel_sha256
+
+
+def test_two_level_chain_carries_parent_persisted_coordinate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    handler, ref_id, root, _src = _make_handler(tmp_path, monkeypatch)
+    parent = handler(
+        {"ref_id": ref_id, "sub_action": "crop", "params": {"box_norm": [0.0, 0.0, 0.8, 0.8]}}
+    )
+    parent_ref = parent["outputs"]["derived_ref_id"]
+    parent_coord = _load_desc(root, parent_ref)["content_sha256"]
+    child = handler(
+        {
+            "ref_id": parent_ref,
+            "sub_action": "zoom",
+            "params": {"box_norm": [0.0, 0.0, 0.5, 0.5], "factor": 1.0},
+        }
+    )
+    child_ref = child["outputs"]["derived_ref_id"]
+    child_recipe_source = _load_desc(root, child_ref)["recipe"]["source"]["content_sha256"]
+    assert child_recipe_source == parent_coord
+    _unlink_png(root, parent_ref)
+    _unlink_png(root, child_ref)
+    resolved = resolve_derived_image_for_read(
+        dossier_id="d1", transcription_id="tx-1", workspace_id="ws-1", ref_id=child_ref
+    )
+    assert resolved.source_identity_posture == "reconstructed_parent_pixel_verified"
+    assert resolved.content_identity_posture == "persisted_descriptor_coordinate"
+    assert resolved.content_sha256 == _load_desc(root, child_ref)["content_sha256"]
+
+
+def test_point_crop_resolves_without_content_sha256_field(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    handler, ref_id, root, _src = _make_handler(tmp_path, monkeypatch)
+    result = handler(
+        {
+            "ref_id": ref_id,
+            "sub_action": "point_crops",
+            "params": {
+                "points": [
+                    {
+                        "alias": "parcel_1_tie_bearing",
+                        "point_norm": [0.42, 0.58],
+                        "size": "medium",
+                        "shape": "wide",
+                    }
+                ]
+            },
+        }
+    )
+    assert result["executed"] is True, result
+    master = result["outputs"]["derived_ref_id"]
+    desc = _load_desc(root, master)
+    desc.pop("content_sha256", None)
+    _write_desc(root, master, desc)
+    resolved = resolve_derived_image_for_read(
+        dossier_id="d1", transcription_id="tx-1", workspace_id="ws-1", ref_id=master
+    )
+    assert resolved.representation_kind == "stored_bytes"
+    assert resolved.content_identity_posture == "stored_bytes_verified"
+    assert resolved.content_sha256

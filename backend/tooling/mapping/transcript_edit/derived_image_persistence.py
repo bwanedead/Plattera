@@ -9,6 +9,7 @@ from __future__ import annotations
 import errno
 import json
 import os
+import re
 import tempfile
 import uuid
 from collections.abc import Mapping
@@ -36,6 +37,8 @@ _RECIPE_CODE_MAP = {
     "recipe_descriptor_mismatch": REASON_RECIPE_DESCRIPTOR_MISMATCH,
     "recipe_output_mismatch": REASON_RECIPE_OUTPUT_MISMATCH,
 }
+
+_CONTENT_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
 class DerivedImagePersistError(Exception):
@@ -356,7 +359,15 @@ def persist_derived_image(
         promoted = True
 
         size_bytes = int(final_image.stat().st_size)
+        content_sha256 = staged_identity.get("content_sha256")
+        if type(content_sha256) is not str or not _CONTENT_SHA256_RE.fullmatch(content_sha256):
+            raise DerivedImagePersistError(
+                REASON_DERIVED_PERSIST_FAILED,
+                "Staged derived image content identity could not be established.",
+            )
         payload = dict(descriptor)
+        # Persistence owns content_sha256; never trust a caller-supplied value.
+        payload["content_sha256"] = content_sha256
         payload["recipe"] = recipe_norm
         payload["recipe_fingerprint"] = _fp
         payload["absolute_path"] = str(final_image.resolve())

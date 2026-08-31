@@ -1136,3 +1136,74 @@ def test_point_crops_descriptors_have_no_recipe_key(
         assert desc is not None
         assert "recipe" not in desc
         assert "recipe_fingerprint" not in desc
+
+
+def test_persist_writes_promoted_png_content_sha256(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """STORAGE-BR-007: persistence owns content_sha256 of promoted PNG bytes."""
+    root = _dossiers_root(tmp_path)
+    monkeypatch.setattr(te_paths_mod, "dossiers_root", lambda: root)
+    monkeypatch.setattr(paths_mod, "dossiers_root", lambda: root)
+    source = tmp_path / "canon.png"
+    source.write_bytes(_tiny_png_bytes())
+    img = Image.new("RGB", (50, 40), color=(11, 22, 33))
+    uid = "c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0"
+    parent = "image:assoc:tx-1:original"
+    params = {"box_norm": [0.0, 0.0, 0.5, 0.5]}
+    descriptor = _valid_recipe_descriptor(
+        source_path=source,
+        source_ref=parent,
+        image=img,
+        parent_ref=parent,
+        sub_action="crop",
+        params=params,
+        derived_ref=f"image:derived:{uid}",
+    )
+    # Caller-supplied conflicting value must not stick.
+    descriptor["content_sha256"] = "f" * 64
+
+    persisted = persist_derived_image(
+        dossier_id="d1",
+        transcription_id="tx-1",
+        workspace_id="ws-1",
+        derived_uuid=uid,
+        image=img,
+        descriptor=descriptor,
+        expected_width_height=(50, 40),
+    )
+    png_hash = hashlib.sha256(persisted.absolute_path.read_bytes()).hexdigest()
+    desc = json.loads(persisted.descriptor_path.read_text(encoding="utf-8"))
+    assert desc["content_sha256"] == png_hash
+    assert desc["content_sha256"] != "f" * 64
+    assert compute_image_identity(path=persisted.absolute_path)["content_sha256"] == png_hash
+
+
+def test_point_crop_descriptors_accepted_without_content_sha256(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    handler, ref_id, _source = _make_handler(tmp_path, monkeypatch)
+    result = handler(
+        {
+            "ref_id": ref_id,
+            "sub_action": "point_crops",
+            "params": {
+                "points": [
+                    {
+                        "alias": "parcel_1_tie_bearing",
+                        "point_norm": [0.42, 0.58],
+                        "size": "medium",
+                        "shape": "wide",
+                    }
+                ]
+            },
+        }
+    )
+    assert result["executed"] is True, result
+    master = result["outputs"]["derived_ref_id"]
+    crop = result["outputs"]["crop_set"]["points"][0]["crop_ref"]
+    for ref in (master, crop):
+        desc = _load_derived_image_descriptor("d1", "tx-1", "ws-1", ref)
+        assert desc is not None
+        # Point-crop writers remain unchanged and do not add this field.
+        assert "content_sha256" not in desc

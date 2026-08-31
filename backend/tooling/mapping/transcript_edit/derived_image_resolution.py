@@ -7,9 +7,10 @@ or temporary materializations. Canonical ``image:assoc:*`` sources remain immuta
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, Mapping
 
 from .derived_image_descriptor import (
     DerivedImageDescriptorError,
@@ -34,11 +35,17 @@ MAX_DERIVED_IMAGE_LINEAGE_DEPTH = 32
 
 _ASSOC_PREFIX = "image:assoc:"
 _DERIVED_PREFIX = "image:derived:"
+_CONTENT_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 RepresentationKind = Literal["stored_bytes", "reconstructed_recipe"]
 SourceIdentityPosture = Literal[
     "content_and_pixel_verified",
     "reconstructed_parent_pixel_verified",
+]
+ContentIdentityPosture = Literal[
+    "stored_bytes_verified",
+    "persisted_descriptor_coordinate",
+    "unavailable",
 ]
 
 
@@ -61,6 +68,7 @@ class ResolvedDerivedImage:
     pixel_sha256: str
     lineage_depth: int
     source_identity_posture: SourceIdentityPosture
+    content_identity_posture: ContentIdentityPosture
     content_sha256: str | None = None
 
 
@@ -75,7 +83,22 @@ class RecipeReconstructionResult:
     pixel_sha256: str
     lineage_depth: int
     source_identity_posture: SourceIdentityPosture
+    content_identity_posture: ContentIdentityPosture
     recipe: dict[str, Any]
+    content_sha256: str | None = None
+
+
+def _descriptor_content_coordinate(descriptor: Mapping[str, Any]) -> str | None:
+    """Historical absence → None; present-but-malformed → stable identity error."""
+    if "content_sha256" not in descriptor:
+        return None
+    value = descriptor["content_sha256"]
+    if type(value) is not str or not _CONTENT_SHA256_RE.fullmatch(value):
+        raise DerivedImageResolutionError(
+            "content_identity_invalid",
+            "Descriptor content_sha256 is malformed.",
+        )
+    return value
 
 
 def _map_descriptor_error(exc: DerivedImageDescriptorError) -> DerivedImageResolutionError:
@@ -201,6 +224,15 @@ def _resolve_derived_parent_for_recipe(
         )
 
     if parent.representation_kind != "stored_bytes":
+        # Carry descriptor content coordinate when available; never upgrade to byte-verified.
+        if (
+            parent.content_sha256 is not None
+            and parent.content_sha256 != recipe_source.get("content_sha256")
+        ):
+            raise DerivedImageResolutionError(
+                "source_identity_mismatch",
+                "Parent derived image content identity does not match the persisted recipe source.",
+            )
         return parent.image, "reconstructed_parent_pixel_verified", parent.lineage_depth
 
     if parent.content_sha256 != recipe_source.get("content_sha256"):
@@ -360,6 +392,15 @@ def reconstruct_generic_from_persisted_recipe(
         ) from exc
 
     wh_list = out_id.get("width_height") or [0, 0]
+    # Logical historical coordinate from the descriptor — never the re-encoded render bytes.
+    content_coord = _descriptor_content_coordinate(descriptor)
+    if content_coord is not None:
+        content_sha256: str | None = content_coord
+        content_identity_posture: ContentIdentityPosture = "persisted_descriptor_coordinate"
+    else:
+        content_sha256 = None
+        content_identity_posture = "unavailable"
+
     return RecipeReconstructionResult(
         ref_id=canonical_ref,
         image=rendered.image,
@@ -368,7 +409,9 @@ def reconstruct_generic_from_persisted_recipe(
         pixel_sha256=str(out_id.get("pixel_sha256") or ""),
         lineage_depth=lineage_depth,
         source_identity_posture=posture,
+        content_identity_posture=content_identity_posture,
         recipe=recipe,
+        content_sha256=content_sha256,
     )
 
 
@@ -399,6 +442,20 @@ def _resolve_stored_bytes(
             "Stored derived image bytes are corrupt or unreadable.",
         ) from exc
 
+    actual_content = identity.get("content_sha256")
+    if type(actual_content) is not str or not _CONTENT_SHA256_RE.fullmatch(actual_content):
+        raise DerivedImageResolutionError(
+            "stored_image_corrupt",
+            "Stored derived image content identity could not be established.",
+        )
+
+    descriptor_coord = _descriptor_content_coordinate(loaded.descriptor)
+    if descriptor_coord is not None and descriptor_coord != actual_content:
+        raise DerivedImageResolutionError(
+            "content_identity_mismatch",
+            "Descriptor content_sha256 does not match stored PNG bytes.",
+        )
+
     wh_list = identity.get("width_height") or [0, 0]
     return ResolvedDerivedImage(
         ref_id=coords.ref_id,
@@ -409,7 +466,8 @@ def _resolve_stored_bytes(
         pixel_sha256=str(identity.get("pixel_sha256") or ""),
         lineage_depth=0,
         source_identity_posture="content_and_pixel_verified",
-        content_sha256=str(identity.get("content_sha256") or "") or None,
+        content_identity_posture="stored_bytes_verified",
+        content_sha256=actual_content,
     )
 
 
@@ -479,7 +537,8 @@ def _resolve_derived_image_for_read_inner(
         pixel_sha256=recon.pixel_sha256,
         lineage_depth=recon.lineage_depth,
         source_identity_posture=recon.source_identity_posture,
-        content_sha256=None,
+        content_identity_posture=recon.content_identity_posture,
+        content_sha256=recon.content_sha256,
     )
     memo[canonical] = resolved
     return resolved
@@ -504,9 +563,10 @@ def resolve_derived_image_for_read(
     )
 
 
-# Public surface for STORAGE-BR-006 read resolution.
+# Public surface for STORAGE-BR-006/007 read resolution.
 __all__ = [
     "MAX_DERIVED_IMAGE_LINEAGE_DEPTH",
+    "ContentIdentityPosture",
     "DerivedImageResolutionError",
     "RecipeReconstructionResult",
     "ResolvedDerivedImage",

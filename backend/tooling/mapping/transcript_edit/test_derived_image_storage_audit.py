@@ -613,3 +613,177 @@ def test_cli_scope_refusal(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> N
 
     _root(tmp_path, monkeypatch)
     assert main([]) == 2
+
+
+def test_missing_image_logical_content_hash_not_physical_duplicate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """STORAGE-BR-007: descriptor-only content identity must not inflate wasted bytes."""
+    handler, ref_id, root, _src = _make_transform(tmp_path, monkeypatch)
+    r1 = handler({"ref_id": ref_id, "sub_action": "crop", "params": {"box_norm": [0, 0, 0.5, 0.5]}})
+    r2 = handler({"ref_id": ref_id, "sub_action": "crop", "params": {"box_norm": [0, 0, 0.5, 0.5]}})
+    d1 = r1["outputs"]["derived_ref_id"]
+    d2 = r2["outputs"]["derived_ref_id"]
+    di = root / "artifacts" / "transcript_edit" / "d1" / "tx-1" / "ws-1" / "derived_images"
+    for derived in (d1, d2):
+        uid = derived.removeprefix("image:derived:")
+        (di / f"{uid}.png").unlink()
+    before = _snapshot_tree(root)
+    report = run_derived_image_storage_audit(dossier_id="d1", workspace_id="ws-1")
+    rows = [a for a in report["artifacts"] if a.get("ref_id") in {d1, d2}]
+    assert len(rows) == 2
+    for row in rows:
+        assert row["storage_posture"] == "missing_image"
+        assert row["byte_equal_to_reconstruction"] is None
+        assert row.get("size_bytes") in (None, 0)
+        # Logical coordinate may be exposed after reconstruction.
+        assert row.get("content_sha256")
+    # Same logical content hash must not create physical duplicate waste.
+    assert report["summary"]["exact_duplicate_bytes"] == 0
+    for group in report.get("duplicate_groups") or []:
+        assert group.get("wasted_bytes", 0) == 0
+        # Missing-image logical hashes must not form physical duplicate groups.
+        member_refs = {m.get("ref_id") for m in group.get("members") or []}
+        assert not ({d1, d2} <= member_refs)
+    assert _snapshot_tree(root) == before
+
+
+def test_physical_non_run_owned_duplicates_still_counted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Canonical + legacy + orphan PNGs with identical bytes still form duplicate groups."""
+    root = _root(tmp_path, monkeypatch)
+    payload = _png_bytes(color=(9, 8, 7))
+    original = root / "images" / "original"
+    original.mkdir(parents=True)
+    canon = original / "deed.png"
+    canon.write_bytes(payload)
+    legacy = original / "deed_derived_b034cdf9.png"
+    legacy.write_bytes(payload)
+    # Orphan run-workspace PNG without descriptor (missing_descriptor).
+    orphan_dir = root / "artifacts" / "transcript_edit" / "d1" / "tx-1" / "ws-1" / "derived_images"
+    orphan_dir.mkdir(parents=True)
+    orphan = orphan_dir / ("a" * 32 + ".png")
+    orphan.write_bytes(payload)
+    size = len(payload)
+
+    report = run_derived_image_storage_audit(dossier_id="d1", all_dossiers=False)
+    postures = {a["storage_posture"] for a in report["artifacts"]}
+    assert "canonical_source" in postures
+    assert "legacy_source_adjacent" in postures
+    assert "missing_descriptor" in postures
+    assert report["summary"]["exact_duplicate_group_count"] >= 1
+    # Three identical physical copies → two wasted copies.
+    assert report["summary"]["exact_duplicate_bytes"] >= size * 2
+    matching = [
+        g
+        for g in report["duplicate_groups"]
+        if g.get("member_count", 0) >= 3 and g.get("size_bytes_each") == size
+    ]
+    assert matching, report["duplicate_groups"]
+    assert matching[0]["wasted_bytes"] == size * (matching[0]["member_count"] - 1)
+
+
+def test_duplicate_groups_require_physical_size_evidence() -> None:
+    """Boolean / malformed sizes and non-canonical hashes are not physical evidence."""
+    from tooling.mapping.transcript_edit.derived_image_storage_audit import (
+        _build_duplicate_groups,
+    )
+
+    sha = "a" * 64
+    blank = "  "
+    records = [
+        {
+            "storage_posture": "run_owned",
+            "content_sha256": sha,
+            "size_bytes": 100,
+            "pixel_sha256": "b" * 64,
+            "ref_id": "image:derived:" + ("1" * 32),
+            "relative_image_path": "a.png",
+            "relative_descriptor_path": "a.json",
+        },
+        {
+            "storage_posture": "canonical_source",
+            "content_sha256": sha,
+            "size_bytes": 100,
+            "pixel_sha256": "b" * 64,
+            "ref_id": None,
+            "relative_image_path": "canon.png",
+            "relative_descriptor_path": None,
+        },
+        # Must not participate:
+        {
+            "storage_posture": "missing_image",
+            "content_sha256": sha,
+            "size_bytes": None,
+            "ref_id": "image:derived:" + ("2" * 32),
+            "relative_image_path": None,
+            "relative_descriptor_path": "b.json",
+        },
+        {
+            "storage_posture": "run_owned",
+            "content_sha256": sha,
+            "size_bytes": True,  # bool must not count as int size
+            "ref_id": "image:derived:" + ("3" * 32),
+            "relative_image_path": "c.png",
+            "relative_descriptor_path": "c.json",
+        },
+        {
+            "storage_posture": "legacy_source_adjacent",
+            "content_sha256": sha,
+            "size_bytes": "100",  # string size is not physical evidence
+            "ref_id": None,
+            "relative_image_path": "legacy.png",
+            "relative_descriptor_path": None,
+        },
+        {
+            "storage_posture": "missing_descriptor",
+            "content_sha256": sha,
+            "size_bytes": 0,
+            "ref_id": None,
+            "relative_image_path": "zero.png",
+            "relative_descriptor_path": None,
+        },
+        # Two otherwise-valid rows sharing a whitespace-only hash must not form a group.
+        {
+            "storage_posture": "conflicting_identity",
+            "content_sha256": blank,
+            "size_bytes": 100,
+            "ref_id": "image:derived:" + ("4" * 32),
+            "relative_image_path": "blank1.png",
+            "relative_descriptor_path": "blank1.json",
+        },
+        {
+            "storage_posture": "run_owned",
+            "content_sha256": blank,
+            "size_bytes": 100,
+            "ref_id": "image:derived:" + ("5" * 32),
+            "relative_image_path": "blank2.png",
+            "relative_descriptor_path": "blank2.json",
+        },
+        # Uppercase / non-hex / short hashes are also excluded (even in pairs).
+        {
+            "storage_posture": "canonical_source",
+            "content_sha256": "A" * 64,
+            "size_bytes": 100,
+            "ref_id": None,
+            "relative_image_path": "upper1.png",
+            "relative_descriptor_path": None,
+        },
+        {
+            "storage_posture": "legacy_source_adjacent",
+            "content_sha256": "A" * 64,
+            "size_bytes": 100,
+            "ref_id": None,
+            "relative_image_path": "upper2.png",
+            "relative_descriptor_path": None,
+        },
+    ]
+    groups, group_count, wasted = _build_duplicate_groups(records, max_groups=10)
+    assert group_count == 1
+    assert len(groups) == 1
+    assert groups[0]["member_count"] == 2
+    assert groups[0]["wasted_bytes"] == 100
+    assert wasted == 100
+    member_paths = {m["relative_image_path"] for m in groups[0]["members"]}
+    assert member_paths == {"a.png", "canon.png"}
