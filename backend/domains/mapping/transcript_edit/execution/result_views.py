@@ -422,7 +422,19 @@ def _sanitize_hydrate_result_row(raw: Any) -> dict[str, Any] | None:
             row["payload"] = _json_native(_strip_host_fields(dict(payload)))
         return row
     if kind.strip() in {"source_image", "derived_image"}:
-        for key in ("basename", "role", "exists", "size_bytes", "width_height", "parent_ref_id", "sub_action"):
+        for key in (
+            "basename",
+            "role",
+            "exists",
+            "size_bytes",
+            "width_height",
+            "parent_ref_id",
+            "sub_action",
+            "representation_kind",
+            "content_identity_posture",
+            "source_identity_posture",
+            "lineage_depth",
+        ):
             value = raw.get(key)
             if value not in (None, "", [], (), {}):
                 row[key] = _json_native(value)

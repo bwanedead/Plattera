@@ -547,3 +547,35 @@ def test_nested_host_binary_fields_stripped_from_hydrate_views() -> None:
     assert meta["source"] == {"stem": "draft_1"}
     parts = view.payload["results"][1]["parts"]
     assert parts == [{"label": "a", "ok": True}, {"label": "b", "note": "keep"}]
+
+
+def test_derived_hydrate_result_view_keeps_posture_fields() -> None:
+    outputs = {
+        "hydrated_count": 1,
+        "cap_exceeded": False,
+        "results": [
+            {
+                "ref_id": "image:derived:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "kind": "derived_image",
+                "parent_ref_id": "image:assoc:tx-1:original",
+                "sub_action": "crop",
+                "basename": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png",
+                "width_height": [50, 40],
+                "absolute_path": "C:/host/secret.png",
+                "representation_kind": "reconstructed_recipe",
+                "content_identity_posture": "persisted_descriptor_coordinate",
+                "source_identity_posture": "content_and_pixel_verified",
+                "lineage_depth": 1,
+            }
+        ],
+        "errors": [],
+    }
+    view, omitted = build_hydrate_artifact_refs_view(outputs)
+    assert omitted is None
+    assert view is not None
+    row = view.payload["results"][0]
+    assert row["representation_kind"] == "reconstructed_recipe"
+    assert row["content_identity_posture"] == "persisted_descriptor_coordinate"
+    assert row["source_identity_posture"] == "content_and_pixel_verified"
+    assert row["lineage_depth"] == 1
+    assert "absolute_path" not in row

@@ -12,10 +12,17 @@ from typing import Any
 from .draft_loading import hydrate_t0_draft_refs, hydrate_transcript_edit_working_draft
 from .derived_image_descriptor import (
     DerivedImageDescriptorError,
-    classify_coordinates_image,
     load_derived_image_descriptor,
 )
-from .image_loading import hydrate_source_image_context, image_evidence_from_path
+from .derived_image_resolution import (
+    DerivedImageResolutionError,
+    resolve_derived_image_for_read,
+)
+from .image_loading import (
+    hydrate_source_image_context,
+    image_evidence_from_image,
+    image_evidence_from_path,
+)
 
 _T0_PREFIX = "t0:raw:"
 _IMAGE_ASSOC_PREFIX = "image:assoc:"
@@ -191,15 +198,78 @@ def make_hydrate_artifact_refs_handler(
                 loaded = None
             if loaded is None:
                 errors.append({"ref_id": rid, "code": "not_found", "message": "Derived image ref not found."})
+                continue
+
+            desc = loaded.descriptor
+            try:
+                resolved = resolve_derived_image_for_read(
+                    dossier_id=dossier_id,
+                    transcription_id=transcription_id,
+                    workspace_id=workspace_key,
+                    ref_id=rid,
+                )
+            except DerivedImageResolutionError as exc:
+                # Unsafe/corrupt/recipe-unavailable: error only — never result + error.
+                errors.append(
+                    {
+                        "ref_id": rid,
+                        "code": exc.code,
+                        "message": exc.message,
+                    }
+                )
+                continue
+
+            if resolved.representation_kind == "stored_bytes":
+                # Preserve on-disk evidence encoding for stored PNGs.
+                evidence = image_evidence_from_path(rid, loaded.coordinates.image_path)
+                if evidence is None:
+                    errors.append(
+                        {
+                            "ref_id": rid,
+                            "code": "image_evidence_encode_failed",
+                            "message": "Stored derived image could not be encoded as evidence.",
+                        }
+                    )
+                    continue
             else:
-                desc = loaded.descriptor
-                results.append({"ref_id": rid, "kind": "derived_image", **desc})
-                # Evidence I/O uses mechanical coordinates — never descriptor absolute_path,
-                # and never follows a symlink at the canonical PNG path.
-                if classify_coordinates_image(loaded.coordinates) == "safe_regular_file":
-                    evidence = image_evidence_from_path(rid, loaded.coordinates.image_path)
-                    if evidence:
-                        image_evidence_collected.append(evidence)
+                evidence = image_evidence_from_image(
+                    rid,
+                    resolved.image,
+                    representation_kind=resolved.representation_kind,
+                    content_identity_posture=resolved.content_identity_posture,
+                    source_identity_posture=resolved.source_identity_posture,
+                    lineage_depth=resolved.lineage_depth,
+                )
+                if evidence is None:
+                    errors.append(
+                        {
+                            "ref_id": rid,
+                            "code": "image_evidence_encode_failed",
+                            "message": "Reconstructed derived image could not be encoded as evidence.",
+                        }
+                    )
+                    continue
+
+            evidence = {
+                **evidence,
+                "representation_kind": resolved.representation_kind,
+                "content_identity_posture": resolved.content_identity_posture,
+                "source_identity_posture": resolved.source_identity_posture,
+                "lineage_depth": resolved.lineage_depth,
+            }
+            image_evidence_collected.append(evidence)
+            # Result only after resolution + evidence encoding succeed (exclusive with errors).
+            results.append(
+                {
+                    "ref_id": rid,
+                    "kind": "derived_image",
+                    **desc,
+                    "representation_kind": resolved.representation_kind,
+                    "content_identity_posture": resolved.content_identity_posture,
+                    "source_identity_posture": resolved.source_identity_posture,
+                    "lineage_depth": resolved.lineage_depth,
+                }
+            )
 
         for rid in unknown_refs:
             errors.append({"ref_id": rid, "code": "unknown_ref_kind", "message": "Ref prefix not recognized."})

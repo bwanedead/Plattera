@@ -633,7 +633,10 @@ def test_hydration_skips_evidence_for_canonical_png_symlink(
     )
     hydrated = hydrate({"ref_ids": [derived]})
     assert hydrated["executed"] is True
-    assert hydrated["outputs"]["hydrated_count"] == 1
+    errors = hydrated["outputs"]["errors"]
+    assert any(e.get("ref_id") == derived and e.get("code") == "stored_image_corrupt" for e in errors)
+    assert hydrated["outputs"]["hydrated_count"] == 0
+    assert hydrated["outputs"]["results"] == []
     assert not hydrated.get("image_evidence")
 
 
@@ -658,7 +661,7 @@ def test_transform_refuses_canonical_png_symlink_source(
         }
     )
     assert child["executed"] is False
-    assert child["refusal"]["reason_code"] == "derived_image_missing"
+    assert child["refusal"]["reason_code"] == "stored_image_corrupt"
 
 
 def test_hydration_ignores_tampered_absolute_path_for_evidence(

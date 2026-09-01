@@ -16,18 +16,14 @@ from __future__ import annotations
 import json
 import uuid as _uuid_mod
 from collections.abc import Callable, Mapping
-from pathlib import Path
 from typing import Any
 
-from .image_loading import hydrate_source_image_context, image_evidence_from_path
+from .image_loading import image_evidence_from_path
 from .paths import (
     UnsafeArtifactPathSegmentError,
     transcript_edit_derived_images_dir,
 )
 from .derived_image_descriptor import (
-    DerivedImageDescriptorError,
-    classify_coordinates_image,
-    load_derived_image_descriptor,
     load_derived_image_descriptor_dict,
 )
 from .derived_image_persistence import DerivedImagePersistError, persist_derived_image
@@ -45,6 +41,11 @@ from .derived_image_rendering import (
     compute_image_identity,
     pillow_version,
     render_generic_derived_image,
+)
+from .transform_source_image import (
+    REASON_SOURCE_CONTENT_IDENTITY_UNAVAILABLE,
+    has_durable_content_identity,
+    resolve_transform_source_image,
 )
 from .root_projection import (
     copy_projection_fields,
@@ -78,7 +79,6 @@ from .point_crops import (
     validate_point_crops_view_params,
 )
 
-_IMAGE_ASSOC_PREFIX = "image:assoc:"
 _IMAGE_DERIVED_PREFIX = "image:derived:"
 _SUPPORTED_SUB_ACTIONS = frozenset(
     {
@@ -619,7 +619,7 @@ def make_transform_artifact_handler(
             if lineage_err:
                 return _error_result(lineage_err["code"], lineage_err["message"])
             assert lineage_res is not None
-            source_path, resolve_error = _resolve_source_path(
+            source, resolve_error = resolve_transform_source_image(
                 ref_id=lineage_res.clean_source_ref,
                 dossier_id=dossier_id,
                 transcription_id=transcription_id,
@@ -627,12 +627,9 @@ def make_transform_artifact_handler(
             )
             if resolve_error:
                 return _error_result(resolve_error["code"], resolve_error["message"])
-            assert source_path is not None
+            assert source is not None
             try:
-                from PIL import Image  # type: ignore[import]
-
-                img = Image.open(source_path)
-                transform_metadata = compute_point_crops(img, params)
+                transform_metadata = compute_point_crops(source.image, params)
             except PointCropParamError as exc:
                 return _param_error(
                     "invalid_transform_params",
@@ -686,7 +683,7 @@ def make_transform_artifact_handler(
             if lineage_err:
                 return _error_result(lineage_err["code"], lineage_err["message"])
             assert lineage_res is not None
-            source_path, resolve_error = _resolve_source_path(
+            source, resolve_error = resolve_transform_source_image(
                 ref_id=lineage_res.clean_source_ref,
                 dossier_id=dossier_id,
                 transcription_id=transcription_id,
@@ -694,13 +691,10 @@ def make_transform_artifact_handler(
             )
             if resolve_error:
                 return _error_result(resolve_error["code"], resolve_error["message"])
-            assert source_path is not None
+            assert source is not None
             try:
-                from PIL import Image  # type: ignore[import]
-
-                img = Image.open(source_path)
                 transform_metadata = compute_point_crops(
-                    img,
+                    source.image,
                     {"points": adjust_bundle["points"], "show": adjust_bundle["show"]},
                 )
             except PointCropParamError as exc:
@@ -751,7 +745,7 @@ def make_transform_artifact_handler(
                     str(exc),
                     repair_hint=exc.repair_hint or point_crops_view_repair_hint_for(str(exc)),
                 )
-            source_path, resolve_error = _resolve_source_path(
+            source, resolve_error = resolve_transform_source_image(
                 ref_id=view_bundle["source_ref"],
                 dossier_id=dossier_id,
                 transcription_id=transcription_id,
@@ -759,13 +753,10 @@ def make_transform_artifact_handler(
             )
             if resolve_error:
                 return _error_result(resolve_error["code"], resolve_error["message"])
-            assert source_path is not None
+            assert source is not None
             try:
-                from PIL import Image  # type: ignore[import]
-
-                img = Image.open(source_path)
                 transform_metadata = compute_point_crops_view(
-                    img,
+                    source.image,
                     view_bundle["points"],
                     show=view_bundle["show"],
                 )
@@ -788,8 +779,8 @@ def make_transform_artifact_handler(
                 view_bundle=view_bundle,
             )
 
-        # Resolve source image path
-        source_path, resolve_error = _resolve_source_path(
+        # Resolve transform source (stored bytes or in-memory recipe reconstruction).
+        source, resolve_error = resolve_transform_source_image(
             ref_id=ref_id,
             dossier_id=dossier_id,
             transcription_id=transcription_id,
@@ -797,15 +788,12 @@ def make_transform_artifact_handler(
         )
         if resolve_error:
             return _error_result(resolve_error["code"], resolve_error["message"])
-        assert source_path is not None
+        assert source is not None
 
         # Apply transform (in-memory; persistence is run-owned below).
         if sub_action == "point_crops_scaffold":
             try:
-                from PIL import Image  # type: ignore[import]
-
-                img = Image.open(source_path)
-                transform_metadata = compute_point_crops_scaffold(img, params)
+                transform_metadata = compute_point_crops_scaffold(source.image, params)
             except PointCropParamError as exc:
                 return _param_error(
                     "invalid_transform_params",
@@ -824,9 +812,16 @@ def make_transform_artifact_handler(
                 transform_metadata=transform_metadata,
             )
 
+        # Generic child recipes require a durable source content coordinate (never invent one).
+        if not has_durable_content_identity(source):
+            return _error_result(
+                REASON_SOURCE_CONTENT_IDENTITY_UNAVAILABLE,
+                "Source derived image lacks a durable content_sha256 for recipe construction.",
+            )
+
         try:
             rendered = render_generic_derived_image(
-                source_path,
+                source.image,
                 sub_action,
                 params,
                 source_ref_id=ref_id,
@@ -856,14 +851,13 @@ def make_transform_artifact_handler(
         derived_ref_id = f"{_IMAGE_DERIVED_PREFIX}{derived_uuid}"
         _attach_rendered_ref(transform_metadata, rendered_ref=derived_ref_id)
         try:
-            source_identity = compute_image_identity(path=source_path)
             output_identity = compute_image_identity(image=rendered_image)
             recipe = build_derived_image_recipe(
                 source_ref_id=ref_id,
-                source_content_sha256=source_identity["content_sha256"],
-                source_pixel_sha256=source_identity["pixel_sha256"],
-                source_mode=source_identity["mode"],
-                source_width_height=source_identity["width_height"],
+                source_content_sha256=str(source.content_sha256),
+                source_pixel_sha256=source.pixel_sha256,
+                source_mode=source.mode,
+                source_width_height=source.width_height,
                 sub_action=sub_action,
                 params=params,
                 pillow_version=pillow_version(),
@@ -1201,53 +1195,6 @@ def _validate_params(sub_action: str, params: dict[str, Any]) -> dict[str, Any] 
                 repair_hint=point_crops_view_repair_hint_for(message),
             )
     return None
-
-
-def _resolve_source_path(
-    *,
-    ref_id: str,
-    dossier_id: str,
-    transcription_id: str,
-    workspace_key: str,
-) -> tuple[Path | None, dict[str, Any] | None]:
-    if ref_id.startswith(_IMAGE_ASSOC_PREFIX):
-        raw = hydrate_source_image_context(
-            dossier_id=dossier_id,
-            transcription_id=transcription_id,
-            ref_id=ref_id,
-        )
-        if raw.get("status") != "ok":
-            return None, {"code": raw.get("code", "source_error"), "message": raw.get("message", "")}
-        if not raw.get("exists"):
-            return None, {"code": "source_image_not_found", "message": f"Source image file does not exist: {raw.get('absolute_path')}"}
-        return Path(raw["absolute_path"]), None
-
-    if ref_id.startswith(_IMAGE_DERIVED_PREFIX):
-        try:
-            loaded = load_derived_image_descriptor(
-                dossier_id=dossier_id,
-                transcription_id=transcription_id,
-                workspace_id=workspace_key,
-                ref_id=ref_id,
-            )
-        except DerivedImageDescriptorError:
-            return None, {"code": "derived_ref_not_found", "message": "Derived image ref not found."}
-        # Transform input I/O uses mechanical coordinates — never descriptor absolute_path,
-        # and never follows a symlink at the canonical PNG path.
-        status = classify_coordinates_image(loaded.coordinates)
-        if status == "absent":
-            return None, {
-                "code": "derived_image_missing",
-                "message": "Derived image file does not exist.",
-            }
-        if status != "safe_regular_file":
-            return None, {
-                "code": "derived_image_missing",
-                "message": "Derived image path is unsafe or unreadable.",
-            }
-        return loaded.coordinates.image_path, None
-
-    return None, {"code": "unsupported_ref_kind", "message": "transform_artifact only supports image:assoc:* and image:derived:* refs."}
 
 
 def _attach_source_window_metadata(

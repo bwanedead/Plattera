@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import io
 import json
 import re
 from pathlib import Path
@@ -42,6 +43,39 @@ def image_evidence_from_path(ref_id: str, path: Path) -> dict[str, Any] | None:
         "b64": b64,
         "media_type": _infer_media_type(path.suffix),
     }
+
+
+def image_evidence_from_image(
+    ref_id: str,
+    image: Any,
+    *,
+    media_type: str = "image/png",
+    representation_kind: str | None = None,
+    content_identity_posture: str | None = None,
+    source_identity_posture: str | None = None,
+    lineage_depth: int | None = None,
+) -> dict[str, Any] | None:
+    """Encode an in-memory PIL image as model-visible evidence (no temp files)."""
+    try:
+        buf = io.BytesIO()
+        image.save(buf, format="PNG")
+        b64 = base64.b64encode(buf.getvalue()).decode("ascii")
+    except Exception:
+        return None
+    payload: dict[str, Any] = {
+        "ref_id": str(ref_id),
+        "b64": b64,
+        "media_type": str(media_type or "image/png"),
+    }
+    if representation_kind is not None:
+        payload["representation_kind"] = representation_kind
+    if content_identity_posture is not None:
+        payload["content_identity_posture"] = content_identity_posture
+    if source_identity_posture is not None:
+        payload["source_identity_posture"] = source_identity_posture
+    if lineage_depth is not None:
+        payload["lineage_depth"] = int(lineage_depth)
+    return payload
 
 _IMAGE_REF_RE = re.compile(
     r"^image:assoc:(?P<tid>[^:]+):(?P<slot>original)$",
