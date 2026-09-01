@@ -144,18 +144,14 @@ def _to_artifact_row(rec: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def run_derived_image_storage_audit(
+def validate_derived_image_storage_audit_scope(
     *,
-    dossier_id: str | None = None,
-    transcription_id: str | None = None,
-    workspace_id: str | None = None,
-    all_dossiers: bool = False,
-    harness_audit_roots: list[Path] | None = None,
-    max_artifacts: int = 500,
-    max_duplicate_groups: int = 100,
-    max_diagnostics: int = 200,
-) -> dict[str, Any]:
-    """Run the STORAGE-BR-004 derived image storage audit (read-only)."""
+    dossier_id: str | None,
+    transcription_id: str | None,
+    workspace_id: str | None,
+    all_dossiers: bool,
+) -> None:
+    """Validate dossier/transcription/workspace scope for audit and reclamation tools."""
     if all_dossiers and dossier_id:
         raise StorageAuditScopeError(
             "scope_conflict",
@@ -166,16 +162,6 @@ def run_derived_image_storage_audit(
             "scope_missing",
             "Provide dossier_id or set all_dossiers=True.",
         )
-    for field, value in (
-        ("max_artifacts", max_artifacts),
-        ("max_duplicate_groups", max_duplicate_groups),
-        ("max_diagnostics", max_diagnostics),
-    ):
-        if not isinstance(value, int) or isinstance(value, bool) or value < 0:
-            raise StorageAuditScopeError(
-                "bounds_invalid",
-                f"{field} must be a non-negative integer.",
-            )
 
     for field, value in (
         ("dossier_id", dossier_id),
@@ -188,6 +174,38 @@ def run_derived_image_storage_audit(
             except UnsafeArtifactPathSegmentError as exc:
                 raise StorageAuditScopeError(f"scope_unsafe_{field}", str(exc)) from exc
 
+
+def _validate_audit_output_bounds(
+    *,
+    max_artifacts: int,
+    max_duplicate_groups: int,
+    max_diagnostics: int,
+) -> None:
+    for field, value in (
+        ("max_artifacts", max_artifacts),
+        ("max_duplicate_groups", max_duplicate_groups),
+        ("max_diagnostics", max_diagnostics),
+    ):
+        if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+            raise StorageAuditScopeError(
+                "bounds_invalid",
+                f"{field} must be a non-negative integer.",
+            )
+
+
+def collect_derived_image_storage_records(
+    *,
+    dossier_id: str | None = None,
+    transcription_id: str | None = None,
+    workspace_id: str | None = None,
+    all_dossiers: bool = False,
+    harness_audit_roots: list[Path] | None = None,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Run inventory, reconstruction, and reference analysis; return full internal records.
+
+    This is the single source of truth for STORAGE-BR-004 audit and STORAGE-BR-009 planning.
+    Callers must not plan from the capped public ``artifacts`` projection.
+    """
     dossiers_root = config_paths.dossiers_root()
     all_records: list[dict[str, Any]] = []
     all_diagnostics: list[dict[str, Any]] = []
@@ -219,6 +237,52 @@ def run_derived_image_storage_audit(
     )
     assign_reference_postures(all_records, ref_map, dossiers_root)
     _ensure_complete_postures(all_records)
+    return all_records, all_diagnostics
+
+
+def run_derived_image_storage_audit(
+    *,
+    dossier_id: str | None = None,
+    transcription_id: str | None = None,
+    workspace_id: str | None = None,
+    all_dossiers: bool = False,
+    harness_audit_roots: list[Path] | None = None,
+    max_artifacts: int = 500,
+    max_duplicate_groups: int = 100,
+    max_diagnostics: int = 200,
+    include_reclamation_plan: bool = False,
+    max_reclamation_candidates: int = 500,
+) -> dict[str, Any]:
+    """Run the STORAGE-BR-004 derived image storage audit (read-only)."""
+    validate_derived_image_storage_audit_scope(
+        dossier_id=dossier_id,
+        transcription_id=transcription_id,
+        workspace_id=workspace_id,
+        all_dossiers=all_dossiers,
+    )
+    _validate_audit_output_bounds(
+        max_artifacts=max_artifacts,
+        max_duplicate_groups=max_duplicate_groups,
+        max_diagnostics=max_diagnostics,
+    )
+    if include_reclamation_plan:
+        if (
+            not isinstance(max_reclamation_candidates, int)
+            or isinstance(max_reclamation_candidates, bool)
+            or max_reclamation_candidates < 0
+        ):
+            raise StorageAuditScopeError(
+                "bounds_invalid",
+                "max_reclamation_candidates must be a non-negative integer.",
+            )
+
+    all_records, all_diagnostics = collect_derived_image_storage_records(
+        dossier_id=dossier_id,
+        transcription_id=transcription_id,
+        workspace_id=workspace_id,
+        all_dossiers=all_dossiers,
+        harness_audit_roots=harness_audit_roots,
+    )
 
     groups, total_group_count, total_wasted_bytes = _build_duplicate_groups(
         all_records, max_duplicate_groups
@@ -262,7 +326,7 @@ def run_derived_image_storage_audit(
     diagnostics_omitted = max(0, len(all_diagnostics) - max_diagnostics)
     diagnostics_out = all_diagnostics[:max_diagnostics]
 
-    return {
+    report: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
         "scope": {
             "dossier_id": dossier_id,
@@ -278,3 +342,11 @@ def run_derived_image_storage_audit(
         "duplicate_groups_omitted_count": groups_omitted,
         "diagnostics_omitted_count": diagnostics_omitted,
     }
+    if include_reclamation_plan:
+        from .derived_image_reclamation_plan import build_derived_image_reclamation_plan
+
+        report["reclamation_plan"] = build_derived_image_reclamation_plan(
+            all_records,
+            max_candidates=max_reclamation_candidates,
+        )
+    return report
