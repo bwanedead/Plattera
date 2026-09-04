@@ -47,6 +47,7 @@ def test_strip_preserves_explicit_recorded_models() -> None:
         "gpt-5.6-terra",
         "gpt-5.6-luna",
         "muse-spark-1.2-contributor",
+        "muse-spark-1.3-contributor",
     ):
         launch = {"run_id": "parent-run", "model": model, "dossier_id": "d1"}
         raw = json.dumps(launch, separators=(",", ":"))

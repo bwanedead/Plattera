@@ -256,8 +256,8 @@ Guidance:
   into a shallow few-turn pass
 - omit `model` from launch context unless you explicitly want to override the
   harness default model
-- the development harness default is `muse-spark-1.2-contributor`; omitting
-  `--model` on a new run selects Muse Contributor via provider `meta`
+- the development harness default is `muse-spark-1.3-contributor`; omitting
+  `--model` on a new run selects Muse Spark 1.3 Contributor via provider `meta`
 - place provider credentials in `backend/.env` (Git-ignored). API and harness
   source-mode entrypoints load that file automatically; an explicitly exported
   process variable always wins. Resume/fork workers reload the same file when
@@ -447,7 +447,7 @@ checkpoint and starts the next turn in the same run directory. It does not
 replay a half-failed LLM call and it does not infer mission meaning. If the run
 was started with an explicit or recorded model, the resumed child preserves that
 model rather than adopting the current harness default
-(`muse-spark-1.2-contributor`).
+(`muse-spark-1.3-contributor`).
 If the run had a pending `control.json`, resume consumes that stale control
 request before spawning the child so the resumed run does not immediately stop
 again.

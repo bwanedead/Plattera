@@ -759,12 +759,15 @@ def test_runner_missing_meta_key_fails_before_kernel_as_provider_unavailable(
     from services.registry import ServiceRegistry, reset_registry_for_tests
 
     reset_registry_for_tests()
-    muse = "muse-spark-1.2-contributor"
+    muse_models = {
+        "muse-spark-1.2-contributor": {"context_window_tokens": 1_048_576},
+        "muse-spark-1.3-contributor": {"context_window_tokens": 1_048_576},
+    }
     kernel_calls: list[str] = []
 
     class UnavailableMeta(LLMService):
         name = "meta"
-        models = {muse: {"context_window_tokens": 1_048_576}}
+        models = muse_models
 
         def is_available(self) -> bool:
             return False
@@ -831,10 +834,10 @@ def test_select_model_name_strips_candidates_before_precedence(monkeypatch) -> N
     assert runner_module._select_model_name({"model": "   "}) == "gpt-5.6-terra"
 
     monkeypatch.delenv("HARNESS_CLI_MODEL", raising=False)
-    assert runner_module._select_model_name({"model": "   "}) == "muse-spark-1.2-contributor"
+    assert runner_module._select_model_name({"model": "   "}) == "muse-spark-1.3-contributor"
 
     monkeypatch.setenv("HARNESS_CLI_MODEL", "   ")
-    assert runner_module._select_model_name({"model": "   "}) == "muse-spark-1.2-contributor"
+    assert runner_module._select_model_name({"model": "   "}) == "muse-spark-1.3-contributor"
 
     monkeypatch.setenv("HARNESS_CLI_MODEL", "gpt-5.6-terra")
     assert runner_module._select_model_name({"model": "gpt-5.4-mini"}) == "gpt-5.4-mini"
@@ -1648,18 +1651,18 @@ def test_hitl_routing_uses_canonical_run_id(tmp_path: Path, monkeypatch) -> None
 
 
 # ---------------------------------------------------------------------------
-# Workstream 4 / MAPDEP-BR-014: default model is Muse Spark Contributor
+# Workstream 4 / MAPDEP-BR-014 / MODEL-BR-001: default model is Muse Spark 1.3
 # ---------------------------------------------------------------------------
 
 
-def test_runner_default_model_is_muse_spark_contributor(monkeypatch) -> None:
-    """Omitting model in launch context should resolve to Muse Contributor."""
+def test_runner_default_model_is_muse_spark_1_3_contributor(monkeypatch) -> None:
+    """Omitting model in launch context should resolve to Muse Spark 1.3 Contributor."""
     monkeypatch.delenv("HARNESS_CLI_MODEL", raising=False)
-    assert runner_module.DEFAULT_HARNESS_MODEL == "muse-spark-1.2-contributor"
-    assert runner_module._select_model_name({}) == "muse-spark-1.2-contributor"
-    assert runner_module._select_model_name({"model": None}) == "muse-spark-1.2-contributor"
-    assert runner_module._select_model_name({"model": ""}) == "muse-spark-1.2-contributor"
-    assert runner_module._select_model_name({"model": "   "}) == "muse-spark-1.2-contributor"
+    assert runner_module.DEFAULT_HARNESS_MODEL == "muse-spark-1.3-contributor"
+    assert runner_module._select_model_name({}) == "muse-spark-1.3-contributor"
+    assert runner_module._select_model_name({"model": None}) == "muse-spark-1.3-contributor"
+    assert runner_module._select_model_name({"model": ""}) == "muse-spark-1.3-contributor"
+    assert runner_module._select_model_name({"model": "   "}) == "muse-spark-1.3-contributor"
 
 
 def test_runner_explicit_model_override_is_preserved() -> None:
@@ -1671,6 +1674,10 @@ def test_runner_explicit_model_override_is_preserved() -> None:
     assert (
         runner_module._select_model_name({"model": "muse-spark-1.2-contributor"})
         == "muse-spark-1.2-contributor"
+    )
+    assert (
+        runner_module._select_model_name({"model": "muse-spark-1.3-contributor"})
+        == "muse-spark-1.3-contributor"
     )
     assert runner_module._select_model_name({"model": "gpt-5"}) == "gpt-5"
 

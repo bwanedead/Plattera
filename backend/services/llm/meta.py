@@ -24,7 +24,8 @@ except ImportError:  # pragma: no cover - environment without openai
     OPENAI_SDK_AVAILABLE = False
 
 META_DEFAULT_BASE_URL = "https://api.meta.ai/v1"
-META_MUSE_SPARK_CONTRIBUTOR_MODEL_ID = "muse-spark-1.2-contributor"
+META_MUSE_SPARK_1_2_CONTRIBUTOR_MODEL_ID = "muse-spark-1.2-contributor"
+META_MUSE_SPARK_1_3_CONTRIBUTOR_MODEL_ID = "muse-spark-1.3-contributor"
 
 # Phase budgets stay inside the Meta adapter (not harness).
 _PHASE_JSON_ACTION_BUDGETS: dict[str, dict[str, Any]] = {
@@ -71,18 +72,29 @@ class MetaModelService(LLMService):
 
     name = "meta"
 
-    # context_window_tokens: Meta Models catalog for muse-spark-1.2-contributor.
+    # context_window_tokens: Meta Models catalog for Muse Spark Contributor routes.
     # max_output_tokens omitted: no exact-model published maximum verified for
-    # muse-spark-1.2-contributor on a primary Meta catalog surface.
+    # these contributor IDs on a primary Meta catalog surface.
     models = {
-        META_MUSE_SPARK_CONTRIBUTOR_MODEL_ID: {
+        META_MUSE_SPARK_1_2_CONTRIBUTOR_MODEL_ID: {
             "name": "Muse Spark 1.2 Contributor",
             "provider": "meta",
             "cost_tier": "contributor",
             "capabilities": ["text", "vision", "reasoning"],
             "description": "Development model using Meta's contributor-data route",
             "verification_required": False,
-            "api_model_name": META_MUSE_SPARK_CONTRIBUTOR_MODEL_ID,
+            "api_model_name": META_MUSE_SPARK_1_2_CONTRIBUTOR_MODEL_ID,
+            "default_max_tokens": 16_000,
+            "context_window_tokens": 1_048_576,
+        },
+        META_MUSE_SPARK_1_3_CONTRIBUTOR_MODEL_ID: {
+            "name": "Muse Spark 1.3 Contributor",
+            "provider": "meta",
+            "cost_tier": "contributor",
+            "capabilities": ["text", "vision", "reasoning"],
+            "description": "Development model using Meta's contributor-data route",
+            "verification_required": False,
+            "api_model_name": META_MUSE_SPARK_1_3_CONTRIBUTOR_MODEL_ID,
             "default_max_tokens": 16_000,
             "context_window_tokens": 1_048_576,
         },

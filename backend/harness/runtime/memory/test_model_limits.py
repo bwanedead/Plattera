@@ -54,16 +54,22 @@ def test_resolve_gpt56_terra_and_luna_no_fallback(isolated_global_registry) -> N
 def test_resolve_muse_contributor_no_fallback_without_key(
     monkeypatch, isolated_global_registry
 ) -> None:
-    from services.llm.meta import META_MUSE_SPARK_CONTRIBUTOR_MODEL_ID, MetaModelService
+    from services.llm.meta import (
+        META_MUSE_SPARK_1_2_CONTRIBUTOR_MODEL_ID,
+        META_MUSE_SPARK_1_3_CONTRIBUTOR_MODEL_ID,
+        MetaModelService,
+    )
 
     monkeypatch.delenv("META_MODEL_API_KEY", raising=False)
     monkeypatch.setattr("services.llm.meta._get_meta_api_key", lambda: None)
-    cw, used_fb = resolve_context_window_tokens(META_MUSE_SPARK_CONTRIBUTOR_MODEL_ID)
-    assert cw == MetaModelService.models[META_MUSE_SPARK_CONTRIBUTOR_MODEL_ID][
-        "context_window_tokens"
-    ]
-    assert cw == 1_048_576
-    assert used_fb is False
+    for model_id in (
+        META_MUSE_SPARK_1_2_CONTRIBUTOR_MODEL_ID,
+        META_MUSE_SPARK_1_3_CONTRIBUTOR_MODEL_ID,
+    ):
+        cw, used_fb = resolve_context_window_tokens(model_id)
+        assert cw == MetaModelService.models[model_id]["context_window_tokens"]
+        assert cw == 1_048_576
+        assert used_fb is False
 
 
 def test_estimate_prompt_tokens_from_chars_is_documented_heuristic() -> None:

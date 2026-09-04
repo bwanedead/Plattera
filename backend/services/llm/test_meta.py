@@ -11,7 +11,8 @@ import pytest
 from services.llm.call_options import LlmCallOptions
 from services.llm.meta import (
     META_DEFAULT_BASE_URL,
-    META_MUSE_SPARK_CONTRIBUTOR_MODEL_ID,
+    META_MUSE_SPARK_1_2_CONTRIBUTOR_MODEL_ID,
+    META_MUSE_SPARK_1_3_CONTRIBUTOR_MODEL_ID,
     MetaModelService,
     _get_meta_api_key,
     _get_meta_base_url,
@@ -49,7 +50,7 @@ def _ok_response(
     text: str = "hello",
     status: str = "completed",
     usage: SimpleNamespace | None = None,
-    model: str = META_MUSE_SPARK_CONTRIBUTOR_MODEL_ID,
+    model: str = META_MUSE_SPARK_1_2_CONTRIBUTOR_MODEL_ID,
     response_id: str = "resp_meta_1",
     output: list[Any] | None = None,
     incomplete_reason: str | None = None,
@@ -85,7 +86,7 @@ def test_missing_key_provider_unavailable(monkeypatch) -> None:
     assert _get_meta_api_key() is None
     service = MetaModelService()
     assert service.is_available() is False
-    result = service.call_text("hi", META_MUSE_SPARK_CONTRIBUTOR_MODEL_ID)
+    result = service.call_text("hi", META_MUSE_SPARK_1_2_CONTRIBUTOR_MODEL_ID)
     assert result["success"] is False
     assert "not configured" in str(result["error"]).lower()
 
@@ -114,7 +115,7 @@ def test_key_never_appears_in_logs_or_failures(monkeypatch, caplog) -> None:
         raise_exc=RuntimeError(f"boom including {SECRET_KEY}")
     )
     with caplog.at_level(logging.INFO):
-        result = service.call_text("prompt", META_MUSE_SPARK_CONTRIBUTOR_MODEL_ID)
+        result = service.call_text("prompt", META_MUSE_SPARK_1_2_CONTRIBUTOR_MODEL_ID)
     assert result["success"] is False
     blob = str(result) + " ".join(r.message for r in caplog.records)
     assert SECRET_KEY not in blob
@@ -122,23 +123,52 @@ def test_key_never_appears_in_logs_or_failures(monkeypatch, caplog) -> None:
 
 
 def test_muse_contributor_catalog_entry() -> None:
-    entry = MetaModelService.models[META_MUSE_SPARK_CONTRIBUTOR_MODEL_ID]
+    entry = MetaModelService.models[META_MUSE_SPARK_1_2_CONTRIBUTOR_MODEL_ID]
     assert entry["name"] == "Muse Spark 1.2 Contributor"
     assert entry["provider"] == "meta"
     assert entry["cost_tier"] == "contributor"
     assert entry["capabilities"] == ["text", "vision", "reasoning"]
-    assert entry["api_model_name"] == META_MUSE_SPARK_CONTRIBUTOR_MODEL_ID
+    assert entry["api_model_name"] == META_MUSE_SPARK_1_2_CONTRIBUTOR_MODEL_ID
     assert entry["context_window_tokens"] == 1_048_576
     assert "max_output_tokens" not in entry
     assert MetaModelService().supports_streaming() is False
 
 
-def test_plain_text_request_shape() -> None:
+def test_muse_spark_1_3_contributor_catalog_entry() -> None:
+    entry = MetaModelService.models[META_MUSE_SPARK_1_3_CONTRIBUTOR_MODEL_ID]
+    assert entry["name"] == "Muse Spark 1.3 Contributor"
+    assert entry["provider"] == "meta"
+    assert entry["cost_tier"] == "contributor"
+    assert entry["capabilities"] == ["text", "vision", "reasoning"]
+    assert entry["description"] == "Development model using Meta's contributor-data route"
+    assert entry["verification_required"] is False
+    assert entry["api_model_name"] == META_MUSE_SPARK_1_3_CONTRIBUTOR_MODEL_ID
+    assert entry["default_max_tokens"] == 16_000
+    assert entry["context_window_tokens"] == 1_048_576
+    assert "max_output_tokens" not in entry
+
+
+@pytest.mark.parametrize(
+    "model_id",
+    (
+        META_MUSE_SPARK_1_2_CONTRIBUTOR_MODEL_ID,
+        META_MUSE_SPARK_1_3_CONTRIBUTOR_MODEL_ID,
+    ),
+)
+def test_model_id_passed_unchanged_to_responses_create(model_id: str) -> None:
     service, fake = _service_with_fake(response=_ok_response(text="ok"))
-    result = service.call_text("plain prompt", META_MUSE_SPARK_CONTRIBUTOR_MODEL_ID)
+    result = service.call_text("plain prompt", model_id)
     assert result["success"] is True
     assert fake.last_kwargs is not None
-    assert fake.last_kwargs["model"] == META_MUSE_SPARK_CONTRIBUTOR_MODEL_ID
+    assert fake.last_kwargs["model"] == model_id
+
+
+def test_plain_text_request_shape() -> None:
+    service, fake = _service_with_fake(response=_ok_response(text="ok"))
+    result = service.call_text("plain prompt", META_MUSE_SPARK_1_2_CONTRIBUTOR_MODEL_ID)
+    assert result["success"] is True
+    assert fake.last_kwargs is not None
+    assert fake.last_kwargs["model"] == META_MUSE_SPARK_1_2_CONTRIBUTOR_MODEL_ID
     assert fake.last_kwargs["store"] is False
     assert "text" not in fake.last_kwargs
     content = fake.last_kwargs["input"][0]["content"]
@@ -149,7 +179,7 @@ def test_json_object_mode_uses_text_format() -> None:
     service, fake = _service_with_fake(response=_ok_response(text='{"ok":true}'))
     result = service.call_text(
         "json prompt",
-        META_MUSE_SPARK_CONTRIBUTOR_MODEL_ID,
+        META_MUSE_SPARK_1_2_CONTRIBUTOR_MODEL_ID,
         call_options=LlmCallOptions(output_mode="json_object", phase="choose_action"),
     )
     assert result["success"] is True
@@ -164,7 +194,7 @@ def test_one_image_and_ordered_multi_images() -> None:
     service, fake = _service_with_fake(response=_ok_response())
     service.call_text(
         "see",
-        META_MUSE_SPARK_CONTRIBUTOR_MODEL_ID,
+        META_MUSE_SPARK_1_2_CONTRIBUTOR_MODEL_ID,
         call_options=LlmCallOptions(
             image_attachments=(
                 {"b64": "AAA", "media_type": "image/png"},
@@ -188,7 +218,7 @@ def test_delegate_phase_budget() -> None:
     service, fake = _service_with_fake(response=_ok_response())
     service.call_text(
         "delegate work",
-        META_MUSE_SPARK_CONTRIBUTOR_MODEL_ID,
+        META_MUSE_SPARK_1_2_CONTRIBUTOR_MODEL_ID,
         call_options=LlmCallOptions(phase="delegate_subtask"),
     )
     assert fake.last_kwargs["max_output_tokens"] == 8_000
@@ -198,7 +228,7 @@ def test_explicit_max_tokens_authoritative() -> None:
     service, fake = _service_with_fake(response=_ok_response())
     service.call_text(
         "limited",
-        META_MUSE_SPARK_CONTRIBUTOR_MODEL_ID,
+        META_MUSE_SPARK_1_2_CONTRIBUTOR_MODEL_ID,
         max_tokens=1234,
         call_options=LlmCallOptions(output_mode="json_object", phase="choose_action"),
     )
@@ -210,7 +240,7 @@ def test_streaming_requested_fails_stably() -> None:
     service, fake = _service_with_fake(response=_ok_response())
     result = service.call_text(
         "stream me",
-        META_MUSE_SPARK_CONTRIBUTOR_MODEL_ID,
+        META_MUSE_SPARK_1_2_CONTRIBUTOR_MODEL_ID,
         call_options=LlmCallOptions(streaming=True),
     )
     assert result["success"] is False
@@ -228,7 +258,7 @@ def test_successful_usage_mapping_and_none_optional_dims() -> None:
         output_tokens_details=SimpleNamespace(reasoning_tokens=7),
     )
     service, _ = _service_with_fake(response=_ok_response(text="done", usage=usage))
-    result = service.call_text("p", META_MUSE_SPARK_CONTRIBUTOR_MODEL_ID)
+    result = service.call_text("p", META_MUSE_SPARK_1_2_CONTRIBUTOR_MODEL_ID)
     assert result["success"] is True
     assert result["usage"] == {
         "prompt_tokens": 10,
@@ -237,9 +267,9 @@ def test_successful_usage_mapping_and_none_optional_dims() -> None:
         "reasoning_tokens": 7,
         "total_tokens": 30,
     }
-    assert result["model"] == META_MUSE_SPARK_CONTRIBUTOR_MODEL_ID
-    assert result["provider_model"] == META_MUSE_SPARK_CONTRIBUTOR_MODEL_ID
-    assert result["api_model"] == META_MUSE_SPARK_CONTRIBUTOR_MODEL_ID
+    assert result["model"] == META_MUSE_SPARK_1_2_CONTRIBUTOR_MODEL_ID
+    assert result["provider_model"] == META_MUSE_SPARK_1_2_CONTRIBUTOR_MODEL_ID
+    assert result["api_model"] == META_MUSE_SPARK_1_2_CONTRIBUTOR_MODEL_ID
     assert result["finish_reason"] == "stop"
     assert result["response_id"] == "resp_meta_1"
 
@@ -251,7 +281,7 @@ def test_successful_usage_mapping_and_none_optional_dims() -> None:
         output_tokens_details=None,
     )
     service2, _ = _service_with_fake(response=_ok_response(text="x", usage=sparse))
-    result2 = service2.call_text("p", META_MUSE_SPARK_CONTRIBUTOR_MODEL_ID)
+    result2 = service2.call_text("p", META_MUSE_SPARK_1_2_CONTRIBUTOR_MODEL_ID)
     assert result2["usage"]["cached_input_tokens"] is None
     assert result2["usage"]["reasoning_tokens"] is None
     assert result2["usage"]["total_tokens"] is None
@@ -274,7 +304,7 @@ def test_length_truncation_preserves_partial_text() -> None:
     )
     result = service.call_text(
         "p",
-        META_MUSE_SPARK_CONTRIBUTOR_MODEL_ID,
+        META_MUSE_SPARK_1_2_CONTRIBUTOR_MODEL_ID,
         call_options=LlmCallOptions(output_mode="json_object", phase="choose_action"),
     )
     assert result["success"] is False
@@ -292,7 +322,7 @@ def test_non_length_incomplete_is_not_truncation() -> None:
         )
     )
     # Without a refusal content part, non-length incomplete stays incomplete.
-    result = service.call_text("p", META_MUSE_SPARK_CONTRIBUTOR_MODEL_ID)
+    result = service.call_text("p", META_MUSE_SPARK_1_2_CONTRIBUTOR_MODEL_ID)
     assert result["success"] is False
     assert result["finish_reason"] == "incomplete"
     assert "incomplete" in str(result["error"]).lower()
@@ -311,7 +341,7 @@ def test_incomplete_refusal_classified_as_content_filter() -> None:
             output=[msg],
         )
     )
-    result = service.call_text("p", META_MUSE_SPARK_CONTRIBUTOR_MODEL_ID)
+    result = service.call_text("p", META_MUSE_SPARK_1_2_CONTRIBUTOR_MODEL_ID)
     assert result["success"] is False
     assert result["finish_reason"] == "content_filter"
     assert result["text"] == "policy blocked"
@@ -320,7 +350,7 @@ def test_incomplete_refusal_classified_as_content_filter() -> None:
 
 def test_empty_output_and_completed_refusal() -> None:
     empty_svc, _ = _service_with_fake(response=_ok_response(text=""))
-    empty = empty_svc.call_text("p", META_MUSE_SPARK_CONTRIBUTOR_MODEL_ID)
+    empty = empty_svc.call_text("p", META_MUSE_SPARK_1_2_CONTRIBUTOR_MODEL_ID)
     assert empty["success"] is False
     assert "empty" in str(empty["error"]).lower()
 
@@ -329,7 +359,7 @@ def test_empty_output_and_completed_refusal() -> None:
     refusal_svc, _ = _service_with_fake(
         response=_ok_response(text="", output=[msg])
     )
-    refused = refusal_svc.call_text("p", META_MUSE_SPARK_CONTRIBUTOR_MODEL_ID)
+    refused = refusal_svc.call_text("p", META_MUSE_SPARK_1_2_CONTRIBUTOR_MODEL_ID)
     assert refused["success"] is False
     assert refused["finish_reason"] == "content_filter"
 
@@ -338,14 +368,14 @@ def test_failed_and_cancelled_remain_distinct() -> None:
     failed_svc, _ = _service_with_fake(
         response=_ok_response(text="x", status="failed")
     )
-    failed = failed_svc.call_text("p", META_MUSE_SPARK_CONTRIBUTOR_MODEL_ID)
+    failed = failed_svc.call_text("p", META_MUSE_SPARK_1_2_CONTRIBUTOR_MODEL_ID)
     assert failed["success"] is False
     assert failed["finish_reason"] == "failed"
 
     cancelled_svc, _ = _service_with_fake(
         response=_ok_response(text="y", status="cancelled")
     )
-    cancelled = cancelled_svc.call_text("p", META_MUSE_SPARK_CONTRIBUTOR_MODEL_ID)
+    cancelled = cancelled_svc.call_text("p", META_MUSE_SPARK_1_2_CONTRIBUTOR_MODEL_ID)
     assert cancelled["success"] is False
     assert cancelled["finish_reason"] == "cancelled"
 
@@ -353,7 +383,7 @@ def test_failed_and_cancelled_remain_distinct() -> None:
 def test_sdk_exception_no_secret_leak(monkeypatch) -> None:
     monkeypatch.setenv("META_MODEL_API_KEY", SECRET_KEY)
     service, _ = _service_with_fake(raise_exc=ConnectionError("network down"))
-    result = service.call_text("p", META_MUSE_SPARK_CONTRIBUTOR_MODEL_ID)
+    result = service.call_text("p", META_MUSE_SPARK_1_2_CONTRIBUTOR_MODEL_ID)
     assert result["success"] is False
     assert "ConnectionError" in str(result["error"])
     assert SECRET_KEY not in str(result)
@@ -364,7 +394,7 @@ def test_call_vision_reuses_multimodal_path() -> None:
     result = service.call_vision(
         "describe",
         "IMGDATA",
-        META_MUSE_SPARK_CONTRIBUTOR_MODEL_ID,
+        META_MUSE_SPARK_1_2_CONTRIBUTOR_MODEL_ID,
         media_type="image/webp",
     )
     assert result["success"] is True
@@ -387,7 +417,7 @@ def test_call_vision_preserves_options_and_appends_image() -> None:
     result = service.call_vision(
         "describe",
         "THREE",
-        META_MUSE_SPARK_CONTRIBUTOR_MODEL_ID,
+        META_MUSE_SPARK_1_2_CONTRIBUTOR_MODEL_ID,
         media_type="image/webp",
         call_options=existing,
     )
@@ -410,7 +440,7 @@ def test_call_vision_rejects_invalid_image_without_provider_call() -> None:
         result = service.call_vision(
             "describe",
             bad,  # type: ignore[arg-type]
-            META_MUSE_SPARK_CONTRIBUTOR_MODEL_ID,
+            META_MUSE_SPARK_1_2_CONTRIBUTOR_MODEL_ID,
         )
         assert result["success"] is False
         assert fake.last_kwargs is None
@@ -418,7 +448,7 @@ def test_call_vision_rejects_invalid_image_without_provider_call() -> None:
     result_media = service.call_vision(
         "describe",
         "OK",
-        META_MUSE_SPARK_CONTRIBUTOR_MODEL_ID,
+        META_MUSE_SPARK_1_2_CONTRIBUTOR_MODEL_ID,
         media_type="   ",
     )
     assert result_media["success"] is False

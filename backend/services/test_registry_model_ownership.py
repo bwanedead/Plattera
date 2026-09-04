@@ -170,36 +170,50 @@ def test_meta_ownership_and_catalog_without_key(
 ) -> None:
     monkeypatch.delenv("META_MODEL_API_KEY", raising=False)
     monkeypatch.setattr("services.llm.meta._get_meta_api_key", lambda: None)
-    from services.llm.meta import META_MUSE_SPARK_CONTRIBUTOR_MODEL_ID
+    from services.llm.meta import (
+        META_MUSE_SPARK_1_2_CONTRIBUTOR_MODEL_ID,
+        META_MUSE_SPARK_1_3_CONTRIBUTOR_MODEL_ID,
+    )
     from services.registry import get_registry
 
     reg = get_registry()
-    meta = reg.get_model_metadata(META_MUSE_SPARK_CONTRIBUTOR_MODEL_ID)
-    assert meta["provider"] == "meta"
-    assert meta["context_window_tokens"] == 1_048_576
-    assert reg.get_provider_name_for_model(META_MUSE_SPARK_CONTRIBUTOR_MODEL_ID) == "meta"
-    with pytest.raises(ModelProviderError) as raised:
-        reg.get_available_llm_service_for_model(META_MUSE_SPARK_CONTRIBUTOR_MODEL_ID)
-    assert raised.value.reason_code == "model_provider_unavailable"
-    assert META_MUSE_SPARK_CONTRIBUTOR_MODEL_ID not in reg.get_all_models()
+    for model_id in (
+        META_MUSE_SPARK_1_2_CONTRIBUTOR_MODEL_ID,
+        META_MUSE_SPARK_1_3_CONTRIBUTOR_MODEL_ID,
+    ):
+        meta = reg.get_model_metadata(model_id)
+        assert meta["provider"] == "meta"
+        assert meta["context_window_tokens"] == 1_048_576
+        assert reg.get_provider_name_for_model(model_id) == "meta"
+        with pytest.raises(ModelProviderError) as raised:
+            reg.get_available_llm_service_for_model(model_id)
+        assert raised.value.reason_code == "model_provider_unavailable"
+        assert model_id not in reg.get_all_models()
 
 
 def test_meta_present_in_get_all_models_when_configured(
     monkeypatch, isolated_global_registry
 ) -> None:
     monkeypatch.setenv("META_MODEL_API_KEY", "test-meta-key-not-real")
-    from services.llm.meta import META_MUSE_SPARK_CONTRIBUTOR_MODEL_ID, MetaModelService
+    from services.llm.meta import (
+        META_MUSE_SPARK_1_2_CONTRIBUTOR_MODEL_ID,
+        META_MUSE_SPARK_1_3_CONTRIBUTOR_MODEL_ID,
+        MetaModelService,
+    )
     from services.registry import get_registry
 
     reset_registry_for_tests()
     reg = get_registry()
-    # Ensure Meta discovery registered a callable provider when key is present.
-    assert META_MUSE_SPARK_CONTRIBUTOR_MODEL_ID in reg.get_all_models()
-    assert reg.get_all_models()[META_MUSE_SPARK_CONTRIBUTOR_MODEL_ID]["service_name"] == "meta"
-    assert isinstance(
-        reg.get_available_llm_service_for_model(META_MUSE_SPARK_CONTRIBUTOR_MODEL_ID),
-        MetaModelService,
-    )
+    for model_id in (
+        META_MUSE_SPARK_1_2_CONTRIBUTOR_MODEL_ID,
+        META_MUSE_SPARK_1_3_CONTRIBUTOR_MODEL_ID,
+    ):
+        assert model_id in reg.get_all_models()
+        assert reg.get_all_models()[model_id]["service_name"] == "meta"
+        assert isinstance(
+            reg.get_available_llm_service_for_model(model_id),
+            MetaModelService,
+        )
 
 
 def test_frozen_llm_discovery_registers_openai_and_meta_in_order(monkeypatch) -> None:

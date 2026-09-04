@@ -434,6 +434,7 @@ def test_resume_preserves_model_override_env(isolated_harness_root, monkeypatch)
         "gpt-5.6-terra",
         "gpt-5.6-luna",
         "muse-spark-1.2-contributor",
+        "muse-spark-1.3-contributor",
     ),
 )
 def test_resume_preserves_recorded_model_identity(

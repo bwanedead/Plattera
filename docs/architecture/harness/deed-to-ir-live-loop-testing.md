@@ -265,8 +265,8 @@ Guidance:
   child process from `resolution_state_snapshot_path`
 - prefer `max_iterations: 100` for roomier live testing
 - automatic ids look like `deed-to-ir-live-r00000001` and increase per collection
-- the development harness default model is `muse-spark-1.2-contributor`; omit
-  `--model` on a new run to select Muse Contributor via provider `meta`. Place
+- the development harness default model is `muse-spark-1.3-contributor`; omit
+  `--model` on a new run to select Muse Spark 1.3 Contributor via provider `meta`. Place
   provider credentials in `backend/.env` (Git-ignored). API and harness
   source-mode entrypoints load that file automatically; an explicitly exported
   process variable always wins. Resume/fork workers reload the same file when
