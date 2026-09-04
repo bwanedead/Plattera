@@ -20,7 +20,6 @@ from harness.runtime.memory.resume_snapshot_storage import (
     write_gzip_json_atomic,
 )
 
-from ._process_util import is_pid_alive
 from .resume_checkpoint_migrate import (
     REASON_CANONICAL_CONFLICT,
     REASON_CANONICAL_JSON_NOT_SERIALIZABLE,
@@ -47,12 +46,12 @@ from .resume_checkpoint_migrate import (
     regular_non_symlink_file,
     remove_equivalent_legacy_checkpoint,
 )
+from .run_quiescence import assess_run_quiescence
 from .resume_paths import (
     TURN_CHECKPOINTS_DIRNAME,
     turn_checkpoint_canonical_path,
 )
 from .run_layout import RunLayoutError, resolve_run_directory
-from .run_state import read_state
 
 LEGACY_TURN_FILENAME_RE = re.compile(r"^turn_([0-9]{4})\.json$")
 MAX_CHECKPOINT_DETAIL_ROWS = 64
@@ -89,26 +88,6 @@ def try_estimate_canonical_bytes(snapshot: Mapping[str, Any]) -> tuple[int | Non
         return estimate_canonical_bytes(snapshot), None
     except (ValueError, TypeError, OverflowError):
         return None, REASON_CANONICAL_JSON_NOT_SERIALIZABLE
-
-
-def assess_run_quiescence(run_id: str) -> str | None:
-    """Return ``None`` when the run is safe to mutate; else a stable refuse reason."""
-    state = read_state(run_id)
-    if state is None:
-        return REASON_RUN_ACTIVITY_UNKNOWN
-    try:
-        pid = int(state.pid)
-    except (TypeError, ValueError):
-        return REASON_RUN_ACTIVITY_UNKNOWN
-    if pid <= 0:
-        return None
-    try:
-        alive = is_pid_alive(pid)
-    except Exception:
-        return REASON_RUN_ACTIVITY_UNKNOWN
-    if alive:
-        return REASON_RUN_NOT_QUIESCENT
-    return None
 
 
 def _empty_totals(*, run_id: str, apply: bool, status: str, **extra: Any) -> dict[str, Any]:

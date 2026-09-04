@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import json
 import os
 from pathlib import Path
@@ -557,7 +558,7 @@ def test_apply_refuses_active_run_without_mutation(isolated_harness_root, monkey
     legacy = _write_legacy(run_dir, 1)
     before = legacy.read_bytes()
     monkeypatch.setattr(
-        "harness.cli.resume_checkpoint_compress.is_pid_alive",
+        "harness.cli.run_quiescence.is_pid_alive",
         lambda pid: pid == 4242,
     )
 
@@ -765,6 +766,17 @@ def test_quiescence_recheck_before_delete_retains_both(isolated_harness_root) ->
     assert legacy.exists()
     assert canonical.is_file()
     assert not list((run_dir / TURN_CHECKPOINTS_DIRNAME).glob("*.staging.json.gz"))
+
+
+def test_quiescence_seam_extracted_to_shared_module() -> None:
+    from harness.cli.run_quiescence import assess_run_quiescence as shared
+
+    from harness.cli import resume_checkpoint_compress as mod
+
+    assert shared is mod.assess_run_quiescence
+    import harness.cli.resume_checkpoint_compress as source_mod
+
+    assert "def assess_run_quiescence" not in inspect.getsource(source_mod)
 
 
 def test_lexists_cleanup_failure_without_symlinks(isolated_harness_root, monkeypatch) -> None:

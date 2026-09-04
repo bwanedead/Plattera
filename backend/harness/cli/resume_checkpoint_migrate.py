@@ -14,6 +14,10 @@ from pathlib import Path
 from typing import Any
 
 from harness.runtime.memory.resume_snapshot import parse_kernel_resume_snapshot
+from harness.cli.run_quiescence import (
+    REASON_RUN_ACTIVITY_UNKNOWN,
+    REASON_RUN_NOT_QUIESCENT,
+)
 
 # Stable reason codes for skipped / refused checkpoint rows.
 REASON_PATH_IS_SYMLINK = "path_is_symlink"
@@ -27,8 +31,6 @@ REASON_DELETE_FAILED = "legacy_delete_failed"
 REASON_CANONICAL_JSON_NOT_SERIALIZABLE = "canonical_json_not_serializable"
 REASON_STAGING_CLEANUP_FAILED = "staging_cleanup_failed"
 REASON_PROMOTE_FAILED = "canonical_promote_failed"
-REASON_RUN_NOT_QUIESCENT = "run_not_quiescent"
-REASON_RUN_ACTIVITY_UNKNOWN = "run_activity_unknown"
 
 WriteGzipFn = Callable[[Path, Mapping[str, Any]], None]
 DeleteFn = Callable[[Path], None]

@@ -24,12 +24,13 @@ def _python_source_files() -> list[Path]:
 
 
 def _allows_dossier_id_literal(path: Path) -> bool:
-    """Mechanical T0 practice-packet freeze may name product dossier coordinates."""
+    """Mechanical T0 freeze and derived-image reclaim may name product dossier coordinates."""
     rel_parts = path.relative_to(HARNESS_ROOT).parts
     allowed = {
         ("fixtures", "dossier_t0_fixture.py"),
         ("fixtures", "dossier_t0_fixture_manifest.py"),
         ("cli", "freeze_dossier_t0_fixture.py"),
+        ("cli", "reclaim_derived_image_cache.py"),
     }
     return rel_parts in allowed
 

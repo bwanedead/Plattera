@@ -6,6 +6,7 @@ never writes bytes, and never rescans storage independently of the audit pipelin
 
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 from collections import Counter
@@ -126,6 +127,66 @@ def _verify_resolver_for_candidate(rec: dict[str, Any]) -> bool:
     if resolved.pixel_sha256 != rec.get("pixel_sha256"):
         return False
     return True
+
+
+def reclamation_exclusion_reason(rec: dict[str, Any]) -> str | None:
+    """Return a stable exclusion reason, or None when the record is a candidate."""
+    return _exclusion_reason(rec)
+
+
+def _descriptor_bytes_digest(rec: dict[str, Any]) -> str | None:
+    desc_path = rec.get("_abs_descriptor_path")
+    if not isinstance(desc_path, Path):
+        return None
+    try:
+        return hashlib.sha256(desc_path.read_bytes()).hexdigest()
+    except OSError:
+        return None
+
+
+def build_reclamation_candidate_contract(rec: dict[str, Any]) -> dict[str, Any]:
+    """Bounded mechanical identity for BR-009 planning and BR-010 revalidation."""
+    row = _candidate_row(rec)
+    row["descriptor_bytes_digest"] = _descriptor_bytes_digest(rec)
+    row["pixel_sha256"] = rec.get("pixel_sha256")
+    row["sub_action"] = rec.get("sub_action")
+    return row
+
+
+def collect_reclamation_candidates_from_records(
+    records: list[dict[str, Any]],
+    *,
+    dossier_id: str,
+    workspace_id: str,
+    transcription_id: str | None = None,
+) -> list[dict[str, Any]]:
+    """Return eligible candidates in deterministic full-coordinate order."""
+    candidates: list[dict[str, Any]] = []
+    for rec in records:
+        if not isinstance(rec, dict):
+            continue
+        if str(rec.get("_dossier_id") or "") != dossier_id:
+            continue
+        if str(rec.get("_ws_id") or "") != workspace_id:
+            continue
+        if transcription_id and str(rec.get("_tx_id") or "") != transcription_id:
+            continue
+        if reclamation_exclusion_reason(rec) is not None:
+            continue
+        contract = build_reclamation_candidate_contract(rec)
+        digest = contract.get("descriptor_bytes_digest")
+        if type(digest) is not str or not _CONTENT_SHA256_RE.fullmatch(digest):
+            continue
+        candidates.append(contract)
+    candidates.sort(
+        key=lambda row: (
+            str(row.get("dossier_id") or ""),
+            str(row.get("transcription_id") or ""),
+            str(row.get("workspace_id") or ""),
+            str(row.get("ref_id") or ""),
+        )
+    )
+    return candidates
 
 
 def _exclusion_reason(rec: dict[str, Any]) -> str | None:
@@ -296,5 +357,8 @@ __all__ = [
     "RECLAMATION_POSTURE",
     "SCHEMA_VERSION",
     "build_derived_image_reclamation_plan",
+    "build_reclamation_candidate_contract",
+    "collect_reclamation_candidates_from_records",
+    "reclamation_exclusion_reason",
     "run_derived_image_reclamation_plan",
 ]
