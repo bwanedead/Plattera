@@ -25,6 +25,11 @@ from ...mission_state import (
     ResolutionRelation,
     ResolutionState,
 )
+from ...mission_state.resolution_patch_transitions import (
+    TRANSITION_KIND_RESOLVE,
+    ResolutionPatchTransitionError,
+    expand_resolution_patch_transitions,
+)
 from ..memory import LoopMemoryState
 from ..memory.stable_context import (
     StableContextValidationError,
@@ -310,12 +315,16 @@ def _repair_hint_from_rejection(
         return (
             "Resolution item and covered-unit patches are sparse per-field overlays. "
             "Omitting a field preserves its existing value. "
-            "To clear next_needed_step, send it explicitly as null. "
-            "To clear requires_hitl or no_further_progress, send false. "
-            "A closed/earned/resolved row still carries live-work posture. "
-            "Either clear the stale live-work fields because closure is genuinely earned, "
-            "or reopen/reclassify the row because work remains. "
-            "The harness does not choose which is correct and does not apply clears automatically."
+            "For an already-existing coordinate whose resolution remains honestly earned, "
+            "prefer transition {\"kind\":\"resolve\"} with only new or changed semantic fields "
+            "(determination/value/basis/evidence/closure judgment stay agent-authored; "
+            "the transition is not evidence and does not prove earning). "
+            "Do not combine transition with direct consequence fields "
+            "(status, next_needed_step, requires_hitl, no_further_progress, parent blocking). "
+            "Without a transition, clear next_needed_step with null and boolean posture with false. "
+            "If work remains or evidence is contested, reopen/reclassify and retain an honest next step "
+            "rather than resolving to satisfy the validator. "
+            "The harness does not choose which outcome is correct and only realizes an authored resolve mechanically."
         )
     if reason_code.startswith("resolution_") or reason_code.startswith("items_") or reason_code.startswith("relations_"):
         return "Patch only allowed resolution keys inside state_patch.resolution."
@@ -325,6 +334,16 @@ def _repair_hint_from_rejection(
 _SEMANTIC_INTENT_STATUS_TOKENS = frozenset(
     {"closed", "blocked", "earned", "in_review", "exhausted", "no_further_progress"}
 )
+
+
+def _is_canonical_resolve_transition(value: Any) -> bool:
+    """True only for exact patch grammar ``{\"kind\": \"resolve\"}`` (no coercion)."""
+    return (
+        type(value) is dict
+        and set(value) == {"kind"}
+        and type(value.get("kind")) is str
+        and value["kind"] == TRANSITION_KIND_RESOLVE
+    )
 
 
 def _detect_semantic_intent_kinds(
@@ -352,6 +371,8 @@ def _detect_semantic_intent_kinds(
             status = str(row.get("status") or "").strip().lower()
             if status in _SEMANTIC_INTENT_STATUS_TOKENS:
                 kinds.append("item_status_change")
+            if _is_canonical_resolve_transition(row.get("transition")):
+                kinds.append("item_status_change")
             for boolean_key in ("requires_hitl", "no_further_progress", "blocking"):
                 if boolean_key in row:
                     kinds.append("item_status_change")
@@ -371,6 +392,8 @@ def _detect_semantic_intent_kinds(
                     kinds.append("evidence_refs")
                 u_status = str(unit.get("status") or "").strip().lower()
                 if u_status in _SEMANTIC_INTENT_STATUS_TOKENS:
+                    kinds.append("unit_status_change")
+                if _is_canonical_resolve_transition(unit.get("transition")):
                     kinds.append("unit_status_change")
                 if "determination" in unit and str(unit.get("determination") or "").strip().lower() == "earned":
                     kinds.append("unit_status_change")
@@ -903,6 +926,17 @@ def _apply_state_patch_detailed(
                     "shape_repairs": shape_repairs,
                 },
             )
+    try:
+        patch = expand_resolution_patch_transitions(
+            resolution_state=resolution_state,
+            state_patch=patch,
+        )
+    except ResolutionPatchTransitionError as exc:
+        raise StatePatchError(
+            exc.reason_code,
+            str(exc),
+            detail=exc.detail,
+        ) from exc
     try:
         blob = json.dumps(patch, ensure_ascii=False, default=str)
     except (TypeError, ValueError) as exc:

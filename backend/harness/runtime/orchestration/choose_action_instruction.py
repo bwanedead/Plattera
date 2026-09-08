@@ -64,7 +64,7 @@ The runtime merges mechanically:
 - omitted stable fields remain unchanged
 - only included fields are overwritten
 
-Resolution item and covered-unit patches are sparse per-field overlays. Omitting a field preserves its existing value. To clear `next_needed_step`, send it explicitly as `null`. To clear `requires_hitl` or `no_further_progress`, send `false`.
+Resolution item and covered-unit patches are sparse per-field overlays. Omitting a field preserves its existing value. For an already-existing item or covered unit, you may author patch-only `transition: {"kind":"resolve"}` when you judge resolution honestly earned. The transition is a lifecycle command, not evidence: it does not establish that closure is earned. You remain responsible for the semantic determination, value, basis, evidence, and closure judgment. Existing earned semantic fields persist under sparse overlay — author only new or changed semantic fields needed for an honest resolution; do not restate unchanged ones. The runtime only realizes the authored transition mechanically (`status="closed"` plus clearing stale `next_needed_step`, `requires_hitl`, `no_further_progress`, and parent-item `blocking`), then drops `transition` before persistence. Do not combine it with those direct consequence fields. New rows cannot use `transition` (target must already exist). If work remains or evidence is contested, reopen/reclassify and retain an honest next step rather than using resolve to satisfy the validator. Without a transition, explicit `null`/`false` sparse clears remain a supported alternative.
 
 Existing rows:
 - send identity + changed fields only
@@ -275,6 +275,9 @@ Minimal one-action dispatch:
 
 Minimal existing-row update:
 `{"state_patch":{"resolution":{"items":[{"item_id":"value-conflict","status":"blocked","requires_hitl":true}]}},"rationale":"Mark value-conflict blocked pending HITL; in-run checks exhausted."}`
+
+Minimal earned covered-unit resolution (existing unit; only new/changed semantic fields):
+`{"state_patch":{"resolution":{"items":[{"item_id":"group-1","covered_units":[{"unit_id":"group-1-unit-a","transition":{"kind":"resolve"},"determination":"earned","determined_value":"source-supported value","verification_basis":"Confirmed from focused source evidence.","evidence_refs":["artifact://focused-evidence"],"closure_summary":"Exact value verified and integrated."}]}]}},"rationale":"Resolve the existing covered unit from the cited evidence; runtime clears stale live-work posture."}`
 
 Minimal new row:
 `{"state_patch":{"resolution":{"items":[{"item_id":"item-1","title":"Unverified source value","kind":"open_question","status":"open"}]}},"rationale":"Open an explicit item for the unverified source value so it is tracked separately from the broad handoff bucket."}`

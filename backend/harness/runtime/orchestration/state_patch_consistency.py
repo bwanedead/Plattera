@@ -49,17 +49,22 @@ REASON_STATE_PATCH_CONSISTENCY_REPAIR_BUDGET_EXHAUSTED = (
 _SPARSE_CLEAR_MECHANICS = (
     "Resolution item and covered-unit patches are sparse per-field overlays. "
     "Omitting a field preserves its existing value. "
-    "To clear next_needed_step, send it explicitly as null. "
-    "To clear requires_hitl or no_further_progress, send false."
+    "For an already-existing coordinate whose resolution remains honestly earned, "
+    "prefer transition {\"kind\":\"resolve\"} with only new or changed semantic fields; "
+    "existing earned fields persist without restatement. "
+    "Do not combine transition with direct consequence fields. "
+    "Without a transition, clear next_needed_step with null and boolean posture with false."
 )
 
 _REPAIR_HINT = (
     f"{_SPARSE_CLEAR_MECHANICS} "
     "A closed/earned/resolved row still carries live-work posture "
     "(next_needed_step, requires_hitl, and/or no_further_progress). "
-    "Either clear the stale live-work fields because closure is genuinely earned, "
-    "or reopen/reclassify the row because work remains. "
-    "The harness does not choose which is correct and does not apply clears automatically."
+    "Either author a resolve transition (or explicit sparse clears) because closure is "
+    "genuinely earned, or reopen/reclassify the row because work remains. "
+    "The transition is not evidence and does not prove earning; "
+    "the harness does not choose which outcome is correct and only realizes an authored "
+    "resolve mechanically."
 )
 
 

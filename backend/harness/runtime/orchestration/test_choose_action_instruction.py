@@ -146,6 +146,13 @@ def test_choose_action_instruction_includes_tiny_examples() -> None:
     text = CHOOSE_ACTION_INSTRUCTION
     assert 'Minimal one-action dispatch:' in text
     assert 'Minimal existing-row update:' in text
+    assert 'transition: {"kind":"resolve"}' in text
+    assert 'Minimal earned covered-unit resolution' in text
+    assert '"determination":"earned"' in text
+    assert 'Do not combine it with those direct consequence fields.' in text
+    assert 'New rows cannot use `transition`' in text
+    assert 'not evidence' in text
+    assert 'only new or changed semantic fields' in text
     assert 'Minimal new row:' in text
     assert 'Minimal covered-unit group:' in text
     assert 'Minimal atom-local HITL:' in text
