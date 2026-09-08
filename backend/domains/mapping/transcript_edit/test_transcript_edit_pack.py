@@ -32,11 +32,12 @@ def test_manifest_tool_ids_match_tool_specs() -> None:
     manifest = build_transcript_edit_manifest()
     specs = build_transcript_edit_tool_specs()
     assert manifest.declared_semantic_tool_ids == tuple(s.tool_id for s in specs)
-    assert len(specs) == 5
+    assert len(specs) == 6
     assert manifest.closure_policy.hard_enforced is True
     assert manifest.closure_policy.save_action_ids == (
         "save_workspace_artifact",
         "copy_forward_save_workspace_artifact",
+        "apply_transcript_edits",
     )
     assert manifest.closure_policy.publish_action_ids == ("publish_workspace_artifact",)
     assert manifest.closure_policy.minimum_resolution_items_for_save == 1
@@ -901,6 +902,7 @@ def test_transcript_edit_closure_policy_stable_contract() -> None:
     assert policy.save_action_ids == (
         "save_workspace_artifact",
         "copy_forward_save_workspace_artifact",
+        "apply_transcript_edits",
     )
     assert policy.publish_action_ids == ("publish_workspace_artifact",)
     assert policy.minimum_resolution_items_for_save == 1

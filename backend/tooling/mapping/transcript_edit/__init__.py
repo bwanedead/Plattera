@@ -7,12 +7,14 @@ from .draft_loading import (
     hydrate_t0_draft_refs,
 )
 from .draft_persistence import copy_forward_save, publish_transcript_edit_output, save_transcript_edit
+from .apply_transcript_edits import apply_transcript_edits
 from .image_loading import hydrate_source_image_context
 from .startup_inventory import build_transcript_edit_startup_inventory
 
 __all__ = [
     "HydrateT0DraftsResult",
     "HydratedT0Draft",
+    "apply_transcript_edits",
     "build_transcript_edit_startup_inventory",
     "copy_forward_save",
     "hydrate_source_image_context",

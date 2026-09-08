@@ -9,6 +9,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
+from tooling.mapping.transcript_edit.apply_transcript_edits import apply_transcript_edits
 from tooling.mapping.transcript_edit.artifact_transform import make_transform_artifact_handler
 from tooling.mapping.transcript_edit.dossier_action_result_refs import (
     DossierActionResultRefError,
@@ -217,6 +218,96 @@ def make_dossier_copy_forward_save_workspace_artifact_handler(
     return handler
 
 
+def make_dossier_apply_transcript_edits_handler(
+    *,
+    dossier_id: str,
+    ref_index: DossierArtifactRefIndex,
+    workspace_key: str | None,
+) -> Callable[[Any], Any]:
+    """Route apply_transcript_edits using a dossier-qualified exact working revision base."""
+
+    _ALLOWED_DOSSIER_APPLY_KEYS = frozenset({"base_revision_ref", "decisions"})
+
+    def handler(request: Any) -> Any:
+        guarded = _guard_index(dossier_id=dossier_id, ref_index=ref_index)
+        if isinstance(guarded, dict):
+            return guarded
+        did, index = guarded
+        inputs = _request_inputs(request)
+        if type(inputs) is not dict:
+            return _refuse("invalid_request", "Request must be a JSON object.")
+        unknown = sorted(set(inputs) - _ALLOWED_DOSSIER_APPLY_KEYS)
+        if unknown:
+            return _refuse(
+                "unknown_request_fields",
+                f"Unknown fields: {unknown}",
+            )
+
+        base_ref = inputs.get("base_revision_ref")
+        if type(base_ref) is not str or not base_ref.strip():
+            return _refuse(
+                "dossier_base_revision_required",
+                "base_revision_ref must be a dossier-qualified exact working revision.",
+            )
+        try:
+            target = _resolve_exact_working_revision(index, base_ref.strip())
+        except DossierArtifactRefError as exc:
+            return _refuse(exc.code, _safe_detail(exc))
+
+        if not working_revision_exists(
+            dossier_id=did,
+            transcription_id=target.transcription_id,
+            revision_ref=target.leaf_ref,
+            workspace_id=workspace_key,
+        ):
+            return _refuse(
+                "dossier_base_revision_not_found",
+                "The named base working revision does not exist in this workspace.",
+            )
+
+        decisions = inputs.get("decisions")
+        if type(decisions) is not list:
+            return _refuse("decisions_required", "decisions must be a list.")
+
+        # Validate/preserve evidence identity without inventing missing fields.
+        normalized_decisions: list[dict[str, Any]] = []
+        for i, decision in enumerate(decisions):
+            if type(decision) is not dict:
+                return _refuse("invalid_decision", f"decisions[{i}] must be an object.")
+            decision_copy = dict(decision)
+            if "evidence_refs" not in decision_copy:
+                # Preserve missing vs empty: shared validator owns the refusal.
+                normalized_decisions.append(decision_copy)
+                continue
+            evidence_refs = decision_copy.get("evidence_refs")
+            if type(evidence_refs) is not list:
+                return _refuse(
+                    "invalid_request",
+                    f"decisions[{i}].evidence_refs must be a list.",
+                )
+            try:
+                decision_copy["evidence_refs"] = _validate_evidence_refs(
+                    evidence_refs, ref_index=index
+                )
+            except DossierArtifactRefError as exc:
+                return _refuse(exc.code, _safe_detail(exc))
+            normalized_decisions.append(decision_copy)
+
+        leaf_request = {
+            "base_revision_ref": target.leaf_ref,
+            "decisions": normalized_decisions,
+        }
+        leaf_result = apply_transcript_edits(
+            dossier_id=did,
+            transcription_id=target.transcription_id,
+            workspace_id=workspace_key,
+            request=leaf_request,
+        )
+        return _project_result(leaf_result, ref_index=index, target=target)
+
+    return handler
+
+
 def _guard_index(
     *,
     dossier_id: str,
@@ -277,12 +368,23 @@ def _validate_evidence_refs(
     *,
     ref_index: DossierArtifactRefIndex,
 ) -> list[str]:
-    """Accept validated dossier-qualified refs or uniquely owned assoc refs only."""
+    """Accept validated dossier-qualified refs or uniquely owned assoc refs only.
+
+    Requires actual nonblank strings — never coerces non-string values.
+    """
     out: list[str] = []
-    for raw in evidence_refs:
-        text = str(raw or "").strip()
+    for i, raw in enumerate(evidence_refs):
+        if type(raw) is not str:
+            raise DossierArtifactRefError(
+                "dossier_ref_invalid",
+                f"evidence_refs[{i}] must be a nonblank string.",
+            )
+        text = raw.strip()
         if not text:
-            continue
+            raise DossierArtifactRefError(
+                "dossier_ref_invalid",
+                f"evidence_refs[{i}] must be a nonblank string.",
+            )
         if text.startswith("dossier_segment:"):
             # Full resolve — rejects unsupported/malformed/unknown qualified refs.
             ref_index.resolve(text)

@@ -16,6 +16,9 @@ from tooling.mapping.transcript_edit import (
     publish_transcript_edit_output,
     save_transcript_edit,
 )
+from tooling.mapping.transcript_edit.apply_transcript_edits import (
+    make_apply_transcript_edits_handler,
+)
 from tooling.mapping.transcript_edit.artifact_hydration import make_hydrate_artifact_refs_handler
 from tooling.mapping.transcript_edit.artifact_transform import make_transform_artifact_handler
 from tooling.mapping.transcript_edit.draft_persistence import resolve_workspace_key
@@ -156,6 +159,17 @@ def _tool_handler_entries(
                     workspace_key=workspace_key,
                 ),
                 action_id="copy_forward_save_workspace_artifact",
+            ),
+        ),
+        (
+            "apply_transcript_edits",
+            wrap_handler_with_refusal_boundary(
+                make_apply_transcript_edits_handler(
+                    dossier_id=dossier_id,
+                    transcription_id=transcription_id,
+                    workspace_key=workspace_key,
+                ),
+                action_id="apply_transcript_edits",
             ),
         ),
         (

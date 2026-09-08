@@ -81,6 +81,8 @@ def _project_dossier_contract(spec: SemanticToolSpec) -> SemanticToolSpec:
         return _dossier_save_spec(spec)
     if spec.tool_id == "copy_forward_save_workspace_artifact":
         return _dossier_copy_forward_spec(spec)
+    if spec.tool_id == "apply_transcript_edits":
+        return _dossier_apply_transcript_edits_spec(spec)
     if spec.tool_id == "publish_workspace_artifact":
         return _dossier_publish_spec(spec)
     return spec
@@ -224,6 +226,37 @@ def _dossier_copy_forward_spec(spec: SemanticToolSpec) -> SemanticToolSpec:
         expected_result_shape=(
             "Same dossier-qualified save result shape as save_workspace_artifact. "
             "The new exact revision remains in the base segment/transcription lineage."
+        ),
+    )
+
+
+def _dossier_apply_transcript_edits_spec(spec: SemanticToolSpec) -> SemanticToolSpec:
+    return replace(
+        spec,
+        purpose=(
+            spec.purpose
+            + " In dossier mode, base_revision_ref must be a dossier-qualified exact working revision. "
+            "The target segment/transcription is derived from that ref."
+        ),
+        expected_request_shape=(
+            "base_revision_ref: required dossier-qualified exact working revision "
+            "(dossier_segment:<segment_id>:run:<transcription_id>:transcript_edit:working:rev:NNNN). "
+            "decisions: same leaf decision/edit contract; evidence_refs must be dossier-valid."
+        ),
+        expected_request_json_shape=_with_property_description(
+            spec.expected_request_json_shape,
+            "base_revision_ref",
+            "Dossier-qualified exact working revision to edit.",
+        ),
+        example_request={
+            "base_revision_ref": (
+                f"{_QUALIFIED_EXAMPLE_PREFIX}transcript_edit:working:rev:0001"
+            ),
+            "decisions": spec.example_request["decisions"],
+        },
+        expected_result_shape=(
+            spec.expected_result_shape
+            + " Dossier mode qualifies working_draft_ref and artifact_refs to the edited lineage."
         ),
     )
 

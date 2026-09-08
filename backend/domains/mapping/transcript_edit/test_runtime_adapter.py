@@ -87,6 +87,7 @@ def test_tool_specs_shape_matches_shared_capability_ids() -> None:
         "transform_artifact",
         "save_workspace_artifact",
         "copy_forward_save_workspace_artifact",
+        "apply_transcript_edits",
         "publish_workspace_artifact",
     ]
     for spec in specs:

@@ -2,26 +2,41 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
-import re
 from collections.abc import Mapping
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from tooling.mapping.transcript_edit.managed_provenance_integrity import (
+    ManagedProvenanceIntegrityError,
+    assert_managed_provenance_coherent_for_save,
+)
+from tooling.mapping.transcript_edit.working_revision_io import (
+    SCHEMA_VERSION as _SCHEMA_VERSION,
+    JsonObjectFileInvalid,
+    ManifestStorageInvalid,
+    load_json_file as _load_json_file,
+    load_or_init_manifest as _load_or_init_manifest,
+    parse_working_revision_ref,
+    utc_now_iso as _utc_now_iso,
+)
+from tooling.mapping.transcript_edit.working_revision_transaction import (
+    append_working_revision_under_lock,
+    current_working_head_ref,
+    load_current_head_payload,
+)
+from tooling.mapping.transcript_edit.working_write_lock import (
+    WorkingWriteLockBusy,
+    WorkingWriteLockFailed,
+    working_write_lock,
+)
 from .paths import (
     UnsafeArtifactPathSegmentError,
-    transcript_edit_latest_pointer_path,
     transcript_edit_manifest_path,
     transcript_edit_output_path,
     transcript_edit_revision_path,
-    transcript_edit_working_dir,
     transcript_edit_workspace_root,
 )
-
-_SCHEMA_VERSION = 1
-_WORKING_REV_REF_RE = re.compile(r"^transcript_edit:working:rev:(\d{4})$")
 
 _MAX_COPY_FORWARD_PATHS: int = 32
 _MAX_PATH_DEPTH: int = 8
@@ -85,12 +100,6 @@ def _paths_overlap(a: str, b: str) -> bool:
     return parts_a[:shorter] == parts_b[:shorter]
 
 
-def parse_working_revision_ref(ref_id: str) -> str | None:
-    """Return four-digit revision stem if ref is ``transcript_edit:working:rev:NNNN``."""
-    m = _WORKING_REV_REF_RE.match(str(ref_id).strip())
-    return m.group(1) if m else None
-
-
 def working_revision_exists(
     *,
     dossier_id: str,
@@ -138,28 +147,12 @@ def resolve_workspace_key(*, workspace_id: str | None, run_id: str | None) -> st
     return r or None
 
 
-def _utc_now_iso() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
-
-
 def _write_json(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    text = json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+    text = json.dumps(
+        payload, ensure_ascii=False, indent=2, sort_keys=True, allow_nan=False
+    ) + "\n"
     path.write_text(text, encoding="utf-8")
-
-
-def _load_json_file(path: Path) -> dict[str, Any] | None:
-    if not path.is_file():
-        return None
-    try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return None
-    return raw if isinstance(raw, dict) else None
-
-
-def _sha256_text(text: str) -> str:
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 def _build_agent_payload(
@@ -176,37 +169,6 @@ def _build_agent_payload(
     if has_text:
         return {"transcript": str(transcript_text)}
     raise ValueError("transcript_text_or_draft_payload_required")
-
-
-def _default_manifest(*, dossier_id: str, transcription_id: str, workspace_id: str) -> dict[str, Any]:
-    now = _utc_now_iso()
-    return {
-        "schema_version": _SCHEMA_VERSION,
-        "dossier_id": dossier_id,
-        "transcription_id": transcription_id,
-        "workspace_id": workspace_id,
-        "created_at": now,
-        "updated_at": now,
-        "revision_count": 0,
-        "latest_revision": 0,
-        "latest_working_ref_id": None,
-        "latest_saved_at": None,
-        "latest_content_sha256": None,
-        "output_published_at": None,
-        "output_source_revision_ref": None,
-    }
-
-
-def _load_or_init_manifest(
-    dossier_id: str, transcription_id: str, workspace_id: str
-) -> dict[str, Any]:
-    path = transcript_edit_manifest_path(dossier_id, transcription_id, workspace_id)
-    loaded = _load_json_file(path)
-    if loaded and int(loaded.get("schema_version") or 0) >= 1:
-        return loaded
-    return _default_manifest(
-        dossier_id=dossier_id, transcription_id=transcription_id, workspace_id=workspace_id
-    )
 
 
 def save_transcript_edit(
@@ -242,55 +204,34 @@ def save_transcript_edit(
         }
 
     try:
-        root = transcript_edit_workspace_root(dossier_id, transcription_id, ws)
-        work_dir = transcript_edit_working_dir(dossier_id, transcription_id, ws)
-        work_dir.mkdir(parents=True, exist_ok=True)
-
-        manifest = _load_or_init_manifest(dossier_id, transcription_id, ws)
-        prev = int(manifest.get("latest_revision") or 0)
-        next_rev = prev + 1
-        rev_digits = f"{next_rev:04d}"
-        ref_id = f"transcript_edit:working:rev:{rev_digits}"
-
-        saved_at = _utc_now_iso()
-        revision_doc: dict[str, Any] = {
-            "schema_version": _SCHEMA_VERSION,
-            "revision": next_rev,
-            "ref_id": ref_id,
-            "saved_at": saved_at,
-            "tool": "save_transcript_edit",
-            "base_revision_ref": str(base_revision_ref).strip() if base_revision_ref else None,
-            "evidence_refs": [str(x).strip() for x in (evidence_refs or []) if str(x).strip()],
-            "rationale": str(rationale).strip() if rationale else None,
-            "payload": agent_payload,
+        with working_write_lock(
+            dossier_id=dossier_id,
+            transcription_id=transcription_id,
+            workspace_id=ws,
+        ):
+            return _save_transcript_edit_under_lock(
+                dossier_id=dossier_id,
+                transcription_id=transcription_id,
+                workspace_id=ws,
+                agent_payload=agent_payload,
+                base_revision_ref=base_revision_ref,
+                evidence_refs=evidence_refs,
+                rationale=rationale,
+            )
+    except WorkingWriteLockBusy:
+        return {
+            "executed": False,
+            "refusal": {"reason_code": "working_write_in_progress", "retryable": False},
+            "outputs": {
+                "error": "Another working write holds the lock for this workspace.",
+            },
         }
-
-        rev_path = transcript_edit_revision_path(dossier_id, transcription_id, ws, rev_digits)
-        rev_blob = json.dumps(revision_doc, ensure_ascii=False, sort_keys=True)
-        _write_json(rev_path, revision_doc)
-
-        content_sha256 = _sha256_text(rev_blob)
-        rel_rev = f"working/rev_{rev_digits}.json"
-        latest_pointer = {
-            "schema_version": _SCHEMA_VERSION,
-            "revision": next_rev,
-            "ref_id": ref_id,
-            "relative_path": rel_rev,
-            "content_sha256": content_sha256,
-            "byte_length": len(rev_blob.encode("utf-8")),
-            "saved_at": saved_at,
-            "tool": "save_transcript_edit",
+    except WorkingWriteLockFailed as exc:
+        return {
+            "executed": False,
+            "refusal": {"reason_code": "storage_failure", "retryable": False},
+            "outputs": {"error": f"Unable to acquire working write lock: {exc}"},
         }
-        _write_json(transcript_edit_latest_pointer_path(dossier_id, transcription_id, ws), latest_pointer)
-
-        manifest["updated_at"] = saved_at
-        manifest["revision_count"] = next_rev
-        manifest["latest_revision"] = next_rev
-        manifest["latest_working_ref_id"] = ref_id
-        manifest["latest_saved_at"] = saved_at
-        manifest["latest_content_sha256"] = content_sha256
-        manifest["last_save_tool"] = "save_transcript_edit"
-        _write_json(transcript_edit_manifest_path(dossier_id, transcription_id, ws), manifest)
     except UnsafeArtifactPathSegmentError as exc:
         return {
             "executed": False,
@@ -298,21 +239,45 @@ def save_transcript_edit(
             "outputs": {"error": str(exc)},
         }
 
-    aggregate_ref = "transcript_edit:working"
-    return {
-        "executed": True,
-        "artifact_refs": (ref_id, aggregate_ref),
-        "outputs": {
-            "working_draft_ref": ref_id,
-            "aggregate_working_ref": aggregate_ref,
-            "revision": next_rev,
-            "revision_relative_path": rel_rev,
-            "workspace_root": str(root.resolve()),
-            "content_sha256": content_sha256,
-            "byte_length": latest_pointer["byte_length"],
-            "evidence_refs": revision_doc["evidence_refs"],
-        },
-    }
+
+def _save_transcript_edit_under_lock(
+    *,
+    dossier_id: str,
+    transcription_id: str,
+    workspace_id: str,
+    agent_payload: dict[str, Any],
+    base_revision_ref: str | None,
+    evidence_refs: list[str] | None,
+    rationale: str | None,
+) -> dict[str, Any]:
+    previous_payload = load_current_head_payload(
+        dossier_id=dossier_id,
+        transcription_id=transcription_id,
+        workspace_id=workspace_id,
+    )
+    try:
+        assert_managed_provenance_coherent_for_save(
+            previous_payload=previous_payload,
+            next_payload=agent_payload,
+        )
+    except ManagedProvenanceIntegrityError as exc:
+        return {
+            "executed": False,
+            "refusal": {"reason_code": exc.reason_code, "retryable": False},
+            "outputs": {"error": exc.detail or str(exc)},
+        }
+
+    result = append_working_revision_under_lock(
+        dossier_id=dossier_id,
+        transcription_id=transcription_id,
+        workspace_id=workspace_id,
+        payload=agent_payload,
+        tool="save_transcript_edit",
+        base_revision_ref=base_revision_ref,
+        evidence_refs=evidence_refs,
+        rationale=rationale,
+    )
+    return result
 
 
 def publish_transcript_edit_output(
@@ -345,7 +310,14 @@ def publish_transcript_edit_output(
 
     try:
         rev_path = transcript_edit_revision_path(dossier_id, transcription_id, ws, rev_digits)
-        revision_doc = _load_json_file(rev_path)
+        try:
+            revision_doc = _load_json_file(rev_path)
+        except JsonObjectFileInvalid as exc:
+            return {
+                "executed": False,
+                "refusal": {"reason_code": "invalid_working_storage_state", "retryable": False},
+                "outputs": {"error": exc.detail},
+            }
         if revision_doc is None:
             return {
                 "executed": False,
@@ -365,7 +337,14 @@ def publish_transcript_edit_output(
         out_path = transcript_edit_output_path(dossier_id, transcription_id, ws)
         _write_json(out_path, output_doc)
 
-        manifest = _load_or_init_manifest(dossier_id, transcription_id, ws)
+        try:
+            manifest = _load_or_init_manifest(dossier_id, transcription_id, ws)
+        except ManifestStorageInvalid as exc:
+            return {
+                "executed": False,
+                "refusal": {"reason_code": "invalid_working_storage_state", "retryable": False},
+                "outputs": {"error": exc.detail},
+            }
         manifest["updated_at"] = published_at
         manifest["output_published_at"] = published_at
         manifest["output_source_revision_ref"] = src_ref
@@ -378,6 +357,12 @@ def publish_transcript_edit_output(
             "executed": False,
             "refusal": {"reason_code": "invalid_scope_path", "retryable": False},
             "outputs": {"error": str(exc)},
+        }
+    except (TypeError, ValueError) as exc:
+        return {
+            "executed": False,
+            "refusal": {"reason_code": "noncanonical_revision_payload", "retryable": False},
+            "outputs": {"error": f"Publish payload is not JSON-canonical: {exc}"},
         }
 
     output_ref = "transcript_edit:output"
@@ -409,8 +394,10 @@ def copy_forward_save(
     """Create a new revision by copying named payload paths from a base revision and applying agent-authored updates.
 
     Deterministic code copies exact named values; no semantic inference.
-    The agent must explicitly name the base ref, all copied paths, and all authored paths.
+    The agent must explicitly name the base ref, all paths to copy, and all paths to author.
     Paths in copy_forward_paths and set_paths must not overlap.
+
+    Base load, provenance checks, head recheck, and append share one working-write lock.
     """
     dossier_id = str(dossier_id).strip()
     transcription_id = str(transcription_id).strip()
@@ -496,8 +483,72 @@ def copy_forward_save(
         }
 
     try:
-        rev_path = transcript_edit_revision_path(dossier_id, transcription_id, ws, rev_digits)
-        base_doc = _load_json_file(rev_path)
+        with working_write_lock(
+            dossier_id=dossier_id,
+            transcription_id=transcription_id,
+            workspace_id=ws,
+        ):
+            return _copy_forward_under_lock(
+                dossier_id=dossier_id,
+                transcription_id=transcription_id,
+                workspace_id=ws,
+                base_ref_str=base_ref_str,
+                rev_digits=rev_digits,
+                copy_paths=copy_paths,
+                set_dict=set_dict,
+                evidence_refs=evidence_refs,
+                rationale=rationale,
+            )
+    except WorkingWriteLockBusy:
+        return {
+            "executed": False,
+            "refusal": {"reason_code": "working_write_in_progress", "retryable": False},
+            "outputs": {
+                "error": "Another working write holds the lock for this workspace.",
+            },
+        }
+    except WorkingWriteLockFailed as exc:
+        return {
+            "executed": False,
+            "refusal": {"reason_code": "storage_failure", "retryable": False},
+            "outputs": {"error": f"Unable to acquire working write lock: {exc}"},
+        }
+    except UnsafeArtifactPathSegmentError as exc:
+        return {
+            "executed": False,
+            "refusal": {"reason_code": "invalid_scope_path", "retryable": False},
+            "outputs": {"error": str(exc)},
+        }
+
+
+def _copy_forward_under_lock(
+    *,
+    dossier_id: str,
+    transcription_id: str,
+    workspace_id: str,
+    base_ref_str: str,
+    rev_digits: str,
+    copy_paths: list[str],
+    set_dict: dict[str, Any],
+    evidence_refs: list[str] | None,
+    rationale: str | None,
+) -> dict[str, Any]:
+    from tooling.mapping.transcript_edit.managed_provenance_integrity import (
+        managed_provenance_field_present,
+    )
+
+    try:
+        rev_path = transcript_edit_revision_path(
+            dossier_id, transcription_id, workspace_id, rev_digits
+        )
+        try:
+            base_doc = _load_json_file(rev_path)
+        except JsonObjectFileInvalid as exc:
+            return {
+                "executed": False,
+                "refusal": {"reason_code": "invalid_working_storage_state", "retryable": False},
+                "outputs": {"error": exc.detail},
+            }
         if base_doc is None:
             return {
                 "executed": False,
@@ -507,6 +558,25 @@ def copy_forward_save(
                     "repair_hint": "Verify the base_ref revision exists in this workspace.",
                 },
             }
+
+        base_payload = base_doc.get("payload")
+        if managed_provenance_field_present(base_payload if isinstance(base_payload, dict) else {}):
+            head = current_working_head_ref(
+                dossier_id=dossier_id,
+                transcription_id=transcription_id,
+                workspace_id=workspace_id,
+            )
+            if head != base_ref_str:
+                return {
+                    "executed": False,
+                    "refusal": {"reason_code": "stale_base_revision", "retryable": False},
+                    "outputs": {
+                        "error": (
+                            "Managed provenance is present; copy-forward base_ref must be "
+                            "the current working head."
+                        ),
+                    },
+                }
 
         new_payload: dict[str, Any] = {}
         missing: list[str] = []
@@ -543,11 +613,12 @@ def copy_forward_save(
             "outputs": {"error": str(exc)},
         }
 
-    return save_transcript_edit(
+    # Append under the already-held lock (no nested acquisition).
+    return _save_transcript_edit_under_lock(
         dossier_id=dossier_id,
         transcription_id=transcription_id,
-        workspace_id=ws,
-        draft_payload=new_payload,
+        workspace_id=workspace_id,
+        agent_payload=new_payload,
         base_revision_ref=base_ref_str,
         evidence_refs=evidence_refs,
         rationale=rationale,

@@ -468,6 +468,127 @@ def build_transcript_edit_tool_specs() -> tuple[SemanticToolSpec, ...]:
             ),
         ),
         SemanticToolSpec(
+            tool_id="apply_transcript_edits",
+            category="write",
+            purpose=(
+                "Apply exact agent-authored transcript text edits to one immutable working revision "
+                "and persist decision provenance on the resulting revision. "
+                "Distinct from save_workspace_artifact (initial draft creation) and "
+                "copy_forward_save_workspace_artifact (general payload-path copy). "
+                "Only source_transcript_verbatim and normalized_or_mapping_transcript lanes may be edited. "
+                "Requires the base_revision_ref to be the current working head. "
+                "Once managed provenance exists, use this action for evidence-linked transcript changes."
+            ),
+            expected_request_shape=(
+                "base_revision_ref: required exact transcript_edit:working:rev:NNNN (no aggregate aliases). "
+                "decisions: required non-empty list of decision objects. "
+                "Each decision: decision_id (stable agent-authored id), determination "
+                "(provisional|earned), verification_basis (nonblank), evidence_refs (list; empty allowed "
+                "for provisional; earned requires >=1), optional candidate_values, and edits[]. "
+                "Each edit: lane, expected_text (nonempty exact match), replacement_text (string; empty deletes), "
+                "optional context_before/context_after for disambiguation. "
+                "expected_text == replacement_text is a valid verification that still persists provenance."
+            ),
+            expected_request_json_shape={
+                "type": "object",
+                "required": ["base_revision_ref", "decisions"],
+                "properties": {
+                    "base_revision_ref": {
+                        "type": "string",
+                        "description": "Exact working revision to edit (transcript_edit:working:rev:NNNN).",
+                    },
+                    "decisions": {
+                        "type": "array",
+                        "minItems": 1,
+                        "items": {
+                            "type": "object",
+                            "required": [
+                                "decision_id",
+                                "determination",
+                                "verification_basis",
+                                "evidence_refs",
+                                "edits",
+                            ],
+                            "properties": {
+                                "decision_id": {"type": "string"},
+                                "determination": {
+                                    "type": "string",
+                                    "enum": ["provisional", "earned"],
+                                },
+                                "verification_basis": {"type": "string"},
+                                "candidate_values": {
+                                    "type": ["array", "null"],
+                                    "items": {"type": "string"},
+                                },
+                                "evidence_refs": {
+                                    "type": "array",
+                                    "items": {"type": "string"},
+                                },
+                                "edits": {
+                                    "type": "array",
+                                    "minItems": 1,
+                                    "items": {
+                                        "type": "object",
+                                        "required": [
+                                            "lane",
+                                            "expected_text",
+                                            "replacement_text",
+                                        ],
+                                        "properties": {
+                                            "lane": {
+                                                "type": "string",
+                                                "enum": [
+                                                    "source_transcript_verbatim",
+                                                    "normalized_or_mapping_transcript",
+                                                ],
+                                            },
+                                            "expected_text": {"type": "string"},
+                                            "replacement_text": {"type": "string"},
+                                            "context_before": {"type": ["string", "null"]},
+                                            "context_after": {"type": ["string", "null"]},
+                                        },
+                                        "additionalProperties": False,
+                                    },
+                                },
+                            },
+                            "additionalProperties": False,
+                        },
+                    },
+                },
+                "additionalProperties": False,
+            },
+            example_request={
+                "base_revision_ref": "transcript_edit:working:rev:0001",
+                "decisions": [
+                    {
+                        "decision_id": "seg1-location-range",
+                        "determination": "provisional",
+                        "verification_basis": "The available observations disagree.",
+                        "candidate_values": ["7", "77"],
+                        "evidence_refs": ["image:derived:example"],
+                        "edits": [
+                            {
+                                "lane": "source_transcript_verbatim",
+                                "expected_text": "Range 7 west",
+                                "replacement_text": "Range 77 west",
+                            }
+                        ],
+                    }
+                ],
+            },
+            batching={
+                "allowed": False,
+                "max_calls_per_batch": 1,
+                "side_effect_class": "mutating",
+                "can_run_parallel": False,
+            },
+            expected_result_shape=(
+                "artifact_refs include the new exact working revision ref + aggregate transcript_edit:working. "
+                "outputs: working_draft_ref, aggregate_working_ref, base_revision_ref, applied_decision_ids, "
+                "changed_lanes, evidence_refs, idempotent_replay. Full transcript remains hydratable."
+            ),
+        ),
+        SemanticToolSpec(
             tool_id="publish_workspace_artifact",
             category="write",
             purpose=(

@@ -1,6 +1,6 @@
 """Dossier-mode transcript-edit tool bindings (BR-002–BR-005 composition).
 
-Assembles existing dossier handlers behind the five shared-capability action IDs.
+Assembles existing dossier handlers behind the six transcript-edit action IDs.
 """
 
 from __future__ import annotations
@@ -20,6 +20,7 @@ from tooling.mapping.transcript_edit.dossier_startup_inventory import (
     DossierStartupInventoryBundle,
 )
 from tooling.mapping.transcript_edit.dossier_workspace_actions import (
+    make_dossier_apply_transcript_edits_handler,
     make_dossier_copy_forward_save_workspace_artifact_handler,
     make_dossier_save_workspace_artifact_handler,
     make_dossier_transform_artifact_handler,
@@ -34,6 +35,7 @@ _MANIFEST_ACTION_IDS = (
     "transform_artifact",
     "save_workspace_artifact",
     "copy_forward_save_workspace_artifact",
+    "apply_transcript_edits",
     "publish_workspace_artifact",
 )
 _PUBLISH_ALLOWED_KEYS = frozenset({"source_revision_refs"})
@@ -53,7 +55,7 @@ def build_dossier_transcript_edit_tool_bindings(
     *,
     bundle: DossierStartupInventoryBundle,
 ) -> tuple[ToolBinding, ...]:
-    """Compose BR-002–BR-005 dossier handlers behind the five TE action IDs."""
+    """Compose dossier handlers behind the transcript-edit action IDs."""
     dossier_id, workspace_key, ref_index = _validate_bundle(bundle)
 
     hydrate = wrap_handler_with_result_view(
@@ -82,13 +84,18 @@ def build_dossier_transcript_edit_tool_bindings(
         ref_index=ref_index,
         workspace_key=workspace_key,
     )
+    apply_edits = make_dossier_apply_transcript_edits_handler(
+        dossier_id=dossier_id,
+        ref_index=ref_index,
+        workspace_key=workspace_key,
+    )
     publish = _make_publish_handler(bundle=bundle, workspace_key=workspace_key)
 
     return tuple(
         ToolBinding(tool_id=tool_id, handler=_guard_transport(handler, action_id=tool_id))
         for tool_id, handler in zip(
             _MANIFEST_ACTION_IDS,
-            (hydrate, transform, save, copy_forward, publish),
+            (hydrate, transform, save, copy_forward, apply_edits, publish),
             strict=True,
         )
     )

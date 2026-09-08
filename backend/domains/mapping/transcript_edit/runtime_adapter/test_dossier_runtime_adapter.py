@@ -182,6 +182,7 @@ def test_leaf_action_ids_unchanged() -> None:
         "transform_artifact",
         "save_workspace_artifact",
         "copy_forward_save_workspace_artifact",
+        "apply_transcript_edits",
         "publish_workspace_artifact",
     ]
 
