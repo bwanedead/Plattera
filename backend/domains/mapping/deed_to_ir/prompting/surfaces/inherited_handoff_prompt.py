@@ -108,4 +108,56 @@ def format_inherited_handoff_conditions_markdown(block: Mapping[str, Any]) -> st
                 lines.append(excerpt)
                 lines.append("")
 
+    decision_summary = block.get("transcript_edit_decision_summary")
+    if isinstance(decision_summary, Mapping) and decision_summary:
+        lines.append("**Transcript-edit decision summary (compact upstream provenance)**")
+        counts = decision_summary.get("counts")
+        if isinstance(counts, Mapping):
+            lines.append(
+                "- counts: "
+                f"source={counts.get('source')} retained={counts.get('retained')} "
+                f"provisional={counts.get('provisional')} earned={counts.get('earned')} "
+                f"omitted={counts.get('omitted')}"
+            )
+        rows = decision_summary.get("decisions")
+        if isinstance(rows, list):
+            for row in rows:
+                if not isinstance(row, Mapping):
+                    continue
+                did = row.get("decision_id", "?")
+                determination = row.get("determination", "?")
+                reasons = row.get("uncertainty_reasons") or []
+                segment = row.get("segment_id")
+                parts = [f"- `{did}` determination={determination}"]
+                if segment:
+                    parts.append(f" segment=`{segment}`")
+                if isinstance(reasons, list) and reasons:
+                    parts.append(f" reasons={reasons!r}")
+                lines.append("".join(parts))
+                replacements = row.get("replacements")
+                if isinstance(replacements, list) and replacements:
+                    for entry in replacements:
+                        if not isinstance(entry, Mapping):
+                            continue
+                        lane = entry.get("lane")
+                        text = entry.get("replacement_text")
+                        if isinstance(lane, str) and isinstance(text, str):
+                            lines.append(f"  replacement[{lane}]={text!r}")
+                candidates = row.get("candidate_values")
+                if isinstance(candidates, list) and candidates:
+                    lines.append(f"  candidates={candidates!r}")
+                for omit_key in (
+                    "candidate_values_omitted_count",
+                    "evidence_refs_omitted_count",
+                    "replacement_edits_omitted_count",
+                ):
+                    omit_count = row.get(omit_key)
+                    if isinstance(omit_count, int) and omit_count > 0:
+                        lines.append(f"  {omit_key}={omit_count}")
+        lines.append(
+            "These rows are review coordinates, not mapping verdicts or automatic blocks. "
+            "Do not treat provisional replacements as earned truth."
+        )
+        lines.append("")
+
     return "\n".join(lines).rstrip()

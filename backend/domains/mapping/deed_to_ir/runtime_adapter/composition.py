@@ -347,6 +347,7 @@ def _handoff_tool_context(handoff: DeedToIrStartupHandoff) -> dict[str, Any]:
         "resolution_state_ref": handoff.resolution_state_ref,
         "resolution_state_snapshot": handoff.resolution_state_snapshot,
         "operand_suite_ref": handoff.operand_suite_ref,
+        # Agent-facing decision summary lives only inside inherited_handoff_conditions.
         "inherited_handoff_conditions": dict(handoff.inherited_handoff_conditions),
     }
 
@@ -376,6 +377,7 @@ def _handoff_wire(handoff: DeedToIrStartupHandoff) -> dict[str, Any]:
         "resolution_state_counts": dict(handoff.resolution_state_counts),
         "resolution_state_summary": list(handoff.resolution_state_summary),
         "operand_suite_ref": handoff.operand_suite_ref,
+        # Agent-facing decision summary lives only inside inherited_handoff_conditions.
         "inherited_handoff_conditions": dict(handoff.inherited_handoff_conditions),
     }
 

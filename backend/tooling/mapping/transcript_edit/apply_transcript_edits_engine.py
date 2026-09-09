@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from domains.mapping.transcript_edit.payloads.transcript_edit_decisions import (
+    MAX_PERSISTED_TRANSCRIPT_EDIT_DECISIONS,
     TRANSCRIPT_EDIT_DECISIONS_FIELD,
     TRANSCRIPT_EDIT_DECISIONS_SCHEMA_VERSION,
     TRANSCRIPT_EDIT_LANES,
@@ -109,6 +110,12 @@ def apply_transcript_edits_to_payload(
         applied_by_decision=applied_by_decision,
     )
     merged_decisions = surviving + new_decision_records
+    if len(merged_decisions) > MAX_PERSISTED_TRANSCRIPT_EDIT_DECISIONS:
+        raise ApplyTranscriptEditsEngineError(
+            "too_many_persisted_decisions",
+            f"Resulting current decision ledger would exceed "
+            f"{MAX_PERSISTED_TRANSCRIPT_EDIT_DECISIONS} decisions.",
+        )
 
     new_payload = dict(base_payload)
     for lane, text in new_lanes.items():
@@ -411,6 +418,7 @@ def _build_request_decision_records(
         record: dict[str, Any] = {
             "decision_id": decision.decision_id,
             "determination": decision.determination,
+            "uncertainty_reasons": list(decision.uncertainty_reasons),
             "verification_basis": decision.verification_basis,
             "evidence_refs": list(decision.evidence_refs),
             "base_revision_ref": base_revision_ref,

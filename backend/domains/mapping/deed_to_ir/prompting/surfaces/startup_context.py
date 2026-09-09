@@ -9,7 +9,7 @@ from .inherited_handoff_prompt import format_inherited_handoff_conditions_markdo
 from ..branch import DEED_TO_IR_DOMAIN_ID
 from ...payloads import DeedToIrStartupHandoff
 
-DEED_TO_IR_STARTUP_CONTEXT_VERSION = "v7"
+DEED_TO_IR_STARTUP_CONTEXT_VERSION = "v8"
 _STARTUP_CONTEXT_SOURCE_PATH = (
     "backend/domains/mapping/deed_to_ir/prompting/surfaces/startup_context.py"
 )

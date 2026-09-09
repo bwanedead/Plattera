@@ -110,6 +110,7 @@ def test_empty_evidence_refs_list_is_not_missing():
                 {
                     "decision_id": "d1",
                     "determination": "provisional",
+                    "uncertainty_reasons": ["source_ambiguous"],
                     "verification_basis": "ok",
                     "evidence_refs": [],
                     "edits": [

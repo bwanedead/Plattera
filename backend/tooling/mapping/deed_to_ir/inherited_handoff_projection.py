@@ -41,6 +41,7 @@ def build_inherited_handoff_conditions(
     normalized_or_mapping_transcript: str | None = None,
     source_transcript_verbatim: str | None = None,
     excerpts: Mapping[str, str | None] | None = None,
+    transcript_edit_decision_summary: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Copy bounded upstream handoff lanes into a single salience block (no inference)."""
     upstream_source = _copy_upstream_source(source)
@@ -53,6 +54,7 @@ def build_inherited_handoff_conditions(
         source_transcript_verbatim=source_transcript_verbatim,
         excerpts=excerpts,
     )
+    decision_summary = _copy_decision_summary(transcript_edit_decision_summary)
 
     payload: dict[str, Any] = {
         "block_id": "inherited_handoff_conditions",
@@ -63,6 +65,8 @@ def build_inherited_handoff_conditions(
         "evidence_refs": evidence,
         "transcript_lane_excerpts": transcript_lanes,
     }
+    if decision_summary:
+        payload["transcript_edit_decision_summary"] = decision_summary
     ref = _opt_str(resolution_state_ref)
     if ref:
         payload["resolution_state_ref"] = ref
@@ -76,6 +80,13 @@ def build_inherited_handoff_conditions(
         truncation["hitl_decisions_omitted"] = hitl_omitted
     if evidence.get("omitted", 0):
         truncation["evidence_refs_omitted"] = int(evidence["omitted"])
+    omitted_decisions = 0
+    if isinstance(decision_summary, Mapping):
+        counts = decision_summary.get("counts")
+        if isinstance(counts, Mapping) and isinstance(counts.get("omitted"), int):
+            omitted_decisions = int(counts["omitted"])
+    if omitted_decisions:
+        truncation["transcript_edit_decisions_omitted"] = omitted_decisions
     if truncation:
         payload["truncation"] = truncation
     return payload
@@ -209,6 +220,45 @@ def _copy_row_keys(row: Mapping[str, Any], keys: Sequence[str]) -> dict[str, Any
                 out[key] = text
             continue
         out[key] = value
+    return out
+
+
+def _copy_decision_summary(raw: Mapping[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(raw, Mapping) or not raw:
+        return {}
+    # Shallow mechanical copy of already-compact projector output; drop host keys.
+    out: dict[str, Any] = {}
+    for key in ("schema_version", "decisions", "counts"):
+        if key not in raw:
+            continue
+        value = raw.get(key)
+        if key == "decisions" and isinstance(value, list):
+            rows: list[dict[str, Any]] = []
+            for row in value:
+                if not isinstance(row, Mapping):
+                    continue
+                cleaned = {
+                    k: v
+                    for k, v in dict(row).items()
+                    if k
+                    not in {
+                        "absolute_path",
+                        "bytes",
+                        "binary",
+                        "filesystem_path",
+                        "path",
+                    }
+                }
+                rows.append(cleaned)
+            out["decisions"] = rows
+            continue
+        if key == "counts" and isinstance(value, Mapping):
+            out["counts"] = {
+                str(k): int(v) for k, v in value.items() if isinstance(v, int) and not isinstance(v, bool)
+            }
+            continue
+        if key == "schema_version" and type(value) is int and not isinstance(value, bool):
+            out["schema_version"] = value
     return out
 
 

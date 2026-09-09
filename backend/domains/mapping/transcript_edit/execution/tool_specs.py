@@ -9,6 +9,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from domains.mapping.transcript_edit.payloads.transcript_edit_decisions import (
+    ALLOWED_UNCERTAINTY_REASONS,
+)
+
 
 @dataclass(frozen=True)
 class SemanticToolSpec:
@@ -483,11 +487,14 @@ def build_transcript_edit_tool_specs() -> tuple[SemanticToolSpec, ...]:
                 "base_revision_ref: required exact transcript_edit:working:rev:NNNN (no aggregate aliases). "
                 "decisions: required non-empty list of decision objects. "
                 "Each decision: decision_id (stable agent-authored id), determination "
-                "(provisional|earned), verification_basis (nonblank), evidence_refs (list; empty allowed "
-                "for provisional; earned requires >=1), optional candidate_values, and edits[]. "
+                "(provisional|earned), uncertainty_reasons (required list of canonical reason strings; "
+                "provisional requires >=1; earned requires []), verification_basis (nonblank), "
+                "evidence_refs (list; empty allowed for provisional; earned requires >=1), "
+                "optional candidate_values, and edits[]. "
                 "Each edit: lane, expected_text (nonempty exact match), replacement_text (string; empty deletes), "
                 "optional context_before/context_after for disambiguation. "
-                "expected_text == replacement_text is a valid verification that still persists provenance."
+                "expected_text == replacement_text is a valid verification that still persists provenance. "
+                "Reusing a decision_id replaces that current decision; prior immutable revisions retain history."
             ),
             expected_request_json_shape={
                 "type": "object",
@@ -505,6 +512,7 @@ def build_transcript_edit_tool_specs() -> tuple[SemanticToolSpec, ...]:
                             "required": [
                                 "decision_id",
                                 "determination",
+                                "uncertainty_reasons",
                                 "verification_basis",
                                 "evidence_refs",
                                 "edits",
@@ -514,6 +522,13 @@ def build_transcript_edit_tool_specs() -> tuple[SemanticToolSpec, ...]:
                                 "determination": {
                                     "type": "string",
                                     "enum": ["provisional", "earned"],
+                                },
+                                "uncertainty_reasons": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string",
+                                        "enum": sorted(ALLOWED_UNCERTAINTY_REASONS),
+                                    },
                                 },
                                 "verification_basis": {"type": "string"},
                                 "candidate_values": {
@@ -563,6 +578,7 @@ def build_transcript_edit_tool_specs() -> tuple[SemanticToolSpec, ...]:
                     {
                         "decision_id": "seg1-location-range",
                         "determination": "provisional",
+                        "uncertainty_reasons": ["observer_disagreement"],
                         "verification_basis": "The available observations disagree.",
                         "candidate_values": ["7", "77"],
                         "evidence_refs": ["image:derived:example"],

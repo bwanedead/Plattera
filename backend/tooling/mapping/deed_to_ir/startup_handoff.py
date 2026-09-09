@@ -64,6 +64,11 @@ def startup_handoff_from_loader_dict(
     if snapshot is not None:
         counts = {**counts, **{f"resolution_{k}": v for k, v in rs_counts.items()}}
 
+    decision_summary_raw = loaded.get("transcript_edit_decision_summary")
+    decision_summary = (
+        dict(decision_summary_raw) if isinstance(decision_summary_raw, dict) else {}
+    )
+
     return DeedToIrStartupHandoff(
         scope=scope,
         source=TranscriptEditSourceMetadata(
@@ -101,7 +106,9 @@ def startup_handoff_from_loader_dict(
             normalized_or_mapping_transcript=_opt_str(loaded.get("normalized_or_mapping_transcript")),
             source_transcript_verbatim=_opt_str(loaded.get("source_transcript_verbatim")),
             excerpts=excerpts_raw,
+            transcript_edit_decision_summary=decision_summary,
         ),
+        transcript_edit_decision_summary=decision_summary,
     )
 
 

@@ -112,6 +112,7 @@ def test_dossier_apply_unknown_top_level_field_refuses(tmp_path, monkeypatch) ->
                 {
                     "decision_id": "d1",
                     "determination": "provisional",
+                    "uncertainty_reasons": ["source_ambiguous"],
                     "verification_basis": "ok",
                     "evidence_refs": [],
                     "edits": [
@@ -166,6 +167,7 @@ def test_dossier_apply_empty_evidence_refs_allows_provisional(tmp_path, monkeypa
                 {
                     "decision_id": "d1",
                     "determination": "provisional",
+                    "uncertainty_reasons": ["source_ambiguous"],
                     "verification_basis": "ok",
                     "evidence_refs": [],
                     "edits": [
@@ -193,6 +195,7 @@ def test_dossier_non_string_evidence_refuses_without_coercion(tmp_path, monkeypa
                 {
                     "decision_id": "d1",
                     "determination": "provisional",
+                    "uncertainty_reasons": ["source_ambiguous"],
                     "verification_basis": "ok",
                     "evidence_refs": [123],
                     "edits": [

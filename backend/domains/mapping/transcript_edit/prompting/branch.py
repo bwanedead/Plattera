@@ -7,7 +7,7 @@ from domains.prompting import PromptBlock
 TRANSCRIPT_EDIT_DOMAIN_ID = "transcript_edit"
 TRANSCRIPT_EDIT_FAMILY_ID = "mapping"
 TRANSCRIPT_EDIT_BRANCH_SOURCE_REF = "backend/domains/mapping/transcript_edit/prompting/branch.py"
-TRANSCRIPT_EDIT_BRANCH_VERSION = "v34"
+TRANSCRIPT_EDIT_BRANCH_VERSION = "v35"
 
 TRANSCRIPT_EDIT_BRANCH_TEXT = """\
 You are operating in the **transcript edit** domain for mapping-bound work.
@@ -125,7 +125,7 @@ In particular:
 ## Earned source-reading standard
 The trunk Evidence Law governs every mapping-critical source reading at full force: localize first, then determine. This section adds only what is domain-specific about earning readings from source imagery.
 
-For mapping-critical visual claims, an earned determination means source-local evidence makes the reading clear enough to defend. This domain is especially vulnerable to **false visual earning**: it is common to look at the correct image region, reason from the correct source, and still promote the wrong small mark, digit, direction, or word. That failure is worse than leaving a unit open because a wrong earned source reading can silently poison the normalized lane and the downstream handoff. Verify the claimed mark itself supports the value, not merely that the evidence points to the right area. Do not decide from t0, transcript text, memory, or first impression and then attach evidence afterward. If the strongest available check is still inconclusive, keep the item unresolved, ask HITL, or mark blocked / no-further-progress — do not normalize a guess.
+For mapping-critical visual claims, an earned determination means source-local evidence makes the reading clear enough to defend. This domain is especially vulnerable to **false visual earning**: it is common to look at the correct image region, reason from the correct source, and still promote the wrong small mark, digit, direction, or word. That failure is worse than leaving a unit open because a wrong earned source reading can silently poison the normalized lane and the downstream handoff. Verify the claimed mark itself supports the value, not merely that the evidence points to the right area. Do not decide from t0, transcript text, memory, or first impression and then attach evidence afterward. If the strongest available check is still inconclusive, keep the item unresolved, ask HITL, or mark blocked / no-further-progress — do not normalize a guess into an **earned** reading. A provisional `apply_transcript_edits` decision with `uncertainty_reasons` is allowed so work can continue: it is durable best-current text under explicit uncertainty, not earned truth and not the forbidden “normalize a guess” path.
 
 Be ruthlessly skeptical of candidate numbers, degrees, bearings, distances, directions, acreage, and other short operative values that came from t0 drafts or first impression — these are the raw parameters that programmatically generate the downstream geometry, so a wrong one is a wrong map. If the localized source evidence does not make the claimed value obvious, do not earn it. One wrong short value can corrupt downstream geometry while looking superficially polished.
 

@@ -107,6 +107,39 @@ def test_terminal_and_unknown_codes_remain_unchanged(action_id: str, reason_code
     assert result["refusal"]["blocked_by_invariant"] is True
 
 
+@pytest.mark.parametrize(
+    "action_id",
+    ["apply_transcript_edits"],
+)
+def test_unsupported_provenance_schema_remains_non_retryable_leaf(action_id: str) -> None:
+    """Persisted pre-v2 provenance cannot be repaired by rewriting the request."""
+    assert "unsupported_provenance_schema" not in retryable_reason_codes_for_action(
+        action_id
+    )
+    original = _terminal_refusal(action_id, "unsupported_provenance_schema")
+    expected = copy.deepcopy(original)
+    result = apply_tool_refusal_boundary(action_id, original)
+    assert result == expected
+    assert result["refusal"]["retryable"] is False
+    assert result["refusal"]["blocked_by_invariant"] is True
+
+
+def test_unsupported_provenance_schema_remains_non_retryable_dossier_boundary() -> None:
+    """Dossier apply uses the same allowlist; v1 head stays a terminal invariant."""
+    from domains.mapping.transcript_edit.runtime_adapter.dossier_tool_bindings import (
+        _guard_transport,
+    )
+
+    def handler(_request: Any) -> dict[str, Any]:
+        return _terminal_refusal("apply_transcript_edits", "unsupported_provenance_schema")
+
+    wrapped = _guard_transport(handler, action_id="apply_transcript_edits")
+    result = wrapped({"base_revision_ref": "x", "decisions": []})
+    assert result["executed"] is False
+    assert result["refusal"]["reason_code"] == "unsupported_provenance_schema"
+    assert result["refusal"]["retryable"] is False
+
+
 def test_success_results_remain_unchanged() -> None:
     original = _success("hydrate_artifact_refs")
     expected = copy.deepcopy(original)

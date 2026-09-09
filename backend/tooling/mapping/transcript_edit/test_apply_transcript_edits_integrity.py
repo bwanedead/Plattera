@@ -65,7 +65,7 @@ def _rewrite_head_revision(d: str, tx: str, ws: str, digits: str, doc: dict) -> 
 def test_malformed_provenance_field_refuses_unmanaged_fallback():
     with pytest.raises(ManagedProvenanceIntegrityError) as raised:
         payload_has_managed_provenance(
-            {TRANSCRIPT_EDIT_DECISIONS_FIELD: {"schema_version": 2, "decisions": []}}
+            {TRANSCRIPT_EDIT_DECISIONS_FIELD: {"schema_version": 1, "decisions": []}}
         )
     assert raised.value.reason_code == "unsupported_provenance_schema"
 
@@ -114,6 +114,7 @@ def test_evidence_list_divergence_refuses(tmp_path, monkeypatch):
                 {
                     "decision_id": "d1",
                     "determination": "provisional",
+                    "uncertainty_reasons": ["source_ambiguous"],
                     "verification_basis": "basis",
                     "evidence_refs": [],
                     "edits": [
@@ -146,6 +147,7 @@ def test_evidence_list_divergence_refuses(tmp_path, monkeypatch):
                 {
                     "decision_id": "d1",
                     "determination": "provisional",
+                    "uncertainty_reasons": ["source_ambiguous"],
                     "verification_basis": "basis",
                     "evidence_refs": [],
                     "edits": [
@@ -179,6 +181,7 @@ def test_idempotent_replay_preserves_changed_lanes(tmp_path, monkeypatch):
             {
                 "decision_id": "d1",
                 "determination": "provisional",
+                "uncertainty_reasons": ["source_ambiguous"],
                 "verification_basis": "basis",
                 "evidence_refs": [],
                 "edits": [
@@ -226,6 +229,7 @@ def test_evidence_union_order_and_dedupe(tmp_path, monkeypatch):
                 {
                     "decision_id": "d1",
                     "determination": "provisional",
+                    "uncertainty_reasons": ["source_ambiguous"],
                     "verification_basis": "basis",
                     "evidence_refs": [
                         "image:derived:a",
@@ -271,6 +275,7 @@ def test_corrupt_replay_metadata_refuses(tmp_path, monkeypatch):
             {
                 "decision_id": "d1",
                 "determination": "provisional",
+                "uncertainty_reasons": ["source_ambiguous"],
                 "verification_basis": "basis",
                 "evidence_refs": [],
                 "edits": [
@@ -316,11 +321,12 @@ def test_earned_without_evidence_blocks_save(tmp_path, monkeypatch):
         draft_payload={
             "source_transcript_verbatim": "Range 7 west",
             "transcript_edit_decisions": {
-                "schema_version": 1,
+                "schema_version": 2,
                 "decisions": [
                     {
                         "decision_id": "d1",
                         "determination": "earned",
+                        "uncertainty_reasons": [],
                         "verification_basis": "basis",
                         "evidence_refs": [],
                         "base_revision_ref": "transcript_edit:working:rev:0001",
@@ -361,11 +367,12 @@ def test_oversized_decision_id_blocks_copy_forward(tmp_path, monkeypatch):
     rev_path = transcript_edit_revision_path(d, tx, ws, "0001")
     doc = json.loads(rev_path.read_text(encoding="utf-8"))
     doc["payload"]["transcript_edit_decisions"] = {
-        "schema_version": 1,
+        "schema_version": 2,
         "decisions": [
             {
                 "decision_id": "x" * (MAX_DECISION_ID_CHARS + 1),
                 "determination": "provisional",
+                "uncertainty_reasons": ["source_ambiguous"],
                 "verification_basis": "basis",
                 "evidence_refs": [],
                 "base_revision_ref": "transcript_edit:working:rev:0001",

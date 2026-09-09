@@ -6,6 +6,7 @@
 
 ## Contracts & invariants
 - **Mechanical only:** Copy/hydrate/project fields; no semantic inference, blocker authoring, or atom-to-feature conversion.
+- **Transcript-edit dossier handoff:** Validate publication/candidate schema, nonblank segment/transcription ids, exact unique integer positions (canonical order), stitched lane/evidence agreement, and refuse conflicting parcel metadata. Source revision identity is outer `output_revision_ref`. Compact decision summary is projected at load; agent-facing copy is only inside `inherited_handoff_conditions`.
 - **Path-free model output:** Never return filesystem paths in tool results or startup projections.
 - **Persistence:** Wrap `FeatureGraphPersistenceService`; do not duplicate artifact storage logic.
 - **Ref scheme:** `feature_graph:ir:{artifact_id}` (+ compile/judge/bundle prefixes for future types).

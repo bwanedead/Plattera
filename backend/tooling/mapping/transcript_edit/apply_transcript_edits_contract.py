@@ -8,7 +8,9 @@ from typing import Any
 
 from domains.mapping.transcript_edit.payloads.transcript_edit_decisions import (
     ALLOWED_DETERMINATIONS,
+    ALLOWED_UNCERTAINTY_REASONS,
     DETERMINATION_EARNED,
+    DETERMINATION_PROVISIONAL,
     MAX_CANDIDATE_VALUES_PER_DECISION,
     MAX_CONTEXT_TEXT_CHARS,
     MAX_DECISION_ID_CHARS,
@@ -17,6 +19,7 @@ from domains.mapping.transcript_edit.payloads.transcript_edit_decisions import (
     MAX_EDITS_PER_DECISION,
     MAX_EVIDENCE_REFS_PER_DECISION,
     MAX_REQUEST_SERIALIZED_CHARS,
+    MAX_UNCERTAINTY_REASONS_PER_DECISION,
     MAX_VERIFICATION_BASIS_CHARS,
     TRANSCRIPT_EDIT_LANES,
 )
@@ -45,6 +48,7 @@ class ValidatedEdit:
 class ValidatedDecision:
     decision_id: str
     determination: str
+    uncertainty_reasons: tuple[str, ...]
     verification_basis: str
     candidate_values: tuple[str, ...] | None
     evidence_refs: tuple[str, ...]
@@ -63,6 +67,7 @@ _ALLOWED_DECISION_KEYS = frozenset(
     {
         "decision_id",
         "determination",
+        "uncertainty_reasons",
         "verification_basis",
         "candidate_values",
         "evidence_refs",
@@ -225,6 +230,12 @@ def _validate_decision(
             f"decisions[{index}] determination 'earned' requires at least one evidence_ref.",
         )
 
+    uncertainty_reasons = _validate_uncertainty_reasons(
+        item.get("uncertainty_reasons"),
+        index=index,
+        determination=determination,
+    )
+
     candidate_values: tuple[str, ...] | None
     if "candidate_values" not in item or item.get("candidate_values") is None:
         candidate_values = None
@@ -255,11 +266,59 @@ def _validate_decision(
     return ValidatedDecision(
         decision_id=decision_id,
         determination=determination,
+        uncertainty_reasons=uncertainty_reasons,
         verification_basis=verification_basis,
         candidate_values=candidate_values,
         evidence_refs=evidence_refs,
         edits=edits,
     )
+
+
+def _validate_uncertainty_reasons(
+    raw: Any,
+    *,
+    index: int,
+    determination: str,
+) -> tuple[str, ...]:
+    field = f"decisions[{index}].uncertainty_reasons"
+    if type(raw) is not list:
+        raise ApplyTranscriptEditsContractError(
+            "uncertainty_reasons_required",
+            f"{field} must be a list.",
+        )
+    if len(raw) > MAX_UNCERTAINTY_REASONS_PER_DECISION:
+        raise ApplyTranscriptEditsContractError(
+            "too_many_uncertainty_reasons",
+            f"{field} exceeds {MAX_UNCERTAINTY_REASONS_PER_DECISION} reasons.",
+        )
+    seen: set[str] = set()
+    out: list[str] = []
+    for reason_index, item in enumerate(raw):
+        if type(item) is not str or item not in ALLOWED_UNCERTAINTY_REASONS:
+            raise ApplyTranscriptEditsContractError(
+                "invalid_uncertainty_reason",
+                f"{field}[{reason_index}] must be one of "
+                f"{sorted(ALLOWED_UNCERTAINTY_REASONS)}.",
+            )
+        if item in seen:
+            raise ApplyTranscriptEditsContractError(
+                "duplicate_uncertainty_reason",
+                f"{field} contains duplicate reason {item!r}.",
+            )
+        seen.add(item)
+        out.append(item)
+    if determination == DETERMINATION_PROVISIONAL and not out:
+        raise ApplyTranscriptEditsContractError(
+            "provisional_requires_uncertainty_reasons",
+            f"decisions[{index}] determination 'provisional' requires at least one "
+            "uncertainty_reason.",
+        )
+    if determination == DETERMINATION_EARNED and out:
+        raise ApplyTranscriptEditsContractError(
+            "earned_requires_empty_uncertainty_reasons",
+            f"decisions[{index}] determination 'earned' requires uncertainty_reasons=[].",
+        )
+    return tuple(out)
 
 
 def _validate_edit(item: Any, *, decision_index: int, edit_index: int) -> ValidatedEdit:

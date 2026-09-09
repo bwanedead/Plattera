@@ -43,3 +43,4 @@ class DeedToIrStartupHandoff:
     resolution_state_summary: tuple[dict[str, Any], ...] = ()
     operand_suite_ref: str | None = None
     inherited_handoff_conditions: dict[str, Any] = field(default_factory=dict)
+    transcript_edit_decision_summary: dict[str, Any] = field(default_factory=dict)

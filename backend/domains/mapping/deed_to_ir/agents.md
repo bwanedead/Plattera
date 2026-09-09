@@ -13,7 +13,7 @@
 - **Completion ownership:** Outer `DomainClosurePolicy.publish_action_ids` is empty so partial finalizer calls are not generic pre-dispatch publish attempts. Nested `CompletionAnchorPolicy.publish_action_ids` recognizes successful finalizer publication.
 - **Mapping submission is one action:** `submit_ir_for_mapping` internally compiles, judges, and renders; those are not separate agent workflow actions.
 - **Pack is the semantic surface owner:** `domain_pack.py` declares mapping-family branch, deed-to-IR branch, procedural guidance, startup context, and closure/handoff semantics.
-- **Startup handoff is injected, not inferred:** Loader copies transcript-edit output fields mechanically; resolution state arrives via explicit launch-context snapshot.
+- **Startup handoff is injected, not inferred:** Loader copies transcript-edit output fields mechanically; resolution state arrives via explicit launch-context snapshot. Compact `transcript_edit_decision_summary` is projected from revision snapshots at load time (not a second stored ledger) and exposed agent-facing only inside `inherited_handoff_conditions` (typed field remains internal for projection). Provisional rows are review coordinates, not mapping verdicts.
 - **`runtime_adapter/`** is the only harness-facing seam; it must not author mission state, closure, inventory, blockers, or IR.
 
 ## Allowed changes

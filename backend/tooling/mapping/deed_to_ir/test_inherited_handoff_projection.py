@@ -114,6 +114,75 @@ def test_hydrate_section_inherited_handoff_conditions_matches_top_level() -> Non
     assert top_level["block_id"] == "inherited_handoff_conditions"
 
 
+def test_decision_summary_agent_facing_once_in_wire_and_hydrate() -> None:
+    """Typed summary is nested only; production wire/prompt expose each decision id once."""
+    from domains.mapping.deed_to_ir.runtime_adapter.composition import (
+        _handoff_tool_context,
+        _handoff_wire,
+    )
+
+    loaded = load_transcript_edit_output_handoff(output_path=_HANDOFF_FIXTURE)
+    # Inject a compact provisional summary as the loader would for managed provenance.
+    loaded["transcript_edit_decision_summary"] = {
+        "schema_version": 2,
+        "decisions": [
+            {
+                "decision_id": "unique-decision-1",
+                "determination": "provisional",
+                "uncertainty_reasons": ["observer_disagreement"],
+                "replacements": [
+                    {
+                        "lane": "source_transcript_verbatim",
+                        "replacement_text": "Range 75",
+                    }
+                ],
+            }
+        ],
+        "counts": {
+            "source": 1,
+            "retained": 1,
+            "provisional": 1,
+            "earned": 0,
+            "omitted": 0,
+            "source_provisional": 1,
+            "source_earned": 0,
+        },
+    }
+    handoff = startup_handoff_from_loader_dict(
+        scope=DeedToIrScope(dossier_id="d-test"),
+        loaded=loaded,
+    )
+    assert handoff.transcript_edit_decision_summary["decisions"]
+    nested = handoff.inherited_handoff_conditions.get("transcript_edit_decision_summary")
+    assert nested and nested["decisions"][0]["decision_id"] == "unique-decision-1"
+
+    wire = _handoff_wire(handoff)
+    tool_ctx = _handoff_tool_context(handoff)
+    assert "transcript_edit_decision_summary" not in wire
+    assert "transcript_edit_decision_summary" not in tool_ctx
+    assert "transcript_edit_decision_summary" in wire["inherited_handoff_conditions"]
+    assert "transcript_edit_decision_summary" in tool_ctx["inherited_handoff_conditions"]
+
+    wire_dump = json.dumps(wire)
+    assert wire_dump.count("unique-decision-1") == 1
+
+    prompt = build_startup_context_block(handoff).text
+    assert prompt.count("unique-decision-1") == 1
+
+    handler = make_hydrate_deed_to_ir_input_handler(
+        handoff_context={
+            **{k: v for k, v in loaded.items() if k != "transcript_edit_decision_summary"},
+            "inherited_handoff_conditions": handoff.inherited_handoff_conditions,
+        }
+    )
+    result = handler({"sections": ["inherited_handoff_conditions"]})
+    assert result["executed"] is True
+    hydrated = result["outputs"]["inherited_handoff_conditions"]
+    assert hydrated["transcript_edit_decision_summary"]["decisions"][0]["decision_id"] == (
+        "unique-decision-1"
+    )
+
+
 def test_markdown_formatter_labels_upstream_not_agent_conclusions() -> None:
     from domains.mapping.deed_to_ir.prompting.surfaces.inherited_handoff_prompt import (
         format_inherited_handoff_conditions_markdown,

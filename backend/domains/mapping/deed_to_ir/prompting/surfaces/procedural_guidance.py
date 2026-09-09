@@ -9,13 +9,14 @@ from ..branch import DEED_TO_IR_DOMAIN_ID
 DEED_TO_IR_PROCEDURAL_GUIDANCE_SOURCE_REF = (
     "backend/domains/mapping/deed_to_ir/prompting/surfaces/procedural_guidance.py"
 )
-DEED_TO_IR_PROCEDURAL_GUIDANCE_VERSION = "v36"
+DEED_TO_IR_PROCEDURAL_GUIDANCE_VERSION = "v37"
 
 DEED_TO_IR_PROCEDURAL_GUIDANCE_TEXT = """\
 Use this guidance to orient deed-to-IR work. This is **guidance**, not a hard script.
 
 ## Startup orientation
-- Read `inherited_handoff_conditions` first — it is the high-salience mechanical copy of upstream parcel metadata, issues, HITL decisions, evidence refs, and transcript lane excerpts.
+- Read `inherited_handoff_conditions` first — it is the high-salience mechanical copy of upstream parcel metadata, issues, HITL decisions, evidence refs, transcript lane excerpts, and compact `transcript_edit_decision_summary` when present.
+- Treat provisional transcript-edit decisions as explicit upstream uncertainty coordinates: use them when mapping sanity, geometry, or source evidence makes them material. Do not casually redo every transcript-edit decision. Do not treat the current provisional replacement as earned truth. Do not treat the existence of a provisional decision as an automatic mapping block.
 - Treat inherited resolution rows as **input/provenance**, not as local work inventory to recreate.
 - Treat the operand suite as a **core deed-to-IR anchor**. It is acceptable for `operand_suite_ref` / `mapping_operands` to remain available across the run. Do not spend turns managing pin lifecycle unless the suite is clearly stale or harmful.
 - Use `hydrate_deed_to_ir_input` section `mapping_operands` or hydrate `operand_suite_ref` via `hydrate_artifact_refs` for compact upstream determined values and scope blockers before rereading nested resolution-state rows.

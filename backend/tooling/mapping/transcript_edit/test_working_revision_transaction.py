@@ -37,6 +37,7 @@ def _decision(**kwargs):
     body = {
         "decision_id": kwargs.get("decision_id", "d1"),
         "determination": "provisional",
+        "uncertainty_reasons": ["source_ambiguous"],
         "verification_basis": "basis",
         "evidence_refs": [],
         "edits": [

@@ -1,4 +1,4 @@
-"""Canonical validator for persisted ``payload.transcript_edit_decisions`` (v1).
+"""Canonical validator for persisted ``payload.transcript_edit_decisions`` (v2).
 
 Shared by the apply engine and save/copy integrity boundary.
 Fail closed: any present field must validate; absence means unmanaged/historical.
@@ -15,15 +15,18 @@ from typing import Any
 
 from domains.mapping.transcript_edit.payloads.transcript_edit_decisions import (
     ALLOWED_DETERMINATIONS,
+    ALLOWED_UNCERTAINTY_REASONS,
     DETERMINATION_EARNED,
+    DETERMINATION_PROVISIONAL,
     MAX_CANDIDATE_VALUES_PER_DECISION,
     MAX_CONTEXT_TEXT_CHARS,
     MAX_DECISION_ID_CHARS,
-    MAX_DECISIONS_PER_REQUEST,
     MAX_EDIT_TEXT_CHARS,
     MAX_EDITS_PER_DECISION,
     MAX_EVIDENCE_REFS_PER_DECISION,
+    MAX_PERSISTED_TRANSCRIPT_EDIT_DECISIONS,
     MAX_REQUEST_SERIALIZED_CHARS,
+    MAX_UNCERTAINTY_REASONS_PER_DECISION,
     MAX_VERIFICATION_BASIS_CHARS,
     TRANSCRIPT_EDIT_DECISIONS_FIELD,
     TRANSCRIPT_EDIT_DECISIONS_SCHEMA_VERSION,
@@ -47,6 +50,7 @@ _ALLOWED_DECISION_KEYS = frozenset(
     {
         "decision_id",
         "determination",
+        "uncertainty_reasons",
         "verification_basis",
         "candidate_values",
         "evidence_refs",
@@ -81,7 +85,7 @@ def validate_persisted_transcript_edit_decisions(
 
     Returns:
       - None when the field is absent (historical/unmanaged), unless require_present.
-      - list of validated decision dicts (shallow copies) when valid v1 is present.
+      - list of validated decision dicts (shallow copies) when valid v2 is present.
 
     Raises PersistedProvenanceError on any present-but-invalid structure.
     """
@@ -131,10 +135,10 @@ def validate_persisted_transcript_edit_decisions(
             "malformed_provenance",
             "transcript_edit_decisions.decisions must be a list.",
         )
-    if len(decisions) > MAX_DECISIONS_PER_REQUEST:
+    if len(decisions) > MAX_PERSISTED_TRANSCRIPT_EDIT_DECISIONS:
         raise PersistedProvenanceError(
-            "too_many_decisions",
-            f"Persisted provenance exceeds {MAX_DECISIONS_PER_REQUEST} decisions.",
+            "too_many_persisted_decisions",
+            f"Persisted provenance exceeds {MAX_PERSISTED_TRANSCRIPT_EDIT_DECISIONS} decisions.",
         )
 
     serialized = json.dumps(block, ensure_ascii=False, sort_keys=True)
@@ -242,6 +246,12 @@ def _validate_decision_record(
             f"decisions[{index}] determination 'earned' requires at least one evidence_ref.",
         )
 
+    uncertainty_reasons = _validate_persisted_uncertainty_reasons(
+        item.get("uncertainty_reasons"),
+        index=index,
+        determination=determination,
+    )
+
     candidate_values: list[str] | None
     if "candidate_values" not in item or item.get("candidate_values") is None:
         candidate_values = None
@@ -274,6 +284,7 @@ def _validate_decision_record(
     record: dict[str, Any] = {
         "decision_id": decision_id,
         "determination": determination,
+        "uncertainty_reasons": list(uncertainty_reasons),
         "verification_basis": verification_basis,
         "evidence_refs": list(evidence_refs),
         "base_revision_ref": base_ref.strip(),
@@ -282,6 +293,53 @@ def _validate_decision_record(
     if candidate_values is not None:
         record["candidate_values"] = candidate_values
     return record
+
+
+def _validate_persisted_uncertainty_reasons(
+    raw: Any,
+    *,
+    index: int,
+    determination: str,
+) -> list[str]:
+    field = f"decisions[{index}].uncertainty_reasons"
+    if type(raw) is not list:
+        raise PersistedProvenanceError(
+            "uncertainty_reasons_required",
+            f"{field} must be a list.",
+        )
+    if len(raw) > MAX_UNCERTAINTY_REASONS_PER_DECISION:
+        raise PersistedProvenanceError(
+            "too_many_uncertainty_reasons",
+            f"{field} exceeds {MAX_UNCERTAINTY_REASONS_PER_DECISION} reasons.",
+        )
+    seen: set[str] = set()
+    out: list[str] = []
+    for reason_index, item in enumerate(raw):
+        if type(item) is not str or item not in ALLOWED_UNCERTAINTY_REASONS:
+            raise PersistedProvenanceError(
+                "invalid_uncertainty_reason",
+                f"{field}[{reason_index}] must be one of "
+                f"{sorted(ALLOWED_UNCERTAINTY_REASONS)}.",
+            )
+        if item in seen:
+            raise PersistedProvenanceError(
+                "duplicate_uncertainty_reason",
+                f"{field} contains duplicate reason {item!r}.",
+            )
+        seen.add(item)
+        out.append(item)
+    if determination == DETERMINATION_PROVISIONAL and not out:
+        raise PersistedProvenanceError(
+            "provisional_requires_uncertainty_reasons",
+            f"decisions[{index}] determination 'provisional' requires at least one "
+            "uncertainty_reason.",
+        )
+    if determination == DETERMINATION_EARNED and out:
+        raise PersistedProvenanceError(
+            "earned_requires_empty_uncertainty_reasons",
+            f"decisions[{index}] determination 'earned' requires uncertainty_reasons=[].",
+        )
+    return out
 
 
 def _validate_edit_record(

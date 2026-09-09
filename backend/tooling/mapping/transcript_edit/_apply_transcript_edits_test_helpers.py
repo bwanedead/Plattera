@@ -63,11 +63,18 @@ def decision(
     basis: str = "basis text",
     evidence_refs: list[str] | None = None,
     candidate_values: list[str] | None = None,
+    uncertainty_reasons: list[str] | None = None,
     edits: list[dict] | None = None,
 ) -> dict:
+    if uncertainty_reasons is None:
+        if determination == "earned":
+            uncertainty_reasons = []
+        else:
+            uncertainty_reasons = ["source_ambiguous"]
     body: dict = {
         "decision_id": decision_id,
         "determination": determination,
+        "uncertainty_reasons": list(uncertainty_reasons),
         "verification_basis": basis,
         "evidence_refs": evidence_refs if evidence_refs is not None else [],
         "edits": edits
