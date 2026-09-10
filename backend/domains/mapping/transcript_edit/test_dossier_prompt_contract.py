@@ -171,6 +171,8 @@ def test_dossier_driver_is_mode_specific_and_preserves_one_run_semantics() -> No
         "one explicitly chosen exact working revision",
         "source_revision_refs",
         "dependency fact",
+        "segment being worked",
+        "do not require every segment to be initialized",
     ):
         assert required in dossier_text
     for retired_fallback in ("automatically best", "longest, consensus"):

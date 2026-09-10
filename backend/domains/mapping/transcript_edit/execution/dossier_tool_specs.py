@@ -145,8 +145,8 @@ def _dossier_save_spec(spec: SemanticToolSpec) -> SemanticToolSpec:
         example_request={
             "target_ref": f"{_QUALIFIED_EXAMPLE_PREFIX}t0:raw:pass_1",
             "draft_payload": {
-                "source_transcript_verbatim": "Beginning at the marked corner...",
-                "normalized_or_mapping_transcript": "Beginning at the marked corner...",
+                "source_transcript_verbatim": "[synthetic source text]",
+                "normalized_or_mapping_transcript": "[synthetic source text]",
                 "issues": [],
                 "evidence_refs": [
                     f"{_QUALIFIED_EXAMPLE_PREFIX}image:assoc:tx-01:original"
@@ -252,7 +252,7 @@ def _dossier_apply_transcript_edits_spec(spec: SemanticToolSpec) -> SemanticTool
             "base_revision_ref": (
                 f"{_QUALIFIED_EXAMPLE_PREFIX}transcript_edit:working:rev:0001"
             ),
-            "decisions": spec.example_request["decisions"],
+            "decisions": _qualify_example_decision_refs(spec.example_request["decisions"]),
         },
         expected_result_shape=(
             spec.expected_result_shape
@@ -301,6 +301,34 @@ def _dossier_publish_spec(spec: SemanticToolSpec) -> SemanticToolSpec:
             "and idempotent replay/recovery posture."
         ),
     )
+
+
+def _qualify_example_decision_refs(decisions: object) -> list[dict[str, object]]:
+    """Prefix opaque evidence refs in teaching examples with the dossier qualifier."""
+
+    qualified: list[dict[str, object]] = []
+    if not isinstance(decisions, list):
+        return qualified
+    for raw in decisions:
+        if not isinstance(raw, dict):
+            continue
+        row = dict(raw)
+        refs = row.get("evidence_refs")
+        if isinstance(refs, list):
+            row["evidence_refs"] = [_qualify_opaque_example_ref(ref) for ref in refs]
+        qualified.append(row)
+    return qualified
+
+
+def _qualify_opaque_example_ref(ref: object) -> object:
+    if type(ref) is not str:
+        return ref
+    text = ref.strip()
+    if not text or text.startswith("dossier_segment:"):
+        return text
+    if text.startswith(("image:", "t0:", "transcript_edit:")):
+        return f"{_QUALIFIED_EXAMPLE_PREFIX}{text}"
+    return text
 
 
 def _with_property_description(

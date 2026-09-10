@@ -442,6 +442,16 @@ def test_prompt_branch_block_shape_and_doctrine_markers() -> None:
     assert "mission.closure_state" in text
     assert "empty item ledger" in text.lower()
     assert "saved working draft" in text.lower()
+    assert "the working transcript is the artifact taking shape during investigation" in text.lower()
+    assert "publication carries selected working revisions" in text.lower()
+    assert "transcript-edit output consumed by deed-to-ir" in text.lower()
+    assert "it is not a second transcript" in text.lower()
+    assert "knowing a reading is not the same as persisting it" in text.lower()
+    assert "must not imply the working transcript already contains" in text.lower()
+    assert "do not invent an \"all decisions earned\" publication bar" in text.lower()
+    assert "by the time you publish, request hitl, or complete the run" in text.lower()
+    assert "by the time you save, publish" not in text.lower()
+    assert "mature enough to be useful" not in text.lower()
     assert "what would have to be true in reality" in text.lower()
     assert "visible mapping-significant claims" in text.lower()
     assert "mapping-family review-coverage rule" in text.lower()
@@ -688,7 +698,13 @@ def test_domain_pack_declares_semantic_prompt_blocks() -> None:
     assert "source-reading hitl evidence packets" not in text
     assert "image evidence: record what you see" not in text
     assert "`unassessed`, `in_review`, or `open`" in guidance.text
-    assert "verified visible progress" in text
+    assert "working transcript is the product taking shape" in text
+    assert "do not accumulate a second transcript in resolution summaries" in text
+    assert "apply those decisions to the current working revision" in text
+    assert "a graph update is not a persisted transcript edit" in text
+    assert "do not reconstruct the entire transcript from accumulated turn history" in text
+    assert "not a requirement that all decisions be earned before publication" in text
+    assert "verified visible progress" not in text
     assert "use `determination`" in text
     assert "transcript-edit run duration pressure" in text
     assert "run_context.iteration" in guidance.text
@@ -1268,6 +1284,10 @@ def test_procedural_guidance_teaches_saved_payload_shape() -> None:
     assert "first output obligation" in lowered
     assert "review as reconciliation rather than a fresh investigation" in lowered
     assert "publish/complete instead of stretching the run" in lowered
+    assert "create a transcript-bearing working revision" in lowered
+    assert "saving it does not verify those readings" in lowered
+    assert "apply_transcript_edits" in text
+    assert "expected_text == replacement_text" in text
 
 
 def test_procedural_guidance_defers_payload_lane_contract_to_branch() -> None:
@@ -1324,7 +1344,18 @@ def test_transcript_edit_output_contract_sections_have_no_current_deed_examples(
             save_spec.expected_request_shape.lower(),
         )
     )
-    for banned in ("range 75", "range 74", "parcel 1", "parcel 2", "nw corner", "1638"):
+    for banned in (
+        "range 75",
+        "range 74",
+        "range 7 west",
+        "range 77 west",
+        "parcel 1",
+        "parcel 2",
+        "nw corner",
+        "1638",
+        "n 4°",
+        "marked corner",
+    ):
         assert banned not in combined, f"Found banned current-deed example {banned!r} in transcript-edit contract text"
 
 

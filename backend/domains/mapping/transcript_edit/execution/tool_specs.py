@@ -338,6 +338,8 @@ def build_transcript_edit_tool_specs() -> tuple[SemanticToolSpec, ...]:
             purpose=(
                 "Append one agent-authored working draft revision to the transcript-edit workspace. "
                 "Does not mutate T0 raw drafts. Use transcript_text XOR draft_payload. "
+                "An initial working draft may include unresolved or provisional readings; "
+                "saving does not verify them. "
                 "Transcript-edit payload note: the saved artifact is a source-faithful transcript "
                 "artifact first and a handoff-metadata carrier second. Follow the domain branch's "
                 "saved-artifact contract: `source_transcript_verbatim` is the first output obligation, "
@@ -345,7 +347,9 @@ def build_transcript_edit_tool_specs() -> tuple[SemanticToolSpec, ...]:
                 "must not silently overwrite the source lane. Do not silently mutate the verbatim transcript. "
                 "When refreshing a saved artifact and most long text lanes are unchanged, "
                 "prefer copy_forward_save_workspace_artifact — name the base artifact, list unchanged "
-                "fields to copy exactly, and author only the fields that changed."
+                "fields to copy exactly, and author only the fields that changed. "
+                "Once managed provenance exists, use apply_transcript_edits for evidence-linked "
+                "transcript lane edits instead of re-authoring the full draft."
             ),
             expected_request_shape=(
                 "transcript_text XOR draft_payload: the authored content. "
@@ -386,7 +390,7 @@ def build_transcript_edit_tool_specs() -> tuple[SemanticToolSpec, ...]:
                 "additionalProperties": False,
             },
             example_request={
-                "transcript_text": "Section 1: beginning at the NW corner...",
+                "transcript_text": "Section 1: [synthetic source text]...",
                 "base_revision_ref": "transcript_edit:working:rev:0001",
                 "rationale": "Corrected section 2 per image:assoc:tx-1:original.",
             },
@@ -456,7 +460,7 @@ def build_transcript_edit_tool_specs() -> tuple[SemanticToolSpec, ...]:
                     "payload.normalized_or_mapping_transcript",
                 ],
                 "set_paths": {
-                    "payload.issues": [{"id": "issue-1", "description": "Bearing N 4° 00' W verified."}],
+                    "payload.issues": [{"id": "issue-1", "description": "Token example-verified-token confirmed."}],
                     "payload.parcel_metadata": {"parcel_count": 1},
                     "payload.evidence_refs": ["image:derived:tx:crop_001"],
                 },
@@ -479,6 +483,10 @@ def build_transcript_edit_tool_specs() -> tuple[SemanticToolSpec, ...]:
                 "and persist decision provenance on the resulting revision. "
                 "Distinct from save_workspace_artifact (initial draft creation) and "
                 "copy_forward_save_workspace_artifact (general payload-path copy). "
+                "Use for corrections and source-supported confirmations. "
+                "expected_text == replacement_text records verification of already-correct text "
+                "and still persists provenance. "
+                "Reuse a stable decision_id when revising or earning an existing decision. "
                 "Only source_transcript_verbatim and normalized_or_mapping_transcript lanes may be edited. "
                 "Requires the base_revision_ref to be the current working head. "
                 "Once managed provenance exists, use this action for evidence-linked transcript changes."
@@ -576,20 +584,34 @@ def build_transcript_edit_tool_specs() -> tuple[SemanticToolSpec, ...]:
                 "base_revision_ref": "transcript_edit:working:rev:0001",
                 "decisions": [
                     {
-                        "decision_id": "seg1-location-range",
+                        "decision_id": "example-provisional-token",
                         "determination": "provisional",
                         "uncertainty_reasons": ["observer_disagreement"],
                         "verification_basis": "The available observations disagree.",
-                        "candidate_values": ["7", "77"],
-                        "evidence_refs": ["image:derived:example"],
+                        "candidate_values": ["candidate_a", "candidate_b"],
+                        "evidence_refs": ["image:derived:example-provisional-token"],
                         "edits": [
                             {
                                 "lane": "source_transcript_verbatim",
-                                "expected_text": "Range 7 west",
-                                "replacement_text": "Range 77 west",
+                                "expected_text": "[uncertain token]",
+                                "replacement_text": "[provisional reading]",
                             }
                         ],
-                    }
+                    },
+                    {
+                        "decision_id": "example-verified-token",
+                        "determination": "earned",
+                        "uncertainty_reasons": [],
+                        "verification_basis": "The localized source mark supports the existing wording.",
+                        "evidence_refs": ["image:derived:example-verified-token"],
+                        "edits": [
+                            {
+                                "lane": "source_transcript_verbatim",
+                                "expected_text": "[already correct token]",
+                                "replacement_text": "[already correct token]",
+                            }
+                        ],
+                    },
                 ],
             },
             batching={
@@ -601,7 +623,9 @@ def build_transcript_edit_tool_specs() -> tuple[SemanticToolSpec, ...]:
             expected_result_shape=(
                 "artifact_refs include the new exact working revision ref + aggregate transcript_edit:working. "
                 "outputs: working_draft_ref, aggregate_working_ref, base_revision_ref, applied_decision_ids, "
-                "changed_lanes, evidence_refs, idempotent_replay. Full transcript remains hydratable."
+                "changed_lanes, evidence_refs, idempotent_replay. Full transcript remains hydratable. "
+                "Observe this result before treating the edit as persisted; use outputs.working_draft_ref "
+                "as the next exact base."
             ),
         ),
         SemanticToolSpec(

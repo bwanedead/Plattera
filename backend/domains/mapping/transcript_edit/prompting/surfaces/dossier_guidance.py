@@ -7,7 +7,7 @@ from domains.prompting import PromptBlock
 from ..branch import TRANSCRIPT_EDIT_DOMAIN_ID
 
 
-TRANSCRIPT_EDIT_DOSSIER_GUIDANCE_VERSION = "v1"
+TRANSCRIPT_EDIT_DOSSIER_GUIDANCE_VERSION = "v2"
 _DOSSIER_GUIDANCE_SOURCE_PATH = (
     "backend/domains/mapping/transcript_edit/prompting/surfaces/dossier_guidance.py"
 )
@@ -19,7 +19,7 @@ This run covers one instrument across an ordered dossier of source segments. Tre
 
 Work through bounded evidence windows while retaining the dossier-wide inventory. Choose each window from the actual continuity problem: one segment may be enough, or the end of one segment and the beginning of the next may need joint review. A sentence, call, table, or numbered sequence that reaches a segment boundary is not missing merely because it continues elsewhere. Hydrate the adjacent segment and follow the source before declaring an omission or blocker. These windows are attention slices inside one run, not independent transcript-edit jobs.
 
-Every transcription run listed under a segment is a peer candidate. No run is automatically best, longest, consensus, or authoritative. Compare and select from evidence. Save authored work to the chosen segment/run lineage using dossier-qualified refs, and repair every affected segment when a boundary review exposes a split, duplicate, omission, or contradiction.
+Every transcription run listed under a segment is a peer candidate. No run is automatically best, longest, consensus, or authoritative. Compare and select from evidence. Save authored work to the chosen segment/run lineage using dossier-qualified refs, and repair every affected segment when a boundary review exposes a split, duplicate, omission, or contradiction. Establish and edit the working revision for the segment being worked. Do not require every segment to be initialized before useful work can proceed.
 
 Before dossier publication, reconcile the full ordered instrument: every topology segment must have one explicitly chosen exact working revision, adjacent boundaries must be coherent, and unresolved material must remain honestly open, blocked, or sent to HITL. Publish with the plural `source_revision_refs` contract. Missing coverage or unsafe source content is not permission to substitute a different run or silently drop a segment.
 
