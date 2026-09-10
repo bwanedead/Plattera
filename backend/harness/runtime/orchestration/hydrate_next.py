@@ -290,91 +290,45 @@ def build_hydrate_next_record(
     """Build the canonical pending hydration record stored on continuity.
 
     Status starts at ``"pending"``; orchestrator flips to ``"surfaced"`` after
-    the next-turn prompt has included the lane.  ``hydrated_results`` and
+    the next-turn prompt has included the lane.  ``result_representation`` and
     ``hydration_errors`` are filled in later by the orchestrator after it
     dispatches the bounded hydration step.
     """
-    return {
+    from harness.runtime.memory.host_hydration_delivery import (
+        HOST_HYDRATION_DELIVERY_SCHEMA_VERSION,
+    )
+    from harness.runtime.memory.host_hydration_errors import project_hydration_error_lane
+
+    projected_errors, errors_omitted = project_hydration_error_lane(list(errors))
+    out: dict[str, Any] = {
+        "schema_version": HOST_HYDRATION_DELIVERY_SCHEMA_VERSION,
         "source_turn_index": int(source_turn_index),
         "requested_refs": [str(r) for r in requested_refs],
         "resolved_refs": [str(r) for r in resolved_refs],
         "reason": reason if isinstance(reason, str) and reason else None,
-        "errors": [dict(e) for e in errors if isinstance(e, Mapping)],
-        "hydrated_results": None,
+        "errors": projected_errors,
+        "result_representation": None,
         "hydration_errors": None,
         "status": "pending",
         "surfaced_iteration": None,
     }
+    if errors_omitted:
+        out["errors_omitted_count"] = errors_omitted
+    return out
 
 
 def validate_stored_hydrate_next_record(row: Any) -> dict[str, Any] | None:
     """Resume-snapshot validator.  Returns the normalized record or ``None``.
 
     Old snapshots without this field will pass ``None``; resume code treats
-    that as "no pending request."
+    that as "no pending request." Legacy ``hydrated_results`` are canonicalized
+    once into ``result_representation`` and never re-emitted.
     """
-    if row is None or not isinstance(row, Mapping):
-        return None
-    try:
-        source_turn_index = int(row.get("source_turn_index", 0))
-    except (TypeError, ValueError):
-        return None
-    if source_turn_index < 0:
-        return None
+    from harness.runtime.memory.host_hydration_delivery import (
+        validate_stored_oneshot_hydration_record,
+    )
 
-    requested_raw = row.get("requested_refs") or []
-    if not isinstance(requested_raw, (list, tuple)):
-        return None
-    requested_refs = [str(x) for x in requested_raw if isinstance(x, str)]
-
-    resolved_raw = row.get("resolved_refs") or []
-    if not isinstance(resolved_raw, (list, tuple)):
-        return None
-    resolved_refs = [str(x) for x in resolved_raw if isinstance(x, str)]
-
-    reason = row.get("reason")
-    if reason is not None and not isinstance(reason, str):
-        return None
-
-    errors_raw = row.get("errors") or []
-    if not isinstance(errors_raw, (list, tuple)):
-        return None
-    errors = [dict(e) for e in errors_raw if isinstance(e, Mapping)]
-
-    hydrated_results = row.get("hydrated_results")
-    if hydrated_results is not None and not isinstance(hydrated_results, (list, tuple)):
-        return None
-    if isinstance(hydrated_results, tuple):
-        hydrated_results = list(hydrated_results)
-
-    hydration_errors = row.get("hydration_errors")
-    if hydration_errors is not None and not isinstance(hydration_errors, (list, tuple)):
-        return None
-    if isinstance(hydration_errors, tuple):
-        hydration_errors = list(hydration_errors)
-
-    status = str(row.get("status") or "pending").strip()
-    if status not in {"pending", "surfaced"}:
-        return None
-
-    surfaced_iteration = row.get("surfaced_iteration")
-    if surfaced_iteration is not None:
-        try:
-            surfaced_iteration = int(surfaced_iteration)
-        except (TypeError, ValueError):
-            return None
-
-    return {
-        "source_turn_index": source_turn_index,
-        "requested_refs": requested_refs,
-        "resolved_refs": resolved_refs,
-        "reason": reason if reason else None,
-        "errors": errors,
-        "hydrated_results": list(hydrated_results) if hydrated_results is not None else None,
-        "hydration_errors": list(hydration_errors) if hydration_errors is not None else None,
-        "status": status,
-        "surfaced_iteration": surfaced_iteration,
-    }
+    return validate_stored_oneshot_hydration_record(row)
 
 
 PLACEHOLDER_OUTPUT_KEYS: tuple[str, ...] = tuple(_SINGLE_PLACEHOLDERS.values())

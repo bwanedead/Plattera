@@ -21,7 +21,7 @@ def test_choose_action_prompt_body_includes_pinned_refs_lane() -> None:
     loop_memory.continuity.pinned_refs_hydration = {
         "refs": ["artifact://pinned-evidence"],
         "status": "completed",
-        "hydrated_results": [{"ref": "artifact://pinned-evidence", "kind": "text"}],
+        "result_representation": {"representation_kind": "exact_outputs", "representation": {"results": [{"ref": "artifact://pinned-evidence", "kind": "text"}]}},
     }
     context = OrchestratorContext(
         session_manager=ExecutionSessionManager(),

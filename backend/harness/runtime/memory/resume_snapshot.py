@@ -19,6 +19,7 @@ from ..hitl.exchange_ledger import validate_stored_ledger_entry
 from ..user_messages.ledger import validate_stored_user_message
 from ..orchestration.action_batch import validate_stored_action_batch_result as validate_stored_action_sequence_result
 from ..orchestration.hydrate_next import validate_stored_hydrate_next_record
+from .host_hydration_delivery import validate_stored_pinned_hydration_record
 from ..orchestration.pinned_refs import validate_stored_pinned_ref_row
 from .stable_context import validate_stored_stable_context_row
 from ..orchestration.subtasks.delegate_result_refs import validate_stored_delegate_result_record
@@ -411,7 +412,10 @@ def parse_kernel_resume_snapshot(payload: Mapping[str, Any]) -> tuple[LoopMemory
         if prh_raw is not None:
             if not isinstance(prh_raw, Mapping):
                 return empty, 1, "resume_snapshot_pinned_refs_hydration_invalid"
-            pinned_refs_hydration_out = dict(prh_raw)
+            normalized_prh = validate_stored_pinned_hydration_record(prh_raw)
+            if normalized_prh is None:
+                return empty, 1, "resume_snapshot_pinned_refs_hydration_invalid"
+            pinned_refs_hydration_out = normalized_prh
 
     missing_required_output_complete_attempts = 0
     if "missing_required_output_complete_attempts" in cont:

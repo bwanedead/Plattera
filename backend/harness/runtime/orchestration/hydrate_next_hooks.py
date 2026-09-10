@@ -27,9 +27,10 @@ import logging
 from collections.abc import Mapping
 from typing import Any
 
-from ...execution.contracts import ExecutionState, ExecutionStepRequest
+from ...execution.contracts import ExecutionStepRequest
 from ...execution.session import ExecutionSessionManager
 from ..memory import LoopMemoryState
+from ..memory.host_hydration_delivery import attach_hydration_result_representation
 from .contracts import ActionPlan
 from .action_sequence import build_sequence_results_snapshot, effective_actions
 from .hydrate_next import (
@@ -133,7 +134,7 @@ def surface_pending_hydration_before_choose_action(
         return
 
     resolved = list(record.get("resolved_refs") or [])
-    already_hydrated = record.get("hydrated_results") is not None
+    already_hydrated = record.get("result_representation") is not None
     if resolved and not already_hydrated:
         idem = f"{request_id_prefix}:iter:{int(iteration)}:agent_hydrate_next"
         req = ExecutionStepRequest(
@@ -151,7 +152,7 @@ def surface_pending_hydration_before_choose_action(
                 {"reason_code": "hydration_dispatch_exception"}
             ]
         else:
-            _attach_hydration_result(record, step_result)
+            attach_hydration_result_representation(record, step_result)
             # Funnel any image evidence from the hidden hydrate step into the
             # per-iteration buffer so the next model turn actually receives
             # the pixels, not just JSON metadata.  Mirrors the wiring normal
@@ -171,27 +172,3 @@ def clear_surfaced_hydration(*, loop_memory: LoopMemoryState) -> None:
         return
     if str(record.get("status") or "") == "surfaced":
         loop_memory.continuity.pending_agent_hydration = None
-
-
-def _attach_hydration_result(record: dict[str, Any], step_result: Any) -> None:
-    """Copy ``outputs.results`` / ``outputs.errors`` (or refusal) into record."""
-    execution_state = getattr(step_result, "execution_state", None)
-    if execution_state != ExecutionState.EXECUTED:
-        refusal = getattr(step_result, "refusal", None)
-        record["hydration_errors"] = [
-            {"reason_code": getattr(refusal, "reason_code", None) or "hydration_refused"}
-        ]
-        return
-    record_inner = getattr(step_result, "record", None)
-    result = getattr(record_inner, "result", None) if record_inner is not None else None
-    outputs = getattr(result, "outputs", None) if result is not None else None
-    if isinstance(outputs, dict):
-        results_payload = outputs.get("results")
-        errors_payload = outputs.get("errors")
-        record["hydrated_results"] = (
-            list(results_payload) if isinstance(results_payload, list) else []
-        )
-        if isinstance(errors_payload, list) and errors_payload:
-            record["hydration_errors"] = list(errors_payload)
-    else:
-        record["hydrated_results"] = []

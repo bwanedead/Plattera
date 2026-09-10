@@ -66,14 +66,11 @@ def project_hydration_record_for_audit(record: Mapping[str, Any] | None) -> dict
             for row in hydration_errors[:5]
             if row is not None
         ]
-    hydrated = record.get("hydrated_results")
-    if isinstance(hydrated, list) and hydrated:
-        out["hydrated_result_count"] = len(hydrated)
-        out["hydrated_ref_ids"] = [
-            str(row.get("ref_id") or row.get("ref") or "")[:256]
-            for row in hydrated[:8]
-            if isinstance(row, Mapping)
-        ]
+    from ..memory.host_hydration_delivery import project_hydration_representation_for_audit
+
+    rr_audit = project_hydration_representation_for_audit(record.get("result_representation"))
+    if rr_audit is not None:
+        out["result_representation"] = rr_audit
     return out
 
 
@@ -99,9 +96,11 @@ def project_pinned_hydration_for_audit(record: Mapping[str, Any] | None) -> dict
             for row in errors[:5]
             if row is not None
         ]
-    hydrated = record.get("hydrated_results")
-    if isinstance(hydrated, list) and hydrated:
-        out["hydrated_result_count"] = len(hydrated)
+    from ..memory.host_hydration_delivery import project_hydration_representation_for_audit
+
+    rr_audit = project_hydration_representation_for_audit(record.get("result_representation"))
+    if rr_audit is not None:
+        out["result_representation"] = rr_audit
     return out
 
 

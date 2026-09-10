@@ -293,7 +293,9 @@ def test_build_record_has_pending_status_and_no_hydrated_results() -> None:
         source_turn_index=41,
     )
     assert rec["status"] == "pending"
-    assert rec["hydrated_results"] is None
+    assert rec["result_representation"] is None
+    assert rec["schema_version"] == "host_hydration_delivery.v1"
+    assert "hydrated_results" not in rec
     assert rec["surfaced_iteration"] is None
     assert rec["source_turn_index"] == 41
     assert rec["resolved_refs"] == ["transcript_edit:working:rev:0001"]

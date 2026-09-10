@@ -8,8 +8,6 @@ interpret domain schemas or continuity-key prefixes.
 
 from __future__ import annotations
 
-import json
-import math
 from dataclasses import dataclass
 from typing import Any, Mapping
 
@@ -20,14 +18,24 @@ from harness.execution.agent_result_view import (
     OMISSION_REASON_NOT_JSON_SAFE,
     OMISSION_REASON_UNSUPPORTED_SCHEMA_VERSION,
     OMISSION_REASON_VIEW_BUDGET,
-    AgentResultView,
-    agent_result_view_omission_from_wire,
-    agent_result_view_omission_to_wire,
-    agent_result_view_to_wire,
     normalize_agent_result_view_pair,
 )
 from harness.execution.contracts import ActionDispatchResult
 from harness.execution.wire_codec import execution_refusal_from_wire, execution_refusal_to_wire
+from harness.runtime.memory.result_representation import (
+    MAX_DELIVERY_OUTPUT_KEYS,
+    MAX_OUTPUT_KEY_CHARS,
+    REASON_INVALID_VIEW,
+    REASON_LANE_BUDGET,
+    REASON_MISSING_VIEW,
+    REPRESENTATION_AGENT_RESULT_VIEW,
+    REPRESENTATION_EXACT_OUTPUTS,
+    REPRESENTATION_UNAVAILABLE,
+    measure_compact_json_chars,
+    project_representation_for_agent,
+    select_result_representation,
+    validate_stored_representation,
+)
 
 PENDING_RESULT_DELIVERY_SCHEMA_VERSION = "pending_result_delivery.v1"
 
@@ -37,7 +45,6 @@ MAX_PENDING_RESULT_DELIVERIES = 32
 MAX_LATEST_ACTION_RESULTS_CHARS = 64_000
 MAX_DELIVERY_ARTIFACT_REFS = 32
 MAX_DELIVERY_ARTIFACT_REF_CHARS = 512
-MAX_DELIVERY_OUTPUT_KEYS = 32
 MAX_DELIVERY_ID_CHARS = 256
 MAX_ACTION_ALIAS_CHARS = 128
 MAX_ACTION_ID_CHARS = 128
@@ -47,17 +54,9 @@ MAX_REASON_CODE_CHARS = 128
 MAX_CONTACT_ID_CHARS = 128
 MAX_REFUSAL_REASON_CHARS = 256
 MAX_REFUSAL_MISSING_INPUTS = 16
-MAX_OUTPUT_KEY_CHARS = 128
 MAX_SOURCE_TURN_INDEX = 1_000_000_000
 MAX_ACTION_INDEX = 1_000_000_000
 
-REPRESENTATION_EXACT_OUTPUTS = "exact_outputs"
-REPRESENTATION_AGENT_RESULT_VIEW = "agent_result_view"
-REPRESENTATION_UNAVAILABLE = "unavailable"
-
-REASON_MISSING_VIEW = "missing_agent_result_view"
-REASON_INVALID_VIEW = "invalid_agent_result_view"
-REASON_LANE_BUDGET = "lane_budget"
 REASON_LANE_BUDGET_AGGREGATE = "lane_budget_aggregate"
 REASON_CAPACITY_EXCEEDED = "pending_result_delivery_capacity_exceeded"
 REASON_INVALID_ROW = "pending_result_delivery_invalid_row"
@@ -99,16 +98,6 @@ _ALLOWED_STORED_KEYS = frozenset(
         "view_omission_reason",
     }
 )
-_ALLOWED_UNAVAILABLE_KEYS = frozenset(
-    {
-        "reason",
-        "observed_output_chars",
-        "maximum_content_chars",
-        "output_keys",
-        "output_keys_omitted_count",
-        "view_omission",
-    }
-)
 _ALLOWED_REFUSAL_KEYS = frozenset(
     {
         "reason_code",
@@ -145,18 +134,6 @@ class ResultDeliveryProjection:
 def make_delivery_id(*, source_turn_index: int, action_index: int, action_alias: str) -> str:
     alias = str(action_alias or "").strip() or "action"
     return f"turn:{int(source_turn_index)}:action:{int(action_index)}:{alias}"
-
-
-def measure_compact_json_chars(value: Any) -> int:
-    return len(
-        json.dumps(
-            value,
-            ensure_ascii=False,
-            allow_nan=False,
-            separators=(",", ":"),
-            sort_keys=True,
-        )
-    )
 
 
 def contact_count(row: Mapping[str, Any]) -> int:
@@ -398,7 +375,7 @@ def validate_stored_pending_result_delivery(row: Any) -> dict[str, Any] | None:
     kind = row.get("representation_kind")
     if kind not in _ALLOWED_REPRESENTATION_KINDS:
         return None
-    representation = _validate_representation(kind, row.get("representation"))
+    representation = validate_stored_representation(kind, row.get("representation"))
     if representation is None:
         return None
 
@@ -465,7 +442,7 @@ def _build_delivery_row(
     continuity_key = view.continuity_key if view is not None else None
     view_omission_reason = view_omission.reason if view_omission is not None else None
 
-    representation_kind, representation = _select_representation(
+    representation_kind, representation = select_result_representation(
         outputs=outputs,
         view=view,
         view_omission=view_omission,
@@ -500,118 +477,6 @@ def _build_delivery_row(
     if view_omission_reason is not None:
         row["view_omission_reason"] = view_omission_reason
     return row
-
-
-def _select_representation(
-    *,
-    outputs: dict[str, Any],
-    view: AgentResultView | None,
-    view_omission: Any,
-) -> tuple[str, dict[str, Any]]:
-    exact_ok = _is_json_safe(outputs)
-    if exact_ok:
-        try:
-            output_chars = measure_compact_json_chars(outputs)
-        except (TypeError, ValueError):
-            exact_ok = False
-            output_chars = MAX_AGENT_RESULT_VIEW_CHARS + 1
-    else:
-        output_chars = MAX_AGENT_RESULT_VIEW_CHARS + 1
-
-    if exact_ok and output_chars <= MAX_AGENT_RESULT_VIEW_CHARS:
-        return REPRESENTATION_EXACT_OUTPUTS, dict(outputs)
-
-    if view is not None:
-        return REPRESENTATION_AGENT_RESULT_VIEW, agent_result_view_to_wire(view)
-
-    reason = REASON_INVALID_VIEW if view_omission is not None else REASON_MISSING_VIEW
-    keys: list[str] = []
-    omitted_key_count = 0
-    candidates: list[str] = []
-    for raw_key in outputs.keys():
-        if not isinstance(raw_key, str):
-            omitted_key_count += 1
-            continue
-        key = raw_key.strip()
-        if not key or len(key) > MAX_OUTPUT_KEY_CHARS:
-            omitted_key_count += 1
-            continue
-        candidates.append(key)
-    candidates.sort()
-    keys = candidates[:MAX_DELIVERY_OUTPUT_KEYS]
-    omitted_key_count += max(0, len(candidates) - len(keys))
-    marker: dict[str, Any] = {
-        "reason": reason,
-        "observed_output_chars": int(output_chars),
-        "maximum_content_chars": MAX_AGENT_RESULT_VIEW_CHARS,
-        "output_keys": keys,
-        "output_keys_omitted_count": omitted_key_count,
-    }
-    if view_omission is not None:
-        marker["view_omission"] = agent_result_view_omission_to_wire(view_omission)
-    return REPRESENTATION_UNAVAILABLE, marker
-
-
-def _validate_representation(kind: str, representation: Any) -> dict[str, Any] | None:
-    if not isinstance(representation, dict):
-        return None
-    if kind == REPRESENTATION_EXACT_OUTPUTS:
-        if not _is_json_safe(representation):
-            return None
-        try:
-            if measure_compact_json_chars(representation) > MAX_AGENT_RESULT_VIEW_CHARS:
-                return None
-        except (TypeError, ValueError):
-            return None
-        return dict(representation)
-    if kind == REPRESENTATION_AGENT_RESULT_VIEW:
-        view, omitted = normalize_agent_result_view_pair(representation, None)
-        if view is None or omitted is not None:
-            return None
-        return agent_result_view_to_wire(view)
-    if kind == REPRESENTATION_UNAVAILABLE:
-        if any(key not in _ALLOWED_UNAVAILABLE_KEYS for key in representation.keys()):
-            return None
-        reason = representation.get("reason")
-        if reason == REASON_LANE_BUDGET:
-            if set(representation.keys()) != {"reason"}:
-                return None
-            return {"reason": REASON_LANE_BUDGET}
-        if reason not in {REASON_MISSING_VIEW, REASON_INVALID_VIEW}:
-            return None
-        observed = _strict_nonneg_int(representation.get("observed_output_chars"))
-        maximum = _strict_nonneg_int(representation.get("maximum_content_chars"))
-        omitted_keys = _strict_nonneg_int(representation.get("output_keys_omitted_count"))
-        if observed is None or maximum is None or omitted_keys is None:
-            return None
-        if maximum != MAX_AGENT_RESULT_VIEW_CHARS:
-            return None
-        keys_raw = representation.get("output_keys")
-        if not isinstance(keys_raw, list) or len(keys_raw) > MAX_DELIVERY_OUTPUT_KEYS:
-            return None
-        keys: list[str] = []
-        for key in keys_raw:
-            if not _bounded_nonblank_str(key, MAX_OUTPUT_KEY_CHARS):
-                return None
-            keys.append(key)
-        out: dict[str, Any] = {
-            "reason": reason,
-            "observed_output_chars": observed,
-            "maximum_content_chars": maximum,
-            "output_keys": keys,
-            "output_keys_omitted_count": omitted_keys,
-        }
-        if "view_omission" in representation:
-            if reason != REASON_INVALID_VIEW:
-                return None
-            omission = agent_result_view_omission_from_wire(representation.get("view_omission"))
-            if omission is None:
-                return None
-            out["view_omission"] = agent_result_view_omission_to_wire(omission)
-        elif reason == REASON_INVALID_VIEW:
-            return None
-        return out
-    return None
 
 
 def _representation_continuity_consistent(
@@ -654,15 +519,14 @@ def _representation_continuity_consistent(
 
 def _project_detailed_row(row: Mapping[str, Any]) -> dict[str, Any]:
     kind = row.get("representation_kind")
-    representation = dict(row.get("representation") or {})
-    if kind == REPRESENTATION_AGENT_RESULT_VIEW:
-        # Opaque continuity_key stays internal; agent projection is schema+payload only.
-        payload = representation.get("payload")
-        representation = {
-            "schema_version": representation.get("schema_version"),
-            "schema_id": representation.get("schema_id"),
-            "payload": dict(payload) if isinstance(payload, dict) else {},
-        }
+    raw_representation = row.get("representation") or {}
+    if isinstance(raw_representation, Mapping) and isinstance(kind, str):
+        representation = project_representation_for_agent(
+            kind=kind,
+            representation=raw_representation,
+        )
+    else:
+        representation = {"reason": REASON_LANE_BUDGET}
     identity = _project_identity_fields(row)
     reason_codes = [
         code
@@ -946,15 +810,3 @@ def _strict_bounded_index(value: Any, maximum: int) -> int | None:
     if parsed is None or parsed > maximum:
         return None
     return parsed
-
-
-def _is_json_safe(value: Any) -> bool:
-    if value is None or isinstance(value, (str, bool, int)):
-        return True
-    if isinstance(value, float):
-        return math.isfinite(value)
-    if isinstance(value, dict):
-        return all(isinstance(k, str) and _is_json_safe(v) for k, v in value.items())
-    if isinstance(value, list):
-        return all(_is_json_safe(item) for item in value)
-    return False

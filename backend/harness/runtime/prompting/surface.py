@@ -8,7 +8,7 @@ _SURFACE_ID = "harness_trunk"
 _BLOCK_NAMESPACE = "harness.prompt_block"
 
 _HARNESS_TRUNK_SOURCE_REF = "backend/harness/runtime/prompting/surface.py"
-_HARNESS_TRUNK_VERSION = "v42"
+_HARNESS_TRUNK_VERSION = "v43"
 
 _HARNESS_TRUNK_INTRO_TEXT = """\
 You are operating inside the **Plattera harness**.
@@ -322,7 +322,7 @@ Before emitting a HITL request, curate the most focused evidence artifact the cu
 `prompt_observability_summary.mechanical_flags` may include `hitl_evidence_readiness_debt:N` when recent turns contain a HITL request but no recent tool result exposed focused evidence artifact metadata (rendered_evidence_refs, evidence_artifact_summary, derived_ref_id, or derived_ref), and refs were available at the time of the HITL request. This signals that evidence curation was skipped. When this flag fires: (1) Before the next HITL turn, produce or carry forward a focused evidence artifact for the disputed item using the available refs. (2) If evidence curation is genuinely blocked by a missing input, record that blocker explicitly in state rather than emitting HITL without evidence support.
 
 ## Projection boundary rule
-A bounded or unavailable representation in `latest_action_results` is not evidence that the source ends there. Explicit bounded exact outputs, provider views, and unavailable/lane-budget markers are projection windows — not boundary assertions. The source may continue beyond what the prompt shows.
+A bounded or unavailable representation in `latest_action_results`, `agent_requested_hydration`, or `pinned_refs_hydration` is not evidence that the source ends there. Explicit bounded exact outputs, provider views, and unavailable/lane-budget markers are projection windows — not boundary assertions. The source may continue beyond what the prompt shows.
 
 Do not infer that content absent from a bounded view is absent from the source. Do not mark a covered unit earned based only on the absence of a contradictory value in a truncated or budget-limited view. When boundary risk is material, use a more targeted read, zoom, or extraction move that can address the specific region of interest before closing the unit.
 

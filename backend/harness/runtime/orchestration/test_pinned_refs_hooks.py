@@ -97,4 +97,4 @@ def test_pinned_hydration_dispatches_unscheduled_active_refs() -> None:
     record = mem.continuity.pinned_refs_hydration
     assert record is not None
     assert record.get("refs") == ["pin-b"]
-    assert record.get("hydrated_results")
+    assert record.get("result_representation", {}).get("representation_kind") == "exact_outputs"

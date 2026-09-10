@@ -8,9 +8,12 @@ from typing import Any
 from ...execution.contracts import ExecutionState, ExecutionStepRequest
 from ...execution.session import ExecutionSessionManager
 from ..memory import LoopMemoryState
+from ..memory.host_hydration_delivery import (
+    HOST_HYDRATION_DELIVERY_SCHEMA_VERSION,
+    attach_hydration_result_representation,
+)
 from .contracts import ActionPlan
 from .hydrate_next import HYDRATE_ARTIFACT_REFS_ACTION_ID
-from .hydrate_next_hooks import _attach_hydration_result
 from .orchestrator_turn import accumulate_image_evidence
 from .pinned_refs import (
     MAX_PINNED_REFS,
@@ -81,10 +84,11 @@ def surface_active_pinned_refs_before_choose_action(
         return
 
     record: dict[str, Any] = {
+        "schema_version": HOST_HYDRATION_DELIVERY_SCHEMA_VERSION,
         "refs": refs,
         "status": "surfaced",
         "surfaced_iteration": int(iteration),
-        "hydrated_results": [],
+        "result_representation": None,
         "hydration_errors": [],
     }
     idem = f"{request_id_prefix}:iter:{int(iteration)}:pinned_refs_hydrate"
@@ -103,7 +107,7 @@ def surface_active_pinned_refs_before_choose_action(
     else:
         if getattr(step_result, "execution_state", None) == ExecutionState.EXECUTED:
             accumulate_image_evidence(loop_memory=loop_memory, step_result=step_result)
-        _attach_hydration_result(record, step_result)
+        attach_hydration_result_representation(record, step_result)
 
     loop_memory.continuity.pinned_refs_hydration = record
 

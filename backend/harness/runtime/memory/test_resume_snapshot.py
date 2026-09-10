@@ -917,7 +917,7 @@ def test_roundtrip_pending_agent_hydration_preserves_pending_record() -> None:
         "resolved_refs": ["transcript_edit:working:rev:0001"],
         "reason": "inspect saved payload",
         "errors": [],
-        "hydrated_results": None,
+        "result_representation": None,
         "hydration_errors": None,
         "status": "pending",
         "surfaced_iteration": None,
@@ -964,6 +964,9 @@ def test_roundtrip_pending_agent_hydration_surfaced_does_not_re_surface_forever(
     assert rec is not None
     assert rec["status"] == "surfaced"
     assert rec["surfaced_iteration"] == 42
+    assert "hydrated_results" not in rec
+    assert rec["schema_version"] == "host_hydration_delivery.v1"
+    assert rec["result_representation"]["representation_kind"] == "exact_outputs"
 
 
 def test_roundtrip_pending_agent_hydration_absent_defaults_to_none() -> None:

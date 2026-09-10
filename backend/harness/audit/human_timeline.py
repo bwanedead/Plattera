@@ -749,6 +749,24 @@ def _render_hydration_lane(
         lines.append(f"{indent}  hydrated_ref_ids:")
         for ref in ref_ids[:8]:
             lines.append(f"{indent}    - {ref}")
+    rr = lane.get("result_representation")
+    if isinstance(rr, Mapping) and rr:
+        lines.append(f"{indent}  result_representation:")
+        kind = rr.get("representation_kind")
+        if kind is not None:
+            lines.append(f"{indent}    representation_kind: {kind}")
+        schema_id = rr.get("schema_id")
+        if schema_id is not None:
+            lines.append(f"{indent}    schema_id: {schema_id}")
+        exact_keys = rr.get("exact_output_keys")
+        if isinstance(exact_keys, list) and exact_keys:
+            lines.append(f"{indent}    exact_output_keys: {', '.join(str(k) for k in exact_keys[:8])}")
+        result_count = rr.get("result_count")
+        if result_count is not None:
+            lines.append(f"{indent}    result_count: {result_count}")
+        unavailable = rr.get("unavailable_reason")
+        if unavailable is not None:
+            lines.append(f"{indent}    unavailable_reason: {unavailable}")
     return lines
 
 

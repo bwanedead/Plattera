@@ -713,7 +713,10 @@ def test_full_choose_action_prompt_includes_agent_requested_hydration_lane_when_
         "resolved_refs": ["transcript_edit:working:rev:0001"],
         "reason": "inspect saved payload before publish",
         "errors": [],
-        "hydrated_results": [{"ref_id": "transcript_edit:working:rev:0001", "kind": "stub", "payload": {}}],
+        "result_representation": {
+            "representation_kind": "exact_outputs",
+            "representation": {"results": [{"ref_id": "transcript_edit:working:rev:0001", "kind": "stub", "payload": {}}]},
+        },
         "hydration_errors": None,
         "status": "surfaced",
         "surfaced_iteration": 3,
@@ -732,7 +735,8 @@ def test_full_choose_action_prompt_includes_agent_requested_hydration_lane_when_
     assert lane["requested_refs"] == ["@result.revision_ref"]
     assert lane["resolved_refs"] == ["transcript_edit:working:rev:0001"]
     assert lane["reason"] == "inspect saved payload before publish"
-    assert lane["hydrated_results"][0]["ref_id"] == "transcript_edit:working:rev:0001"
+    assert lane["result_representation"]["representation_kind"] == "exact_outputs"
+    assert lane["result_representation"]["representation"]["results"][0]["ref_id"] == "transcript_edit:working:rev:0001"
 
 
 def test_full_choose_action_prompt_omits_lane_when_no_pending_record() -> None:

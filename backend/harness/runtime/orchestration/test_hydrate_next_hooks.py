@@ -203,7 +203,7 @@ def test_surface_dispatches_hydrate_artifact_refs_and_attaches_results() -> None
         "resolved_refs": ["r-1"],
         "reason": None,
         "errors": [],
-        "hydrated_results": None,
+        "result_representation": None,
         "hydration_errors": None,
         "status": "pending",
         "surfaced_iteration": None,
@@ -220,7 +220,8 @@ def test_surface_dispatches_hydrate_artifact_refs_and_attaches_results() -> None
     assert rec is not None
     assert rec["status"] == "surfaced"
     assert rec["surfaced_iteration"] == 5
-    assert rec["hydrated_results"] == [{"ref_id": "r-1", "kind": "stub", "payload": {}}]
+    assert rec["result_representation"]["representation_kind"] == "exact_outputs"
+    assert rec["result_representation"]["representation"]["results"] == [{"ref_id": "r-1", "kind": "stub", "payload": {}}]
 
 
 def test_surface_flips_status_even_without_resolved_refs() -> None:
@@ -232,7 +233,7 @@ def test_surface_flips_status_even_without_resolved_refs() -> None:
         "resolved_refs": [],
         "reason": None,
         "errors": [{"requested_ref": "@result.revision_ref", "reason_code": "placeholder_not_found"}],
-        "hydrated_results": None,
+        "result_representation": None,
         "hydration_errors": None,
         "status": "pending",
         "surfaced_iteration": None,
@@ -257,7 +258,7 @@ def test_surface_is_noop_when_already_surfaced() -> None:
         "resolved_refs": ["r-1"],
         "reason": None,
         "errors": [],
-        "hydrated_results": [{"ref_id": "r-1"}],
+        "result_representation": {"representation_kind": "exact_outputs", "representation": {"results": [{"ref_id": "r-1"}]}},
         "hydration_errors": None,
         "status": "surfaced",
         "surfaced_iteration": 5,
@@ -280,7 +281,7 @@ def test_surface_records_refusal_when_hydrate_step_refused() -> None:
         "resolved_refs": ["r-1"],
         "reason": None,
         "errors": [],
-        "hydrated_results": None,
+        "result_representation": None,
         "hydration_errors": None,
         "status": "pending",
         "surfaced_iteration": None,
@@ -294,7 +295,7 @@ def test_surface_records_refusal_when_hydrate_step_refused() -> None:
     assert rec is not None
     assert rec["status"] == "surfaced"
     assert rec["hydration_errors"] == [{"reason_code": "unknown_ref_kind"}]
-    assert rec["hydrated_results"] is None
+    assert rec["result_representation"] is None
 
 
 def test_surface_funnels_image_evidence_into_pending_buffer() -> None:
@@ -308,7 +309,7 @@ def test_surface_funnels_image_evidence_into_pending_buffer() -> None:
         "resolved_refs": ["image:derived:abc"],
         "reason": None,
         "errors": [],
-        "hydrated_results": None,
+        "result_representation": None,
         "hydration_errors": None,
         "status": "pending",
         "surfaced_iteration": None,
@@ -317,6 +318,8 @@ def test_surface_funnels_image_evidence_into_pending_buffer() -> None:
         {"ref_id": "image:derived:abc", "b64": "ZmFrZQ==", "media_type": "image/png"},
     )
     request = ExecutionStepRequest(session_id="s", action_id="hydrate_artifact_refs")
+    from harness.execution.agent_result_view import AgentResultView
+
     result = ActionDispatchResult(
         action_id="hydrate_artifact_refs",
         executed=True,
@@ -324,6 +327,11 @@ def test_surface_funnels_image_evidence_into_pending_buffer() -> None:
             "results": [{"ref_id": "image:derived:abc", "kind": "derived_image", "absolute_path": "/tmp/x.png"}],
             "errors": [],
         },
+        agent_result_view=AgentResultView(
+            schema_version="agent_result_view.v1",
+            schema_id="generic.hydrate.v1",
+            payload={"results": [{"ref_id": "image:derived:abc", "kind": "derived_image"}]},
+        ),
         image_evidence=img_evidence,
     )
     record_inner = SessionExecutionRecord(session_id="s", run_id="r", request=request, result=result)
@@ -340,10 +348,14 @@ def test_surface_funnels_image_evidence_into_pending_buffer() -> None:
         request_id_prefix="rid", run_id="r", iteration=5,
     )
     assert lm.pending_image_evidence == list(img_evidence)
-    # The agent-visible lane also still gets the JSON result row.
+    # Absolute_path forces provider-view (or unavailable) — never exact host paths.
     rec = lm.continuity.pending_agent_hydration
     assert rec is not None
-    assert rec["hydrated_results"][0]["ref_id"] == "image:derived:abc"
+    rr = rec["result_representation"]
+    assert rr["representation_kind"] == "agent_result_view"
+    assert rr["representation"]["payload"]["results"][0]["ref_id"] == "image:derived:abc"
+    assert "/tmp/x.png" not in str(rr)
+    assert "ZmFrZQ==" not in str(rr)
 
 
 def test_surface_uses_iteration_in_idempotency_key() -> None:
@@ -354,7 +366,7 @@ def test_surface_uses_iteration_in_idempotency_key() -> None:
         "resolved_refs": ["r-1"],
         "reason": None,
         "errors": [],
-        "hydrated_results": None,
+        "result_representation": None,
         "hydration_errors": None,
         "status": "pending",
         "surfaced_iteration": None,

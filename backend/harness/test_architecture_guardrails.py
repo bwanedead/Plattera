@@ -137,6 +137,9 @@ def test_harness_result_continuity_does_not_import_mapping_tooling() -> None:
         HARNESS_ROOT / "runtime" / "orchestration" / "prompt_packet_builder.py",
         HARNESS_ROOT / "runtime" / "orchestration" / "llm_prompt_builder.py",
         HARNESS_ROOT / "runtime" / "memory" / "result_delivery.py",
+        HARNESS_ROOT / "runtime" / "memory" / "result_representation.py",
+        HARNESS_ROOT / "runtime" / "memory" / "host_hydration_delivery.py",
+        HARNESS_ROOT / "runtime" / "memory" / "host_hydration_errors.py",
         HARNESS_ROOT / "runtime" / "memory" / "continuity_journal.py",
         HARNESS_ROOT / "runtime" / "memory" / "continuity.py",
     ]

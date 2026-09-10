@@ -426,10 +426,12 @@ def _prompt_ref_projection_context(
         domain_closure_policy=domain_closure_policy,
         latest_refs=latest_refs,
     )
+    from ..memory.host_hydration_delivery import project_oneshot_hydration_for_prompt
+
     hot_refs = collect_hot_refs_for_prompt(
         latest_refs=latest_refs,
         pinned_refs_projection=pinned_projection,
-        agent_requested_hydration=_build_agent_requested_hydration(cont.pending_agent_hydration),
+        agent_requested_hydration=project_oneshot_hydration_for_prompt(cont.pending_agent_hydration),
         recent_action_sequence_result=cont.recent_action_sequence_result,
         delegate_subtask_results=cont.delegate_subtask_results,
         resolution_items=resolution_items,
@@ -490,7 +492,20 @@ def _build_structured_state(
     )
     if timeline:
         structured["recent_turn_timeline"] = timeline
-    pending_hydration = _build_agent_requested_hydration(cont.pending_agent_hydration)
+    pending_hydration = None
+    pinned_hydration = None
+    from ..memory.host_hydration_delivery import (
+        apply_combined_hydration_lane_budget,
+        project_oneshot_hydration_for_prompt,
+        project_pinned_hydration_for_prompt,
+    )
+
+    oneshot_proj = project_oneshot_hydration_for_prompt(cont.pending_agent_hydration)
+    pinned_proj = project_pinned_hydration_for_prompt(cont.pinned_refs_hydration)
+    pending_hydration, pinned_hydration = apply_combined_hydration_lane_budget(
+        oneshot=oneshot_proj,
+        pinned=pinned_proj,
+    )
     if pending_hydration is not None:
         structured["agent_requested_hydration"] = pending_hydration
     latest_lane, delivery_receipt = project_pending_results_for_prompt(
@@ -506,7 +521,6 @@ def _build_structured_state(
     )
     if pinned_projection.get("active") or pinned_projection.get("expired"):
         structured["pinned_refs"] = pinned_projection
-    pinned_hydration = _build_pinned_refs_hydration(cont.pinned_refs_hydration)
     if pinned_hydration is not None:
         structured["pinned_refs_hydration"] = pinned_hydration
     from ..memory.stable_context import build_stable_context_projection
@@ -518,53 +532,6 @@ def _build_structured_state(
     if stable_projection is not None:
         structured["stable_context"] = stable_projection
     return structured, delivery_receipt
-
-
-def _build_pinned_refs_hydration(record: Mapping[str, Any] | None) -> dict[str, Any] | None:
-    if not record:
-        return None
-    out: dict[str, Any] = {
-        "refs": list(record.get("refs") or []),
-        "status": str(record.get("status") or ""),
-    }
-    hydrated = record.get("hydrated_results")
-    if isinstance(hydrated, list) and hydrated:
-        out["hydrated_results"] = hydrated[:5]
-    errors = record.get("hydration_errors")
-    if isinstance(errors, list) and errors:
-        out["hydration_errors"] = errors[:5]
-    return out
-
-
-def _build_agent_requested_hydration(record: Mapping[str, Any] | None) -> dict[str, Any] | None:
-    """One-shot prompt-visible projection of a pending hydrate_next record.
-
-    Returns ``None`` when there is no record.  Otherwise emits a compact view
-    with the requested refs, resolved refs, optional reason, any compact
-    resolution/dispatch errors, and the bounded hydrated payload (results +
-    errors as returned by ``hydrate_artifact_refs``).  This is host-owned
-    transport; the orchestrator drops the record after surface.
-    """
-    if not record:
-        return None
-    out: dict[str, Any] = {
-        "source_turn_index": int(record.get("source_turn_index") or 0),
-        "requested_refs": list(record.get("requested_refs") or []),
-        "resolved_refs": list(record.get("resolved_refs") or []),
-    }
-    reason = record.get("reason")
-    if isinstance(reason, str) and reason:
-        out["reason"] = reason
-    errors = record.get("errors") or []
-    if errors:
-        out["errors"] = list(errors)
-    hydrated_results = record.get("hydrated_results")
-    if hydrated_results is not None:
-        out["hydrated_results"] = list(hydrated_results)
-    hydration_errors = record.get("hydration_errors")
-    if hydration_errors:
-        out["hydration_errors"] = list(hydration_errors)
-    return out
 
 
 def _build_recent_turn_timeline(
