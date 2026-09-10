@@ -12,6 +12,12 @@ from dataclasses import replace
 from typing import Any, Dict, Mapping
 
 from services.llm.base import LLMService
+from services.llm.provider_request_failure import (
+    DISABLE_SDK_RETRIES_OPTION,
+    PROVIDER_REQUEST_FAILURE_KEY,
+    bound_openai_request_timeout,
+    project_openai_sdk_request_failure,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -104,7 +110,10 @@ class MetaModelService(LLMService):
         self.client = None
         api_key = _get_meta_api_key()
         if OPENAI_SDK_AVAILABLE and api_key:
-            self.client = OpenAI(api_key=api_key, base_url=_get_meta_base_url())
+            self.client = OpenAI(
+                api_key=api_key,
+                base_url=_get_meta_base_url(),
+            )
 
     def is_available(self) -> bool:
         return bool(OPENAI_SDK_AVAILABLE and _get_meta_api_key() and self.client is not None)
@@ -278,6 +287,7 @@ class MetaModelService(LLMService):
         response: Any | None = None,
         finish_reason: str | None = None,
         text: str | None = None,
+        provider_request_failure: Mapping[str, Any] | None = None,
     ) -> Dict[str, Any]:
         usage = self._usage_payload(response) if response is not None else None
         partial = text
@@ -287,7 +297,7 @@ class MetaModelService(LLMService):
         provider_model = None
         if response is not None:
             provider_model = getattr(response, "model", None)
-        return {
+        out = {
             "success": False,
             "error": error,
             "text": partial,
@@ -300,6 +310,9 @@ class MetaModelService(LLMService):
             "response_id": getattr(response, "id", None) if response is not None else None,
             "usage": usage,
         }
+        if provider_request_failure is not None:
+            out[PROVIDER_REQUEST_FAILURE_KEY] = dict(provider_request_failure)
+        return out
 
     def call_text(self, prompt: str, model: str, **kwargs) -> Dict[str, Any]:
         # Allow an injected client (tests) even when env credentials are absent.
@@ -347,14 +360,25 @@ class MetaModelService(LLMService):
             phase_label or "-",
         )
 
+        request_client = self.client
+        with_options = getattr(request_client, "with_options", None)
+        if kwargs.get(DISABLE_SDK_RETRIES_OPTION) is True and callable(with_options):
+            request_client = with_options(max_retries=0)
+        timeout = bound_openai_request_timeout(
+            getattr(request_client, "timeout", None),
+            kwargs.get("timeout"),
+        )
         try:
-            response = self.client.responses.create(**params)
+            response = request_client.responses.create(**params, timeout=timeout)
         except Exception as exc:
-            # Never include request payloads or credentials in failure output.
+            failure = project_openai_sdk_request_failure(exc)
+            if failure is None:
+                raise
             return self._failure_result(
                 model=model,
                 api_model=api_model,
-                error=f"Meta Model API request failed: {type(exc).__name__}",
+                error="Meta Model API request failed",
+                provider_request_failure=failure,
             )
 
         finish_reason = self._finish_reason_for_response(response)

@@ -28,13 +28,22 @@ class _FakeResponsesAPI:
         *,
         response: Any | None = None,
         raise_exc: Exception | None = None,
+        outcomes: list[Any] | None = None,
     ) -> None:
         self.last_kwargs: dict[str, Any] | None = None
+        self.calls: list[dict[str, Any]] = []
         self._response = response
         self._raise_exc = raise_exc
+        self._outcomes = list(outcomes or [])
 
     def create(self, **kwargs: Any) -> Any:
         self.last_kwargs = kwargs
+        self.calls.append(kwargs)
+        if self._outcomes:
+            outcome = self._outcomes.pop(0)
+            if isinstance(outcome, BaseException):
+                raise outcome
+            return outcome
         if self._raise_exc is not None:
             raise self._raise_exc
         return self._response
@@ -43,6 +52,12 @@ class _FakeResponsesAPI:
 class _FakeClient:
     def __init__(self, responses: _FakeResponsesAPI) -> None:
         self.responses = responses
+        self.timeout: Any = None
+        self.options: list[dict[str, Any]] = []
+
+    def with_options(self, **kwargs: Any) -> "_FakeClient":
+        self.options.append(kwargs)
+        return self
 
 
 def _ok_response(
@@ -72,9 +87,10 @@ def _service_with_fake(
     *,
     response: Any | None = None,
     raise_exc: Exception | None = None,
+    outcomes: list[Any] | None = None,
 ) -> tuple[MetaModelService, _FakeResponsesAPI]:
     service = MetaModelService()
-    fake = _FakeResponsesAPI(response=response, raise_exc=raise_exc)
+    fake = _FakeResponsesAPI(response=response, raise_exc=raise_exc, outcomes=outcomes)
     service.client = _FakeClient(fake)
     return service, fake
 
@@ -109,15 +125,15 @@ def test_explicit_base_url_stripped_and_used(monkeypatch) -> None:
     assert _get_meta_base_url() == "https://example.meta.test/v1"
 
 
-def test_key_never_appears_in_logs_or_failures(monkeypatch, caplog) -> None:
+def test_key_never_appears_in_logs_for_unclassified_exception(monkeypatch, caplog) -> None:
     monkeypatch.setenv("META_MODEL_API_KEY", SECRET_KEY)
     service, fake = _service_with_fake(
         raise_exc=RuntimeError(f"boom including {SECRET_KEY}")
     )
     with caplog.at_level(logging.INFO):
-        result = service.call_text("prompt", META_MUSE_SPARK_1_2_CONTRIBUTOR_MODEL_ID)
-    assert result["success"] is False
-    blob = str(result) + " ".join(r.message for r in caplog.records)
+        with pytest.raises(RuntimeError):
+            service.call_text("prompt", META_MUSE_SPARK_1_2_CONTRIBUTOR_MODEL_ID)
+    blob = " ".join(r.message for r in caplog.records)
     assert SECRET_KEY not in blob
     assert fake.last_kwargs is not None
 
@@ -383,10 +399,90 @@ def test_failed_and_cancelled_remain_distinct() -> None:
 def test_sdk_exception_no_secret_leak(monkeypatch) -> None:
     monkeypatch.setenv("META_MODEL_API_KEY", SECRET_KEY)
     service, _ = _service_with_fake(raise_exc=ConnectionError("network down"))
-    result = service.call_text("p", META_MUSE_SPARK_1_2_CONTRIBUTOR_MODEL_ID)
-    assert result["success"] is False
-    assert "ConnectionError" in str(result["error"])
-    assert SECRET_KEY not in str(result)
+    with pytest.raises(ConnectionError):
+        service.call_text("p", META_MUSE_SPARK_1_2_CONTRIBUTOR_MODEL_ID)
+
+
+def test_meta_constructor_does_not_change_sdk_retry_default(monkeypatch) -> None:
+    captured: dict[str, Any] = {}
+
+    class _ConstructedClient:
+        pass
+
+    def fake_openai(**kwargs: Any) -> _ConstructedClient:
+        captured.update(kwargs)
+        return _ConstructedClient()
+
+    monkeypatch.setenv("META_MODEL_API_KEY", SECRET_KEY)
+    monkeypatch.setattr("services.llm.meta.OpenAI", fake_openai)
+    service = MetaModelService()
+    assert service.client is not None
+    assert "max_retries" not in captured
+
+
+def test_harness_retry_preserves_meta_wire_request_and_image_order(monkeypatch) -> None:
+    import httpx
+    from openai import APIConnectionError
+
+    from harness.runtime.llm.provider_model_caller import build_provider_model_caller
+    from services.registry import ServiceRegistry
+
+    class _Clock:
+        now = 0.0
+
+        def __call__(self) -> float:
+            return self.now
+
+        def sleep(self, seconds: float) -> None:
+            self.now += seconds
+
+    connection_error = APIConnectionError(
+        request=httpx.Request("POST", "https://api.meta.ai/v1/responses")
+    )
+    service, responses = _service_with_fake(
+        outcomes=[
+            connection_error,
+            _ok_response(
+                text='{"ok":true}',
+                model=META_MUSE_SPARK_1_3_CONTRIBUTOR_MODEL_ID,
+            ),
+        ]
+    )
+    client = service.client
+    client.timeout = httpx.Timeout(connect=5.0, read=600.0, write=600.0, pool=600.0)
+    monkeypatch.setattr(service, "is_available", lambda: True)
+    registry = ServiceRegistry(discover=False)
+    registry.accept_llm_service(service)
+    clock = _Clock()
+    opts = LlmCallOptions(
+        output_mode="json_object",
+        phase="choose_action",
+        image_attachments=(
+            {"b64": "FIRST", "media_type": "image/png"},
+            {"b64": "SECOND", "media_type": "image/jpeg"},
+        ),
+    )
+    caller = build_provider_model_caller(
+        default_model_name=META_MUSE_SPARK_1_3_CONTRIBUTOR_MODEL_ID,
+        registry=registry,
+        retry_clock=clock,
+        retry_sleep=clock.sleep,
+    )
+    result = caller("wire prompt", META_MUSE_SPARK_1_3_CONTRIBUTOR_MODEL_ID, call_options=opts)
+
+    assert result["success"] is True
+    assert result["retry_count_observed"] == 1
+    first, second = (dict(row) for row in responses.calls)
+    first_timeout, second_timeout = first.pop("timeout"), second.pop("timeout")
+    assert first == second
+    assert [part["image_url"] for part in first["input"][0]["content"][1:]] == [
+        "data:image/png;base64,FIRST",
+        "data:image/jpeg;base64,SECOND",
+    ]
+    assert (first_timeout.connect, first_timeout.read) == (5.0, 300.0)
+    assert (second_timeout.connect, second_timeout.read) == (5.0, 299.0)
+    assert client.options == [{"max_retries": 0}, {"max_retries": 0}]
+    assert opts.image_attachments[0]["b64"] == "FIRST"
 
 
 def test_call_vision_reuses_multimodal_path() -> None:

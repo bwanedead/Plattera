@@ -64,8 +64,10 @@ from harness.runtime.model_failure_classifier import (
 )
 from harness.runtime.llm.provider_model_caller import (
     build_provider_model_caller,
+    ensure_provider_retry_model_caller,
     ensure_model_provider_ready,
 )
+from harness.runtime.llm.provider_retry import public_exception_detail
 from .contracts import RuntimeAdapter, RuntimeArtifactTargets, RuntimeRunResult
 
 _LOG = logging.getLogger(__name__)
@@ -319,22 +321,24 @@ class RuntimeRunner:
                 # Loop to next kernel slice.
 
         except RuntimeRunnerError as exc:
+            public_error = public_exception_detail(exc)
             result = RuntimeRunResult(
                 status="failed",
                 reason_code=exc.reason_code,
-                result_payload={"error": str(exc), "reason_code": exc.reason_code, "status": "failed"},
-                done_payload={"error": str(exc), "reason_code": exc.reason_code, "status": "failed"},
+                result_payload={"error": public_error, "reason_code": exc.reason_code, "status": "failed"},
+                done_payload={"error": public_error, "reason_code": exc.reason_code, "status": "failed"},
             )
             result = _attach_upstream_run_lineage_to_result(result, upstream_run_lineage)
             self._write_artifacts(targets=targets, result=result)
             raise
         except Exception as exc:
             reason_code = str(getattr(exc, "reason_code", "") or "runner_exception")
+            public_error = public_exception_detail(exc)
             result = RuntimeRunResult(
                 status="failed",
                 reason_code=reason_code,
-                result_payload={"error": str(exc), "reason_code": reason_code, "status": "failed"},
-                done_payload={"error": str(exc), "reason_code": reason_code, "status": "failed"},
+                result_payload={"error": public_error, "reason_code": reason_code, "status": "failed"},
+                done_payload={"error": public_error, "reason_code": reason_code, "status": "failed"},
             )
             result = _attach_upstream_run_lineage_to_result(result, upstream_run_lineage)
             self._write_artifacts(targets=targets, result=result)
@@ -376,7 +380,10 @@ class RuntimeRunner:
             raise RuntimeRunnerError(resume_err)
 
         model_name = _select_model_name(context)
-        model_caller = self._model_caller or _build_default_model_caller(model_name=model_name)
+        selected_caller = self._model_caller or _build_default_model_caller(
+            model_name=model_name
+        )
+        model_caller = ensure_provider_retry_model_caller(selected_caller)
         composed = _with_delegate_subtask_tool(
             composed,
             model_caller=model_caller,

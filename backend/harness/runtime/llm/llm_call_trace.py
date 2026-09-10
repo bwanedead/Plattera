@@ -38,6 +38,8 @@ LLM_CALL_TRACE_FIELDS: tuple[str, ...] = (
     "max_retries_configured",
     "retry_count_observed",
     "timeout_configured_seconds",
+    "failure_classification",
+    "http_status",
     "error_type",
     "error_message_preview",
 )
@@ -212,6 +214,8 @@ def build_llm_call_trace(
     max_retries_configured: int | None = None,
     retry_count_observed: int | None = None,
     timeout_configured_seconds: float | None = None,
+    failure_classification: str | None = None,
+    http_status: int | None = None,
     error_type: str | None = None,
     error_message_preview: str | None = None,
     first_response_event_at_epoch_seconds: float | None = None,
@@ -251,6 +255,8 @@ def build_llm_call_trace(
         "max_retries_configured": max_retries_configured,
         "retry_count_observed": retry_count_observed,
         "timeout_configured_seconds": timeout_configured_seconds,
+        "failure_classification": _bound_text(failure_classification, 80) or None,
+        "http_status": _coerce_http_status(http_status),
         "error_type": _bound_text(error_type, 80) or None,
         "error_message_preview": _bound_text(error_message_preview, _MAX_ERROR_PREVIEW_CHARS) or None,
         "usage_unavailable_reason": _bound_text(usage_unavailable_reason, 120) or None,
@@ -357,6 +363,8 @@ def build_llm_call_trace_from_response(
             if response_map.get("timeout_configured_seconds") is not None
             else timeout_configured_seconds
         ),
+        failure_classification=_optional_str(response_map.get("failure_classification")),
+        http_status=_coerce_http_status(response_map.get("http_status")),
         error_type=error_type,
         error_message_preview=error_message_preview,
     )
@@ -403,11 +411,20 @@ def sanitize_llm_call_trace(trace: Mapping[str, Any]) -> dict[str, Any]:
         if key.endswith("_seconds") and key != "timeout_configured_seconds":
             out[key] = round(_coerce_float(value) or 0.0, 3)
             continue
-        if key.endswith("_tokens") or key in {"max_retries_configured", "retry_count_observed"}:
+        if key.endswith("_tokens") or key in {
+            "max_retries_configured",
+            "retry_count_observed",
+        }:
             out[key] = _coerce_int(value)
+            continue
+        if key == "http_status":
+            out[key] = _coerce_http_status(value)
             continue
         if key in {"streaming_requested", "streaming_supported", "streaming_effective"}:
             out[key] = bool(value)
+            continue
+        if key == "failure_classification":
+            out[key] = _bound_text(value, 80) or None
             continue
         if isinstance(value, (dict, list, tuple)):
             continue
@@ -454,6 +471,13 @@ def _coerce_int(value: Any) -> int | None:
         return int(value)
     except (TypeError, ValueError):
         return None
+
+
+def _coerce_http_status(value: Any) -> int | None:
+    status = _coerce_int(value)
+    if status is None or status < 100 or status > 599:
+        return None
+    return status
 
 
 def _apply_phase_timing_fields(

@@ -334,6 +334,32 @@ def test_non_streaming_trace_does_not_fake_first_event_timing() -> None:
     assert "response_stream_seconds" not in trace
 
 
+def test_provider_retry_metadata_projects_from_response() -> None:
+    trace = build_llm_call_trace_from_response(
+        raw_response={
+            "success": False,
+            "error": "Provider transient request failure exhausted",
+            "text": None,
+            "max_retries_configured": 2,
+            "retry_count_observed": 2,
+            "timeout_configured_seconds": 300.0,
+            "failure_classification": "transient_exhausted",
+            "http_status": 503,
+        },
+        call_role="parent",
+        call_name="choose_action",
+        model="muse-spark-1.3-contributor",
+        prompt_char_count=100,
+        started_at_epoch_seconds=10.0,
+        finished_at_epoch_seconds=13.0,
+    )
+    assert trace["max_retries_configured"] == 2
+    assert trace["retry_count_observed"] == 2
+    assert trace["timeout_configured_seconds"] == 300.0
+    assert trace["failure_classification"] == "transient_exhausted"
+    assert trace["http_status"] == 503
+
+
 def test_streaming_trace_includes_first_event_timing() -> None:
     trace = build_llm_call_trace_from_response(
         raw_response={

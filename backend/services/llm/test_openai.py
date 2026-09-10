@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import time
 from types import SimpleNamespace
+from typing import Any
 
 from services.llm.call_options import LlmCallOptions
 from services.llm.openai import OpenAIService, _requested_service_tier_from_kwargs
+from services.llm.provider_request_failure import DISABLE_SDK_RETRIES_OPTION
 
 
 class _FakeChatCompletions:
@@ -83,6 +85,11 @@ class _FakeStreamingChatCompletions:
 class _FakeClient:
     def __init__(self, completions: _FakeChatCompletions | _FakeStreamingChatCompletions | None = None) -> None:
         self.chat = SimpleNamespace(completions=completions or _FakeChatCompletions())
+        self.options: list[dict[str, Any]] = []
+
+    def with_options(self, **kwargs: Any) -> "_FakeClient":
+        self.options.append(kwargs)
+        return self
 
 
 def _service_with_fake_client(
@@ -92,6 +99,23 @@ def _service_with_fake_client(
     fake_client = _FakeClient(completions=completions)
     service.client = fake_client
     return service, fake_client.chat.completions
+
+
+def test_openai_constructor_does_not_change_sdk_retry_default(monkeypatch) -> None:
+    captured: dict[str, Any] = {}
+
+    class _ConstructedClient:
+        pass
+
+    def fake_openai(**kwargs: Any) -> _ConstructedClient:
+        captured.update(kwargs)
+        return _ConstructedClient()
+
+    monkeypatch.setattr("services.llm.openai._get_openai_api_key", lambda: "test-key")
+    monkeypatch.setattr("services.llm.openai.OpenAI", fake_openai)
+    service = OpenAIService()
+    assert service.client is not None
+    assert "max_retries" not in captured
 
 
 def test_call_text_uses_expanded_budget_for_choose_action_json_phase() -> None:
@@ -108,6 +132,19 @@ def test_call_text_uses_expanded_budget_for_choose_action_json_phase() -> None:
     assert completions.last_kwargs["response_format"] == {"type": "json_object"}
     assert completions.last_kwargs["max_completion_tokens"] == 32_000
     assert completions.last_kwargs["reasoning_effort"] == "medium"
+    assert service.client.options == []
+
+
+def test_harness_invocation_disables_openai_sdk_retries() -> None:
+    service, completions = _service_with_fake_client()
+    result = service.call_text(
+        "prompt",
+        "gpt-5.4-mini",
+        **{DISABLE_SDK_RETRIES_OPTION: True, "timeout": 30.0},
+    )
+    assert result["success"] is True
+    assert service.client.options == [{"max_retries": 0}]
+    assert completions.last_kwargs["timeout"] == 30.0
 
 
 def test_gpt54_model_entry_exists_in_registry() -> None:

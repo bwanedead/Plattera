@@ -20,6 +20,7 @@ from services.llm.call_options import LlmCallOptions
 from ..composition import ComposedTurnInput
 from ..model_failure_classifier import classify_model_failure
 from harness.runtime.llm.instrumented_caller import extract_trace_from_exception
+from harness.runtime.llm.provider_retry import public_exception_detail
 from .action_plan_parser import ModelActionParseError, is_repairable_action_plan_error, parse_action_plan_response
 from .contracts import ActionPlan, OrchestrationAdapter, OrchestratorContext, SharedStateProjection
 from .llm_prompt_builder import (
@@ -235,7 +236,7 @@ class LlmTurnOrchestrationAdapter(OrchestrationAdapter):
                 _audit(
                     parse_ok=False,
                     parse_rc=parse_rc,
-                    parse_error_detail=str(exc),
+                    parse_error_detail=public_exception_detail(exc),
                     extra_llm_call_traces=[failure_trace],
                 )
             if classification.resumable:

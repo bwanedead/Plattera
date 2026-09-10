@@ -91,6 +91,12 @@ import logging
 import random
 from pathlib import Path
 from config.paths import backend_root
+from services.llm.provider_request_failure import (
+    DISABLE_SDK_RETRIES_OPTION,
+    PROVIDER_REQUEST_FAILURE_KEY,
+    bound_openai_request_timeout,
+    project_openai_sdk_request_failure,
+)
 
 try:
     import keyring
@@ -475,6 +481,7 @@ class OpenAIService(LLMService):
     def _call_text_streaming(
         self,
         *,
+        client: Any,
         completion_params: Dict[str, Any],
         model: str,
         api_model_name: str,
@@ -494,7 +501,7 @@ class OpenAIService(LLMService):
         provider_model: str | None = None
         usage_payload: dict[str, int | None] | None = None
 
-        stream = self.client.chat.completions.create(**stream_params)
+        stream = client.chat.completions.create(**stream_params)
         for chunk in stream:
             if first_event_at is None:
                 first_event_at = time.time()
@@ -589,6 +596,11 @@ class OpenAIService(LLMService):
     def call_text(self, prompt: str, model: str, **kwargs) -> Dict[str, Any]:
         """Make text-only API call to OpenAI"""
         try:
+            request_client = self.client
+            with_options = getattr(request_client, "with_options", None)
+            if kwargs.get(DISABLE_SDK_RETRIES_OPTION) is True and callable(with_options):
+                request_client = with_options(max_retries=0)
+
             # Resolve typed call options first so phase is available for log context.
             call_opts = kwargs.get("call_options")
             if call_opts is not None:
@@ -641,6 +653,11 @@ class OpenAIService(LLMService):
                 "model": api_model_name,
                 "messages": [{"role": "user", "content": user_content}],
             }
+            if kwargs.get("timeout") is not None:
+                completion_params["timeout"] = bound_openai_request_timeout(
+                    getattr(request_client, "timeout", None),
+                    kwargs.get("timeout"),
+                )
             # Honor structured-output policy.
             if output_mode == "json_object":
                 completion_params["response_format"] = {"type": "json_object"}
@@ -668,6 +685,7 @@ class OpenAIService(LLMService):
             if streaming_requested:
                 logger.info(f"🧠 TEXT CALL (stream) ► model={model} max_tokens={max_tokens}{ctx}")
                 return self._call_text_streaming(
+                    client=request_client,
                     completion_params=completion_params,
                     model=model,
                     api_model_name=api_model_name,
@@ -678,7 +696,7 @@ class OpenAIService(LLMService):
 
             logger.info(f"🧠 TEXT CALL ► model={model} max_tokens={max_tokens}{ctx}")
             
-            response = self.client.chat.completions.create(**completion_params)
+            response = request_client.chat.completions.create(**completion_params)
             finish_reason = response.choices[0].finish_reason if response.choices else None
             usage_payload = self._usage_payload(response)
             token_usage = usage_payload["total_tokens"] if usage_payload else 0
@@ -738,12 +756,17 @@ class OpenAIService(LLMService):
             }
             
         except Exception as e:
+            failure = project_openai_sdk_request_failure(e)
+            if failure is None:
+                raise
             return {
                 "success": False,
-                "error": str(e),
+                "error": "OpenAI request failed",
                 "text": None,
                 "model": model,
                 "char_count": 0,
+                "usage": None,
+                PROVIDER_REQUEST_FAILURE_KEY: failure,
             }
     
     def call_vision(self, prompt: str, image_data: str, model: str, **kwargs) -> Dict[str, Any]:

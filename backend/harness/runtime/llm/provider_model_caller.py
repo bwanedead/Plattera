@@ -10,21 +10,27 @@ and transparently downgraded to a one-shot call when it does not.
 
 from __future__ import annotations
 
+import time
 from collections.abc import Mapping
 from dataclasses import replace
-from typing import Any
+from typing import Any, Callable
 
 from services.llm.call_options import LlmCallOptions
 from services.registry import ModelProviderError, ServiceRegistry, get_registry
 
 from .instrumented_caller import TextModelCaller, instrument_model_caller
 from .llm_call_trace import extract_streaming_requested
+from .provider_retry import call_with_provider_retries
+
+_RETRY_WRAPPED_ATTR = "_harness_provider_retry_wrapped"
 
 
 def build_provider_model_caller(
     *,
     default_model_name: str,
     registry: ServiceRegistry | None = None,
+    retry_clock: Callable[[], float] = time.monotonic,
+    retry_sleep: Callable[[float], None] = time.sleep,
 ) -> TextModelCaller:
     """Build the default harness text-model caller.
 
@@ -66,7 +72,14 @@ def build_provider_model_caller(
                     inner_kwargs,
                     streaming_supported=_streaming_supported,
                 )
-                return _service.call_text(inner_prompt, inner_model, **call_kwargs)
+                return call_with_provider_retries(
+                    _service.call_text,
+                    inner_prompt,
+                    inner_model,
+                    kwargs=call_kwargs,
+                    clock=retry_clock,
+                    sleep=retry_sleep,
+                )
 
             wrapped = instrument_model_caller(
                 _raw,
@@ -76,7 +89,27 @@ def build_provider_model_caller(
             wrapped_by_provider[provider_name] = wrapped
         return wrapped(prompt, effective, **kwargs)
 
+    setattr(_call, _RETRY_WRAPPED_ATTR, True)
     return _call
+
+
+def ensure_provider_retry_model_caller(caller: TextModelCaller) -> TextModelCaller:
+    """Apply the harness retry/trace boundary once to an injected caller."""
+
+    if getattr(caller, _RETRY_WRAPPED_ATTR, False) is True:
+        return caller
+
+    def _retrying(prompt: str, model: str, **kwargs: Any) -> Mapping[str, Any] | str:
+        return call_with_provider_retries(
+            caller,
+            prompt,
+            model,
+            kwargs=kwargs,
+        )
+
+    wrapped = instrument_model_caller(_retrying, provider="unknown")
+    setattr(wrapped, _RETRY_WRAPPED_ATTR, True)
+    return wrapped
 
 
 def ensure_model_provider_ready(

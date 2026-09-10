@@ -15,6 +15,7 @@ from .llm_call_trace import (
     extract_streaming_requested,
     resolve_call_role,
 )
+from .provider_retry import public_exception_detail
 
 TextModelCaller = Callable[..., Mapping[str, Any] | str]
 
@@ -69,7 +70,8 @@ def instrument_model_caller(
                     raw_response=result if isinstance(result, Mapping) else None,
                 ),
             )
-            trace["provider"] = resolved_provider
+            if resolved_provider != "unknown" or not trace.get("provider"):
+                trace["provider"] = resolved_provider
             if isinstance(result, Mapping):
                 merged = dict(result)
                 merged["llm_call_trace"] = trace
@@ -77,6 +79,8 @@ def instrument_model_caller(
             return result
         except Exception as exc:
             finished = time.time()
+            retry_metadata = getattr(exc, "provider_retry_metadata", None)
+            retry_metadata = retry_metadata if isinstance(retry_metadata, Mapping) else {}
             trace = build_llm_call_trace(
                 provider=resolved_provider,
                 call_role=call_role,
@@ -92,13 +96,24 @@ def instrument_model_caller(
                     kwargs=kwargs,
                     call_options=call_opts,
                 ),
-                error_type=type(exc).__name__,
-                error_message_preview=str(exc),
+                max_retries_configured=retry_metadata.get("max_retries_configured"),
+                retry_count_observed=retry_metadata.get("retry_count_observed"),
+                timeout_configured_seconds=retry_metadata.get("timeout_configured_seconds"),
+                failure_classification=retry_metadata.get("failure_classification"),
+                error_type=_public_error_type(exc),
+                error_message_preview=public_exception_detail(exc),
             )
             setattr(exc, "llm_call_trace", trace)
             raise
 
     return _wrapped
+
+
+def _public_error_type(exc: BaseException) -> str:
+    original = getattr(exc, "original_exception", None)
+    if isinstance(original, BaseException):
+        return type(original).__name__
+    return type(exc).__name__
 
 
 def extract_trace_from_exception(exc: BaseException) -> dict[str, Any] | None:

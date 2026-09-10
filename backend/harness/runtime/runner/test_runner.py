@@ -14,6 +14,8 @@ from domains.mapping.transcript_edit.runtime_adapter import build_transcript_edi
 import config.paths as config_paths
 from harness.execution.contracts import ActionDispatchResult, ExecutionStepRequest
 from harness.runtime.composition import ToolBinding, TurnBlock, TurnSurface
+from harness.runtime.llm.provider_model_caller import ensure_provider_retry_model_caller
+from harness.runtime.llm.provider_retry import UNCLASSIFIED_PROVIDER_EXCEPTION_PUBLIC_MESSAGE
 from harness.runtime.runner import RuntimeArtifactTargets, RuntimeRunner, RuntimeRunnerError
 from harness.runtime.runner import runner as runner_module
 
@@ -305,6 +307,177 @@ def test_runner_model_call_failed_agrees_across_terminal_artifacts(
     assert (audit_dir / "turn_0001.json").is_file()
     assert result_doc["reason_code"] != "runner_exception"
     assert idx["reason_code"] != "runner_exception"
+
+
+_UNCLASSIFIED_SENTINEL = "SENTINEL_UNCLASSIFIED_BODY_PATH=/var/secret/provider-dump.json"
+
+
+def _durable_artifact_text(root: Path) -> str:
+    chunks: list[str] = []
+    for path in root.rglob("*"):
+        if not path.is_file() or path.suffix in {".pyc", ".pyo"}:
+            continue
+        chunks.append(path.read_text(encoding="utf-8", errors="replace"))
+    return "\n".join(chunks)
+
+
+def _complete_run_plan_text(*, idempotency_key: str, rationale: str) -> str:
+    return json.dumps(
+        {
+            "action_type": None,
+            "action_inputs": {},
+            "idempotency_key": idempotency_key,
+            "skip_execution": True,
+            "wait_for_human": False,
+            "complete_run": True,
+            "rationale": rationale,
+            "state_patch": {"mission": {"work_universe_posture": "audited"}},
+            "continuity_journal_entry": {"runner_stub": True},
+            "operator_progress_message": None,
+        }
+    )
+
+
+def _transient_then_success_caller() -> tuple[Any, list[tuple[str, str]]]:
+    calls: list[tuple[str, str]] = []
+
+    def model_caller(prompt: str, model: str, **_kwargs: Any) -> dict[str, Any]:
+        calls.append((prompt, model))
+        if len(calls) == 1:
+            return {
+                "success": False,
+                "model": model,
+                "provider_request_failure": {
+                    "category": "http_status",
+                    "retryable": True,
+                    "http_status": 500,
+                    "retry_after_seconds": 0.0,
+                },
+            }
+        return {
+            "success": True,
+            "text": _complete_run_plan_text(
+                idempotency_key="plan-retry-ok",
+                rationale="finished after transient",
+            ),
+            "model": model,
+        }
+
+    return model_caller, calls
+
+
+def _assert_single_retry_trace(run_id: str) -> None:
+    turn = json.loads(
+        (cli_run_state.run_dir(run_id) / "audit" / "turn_0001.json").read_text(encoding="utf-8")
+    )
+    assert "llm_call_traces" not in turn
+    trace = turn["llm_call_trace"]
+    assert trace["retry_count_observed"] == 1
+    assert trace["max_retries_configured"] == 2
+    timeline = (cli_run_state.run_dir(run_id) / "audit" / "human" / "timeline.md").read_text(
+        encoding="utf-8"
+    )
+    assert timeline.count("retries observed: 1") == 1
+
+
+def test_runner_unclassified_exception_is_contained_in_durable_artifacts(
+    tmp_path: Path, monkeypatch
+) -> None:
+    adapter = FakeSurfaceAdapter(
+        calls=[],
+        surface=TurnSurface(
+            surface_id="surface-a",
+            blocks=(TurnBlock(content="block-1", metadata={}),),
+            payload={},
+            tool_bindings=(),
+        ),
+    )
+    run_id = "run-unclassified-sentinel"
+    _seed_cli_run_state(tmp_path, monkeypatch, run_id)
+
+    def model_caller(prompt: str, model: str, **_kwargs: Any) -> dict[str, Any]:
+        del prompt, model
+        raise RuntimeError(_UNCLASSIFIED_SENTINEL)
+
+    runner = RuntimeRunner(adapter=adapter, model_caller=model_caller, targets=_targets(tmp_path))
+
+    with pytest.raises(RuntimeRunnerError) as exc_info:
+        runner.run(launch_context={"model": "gpt-5.4-mini", "run_id": run_id, "max_iterations": 2})
+
+    assert exc_info.value.reason_code == "model_caller_exception"
+    assert _UNCLASSIFIED_SENTINEL not in str(exc_info.value)
+    result_doc = json.loads((tmp_path / "result.json").read_text(encoding="utf-8"))
+    done_doc = json.loads((tmp_path / "done.json").read_text(encoding="utf-8"))
+    assert result_doc["status"] == "failed"
+    assert result_doc["reason_code"] == "model_caller_exception"
+    assert done_doc["status"] == "failed"
+    assert done_doc["reason_code"] == "model_caller_exception"
+    assert result_doc["error"] == UNCLASSIFIED_PROVIDER_EXCEPTION_PUBLIC_MESSAGE
+    assert done_doc["error"] == UNCLASSIFIED_PROVIDER_EXCEPTION_PUBLIC_MESSAGE
+
+    audit_dir = cli_run_state.run_dir(run_id) / "audit"
+    idx = json.loads((audit_dir / "index.json").read_text(encoding="utf-8"))
+    assert idx["terminal_class"] == "failed"
+    assert idx["reason_code"] == "model_caller_exception"
+    durable = _durable_artifact_text(tmp_path)
+    assert _UNCLASSIFIED_SENTINEL not in durable
+    assert UNCLASSIFIED_PROVIDER_EXCEPTION_PUBLIC_MESSAGE in durable
+
+
+def test_runner_wraps_injected_caller_once_for_transient_then_success(
+    tmp_path: Path, monkeypatch
+) -> None:
+    adapter = FakeSurfaceAdapter(calls=[], surface=_surface([]))
+    run_id = "run-retry-wrap-once"
+    _seed_cli_run_state(tmp_path, monkeypatch, run_id)
+    raw_caller, calls = _transient_then_success_caller()
+    identities: list[bool] = []
+    real_ensure = runner_module.ensure_provider_retry_model_caller
+
+    def _spy(caller):
+        wrapped = real_ensure(caller)
+        identities.append(wrapped is caller)
+        return wrapped
+
+    monkeypatch.setattr(runner_module, "ensure_provider_retry_model_caller", _spy)
+    runner = RuntimeRunner(adapter=adapter, model_caller=raw_caller, targets=_targets(tmp_path))
+    result = runner.run(
+        launch_context={"model": "gpt-5.4-mini", "run_id": run_id, "max_iterations": 2}
+    )
+
+    assert result.status == "completed"
+    assert result.reason_code == "complete_run"
+    assert len(calls) == 2
+    assert identities == [False]
+    _assert_single_retry_trace(run_id)
+
+
+def test_runner_already_retry_wrapped_caller_is_not_double_wrapped(
+    tmp_path: Path, monkeypatch
+) -> None:
+    adapter = FakeSurfaceAdapter(calls=[], surface=_surface([]))
+    run_id = "run-retry-prewrapped"
+    _seed_cli_run_state(tmp_path, monkeypatch, run_id)
+    raw_caller, calls = _transient_then_success_caller()
+    prewrapped = ensure_provider_retry_model_caller(raw_caller)
+    identities: list[bool] = []
+    real_ensure = runner_module.ensure_provider_retry_model_caller
+
+    def _spy(caller):
+        wrapped = real_ensure(caller)
+        identities.append(wrapped is caller)
+        return wrapped
+
+    monkeypatch.setattr(runner_module, "ensure_provider_retry_model_caller", _spy)
+    runner = RuntimeRunner(adapter=adapter, model_caller=prewrapped, targets=_targets(tmp_path))
+    result = runner.run(
+        launch_context={"model": "gpt-5.4-mini", "run_id": run_id, "max_iterations": 2}
+    )
+
+    assert result.status == "completed"
+    assert len(calls) == 2
+    assert identities == [True]
+    _assert_single_retry_trace(run_id)
 
 
 def test_runner_executes_transcript_edit_tool_and_writes_artifacts(tmp_path: Path, monkeypatch) -> None:

@@ -21,6 +21,7 @@ from .contracts import (
 )
 from .prompting import build_child_prompt, prompt_ref_summary
 from harness.runtime.llm.llm_call_trace import sanitize_llm_call_trace
+from harness.runtime.llm.provider_retry import public_exception_detail
 
 from .trace_fields import build_subtask_trace
 from .result_schema import (
@@ -81,7 +82,7 @@ def run_delegate_subtask(
             subtask_id=subtask_id,
             request=request,
             reason_code="subtask_model_call_failed",
-            message=str(exc),
+            message=public_exception_detail(exc),
             prompt_char_count=len(prompt),
             model_name=model_name,
             image_attachment_count=len(context.image_attachments),

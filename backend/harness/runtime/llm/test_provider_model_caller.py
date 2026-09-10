@@ -8,9 +8,15 @@ import pytest
 
 from harness.runtime.llm.provider_model_caller import (
     build_provider_model_caller,
+    ensure_provider_retry_model_caller,
     ensure_model_provider_ready,
 )
+from harness.runtime.llm.provider_retry import (
+    UNCLASSIFIED_PROVIDER_EXCEPTION_PUBLIC_MESSAGE,
+    UnclassifiedProviderCallerError,
+)
 from services.llm.base import LLMService
+from services.llm.call_options import LlmCallOptions
 from services.registry import ModelProviderError, ServiceRegistry
 
 
@@ -78,6 +84,17 @@ def _registry_with(*services: LLMService) -> ServiceRegistry:
     return reg
 
 
+class _RetryClock:
+    def __init__(self, *, now: float = 0.0) -> None:
+        self.now = now
+
+    def __call__(self) -> float:
+        return self.now
+
+    def sleep(self, seconds: float) -> None:
+        self.now += seconds
+
+
 def test_openai_owned_model_routes_to_openai_fake() -> None:
     log: list[tuple[str, str]] = []
     openai = _FakeLLM(
@@ -98,6 +115,54 @@ def test_openai_owned_model_routes_to_openai_fake() -> None:
     assert result["text"] == "from:openai:gpt-5.6-luna"
     assert result["llm_call_trace"]["provider"] == "openai"
     assert log == [("openai", "gpt-5.6-luna")]
+
+
+def test_injected_caller_receives_retry_boundary_without_double_wrapping_default() -> None:
+    calls = 0
+
+    def injected(prompt: str, model: str, **kwargs: Any) -> dict[str, Any]:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return {
+                "success": False,
+                "model": model,
+                "provider_request_failure": {
+                    "category": "connection_failure",
+                    "retryable": True,
+                    "retry_after_seconds": 0.0,
+                },
+            }
+        return {"success": True, "text": "ok", "model": model}
+
+    wrapped = ensure_provider_retry_model_caller(injected)
+    result = wrapped("p", "m")
+    assert calls == 2
+    assert result["retry_count_observed"] == 1
+    assert result["llm_call_trace"]["retry_count_observed"] == 1
+
+    default = build_provider_model_caller(
+        default_model_name="m",
+        registry=_registry_with(_FakeLLM(name="meta", models={"m": {}})),
+    )
+    assert ensure_provider_retry_model_caller(default) is default
+
+
+def test_injected_unknown_exception_propagates_with_sanitized_retry_trace() -> None:
+    def injected(prompt: str, model: str, **kwargs: Any) -> dict[str, Any]:
+        raise RuntimeError("secret provider body")
+
+    with pytest.raises(UnclassifiedProviderCallerError) as raised:
+        ensure_provider_retry_model_caller(injected)("p", "m")
+    assert str(raised.value) == UNCLASSIFIED_PROVIDER_EXCEPTION_PUBLIC_MESSAGE
+    assert "secret provider body" not in str(raised.value)
+    assert isinstance(raised.value.original_exception, RuntimeError)
+    trace = raised.value.llm_call_trace
+    assert trace["max_retries_configured"] == 2
+    assert trace["retry_count_observed"] == 0
+    assert trace["failure_classification"] == "terminal_unclassified_exception"
+    assert trace["error_message_preview"] == UNCLASSIFIED_PROVIDER_EXCEPTION_PUBLIC_MESSAGE
+    assert "secret provider body" not in str(trace)
 
 
 def test_effective_model_resolved_per_call_with_blank_fallback() -> None:
@@ -200,6 +265,72 @@ def test_image_bearing_delegate_reaches_meta_with_attachment_order() -> None:
     assert captured and captured[0] is not None
     atts = list(captured[0].image_attachments)
     assert [a["b64"] for a in atts] == ["ONE", "TWO"]
+
+
+@pytest.mark.parametrize(
+    ("success_on", "expected_retries", "expected_wall", "classification"),
+    [(2, 1, 1.0, None), (None, 2, 3.0, "transient_exhausted")],
+)
+def test_harness_retry_metadata_reaches_production_trace(
+    monkeypatch,
+    success_on: int | None,
+    expected_retries: int,
+    expected_wall: float,
+    classification: str | None,
+) -> None:
+    clock = _RetryClock(now=100.0)
+    monkeypatch.setattr("harness.runtime.llm.instrumented_caller.time.time", clock)
+    received: list[dict[str, Any]] = []
+
+    class _SequencedProvider(_FakeLLM):
+        def call_text(self, prompt: str, model: str, **kwargs: Any) -> dict[str, Any]:
+            received.append({"prompt": prompt, "model": model, "kwargs": dict(kwargs)})
+            if success_on == len(received):
+                return {"success": True, "text": '{"ok":true}', "model": model}
+            return {
+                "success": False,
+                "error": "must-be-replaced",
+                "text": None,
+                "model": model,
+                "provider_request_failure": {
+                    "category": "http_status",
+                    "retryable": True,
+                    "http_status": 503,
+                },
+            }
+
+    model = "muse-spark-1.3-contributor"
+    service = _SequencedProvider(name="meta", models={model: {"context_window_tokens": 1}})
+    opts = LlmCallOptions(
+        output_mode="json_object",
+        phase="choose_action",
+        image_attachments=({"b64": "ONE", "media_type": "image/png"},),
+    )
+    caller = build_provider_model_caller(
+        default_model_name=model,
+        registry=_registry_with(service),
+        retry_clock=clock,
+        retry_sleep=clock.sleep,
+    )
+    result = caller("same prompt", model, call_options=opts)
+
+    assert len(received) == expected_retries + 1
+    assert all((row["prompt"], row["model"]) == ("same prompt", model) for row in received)
+    assert all(row["kwargs"]["call_options"] is opts for row in received)
+    assert opts.image_attachments[0]["b64"] == "ONE"
+    trace = result["llm_call_trace"]
+    assert trace["provider"] == "meta"
+    assert trace["max_retries_configured"] == 2
+    assert trace["retry_count_observed"] == expected_retries
+    assert trace["timeout_configured_seconds"] == 300.0
+    assert trace["wall_seconds"] == expected_wall
+    assert trace["failure_classification"] == classification
+    if success_on is None:
+        assert result["error"] == "Provider transient request failure exhausted"
+        assert result["http_status"] == trace["http_status"] == 503
+        assert "must-be-replaced" not in str(result)
+    else:
+        assert result["success"] is True
 
 
 def test_parent_and_delegate_models_through_one_caller() -> None:

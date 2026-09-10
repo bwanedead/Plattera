@@ -7,6 +7,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
+from harness.runtime.llm.provider_retry import public_exception_detail
+
 MAX_USER_ERROR_EXCERPT_CHARS = 400
 
 _SECRET_PATTERNS = (
@@ -73,8 +75,14 @@ def classify_model_failure(
                     pass
                 break
 
+    typed_exception = exception
+    original_exception = None
     if exception is not None:
-        parts.append(str(exception))
+        original = getattr(exception, "original_exception", None)
+        if isinstance(original, BaseException):
+            original_exception = original
+            typed_exception = original
+        parts.append(public_exception_detail(exception))
 
     combined = " ".join(part for part in parts if part).strip()
     lowered = combined.lower()
@@ -118,9 +126,13 @@ def classify_model_failure(
         "failed to establish a new connection",
         "remote end closed connection",
     )
-    if any(marker in lowered for marker in connection_markers) or (
-        isinstance(exception, (ConnectionError, TimeoutError, OSError))
-        and "connection" in lowered
+    if (
+        any(marker in lowered for marker in connection_markers)
+        or isinstance(original_exception, ConnectionError)
+        or (
+            isinstance(typed_exception, (ConnectionError, TimeoutError, OSError))
+            and "connection" in lowered
+        )
     ):
         return ModelFailureClassification(
             reason_code="model_connection_interrupted",
