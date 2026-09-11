@@ -15,7 +15,11 @@ from .action_plan_parser import ModelActionParseError, parse_action_plan_respons
 from .action_plan_prose_placement import normalize_misplaced_action_plan_prose
 from .contracts import ActionPlan
 from .subtasks.registry import DEFAULT_SUBTASK_REGISTRY, SubtaskProfileRegistry
-from .tool_batch_policy import DomainActionBatchPolicy, ToolBatchPolicy
+from .tool_batch_policy import (
+    ALLOWED_SIDE_EFFECT_CLASSES,
+    DomainActionBatchPolicy,
+    ToolBatchPolicy,
+)
 from .llm_prompt_builder import build_repair_prompt_document
 
 TextModelCaller = Callable[..., Mapping[str, Any] | str]
@@ -62,7 +66,8 @@ def count_attempted_actions_in_text(previous_response_text: str) -> int | None:
 
 def _derive_repair_context(
     previous_response_text: str,
-    parse_error_detail: str,
+    parse_error_detail: object,
+    tool_batch_policies: Mapping[str, ToolBatchPolicy] | None = None,
 ) -> tuple[dict[str, Any] | None, list[str], dict[str, Any]]:
     """Return (previous_response_object, repair_targets, repair_extras).
 
@@ -85,7 +90,7 @@ def _derive_repair_context(
     previous_response_object = parsed
 
     # Derive structural repair targets from known shape mistakes.
-    error_lower = parse_error_detail.lower()
+    error_lower = parse_error_detail.lower() if type(parse_error_detail) is str else ""
     nonbatchable_tool_id = _nonbatchable_tool_id_from_parse_error(parse_error_detail)
 
     # Missing continuity journal: only surface as a target when the parse error itself
@@ -114,6 +119,8 @@ def _derive_repair_context(
     if "unexpected action plan keys" in error_lower:
         repair_targets.append("remove_unknown_top_level_keys")
 
+    mixed_side_effect_error = _is_mixed_side_effect_class_error(parse_error_detail)
+
     if isinstance(parsed.get("actions"), list):
         repair_targets.append("preserve_native_actions_array")
         action_count = len(parsed["actions"])
@@ -123,6 +130,14 @@ def _derive_repair_context(
             aliases = _bounded_aliases_for_action_type(parsed["actions"], nonbatchable_tool_id)
             if aliases:
                 repair_extras["affected_action_aliases"] = aliases
+        elif mixed_side_effect_error:
+            class_rows = _bounded_action_side_effect_classes(
+                parsed["actions"],
+                tool_batch_policies,
+            )
+            if class_rows is not None:
+                repair_targets.append("select_one_side_effect_class_group_for_this_turn")
+                repair_extras["action_side_effect_classes"] = class_rows
         elif action_count > 1:
             repair_targets.append("preserve_multi_action_intent")
         if "exceeds per-tool cap" in error_lower or "exceeds max batch size" in error_lower:
@@ -138,8 +153,79 @@ def _derive_repair_context(
 
 
 _NONBATCHABLE_ACTION_MARKER = "action_type not batchable:"
+_MIXED_SIDE_EFFECT_CLASS_ERRORS: frozenset[str] = frozenset(
+    {
+        "actions failed canonical validation: action_batch cannot mix disallowed side_effect classes",
+    }
+)
 _MAX_AFFECTED_ALIASES = 8
 _MAX_ALIAS_CHARS = 64
+_MAX_ACTION_TYPE_CHARS = 120
+_MAX_SIDE_EFFECT_CLASS_ROWS = 16
+_MAX_SIDE_EFFECT_CLASS_CHARS = 64
+
+
+def _is_mixed_side_effect_class_error(parse_error_detail: object) -> bool:
+    return type(parse_error_detail) is str and parse_error_detail in _MIXED_SIDE_EFFECT_CLASS_ERRORS
+
+
+def _bounded_action_side_effect_classes(
+    actions: list[Any],
+    tool_batch_policies: Mapping[str, ToolBatchPolicy] | None,
+) -> list[dict[str, str]] | None:
+    """Map authored rows to canonical side_effect_class, or None if unsafe to guess."""
+    if not isinstance(tool_batch_policies, Mapping) or not tool_batch_policies:
+        return None
+    if type(actions) is not list or not actions:
+        return None
+    if len(actions) > _MAX_SIDE_EFFECT_CLASS_ROWS:
+        return None
+
+    rows: list[dict[str, str]] = []
+    classes: set[str] = set()
+    for raw in actions:
+        if not isinstance(raw, Mapping):
+            return None
+        alias = raw.get("alias")
+        action_type = raw.get("action_type")
+        if type(alias) is not str or type(action_type) is not str:
+            return None
+        alias_text = alias.strip()
+        type_text = action_type.strip()
+        if (
+            not alias_text
+            or not type_text
+            or len(alias_text) > _MAX_ALIAS_CHARS
+            or len(type_text) > _MAX_ACTION_TYPE_CHARS
+            or alias_text != alias
+            or type_text != action_type
+        ):
+            return None
+        policy = tool_batch_policies.get(type_text)
+        if not isinstance(policy, ToolBatchPolicy):
+            return None
+        side_effect = policy.side_effect_class
+        if type(side_effect) is not str:
+            return None
+        class_text = side_effect.strip()
+        if (
+            not class_text
+            or class_text != side_effect
+            or len(class_text) > _MAX_SIDE_EFFECT_CLASS_CHARS
+            or class_text not in ALLOWED_SIDE_EFFECT_CLASSES
+        ):
+            return None
+        rows.append(
+            {
+                "alias": alias_text,
+                "action_type": type_text,
+                "side_effect_class": class_text,
+            }
+        )
+        classes.add(class_text)
+    if len(classes) < 2:
+        return None
+    return rows
 
 
 def _nonbatchable_tool_id_from_parse_error(parse_error_detail: str) -> str | None:
@@ -220,7 +306,9 @@ def attempt_repair(
         return deterministic
 
     previous_response_object, repair_targets, repair_extras = _derive_repair_context(
-        previous_response_text, str(original_exc)
+        previous_response_text,
+        str(original_exc),
+        tool_batch_policies=tool_batch_policies,
     )
     repair_prompt = build_repair_prompt_document(
         available_tool_ids=available_tool_ids,

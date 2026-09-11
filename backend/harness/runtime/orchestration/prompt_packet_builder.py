@@ -23,6 +23,7 @@ from ..memory.delegate_observation_worklist_projection import (
 )
 from harness.runtime.memory.result_delivery import ContactReceipt
 from .compact_tool_contracts import project_compact_tool_contracts
+from .tool_batch_policy import ALLOWED_SIDE_EFFECT_CLASSES
 from .contracts import OrchestratorContext, SharedStateProjection
 from .loop_health_summary import build_prompt_observability_summary
 from .prompt_modes import PromptBuildDocument, PromptMode, PromptModeSpec, require_prompt_mode_spec
@@ -69,11 +70,14 @@ _ALLOWED_REPAIR_CONTEXT_EXTRA_KEYS = frozenset(
     {
         "nonbatchable_action_type",
         "affected_action_aliases",
+        "action_side_effect_classes",
     }
 )
 _MAX_REPAIR_EXTRA_ACTION_TYPE_CHARS = 120
 _MAX_REPAIR_EXTRA_ALIASES = 8
 _MAX_REPAIR_EXTRA_ALIAS_CHARS = 64
+_MAX_REPAIR_EXTRA_SIDE_EFFECT_ROWS = 16
+_MAX_REPAIR_EXTRA_SIDE_EFFECT_CLASS_CHARS = 64
 
 
 def _bounded_repair_context_extra(key: str, value: Any) -> Any | None:
@@ -99,6 +103,46 @@ def _bounded_repair_context_extra(key: str, value: Any) -> Any | None:
                 return None
             aliases.append(text)
         return aliases
+    if key == "action_side_effect_classes":
+        if type(value) is not list:
+            return None
+        if not value or len(value) > _MAX_REPAIR_EXTRA_SIDE_EFFECT_ROWS:
+            return None
+        rows: list[dict[str, str]] = []
+        for item in value:
+            if type(item) is not dict:
+                return None
+            if set(item) != {"alias", "action_type", "side_effect_class"}:
+                return None
+            alias = item.get("alias")
+            action_type = item.get("action_type")
+            side_effect = item.get("side_effect_class")
+            if type(alias) is not str or type(action_type) is not str or type(side_effect) is not str:
+                return None
+            alias_text = alias.strip()
+            type_text = action_type.strip()
+            class_text = side_effect.strip()
+            if (
+                not alias_text
+                or not type_text
+                or not class_text
+                or alias_text != alias
+                or type_text != action_type
+                or class_text != side_effect
+                or len(alias_text) > _MAX_REPAIR_EXTRA_ALIAS_CHARS
+                or len(type_text) > _MAX_REPAIR_EXTRA_ACTION_TYPE_CHARS
+                or len(class_text) > _MAX_REPAIR_EXTRA_SIDE_EFFECT_CLASS_CHARS
+                or class_text not in ALLOWED_SIDE_EFFECT_CLASSES
+            ):
+                return None
+            rows.append(
+                {
+                    "alias": alias_text,
+                    "action_type": type_text,
+                    "side_effect_class": class_text,
+                }
+            )
+        return rows
     return None
 
 
