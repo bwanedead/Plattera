@@ -100,6 +100,8 @@ def test_surface_payload_includes_visual_source_observation_subtask_profile() ->
     assert "line per visible text line" in preamble or "one line per" in preamble
     assert "partial/cut" in preamble or "partial" in preamble and "cut" in preamble
     assert "observation packet, not proof" in preamble
+    assert "may be a crop from a larger document" in preamble
+    assert "placement or context may be imperfect" in preamble
     assert "target_presence is packet-scoped" in preamble
     assert "completed status means the observation call completed" in preamble
     assert "does not mean a source value was proven or earned" in preamble
@@ -371,7 +373,6 @@ def test_procedural_guidance_teaches_delegate_subtask_lightly() -> None:
     assert "attempted observation window, not proof" in text
     assert "status: completed" in text
     assert "does not earn a value" in text
-    assert "grounds for corroboration, not automatic acceptance or rejection" in text
     assert "delegate outputs do not become true by vote" in text
     assert "against the master overlay rather than paying to reread every crop" in text
     assert "packet outcome, not proof that the source lacks the target" in text
@@ -503,10 +504,15 @@ def test_domain_pack_declares_semantic_prompt_blocks() -> None:
     assert "trust it by default, investigate it when it looks weird" in text
     assert "a point crop can only land on a point" in text
     assert "to the degree an \"atom\" is actually a span, to that degree the point-crop machinery is being sabotaged" in text
-    assert "a delegate can only verify what its crop shows" in text
+    assert "a delegate can only verify what its supplied evidence packet shows" in text
+    assert "a delegate can only verify what its crop shows" not in text
     assert "one mark to read and report" in text
     assert "opportunistic harvesting of nearby atoms, never as the determination target" in text
-    assert "does not re-litigate them; what you earn here is what gets built" in text
+    assert "relies on the transcript and its recorded determinations to construct geometry" in text
+    assert "a wrong earned reading can propagate into the map" in text
+    assert "does not re-litigate" not in text
+    assert "closure earns itself" not in text
+    assert "delegate observations → evidence-grounded determinations → honest closure" in text
     assert "every stage inherits the previous stage's discipline or its corruption" in text
     assert "run sanity guide" in text
     assert "early run is inventory" in text
