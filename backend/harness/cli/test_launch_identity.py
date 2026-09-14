@@ -32,6 +32,15 @@ def test_merge_refuses_run_id_mismatch(monkeypatch) -> None:
     assert err == "launch_run_id_cli_mismatch"
 
 
+def test_merge_keeps_explicit_workspace_when_cli_fills_run_id(monkeypatch) -> None:
+    monkeypatch.setenv("HARNESS_CLI_RUN_ID", "child-run")
+    merged, err = merge_cli_launch_identity({"workspace_id": "source-ws", "dossier_id": "d1"})
+    assert err is None
+    assert merged["run_id"] == "child-run"
+    assert merged["workspace_id"] == "source-ws"
+    assert merged["dossier_id"] == "d1"
+
+
 def test_merge_noop_without_cli_env(monkeypatch) -> None:
     monkeypatch.delenv("HARNESS_CLI_RUN_ID", raising=False)
     merged, err = merge_cli_launch_identity({"run_id": "explicit-only"})

@@ -41,6 +41,31 @@ def turn_checkpoint_legacy_path(*, run_dir: Path, from_turn: int) -> Path:
     )
 
 
+def latest_existing_turn_number(*, run_dir: Path) -> int | None:
+    """Highest ``turn_NNNN`` file present in this run's checkpoint directory."""
+    folder = Path(run_dir) / TURN_CHECKPOINTS_DIRNAME
+    if not folder.is_dir():
+        return None
+    latest: int | None = None
+    for child in folder.iterdir():
+        if not child.is_file():
+            continue
+        name = child.name
+        stem: str | None = None
+        if name.startswith("turn_") and name.endswith(TURN_CHECKPOINT_CANONICAL_SUFFIX):
+            stem = name[len("turn_") : -len(TURN_CHECKPOINT_CANONICAL_SUFFIX)]
+        elif name.startswith("turn_") and name.endswith(TURN_CHECKPOINT_LEGACY_SUFFIX):
+            stem = name[len("turn_") : -len(TURN_CHECKPOINT_LEGACY_SUFFIX)]
+        if stem is None or len(stem) != 4 or not stem.isdigit():
+            continue
+        turn = int(stem)
+        if turn < 1:
+            continue
+        if latest is None or turn > latest:
+            latest = turn
+    return latest
+
+
 def resolve_existing_turn_checkpoint(*, run_dir: Path, from_turn: int) -> Path | None:
     """Return the checkpoint path to load, canonical-first.
 

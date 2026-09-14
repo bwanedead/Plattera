@@ -39,6 +39,7 @@
 ## Gotchas
 
 - Association paths and image paths are host-specific; hydration returns `exists` flags—callers must handle missing files.
+- `image:derived:*` and `transcript_edit:working:rev:NNNN` are workspace-scoped and do not encode workspace identity. Do not glob other workspaces or fall back to `run_id` when `workspace_id` is present. A continuation fork keeps the source workspace and is exclusive (one active continuation owner). Isolated forks branch into a new workspace. Harness retention deletes a TE workspace by referenced `workspace_id` only after the last surviving reference is gone, and never while an active or activity-unknown run still references it.
 
 ## Links
 

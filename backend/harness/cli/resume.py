@@ -46,6 +46,13 @@ _RESULT_RESUMABLE_REASON_CODES = set(MODEL_RESUMABLE_REASON_CODES) | {
 }
 
 
+def is_same_run_resumable_reason(reason_code: object) -> bool:
+    """True when the CLI resume path, not a continuation fork, owns this reason."""
+    if type(reason_code) is not str or not reason_code:
+        return False
+    return reason_code in _RESULT_RESUMABLE_REASON_CODES
+
+
 def _checkpoint_path(run_id: str) -> Path:
     return kernel_resume_path(run_dir(run_id))
 

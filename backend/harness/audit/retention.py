@@ -6,6 +6,10 @@ Policy (per collection bucket):
   - each ``cli_runs/by_loop_kind/<run_collection>/`` queue independently
 - Pinned runs are never auto-deleted.
 - Collection directories themselves are never deleted as runs.
+- Transcript-edit workspace dirs are deleted by referenced workspace_id only after
+  the last surviving run reference is gone, and never while an active or
+  activity-unknown run still references them. Uncertain reference discovery
+  skips workspace cleanup.
 """
 
 from __future__ import annotations
@@ -15,8 +19,14 @@ import logging
 import shutil
 from pathlib import Path
 from time import time
-from typing import Any
 
+from harness.audit.retention_workspace_cleanup import (
+    assess_run_activity,
+    collect_workspace_reference_index,
+    delete_transcript_edit_workspaces,
+    iter_all_cli_run_dirs,
+    workspace_ids_safe_to_delete,
+)
 from harness.cli import run_layout
 from harness.cli.run_layout import (
     BY_LOOP_KIND_DIRNAME,
@@ -60,16 +70,43 @@ def purge_all_cli_runs() -> list[str]:
         _LOG.warning("purge_all_cli_runs: could not resolve cli_runs_root", exc_info=True)
         return []
 
-    purged: list[str] = []
+    run_dirs: list[Path] = []
     for _bucket_id, bucket_root, legacy_flat in iter_retention_buckets(root):
         for run_path in list_run_dirs_in_bucket(bucket_root, legacy_flat=legacy_flat):
             if not is_safe_run_dir_in_bucket(run_path, bucket_root):
                 _LOG.warning("purge_all_cli_runs: skipping unsafe path %s", run_path)
                 continue
-            run_id = run_path.name
-            if _delete_run_dir(run_path):
-                purged.append(run_id)
-                _cleanup_transcript_edit_workspace(run_id)
+            run_dirs.append(run_path)
+    index, uncertain = collect_workspace_reference_index(run_dirs)
+    activity = None
+    if not uncertain and index is not None:
+        activity = assess_run_activity(
+            [path.name for path in run_dirs],
+            required_run_ids=set(index),
+        )
+        if activity is None:
+            uncertain = True
+
+    surviving = {path.name for path in run_dirs}
+    referenced_by_deleted: set[str] = set()
+    purged: list[str] = []
+    for run_path in run_dirs:
+        run_id = run_path.name
+        if _delete_run_dir(run_path):
+            purged.append(run_id)
+            surviving.discard(run_id)
+            if index is not None:
+                referenced_by_deleted.update(index.get(run_id, frozenset()))
+
+    if not uncertain and index is not None and activity is not None:
+        delete_transcript_edit_workspaces(
+            workspace_ids_safe_to_delete(
+                referenced_by_deleted=referenced_by_deleted,
+                index=index,
+                surviving_run_ids=surviving,
+                activity=activity,
+            )
+        )
 
     if purged:
         _LOG.info("purge_all_cli_runs: purged %d run(s): %s", len(purged), purged)
@@ -84,7 +121,20 @@ def cleanup_old_cli_runs(*, keep_n: int = 5) -> list[str]:
         _LOG.warning("cleanup_old_cli_runs: could not resolve cli_runs_root", exc_info=True)
         return []
 
+    all_dirs = iter_all_cli_run_dirs(root)
+    index, uncertain = collect_workspace_reference_index(all_dirs)
+    activity = None
+    if not uncertain and index is not None:
+        activity = assess_run_activity(
+            [path.name for path in all_dirs],
+            required_run_ids=set(index),
+        )
+        if activity is None:
+            uncertain = True
+
     deleted: list[str] = []
+    deleted_refs: set[str] = set()
+    surviving = {path.name for path in all_dirs}
     for _bucket_id, bucket_root, legacy_flat in iter_retention_buckets(root):
         candidates = list_run_dirs_in_bucket(bucket_root, legacy_flat=legacy_flat)
         candidates.sort(key=_run_sort_key)
@@ -97,7 +147,19 @@ def cleanup_old_cli_runs(*, keep_n: int = 5) -> list[str]:
                 continue
             if _delete_run_dir(run_path):
                 deleted.append(run_id)
-                _cleanup_transcript_edit_workspace(run_id)
+                surviving.discard(run_id)
+                if index is not None:
+                    deleted_refs.update(index.get(run_id, frozenset()))
+
+    if not uncertain and index is not None and activity is not None:
+        delete_transcript_edit_workspaces(
+            workspace_ids_safe_to_delete(
+                referenced_by_deleted=deleted_refs,
+                index=index,
+                surviving_run_ids=surviving,
+                activity=activity,
+            )
+        )
 
     if deleted:
         _LOG.info("cleanup_old_cli_runs: deleted %d run(s): %s", len(deleted), deleted)
@@ -138,66 +200,6 @@ def _delete_run_dir(d: Path) -> bool:
     except Exception:
         _LOG.warning("cleanup: failed to delete %s", d, exc_info=True)
         return False
-
-
-def _cleanup_transcript_edit_workspace(run_id: str) -> None:
-    """Remove leaf and dossier TE workspace dirs whose name equals the retired run_id."""
-    _cleanup_leaf_transcript_edit_workspaces(run_id)
-    _cleanup_dossier_transcript_edit_workspaces(run_id)
-
-
-def _cleanup_leaf_transcript_edit_workspaces(run_id: str) -> None:
-    try:
-        from config.paths import dossiers_transcript_edit_artifacts_root
-
-        te_root = dossiers_transcript_edit_artifacts_root()
-    except Exception:
-        return
-    if not te_root.exists():
-        return
-    try:
-        for dossier_dir in te_root.iterdir():
-            if not dossier_dir.is_dir():
-                continue
-            for tx_dir in dossier_dir.iterdir():
-                if not tx_dir.is_dir():
-                    continue
-                workspace_dir = tx_dir / run_id
-                if workspace_dir.is_dir() and is_safe_run_dir_in_bucket(workspace_dir, tx_dir):
-                    try:
-                        shutil.rmtree(workspace_dir)
-                        _LOG.info("cleanup: removed transcript_edit workspace %s", workspace_dir)
-                    except Exception:
-                        _LOG.warning("cleanup: failed to remove %s", workspace_dir, exc_info=True)
-    except Exception:
-        _LOG.warning("cleanup: transcript_edit workspace scan failed", exc_info=True)
-
-
-def _cleanup_dossier_transcript_edit_workspaces(run_id: str) -> None:
-    try:
-        from config.paths import dossiers_transcript_edit_dossier_artifacts_root
-
-        dossier_root = dossiers_transcript_edit_dossier_artifacts_root()
-    except Exception:
-        return
-    if not dossier_root.exists():
-        return
-    try:
-        for dossier_dir in dossier_root.iterdir():
-            if not dossier_dir.is_dir():
-                continue
-            workspace_dir = dossier_dir / run_id
-            if workspace_dir.is_dir() and is_safe_run_dir_in_bucket(workspace_dir, dossier_dir):
-                try:
-                    shutil.rmtree(workspace_dir)
-                    _LOG.info(
-                        "cleanup: removed transcript_edit_dossier workspace %s",
-                        workspace_dir,
-                    )
-                except Exception:
-                    _LOG.warning("cleanup: failed to remove %s", workspace_dir, exc_info=True)
-    except Exception:
-        _LOG.warning("cleanup: transcript_edit_dossier workspace scan failed", exc_info=True)
 
 
 # Backward-compatible helpers for existing tests

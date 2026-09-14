@@ -536,11 +536,19 @@ python -m harness.cli.resume --run-id $runId
 
 When per-turn checkpoints exist under `resume_checkpoints/turn_NNNN.json.gz`
 (legacy `turn_NNNN.json` remains readable), fork a
-**new** run from a known mid-run state without mutating the original audit history:
+**new** run from a known mid-run state without mutating the original audit history.
+
+Workspace mode is an explicit closed vocabulary (`isolated` or `continue`):
 
 ```powershell
 python -m harness.cli.fork_resume --run-id $runId --from-turn 18
+python -m harness.cli.fork_resume --run-id $runId --from-turn 18 --workspace-mode isolated
+python -m harness.cli.fork_resume --run-id $runId --from-turn 18 --workspace-mode continue
 ```
+
+Use `harness.cli.resume` when the same run/workspace should continue (operator-paused/stopped or other same-run resumable failures). Use `--workspace-mode isolated` (the default) for experimental earlier-turn replay with a new workspace. Use `--workspace-mode continue` only for terminal failed/exhausted recovery from the source's latest durable checkpoint; the child keeps a new run_id and the source workspace_id so checkpoint-carried artifact refs stay resolvable. `continue` does not copy files and refuses completed, HITL-waiting, in-progress, operator-stopped/resumable, earlier-than-latest checkpoints, divergent `result.json`/`done.json`, a second active continuation of the same workspace, and malformed launch-context identity. Retention deletes a shared workspace only after the last surviving reference is gone and never while an active or activity-unknown run still references it. Isolated remains the branching path.
+
+Coding agents must not start, resume, or fork a real harness run from this guide unless a testing brief explicitly asks the testing agent to do so.
 
 `turn_NNNN.json.gz` is the durable state **after turn N completed**. The snapshot inside
 carries `next_iteration = N + 1`, so `--from-turn 18` resumes at turn 19. After turn
@@ -548,29 +556,27 @@ carries `next_iteration = N + 1`, so `--from-turn 18` resumes at turn 19. After 
 If both `.json.gz` and legacy `.json` exist for the same turn, the compressed form is
 selected; a corrupt compressed file is refused without falling back to legacy JSON.
 
-This allocates a new run id (for example `deed-to-ir-live-r00000027`), copies the
+Isolated fork allocates a new run id (for example `deed-to-ir-live-r00000027`), copies the
 original spawn argv (with embedded launch-context `run_id` / `workspace_id` stripped so
 the child receives CLI identity via env), points `HARNESS_CLI_RESUME_FILE` at the
 selected checkpoint, and records fork lineage in the child run's `state.json`
-(`forked_from_run_id`, `forked_from_turn`, `source_checkpoint_path`). The source run's
-artifacts remain unchanged.
+(`forked_from_run_id`, `forked_from_turn`, `source_checkpoint_path`, `workspace_mode`).
+Continuation fork keeps those lineage fields and adds `source_workspace_id`. The source
+run's audit/terminal files remain unchanged.
 
 Older runs that predate per-turn checkpoint persistence only have the latest
 `kernel_resume.json`. Those cannot be rewound to an arbitrary turn except from that
 latest checkpoint via `harness.cli.resume`.
 
-Forked replay is for testing current harness/domain changes against a known
+Isolated forked replay is for testing current harness/domain changes against a known
 mid-run state — not for rewriting completed audit history.
 
-**Fork identity note:** A forked child receives a new CLI `run_id` and writes new
-terminal/output artifacts under that id (for example `deed_to_ir:output` in the child
-workspace). The resumed checkpoint may still carry source-run continuity such as
-`session_id` and IR refs whose workspace suffix matches the **source** run (for example
-`__ws_deed-to-ir-live-r00000027_v2`). That mixed identity is acceptable for mechanical
-fork replay today: new publishes and output packages land in the child workspace while
-checkpoint lineage preserves the mid-run state being replayed. A future pass may choose
-to fully rebase session/IR identity in the child; until then treat fork lineage in
-`state.json` (`forked_from_run_id`, `forked_from_turn`) as the operator source of truth.
+**Fork identity note:** An isolated child receives a new CLI `run_id` and a new
+`workspace_id`. The resumed checkpoint may still carry source-run continuity such as
+`session_id` and artifact refs whose workspace suffix matches the **source** run.
+That mixed identity is the reason isolated rewind is experimental. Continuation fork
+exists so terminal recovery can keep the source workspace_id without rebasing refs or
+copying files. Treat fork lineage in `state.json` as the operator source of truth.
 
 ### Tester-to-agent corrections
 

@@ -14,7 +14,20 @@ from time import time
 from typing import Any
 
 from harness.runtime.run_control_sidecar import write_initial_run_control_sidecar
-from .fork_spawn_argv import strip_launch_context_identity_for_fork
+from .fork_continue_eligibility import continue_pre_allocate_refusal
+from .fork_workspace import (
+    DEFAULT_WORKSPACE_MODE,
+    WORKSPACE_MODE_CONTINUE,
+    WORKSPACE_MODES,
+    parse_workspace_mode,
+    prepare_continue_spawn_argv,
+    prepare_isolated_spawn_argv,
+)
+from .workspace_claim import (
+    acquire_continue_workspace_claim,
+    refuse_continue_workspace_busy,
+    release_continue_workspace_claim,
+)
 from .resume_paths import (
     RESUME_CHECKPOINT_FILENAME,
     resolve_existing_turn_checkpoint,
@@ -29,7 +42,12 @@ from harness.runtime.memory.resume_snapshot import parse_kernel_resume_snapshot
 from harness.runtime.memory.resume_snapshot_storage import load_kernel_resume_snapshot_from_path
 
 
-def fork_run_from_turn(*, run_id: str, from_turn: int) -> dict[str, Any]:
+def fork_run_from_turn(
+    *,
+    run_id: str,
+    from_turn: int,
+    workspace_mode: str | None = None,
+) -> dict[str, Any]:
     """Create a new child run that resumes from a selected per-turn checkpoint."""
     source_id = str(run_id or "").strip()
     turn = int(from_turn)
@@ -37,6 +55,13 @@ def fork_run_from_turn(*, run_id: str, from_turn: int) -> dict[str, Any]:
         return {"status": "refused", "reason_code": "run_id_required"}
     if turn < 1:
         return {"status": "refused", "run_id": source_id, "reason_code": "from_turn_invalid"}
+    mode, mode_err = parse_workspace_mode(workspace_mode)
+    if mode_err or mode is None:
+        return {
+            "status": "refused",
+            "run_id": source_id,
+            "reason_code": mode_err or "workspace_mode_invalid",
+        }
 
     source_state = read_state(source_id)
     if source_state is None:
@@ -91,6 +116,35 @@ def fork_run_from_turn(*, run_id: str, from_turn: int) -> dict[str, Any]:
             "checkpoint_path": str(checkpoint.resolve()),
         }
 
+    continued_workspace: str | None = None
+    if mode == WORKSPACE_MODE_CONTINUE:
+        gate = continue_pre_allocate_refusal(
+            source_run_id=source_id,
+            source_state=source_state,
+            source_run_dir=source_run_dir,
+            from_turn=turn,
+        )
+        if gate:
+            return {"status": "refused", "run_id": source_id, "reason_code": gate}
+        child_argv, continued_workspace, ws_err = prepare_continue_spawn_argv(
+            spawn_argv=list(source_state.spawn_argv),
+            source_run_id=source_id,
+        )
+        if ws_err or child_argv is None or continued_workspace is None:
+            return {
+                "status": "refused",
+                "run_id": source_id,
+                "reason_code": ws_err or "workspace_id_invalid",
+            }
+        busy = refuse_continue_workspace_busy(
+            workspace_id=continued_workspace,
+            source_run_id=source_id,
+        )
+        if busy:
+            return {"status": "refused", "run_id": source_id, "reason_code": busy}
+    else:
+        child_argv = prepare_isolated_spawn_argv(list(source_state.spawn_argv))
+
     try:
         allocated = allocate_automatic_run_id(run_collection=source_state.run_collection)
     except (RunLayoutError, RunIdAllocatorError) as exc:
@@ -101,18 +155,21 @@ def fork_run_from_turn(*, run_id: str, from_turn: int) -> dict[str, Any]:
         }
 
     child_id = allocated.run_id
-    fork_lineage = {
+    fork_lineage: dict[str, Any] = {
         "forked_from_run_id": source_id,
         "forked_from_turn": turn,
         "source_checkpoint_path": str(checkpoint.resolve()),
+        "workspace_mode": mode,
     }
+    if continued_workspace is not None:
+        fork_lineage["source_workspace_id"] = continued_workspace
     model_env = source_state.extra.get("model") if isinstance(source_state.extra, dict) else None
     child_state = new_run_state(
         run_id=child_id,
         pid=0,
         loop_kind=source_state.loop_kind,
         mode=source_state.mode,
-        spawn_argv=strip_launch_context_identity_for_fork(list(source_state.spawn_argv)),
+        spawn_argv=child_argv,
         status="fork_started",
         extra={
             "fork_lineage": fork_lineage,
@@ -124,6 +181,47 @@ def fork_run_from_turn(*, run_id: str, from_turn: int) -> dict[str, Any]:
     allocated.run_dir.mkdir(parents=True, exist_ok=True)
     write_initial_run_control_sidecar(allocated.run_dir)
     write_state(child_state)
+
+    claimed = False
+    if mode == WORKSPACE_MODE_CONTINUE and continued_workspace is not None:
+        claim_err = acquire_continue_workspace_claim(
+            workspace_id=continued_workspace,
+            owner_run_id=child_id,
+        )
+        if claim_err:
+            child_state.status = "fork_aborted"
+            write_state(child_state)
+            return {
+                "status": "refused",
+                "run_id": source_id,
+                "reason_code": claim_err,
+                "workspace_mode": mode,
+            }
+        claimed = True
+        gate_again = continue_pre_allocate_refusal(
+            source_run_id=source_id,
+            source_state=source_state,
+            source_run_dir=source_run_dir,
+            from_turn=turn,
+        )
+        busy_again = refuse_continue_workspace_busy(
+            workspace_id=continued_workspace,
+            source_run_id=source_id,
+            exclude_run_id=child_id,
+        )
+        if gate_again or busy_again:
+            release_continue_workspace_claim(
+                workspace_id=continued_workspace,
+                owner_run_id=child_id,
+            )
+            child_state.status = "fork_aborted"
+            write_state(child_state)
+            return {
+                "status": "refused",
+                "run_id": source_id,
+                "reason_code": gate_again or busy_again,
+                "workspace_mode": mode,
+            }
 
     env = _child_env(
         paths=child_state.paths,
@@ -146,17 +244,21 @@ def fork_run_from_turn(*, run_id: str, from_turn: int) -> dict[str, Any]:
             close_fds=sys.platform != "win32",
             **_popen_flags(),
         )
-    except Exception as exc:
+    except Exception:
         stdout_f.close()
         stderr_f.close()
-        child_state.status = f"fork_spawn_failed:{exc}"
+        if claimed and continued_workspace is not None:
+            release_continue_workspace_claim(
+                workspace_id=continued_workspace,
+                owner_run_id=child_id,
+            )
+        child_state.status = "fork_spawn_failed"
         write_state(child_state)
         return {
             "status": "fork_spawn_failed",
             "run_id": child_id,
             "source_run_id": source_id,
             "reason_code": "spawn_failed",
-            "error": str(exc),
             "fork_lineage": fork_lineage,
         }
     stdout_f.close()
@@ -175,6 +277,7 @@ def fork_run_from_turn(*, run_id: str, from_turn: int) -> dict[str, Any]:
         "from_turn": turn,
         "checkpoint_path": str(checkpoint.resolve()),
         "fork_lineage": fork_lineage,
+        "workspace_mode": mode,
         "run_collection": child_state.run_collection,
         "loop_kind": child_state.loop_kind,
         "human_timeline_path": str(allocated.human_timeline_path.resolve()),
@@ -207,8 +310,23 @@ def main() -> None:
             "legacy turn_NNNN.json still readable; snapshot next_iteration must equal N+1)."
         ),
     )
+    parser.add_argument(
+        "--workspace-mode",
+        choices=sorted(WORKSPACE_MODES),
+        default=DEFAULT_WORKSPACE_MODE,
+        help=(
+            "isolated: new run_id and workspace_id (default). "
+            "continue: new run_id, preserve source workspace_id; latest failed/exhausted checkpoint only."
+        ),
+    )
     args = parser.parse_args()
-    _print_json(fork_run_from_turn(run_id=args.run_id.strip(), from_turn=int(args.from_turn)))
+    _print_json(
+        fork_run_from_turn(
+            run_id=args.run_id.strip(),
+            from_turn=int(args.from_turn),
+            workspace_mode=args.workspace_mode,
+        )
+    )
 
 
 if __name__ == "__main__":

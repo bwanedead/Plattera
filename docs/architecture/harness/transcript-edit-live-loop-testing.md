@@ -452,6 +452,16 @@ If the run had a pending `control.json`, resume consumes that stale control
 request before spawning the child so the resumed run does not immediately stop
 again.
 
+Choose the control-plane path by identity, not by habit:
+
+- `harness.cli.resume` — same run_id and same workspace_id. Use it for operator-paused/stopped runs and other same-run resumable failures.
+- `harness.cli.fork_resume --workspace-mode isolated` (default) — new run_id and new workspace_id. Use it to replay an earlier turn experimentally. Source artifacts stay independent. Checkpoint-carried derived-image and working-revision refs will not resolve in the child workspace.
+- `harness.cli.fork_resume --workspace-mode continue` — new run_id, exact source workspace_id. Use it only after a terminal failed/exhausted run, from that run's latest durable checkpoint. The child continues the existing artifact lineage without copying files.
+
+`continue` refuses completed runs, in-progress runs, HITL-waiting runs, operator-stopped/resumable runs, earlier-than-latest checkpoints, divergent `result.json`/`done.json`, a second active continuation of the same workspace, and malformed workspace or launch-context identity. Isolated forks keep the previous rewind behavior. Retention deletes a shared workspace only after the last surviving reference is gone and never while an active or activity-unknown run still references it.
+
+Coding agents must not start, resume, or fork a real harness run from this guide unless a testing brief explicitly asks the testing agent to do so.
+
 If status reports `interrupted_no_checkpoint`, the run cannot be resumed from
 the CLI control plane and should be treated as a failed/incomplete test run.
 

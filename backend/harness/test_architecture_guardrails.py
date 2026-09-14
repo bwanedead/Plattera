@@ -158,6 +158,35 @@ def test_harness_result_continuity_does_not_import_mapping_tooling() -> None:
     )
 
 
+def test_fork_cli_does_not_import_mapping_tooling() -> None:
+    """Generic fork/resume identity helpers must not import domain tooling."""
+    owners = [
+        HARNESS_ROOT / "cli" / "fork_resume.py",
+        HARNESS_ROOT / "cli" / "fork_workspace.py",
+        HARNESS_ROOT / "cli" / "fork_continue_eligibility.py",
+        HARNESS_ROOT / "cli" / "fork_spawn_argv.py",
+        HARNESS_ROOT / "cli" / "workspace_refs.py",
+        HARNESS_ROOT / "cli" / "workspace_claim.py",
+        HARNESS_ROOT / "cli" / "resume_paths.py",
+        HARNESS_ROOT / "cli" / "launch_identity.py",
+        HARNESS_ROOT / "audit" / "retention.py",
+        HARNESS_ROOT / "audit" / "retention_workspace_cleanup.py",
+    ]
+    banned_prefixes = (
+        "tooling.mapping.transcript_edit",
+        "tooling.mapping.deed_to_ir",
+        "domains.mapping.transcript_edit",
+        "domains.mapping.deed_to_ir",
+    )
+    failures: list[str] = []
+    for path in owners:
+        text = path.read_text(encoding="utf-8")
+        for prefix in banned_prefixes:
+            if prefix in text:
+                failures.append(f"{path.relative_to(REPO_ROOT)}: imports {prefix}")
+    assert not failures, "Fork CLI modules imported mapping tooling:\n" + "\n".join(failures)
+
+
 def test_point_crop_set_projection_owned_by_transcript_edit_tooling() -> None:
     tooling_path = (
         REPO_ROOT

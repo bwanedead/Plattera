@@ -148,6 +148,8 @@ def test_fork_from_compressed_turn_succeeds_and_preserves_lineage(tmp_path, monk
     assert lineage["forked_from_run_id"] == source_id
     assert lineage["forked_from_turn"] == 14
     assert lineage["source_checkpoint_path"].endswith("turn_0014.json.gz")
+    assert lineage["workspace_mode"] == "isolated"
+    assert "source_workspace_id" not in lineage
 
     child_state = rs.HarnessCliRunState.from_json_dict(
         json.loads((child_path / "state.json").read_text(encoding="utf-8"))
