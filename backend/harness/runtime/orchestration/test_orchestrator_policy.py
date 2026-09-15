@@ -484,7 +484,19 @@ def test_closure_enforcement_allows_complete_when_same_turn_patch_sets_audited()
     )
     plan = ActionPlan(
         complete_run=True,
-        state_patch={"mission": {"work_universe_posture": "audited"}},
+        state_patch={
+            "mission": {
+                "objective": "Finish the assigned mission",
+                "success_conditions": [
+                    {
+                        "condition_id": "sc-1",
+                        "title": "Named success condition",
+                        "status": "open",
+                    }
+                ],
+                "work_universe_posture": "audited",
+            }
+        },
     )
     assert (
         closure_enforcement_failure(

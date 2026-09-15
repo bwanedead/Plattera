@@ -63,7 +63,19 @@ _VALID_COMPLETE_JSON = json.dumps(
     {
         "complete_run": True,
         "rationale": "recovered with a bounded action",
-        "state_patch": {"mission": {"work_universe_posture": "audited"}},
+        "state_patch": {
+            "mission": {
+                "objective": "Finish the assigned mission",
+                "success_conditions": [
+                    {
+                        "condition_id": "sc-1",
+                        "title": "Named success condition",
+                        "status": "open",
+                    }
+                ],
+                "work_universe_posture": "audited",
+            }
+        },
         "continuity_journal_entry": {"recovered": True},
     }
 )

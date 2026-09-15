@@ -214,6 +214,56 @@ def test_mission_objective_shallow_summary_merge() -> None:
     assert rs2 is rs
 
 
+def test_mission_objective_null_and_blank_clear_without_coercion() -> None:
+    ms, rs = _base_states()
+    cleared, _, _ = apply_state_patch(
+        mission_state=ms,
+        resolution_state=rs,
+        state_patch={"mission": {"objective": None}},
+    )
+    assert cleared.objective is None
+    assert ms.objective == "prior"
+
+    blanked, _, _ = apply_state_patch(
+        mission_state=ms,
+        resolution_state=rs,
+        state_patch={"mission": {"objective": "   "}},
+    )
+    assert blanked.objective is None
+
+    stripped, _, _ = apply_state_patch(
+        mission_state=ms,
+        resolution_state=rs,
+        state_patch={"mission": {"objective": "  next  "}},
+    )
+    assert stripped.objective == "next"
+
+
+def test_mission_objective_rejects_non_string_types_without_mutation() -> None:
+    class _LooksLikeObjective:
+        def __str__(self) -> str:
+            return "Finish the assigned mission"
+
+    cases = (
+        7,
+        True,
+        {"text": "Finish the assigned mission"},
+        ["Finish the assigned mission"],
+        _LooksLikeObjective(),
+    )
+    for value in cases:
+        ms, rs = _base_states()
+        with pytest.raises(StatePatchError) as excinfo:
+            apply_state_patch(
+                mission_state=ms,
+                resolution_state=rs,
+                state_patch={"mission": {"objective": value}},
+            )
+        assert excinfo.value.reason_code == "mission_objective_invalid"
+        assert excinfo.value.detail.get("failing_path") == "mission.objective"
+        assert ms.objective == "prior"
+
+
 def test_mission_success_conditions_merge_by_condition_id() -> None:
     ms, rs = _base_states()
     ms2, _, _ = apply_state_patch(

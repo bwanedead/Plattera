@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from harness.runtime.prompting.surface import (
+    _HARNESS_TRUNK_CONTRACT_TEXT,
     _HARNESS_TRUNK_METHOD_TEXT,
+    _HARNESS_TRUNK_VERSION,
     build_harness_turn_surface,
 )
 
@@ -17,7 +19,7 @@ def test_harness_surface_teaches_work_universe_posture_and_audit_sweep() -> None
     assert "if i had to defend every closed item one by one" in text
     assert "mechanically blocked until `mission.work_universe_posture` is `audited`" in text
     assert "motion_posture" in text
-    assert "does not block tools based on motion posture" in text
+    assert "does not block tools based on motion posture alone" in text
 
 
 def test_harness_surface_defines_inventory_and_resolution_motion_gate() -> None:
@@ -31,8 +33,22 @@ def test_harness_surface_defines_inventory_and_resolution_motion_gate() -> None:
     assert "a partial universe is not permission to begin resolving the favorite item" in text
     assert "stay in inventory motion" in text
     assert "enter resolution motion" in text
+    assert "objective" in text and "success_conditions" in text
+    assert "the harness does not invent that framing" in text
+    assert "do not fabricate placeholder framing" in text
     assert "moving from inventory motion into resolution motion is an authored commitment" in text
     assert "retroflect immediately" in text
+
+
+def test_harness_surface_qualifies_when_success_conditions_are_required() -> None:
+    text = "\n".join((_HARNESS_TRUNK_CONTRACT_TEXT, _HARNESS_TRUNK_METHOD_TEXT))
+    lowered = text.lower()
+    assert _HARNESS_TRUNK_VERSION == "v45"
+    assert "optional during early `initial|partial` inventory" in lowered
+    assert "required before `believed_adequate`, `audited`, or resolution motion" in lowered
+    assert "optional `success_conditions` when you need" not in lowered
+    assert "when you need those mission-level truth conditions" not in lowered
+    assert "keep them explicit when the mission needs" not in lowered
 
 
 def test_harness_surface_teaches_user_messages_and_resolution_course() -> None:

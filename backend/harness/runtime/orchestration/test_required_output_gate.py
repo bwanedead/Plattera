@@ -22,7 +22,14 @@ from harness.runtime.orchestration.required_output_gate import (
 
 def _ready_memory(*, latest_refs: dict[str, str] | None = None) -> LoopMemoryState:
     mem = LoopMemoryState()
-    ms = new_mission_state(mission_id="m-out", loop_family="orchestration_kernel")
+    ms = new_mission_state(
+        mission_id="m-out",
+        loop_family="orchestration_kernel",
+        objective="Finish the assigned mission",
+        success_conditions=[
+            {"condition_id": "sc-1", "title": "Named success condition", "status": "open"}
+        ],
+    )
     ms = ms.model_copy(
         update={
             "work_universe_posture": "audited",

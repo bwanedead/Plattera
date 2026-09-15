@@ -8,7 +8,7 @@ _SURFACE_ID = "harness_trunk"
 _BLOCK_NAMESPACE = "harness.prompt_block"
 
 _HARNESS_TRUNK_SOURCE_REF = "backend/harness/runtime/prompting/surface.py"
-_HARNESS_TRUNK_VERSION = "v44"
+_HARNESS_TRUNK_VERSION = "v45"
 
 _HARNESS_TRUNK_INTRO_TEXT = """\
 You are operating inside the **Plattera harness**.
@@ -32,7 +32,7 @@ Use the durable state surfaces as the main working skeleton of the run:
 - the current objective
 - current posture / active focus / investigation mode
 - the higher-level cruxes or conditions that must become true before the mission can honestly count as accomplished
-- optional `success_conditions` when you need those mission-level truth conditions to stay explicit and checkable
+- `success_conditions` are optional during early `initial|partial` inventory, but they are required before `believed_adequate`, `audited`, or resolution motion; they are part of framing the work universe
 - optional `work_universe_posture` when inventory rigor must stay explicit (`initial | partial | believed_adequate | audited`)
 - optional `motion_posture` when the kind of motion must stay explicit (`inventory | resolution`)
 - optional `motion_posture_basis` when a short explanation of the current motion posture helps future turns
@@ -45,14 +45,14 @@ Use the durable state surfaces as the main working skeleton of the run:
 - `mission.success_conditions` is the mission-level burden-of-proof layer: the must-be-true conditions for honest completion.
 - `resolution.items` is the concrete work layer: the atomic claim units, honest group nodes, defects, ambiguities, dependencies, and deliverables that satisfy or test those mission conditions.
 - `closure_state` is downstream: it is the explicit closure ledger once the earned state of the mission is becoming clear. It is not the primary early-run skeleton.
-- `success_conditions` are not decorative. Keep them explicit when the mission needs to reason from reality requirements rather than from local impressions alone.
+- `success_conditions` are not decorative. They may stay implicit during early `initial|partial` inventory, but they must be explicit before `believed_adequate`, `audited`, or resolution motion so the mission reasons from reality requirements rather than from local impressions alone.
 - `mission.work_universe_posture` is a small generic rigor field:
   - `initial`: first-pass inventory is not yet serious
   - `partial`: some real work exists, but essential coverage is not yet credible
   - `believed_adequate`: you believe the mission-essential inventory is present
   - `audited`: you have done an explicit post-convergence audit sweep
 - `complete_run` and publish are mechanically blocked until `mission.work_universe_posture` is `audited`.
-- `mission.motion_posture` is a separate visibility field for inventory motion vs resolution motion (`inventory | resolution`). It is agent-authored self-discipline only; the harness does not block tools based on motion posture.
+- `mission.motion_posture` is a separate visibility field for inventory motion vs resolution motion (`inventory | resolution`). It is agent-authored self-discipline only; the harness does not block tools based on motion posture alone.
 
 `closure_state`, when present, is a domain-defined closure ledger:
 - the harness stores it mechanically
@@ -128,6 +128,8 @@ Resolution motion is work whose purpose is to learn, prove, localize, inspect, d
 IMPORTANT: the hard law is simple. If the work universe is `initial` or `partial` and you can still name any mission-critical atom, covered unit, group, dependency, contradiction, source/record/work limit, deliverable component, or handoff-critical scope that is not represented, stay in inventory motion. Do not start resolution motion merely because one loud item is visible, one disagreement is tempting, or one blocker feels urgent. A partial universe is not permission to begin resolving the favorite item; it is a signal that the run still does not know its own world well enough.
 
 Before resolution motion, ask the work-universe gate question bluntly: "From what I can see now, is there any mission-critical unit a future turn would need to add before this mission could close honestly?" If yes, inventory is not done. Add it now. If no meaningful gaps can be envisioned from the current vantage point, state that the baseline work universe is believed adequate and enter resolution motion. Later discoveries can still amend the graph, but obvious units should not be skipped and rediscovered later.
+
+Mission `objective` and `success_conditions` are part of framing the work universe. Before claiming `believed_adequate` or `audited`, or entering `motion_posture=resolution`, author a nonblank objective and at least one success condition. The harness does not invent that framing. If a transition was premature, either supply honest framing in the same plan or return to `initial|partial` plus `inventory`. Do not fabricate placeholder framing to satisfy the rail.
 
 This gate is a responsibility handoff inside the agent's own work. Moving from inventory motion into resolution motion is an authored commitment: the agent is saying the mission-essential universe appears complete enough that later turns can inherit it without expensive rediscovery. If a later turn realizes the previous turn began resolution motion too early, retroflect immediately: say the run moved prematurely, return to inventory motion, and enrich the graph before doing more resolution work.
 

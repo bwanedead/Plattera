@@ -19,6 +19,13 @@ from .contracts import (
     new_mission_state,
     new_resolution_state,
 )
+from .mission_framing_consistency import (
+    REASON_MISSION_FRAMING_REQUIRED,
+    MissionFramingConsistencyResult,
+    evaluate_mission_framing_consistency,
+    mission_framing_is_present,
+    missing_framing_fields,
+)
 from .terminal_row_consistency import (
     CLOSED_LIKE_STATUSES,
     MAX_TERMINAL_ROW_CONFLICTS,
@@ -36,11 +43,13 @@ __all__ = [
     "RESOLUTION_STATE_VERSION",
     "CLOSED_LIKE_STATUSES",
     "MAX_TERMINAL_ROW_CONFLICTS",
+    "REASON_MISSION_FRAMING_REQUIRED",
     "REASON_RESOLUTION_TERMINAL_ROW_HAS_LIVE_WORK",
     "ClosureDimension",
     "ClosureState",
     "EvidenceLocator",
     "HumanAnswerability",
+    "MissionFramingConsistencyResult",
     "MissionState",
     "MissionSuccessCondition",
     "MotionPosture",
@@ -53,6 +62,9 @@ __all__ = [
     "TerminalRowConsistencyResult",
     "WorkUniversePosture",
     "evaluate_addressed_terminal_row_consistency",
+    "evaluate_mission_framing_consistency",
+    "mission_framing_is_present",
+    "missing_framing_fields",
     "is_resolved_like",
     "live_work_fields_present",
     "new_closure_state",

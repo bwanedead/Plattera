@@ -368,7 +368,19 @@ def test_action_sequence_terminalizes_finalize_turn_with_state_patch_and_lifecyc
         actions=(ActionPlanAction("a1", _FINALIZER, {}),),
         idempotency_key="ik-finalize",
         continuity_journal_entry={"step": "finalize published"},
-        state_patch={"mission": {"work_universe_posture": "audited"}},
+        state_patch={
+            "mission": {
+                "objective": "Finish the assigned mission",
+                "success_conditions": [
+                    {
+                        "condition_id": "sc-1",
+                        "title": "Named success condition",
+                        "status": "open",
+                    }
+                ],
+                "work_universe_posture": "audited",
+            }
+        },
     )
     outcome = run_action_sequence_turn_if_present(
         loop_memory=mem,
@@ -656,7 +668,14 @@ class _UnitHitlBlocksPublishPack:
     def sync(self, context: OrchestratorContext) -> SharedStateProjection:
         from harness.mission_state import ClosureState, ResolutionCoveredUnit, ResolutionItem
 
-        ms = new_mission_state(mission_id="m-unit-hitl", loop_family="orchestration_kernel")
+        ms = new_mission_state(
+            mission_id="m-unit-hitl",
+            loop_family="orchestration_kernel",
+            objective="Finish the assigned mission",
+            success_conditions=[
+                {"condition_id": "sc-1", "title": "Named success condition", "status": "open"}
+            ],
+        )
         ms = ms.model_copy(
             update={
                 "work_universe_posture": "audited",

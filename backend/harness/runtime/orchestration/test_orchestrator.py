@@ -37,6 +37,31 @@ from harness.runtime.orchestration.trace_collector import KernelTraceCollector
 _PACK_CJ = {"pack_continuity_stub": True}
 
 
+def _generic_framing_mission(**updates: Any) -> dict[str, Any]:
+    mission: dict[str, Any] = {
+        "objective": "Finish the assigned mission",
+        "success_conditions": [
+            {
+                "condition_id": "sc-1",
+                "title": "Named success condition",
+                "status": "open",
+            }
+        ],
+        "work_universe_posture": "audited",
+    }
+    mission.update(updates)
+    return mission
+
+
+def _generic_framing_patch(
+    mission: dict[str, Any] | None = None,
+    **top_level: Any,
+) -> dict[str, Any]:
+    patch: dict[str, Any] = {"mission": _generic_framing_mission(**dict(mission or {}))}
+    patch.update(top_level)
+    return patch
+
+
 def _dashboard(*, refs: dict | None = None) -> ExecutionDashboard:
     return ExecutionDashboard(
         latest_refs=ExecutionLatestRefs(refs=dict(refs or {})),
@@ -365,7 +390,7 @@ class _SparseNoDispatchActionPlanPack:
     def choose_action(self, context: OrchestratorContext, projection: SharedStateProjection | None) -> ActionPlan:
         if context.loop_memory.iterations == 1:
             return ActionPlan(
-                state_patch={"mission": {"work_universe_posture": "audited"}},
+                state_patch=_generic_framing_patch(),
                 continuity_journal_entry={"step": "sparse no-dispatch action plan"},
             )
         return ActionPlan(complete_run=True, continuity_journal_entry={"step": "complete"})
@@ -395,7 +420,7 @@ class _SparseNoDispatchDictPack:
     def choose_action(self, context: OrchestratorContext, projection: SharedStateProjection | None) -> dict[str, Any]:
         if context.loop_memory.iterations == 1:
             return {
-                "state_patch": {"mission": {"work_universe_posture": "audited"}},
+                "state_patch": _generic_framing_patch(),
                 "continuity_journal_entry": {"step": "sparse no-dispatch dict"},
             }
         return {"complete_run": True, "continuity_journal_entry": {"step": "complete"}}
@@ -471,7 +496,7 @@ class CompleteRunWithSkippedItemRowsPack:
             idempotency_key="ik-skip-rows",
             continuity_journal_entry=_PACK_CJ,
             state_patch={
-                "mission": {"work_universe_posture": "audited"},
+                "mission": _generic_framing_mission(),
                 "resolution": {
                     "items": [
                         {"item_id": "", "title": "x", "kind": "k", "status": "s"},
@@ -588,7 +613,7 @@ class AsyncHitlThenCompletePack:
             idempotency_key="ik-done",
             rationale="after_async_hitl",
             continuity_journal_entry=_PACK_CJ,
-            state_patch={"mission": {"work_universe_posture": "audited"}},
+            state_patch=_generic_framing_patch(),
         )
 
 
@@ -616,7 +641,7 @@ class LongRationaleCompleteRunPack:
                 "so the run should stop with that limitation explicit."
             ),
             continuity_journal_entry=_PACK_CJ,
-            state_patch={"mission": {"work_universe_posture": "audited"}},
+            state_patch=_generic_framing_patch(),
         )
 
 
@@ -684,15 +709,14 @@ class RequiredOutputMissingCompletePack:
             idempotency_key=f"ik-req-out-{context.loop_memory.iterations}",
             rationale="attempt complete without output-tier ref",
             continuity_journal_entry=_PACK_CJ,
-            state_patch={
-                "mission": {
-                    "work_universe_posture": "audited",
+            state_patch=_generic_framing_patch(
+                mission={
                     "closure_state": {
                         "ready_to_close": True,
                         "dimensions": _closure_dimensions(layer4_status="non_blocking"),
                     },
                 },
-                "resolution": {
+                resolution={
                     "items": [
                         {
                             "item_id": "claim-1",
@@ -702,7 +726,7 @@ class RequiredOutputMissingCompletePack:
                         }
                     ],
                 },
-            },
+            ),
         )
 
 
@@ -791,7 +815,7 @@ class ResolutionGatedSavePack:
             idempotency_key="ik-save-done",
             rationale="done",
             continuity_journal_entry=_PACK_CJ,
-            state_patch={"mission": {"work_universe_posture": "audited"}},
+            state_patch=_generic_framing_patch(),
         )
 
 
@@ -891,25 +915,23 @@ class ClosureGatedCompletePack:
                 idempotency_key="ik-close-1",
                 rationale="trying too early",
                 continuity_journal_entry=_PACK_CJ,
-                state_patch={
-                    "mission": {
-                        "work_universe_posture": "audited",
+                state_patch=_generic_framing_patch(
+                    mission={
                         "closure_state": {
                             "overall_status": "open",
                             "ready_to_close": False,
                             "dimensions": _closure_dimensions(),
                         }
                     }
-                },
+                ),
             )
         return ActionPlan(
             complete_run=True,
             idempotency_key="ik-close-2",
             rationale="now explicit and ready",
             continuity_journal_entry=_PACK_CJ,
-            state_patch={
-                "mission": {
-                    "work_universe_posture": "audited",
+            state_patch=_generic_framing_patch(
+                mission={
                     "closure_state": {
                         "overall_status": "complete_ready",
                         "ready_to_close": True,
@@ -923,7 +945,7 @@ class ClosureGatedCompletePack:
                         ],
                     }
                 }
-            },
+            ),
         )
 
 
@@ -945,16 +967,15 @@ class ClosureGatedPublishPack:
                 idempotency_key="ik-publish-1",
                 rationale="publish before closure is ready",
                 continuity_journal_entry=_PACK_CJ,
-                state_patch={
-                    "mission": {
-                        "work_universe_posture": "audited",
+                state_patch=_generic_framing_patch(
+                    mission={
                         "closure_state": {
                             "overall_status": "investigating",
                             "ready_to_publish": False,
                             "dimensions": _closure_dimensions(),
                         }
                     }
-                },
+                ),
             )
         if context.loop_memory.iterations == 2:
             return ActionPlan(
@@ -963,9 +984,8 @@ class ClosureGatedPublishPack:
                 idempotency_key="ik-publish-2",
                 rationale="publish once ledger is explicit",
                 continuity_journal_entry=_PACK_CJ,
-                state_patch={
-                    "mission": {
-                        "work_universe_posture": "audited",
+                state_patch=_generic_framing_patch(
+                    mission={
                         "closure_state": {
                             "overall_status": "publish_ready",
                             "ready_to_publish": True,
@@ -979,16 +999,15 @@ class ClosureGatedPublishPack:
                             ],
                         }
                     }
-                },
+                ),
             )
         return ActionPlan(
             complete_run=True,
             idempotency_key="ik-publish-done",
             rationale="close after publish",
             continuity_journal_entry=_PACK_CJ,
-            state_patch={
-                "mission": {
-                    "work_universe_posture": "audited",
+            state_patch=_generic_framing_patch(
+                mission={
                     "closure_state": {
                         "ready_to_close": True,
                         "dimensions": [
@@ -1001,7 +1020,7 @@ class ClosureGatedPublishPack:
                         ],
                     }
                 }
-            },
+            ),
         )
 
 
@@ -1404,7 +1423,7 @@ class ContinuityJournalTwoTurnPack:
                 idempotency_key="ik2",
                 rationale="done",
                 continuity_journal_entry={"close_out": True},
-                state_patch={"mission": {"work_universe_posture": "audited"}},
+                state_patch=_generic_framing_patch(),
             )
         return ActionPlan(
             action_type="noop",
@@ -1616,7 +1635,7 @@ class _OneStepImagePack:
         return ActionPlan(
             complete_run=True,
             continuity_journal_entry={"done": True},
-            state_patch={"mission": {"work_universe_posture": "audited"}},
+            state_patch=_generic_framing_patch(),
         )
 
 
@@ -1789,7 +1808,7 @@ class _TransformRetryRecoverPack:
             idempotency_key="ik-done",
             rationale="transform recovered",
             continuity_journal_entry={"step": "done"},
-            state_patch={"mission": {"work_universe_posture": "audited"}},
+            state_patch=_generic_framing_patch(),
         )
 
 
@@ -1943,7 +1962,7 @@ class _RetryableDecisionShellRecoverPack:
             idempotency_key="ik-decision-complete",
             rationale="decision shell recovered",
             continuity_journal_entry={"step": "done"},
-            state_patch={"mission": {"work_universe_posture": "audited"}},
+            state_patch=_generic_framing_patch(),
         )
 
 
@@ -2178,7 +2197,7 @@ class _FinalizationLatestResultsRecoverPack:
             idempotency_key="ik-finalization-done",
             rationale="finalization recovered from latest_action_results",
             continuity_journal_entry={"step": "done"},
-            state_patch={"mission": {"work_universe_posture": "audited"}},
+            state_patch=_generic_framing_patch(),
         )
 
 
@@ -2471,7 +2490,7 @@ def test_orchestrator_recovers_from_length_failure_with_turn_recovery_prompt() -
             {
                 "complete_run": True,
                 "rationale": "recovered with a bounded action",
-                "state_patch": {"mission": {"work_universe_posture": "audited"}},
+                "state_patch": _generic_framing_patch(),
                 "continuity_journal_entry": {"recovered": True},
             }
         )
@@ -2589,7 +2608,7 @@ class _SaveThenInspectPack:
             )
         return ActionPlan(
             complete_run=True,
-            state_patch={"mission": {"work_universe_posture": "audited"}},
+            state_patch=_generic_framing_patch(),
             rationale="inspected; done",
         )
 
@@ -2697,7 +2716,7 @@ class _BatchTransformThenCompletePack:
             )
         return ActionPlan(
             complete_run=True,
-            state_patch={"mission": {"work_universe_posture": "audited"}},
+            state_patch=_generic_framing_patch(),
             rationale="inspected both hydrated crops; done",
         )
 

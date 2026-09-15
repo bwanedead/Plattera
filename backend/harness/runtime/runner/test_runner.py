@@ -20,6 +20,22 @@ from harness.runtime.runner import RuntimeArtifactTargets, RuntimeRunner, Runtim
 from harness.runtime.runner import runner as runner_module
 
 
+def _generic_framing_patch() -> dict[str, Any]:
+    return {
+        "mission": {
+            "objective": "Finish the assigned mission",
+            "success_conditions": [
+                {
+                    "condition_id": "sc-1",
+                    "title": "Named success condition",
+                    "status": "open",
+                }
+            ],
+            "work_universe_posture": "audited",
+        }
+    }
+
+
 @dataclass
 class FakeSurfaceAdapter:
     calls: list[dict[str, object]]
@@ -162,7 +178,7 @@ def test_runner_invokes_orchestration_and_writes_loop_result_artifacts(tmp_path:
                 "wait_for_human": False,
                 "complete_run": True,
                 "rationale": "finished",
-                "state_patch": {"mission": {"work_universe_posture": "audited"}},
+                "state_patch": _generic_framing_patch(),
                 "continuity_journal_entry": {"runner_stub": True},
                 "operator_progress_message": None,
             }
@@ -331,7 +347,7 @@ def _complete_run_plan_text(*, idempotency_key: str, rationale: str) -> str:
             "wait_for_human": False,
             "complete_run": True,
             "rationale": rationale,
-            "state_patch": {"mission": {"work_universe_posture": "audited"}},
+            "state_patch": _generic_framing_patch(),
             "continuity_journal_entry": {"runner_stub": True},
             "operator_progress_message": None,
         }
@@ -517,7 +533,7 @@ def test_runner_executes_transcript_edit_tool_and_writes_artifacts(tmp_path: Pat
                 "wait_for_human": False,
                 "complete_run": True,
                 "rationale": "finished",
-                "state_patch": {"mission": {"work_universe_posture": "audited"}},
+                "state_patch": _generic_framing_patch(),
                 "continuity_journal_entry": {"runner_stub": True},
                 "operator_progress_message": None,
             }
@@ -1217,7 +1233,7 @@ def _blocking_hitl_model_caller() -> tuple[list[str], Any]:
                 "wait_for_human": False,
                 "complete_run": True,
                 "rationale": "human answered, proceeding",
-                "state_patch": {"mission": {"work_universe_posture": "audited"}},
+                "state_patch": _generic_framing_patch(),
                 "continuity_journal_entry": {"stub": True},
                 "operator_progress_message": None,
             }
@@ -1327,7 +1343,7 @@ def test_async_hitl_does_not_pause_run(tmp_path: Path, monkeypatch) -> None:
                 "wait_for_human": False,
                 "complete_run": True,
                 "rationale": "done",
-                "state_patch": {"mission": {"work_universe_posture": "audited"}},
+                "state_patch": _generic_framing_patch(),
                 "continuity_journal_entry": {"stub": True},
                 "operator_progress_message": None,
             }
@@ -1795,7 +1811,7 @@ def test_hitl_routing_uses_canonical_run_id(tmp_path: Path, monkeypatch) -> None
                 "wait_for_human": False,
                 "complete_run": True,
                 "rationale": "done",
-                "state_patch": {"mission": {"work_universe_posture": "audited"}},
+                "state_patch": _generic_framing_patch(),
                 "continuity_journal_entry": {"stub": True},
                 "operator_progress_message": None,
             }

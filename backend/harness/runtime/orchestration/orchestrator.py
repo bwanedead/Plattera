@@ -68,6 +68,10 @@ from .state_patch_apply import (
     sync_state_patch_after_committed_gate,
     sync_state_patch_when_no_step_dispatched,
 )
+from .mission_framing_consistency import (
+    REASON_MISSION_FRAMING_CONSISTENCY_REPAIR_BUDGET_EXHAUSTED,
+    block_incomplete_mission_framing_before_dispatch,
+)
 from .state_patch_consistency import (
     REASON_STATE_PATCH_CONSISTENCY_REPAIR_BUDGET_EXHAUSTED,
     block_contradictory_closed_resolution_before_dispatch,
@@ -405,6 +409,34 @@ def run_orchestration_kernel_loop(
                     session_manager=session_manager,
                     terminal_summary=(
                         "Identical terminal-row state_patch consistency repairs "
+                        "exhausted the fixed identical-conflict budget."
+                    ),
+                )
+            continue
+
+        framing_gate = block_incomplete_mission_framing_before_dispatch(
+            loop_memory=loop_memory,
+            action_plan=action_plan,
+            tracer=tracer,
+            iteration=iterations,
+            lifecycle=active_lifecycle,
+            session_manager=session_manager,
+            session_id=session_id,
+            turn_completion_observer=active_lifecycle.turn_completion_observer,
+        )
+        if framing_gate is not None:
+            if framing_gate.repair_budget_exhausted:
+                return build_kernel_loop_result(
+                    loop_memory=loop_memory,
+                    terminal_class="failed",
+                    reason_code=REASON_MISSION_FRAMING_CONSISTENCY_REPAIR_BUDGET_EXHAUSTED,
+                    iterations=iterations,
+                    session_id=session_id,
+                    run_artifact_ref=run_artifact_ref,
+                    tracer=tracer,
+                    session_manager=session_manager,
+                    terminal_summary=(
+                        "Identical mission-framing consistency repairs "
                         "exhausted the fixed identical-conflict budget."
                     ),
                 )

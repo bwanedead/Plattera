@@ -171,7 +171,19 @@ def test_parse_action_plan_accepts_complete_turn_with_only_complete_run_and_stat
         json.dumps(
             {
                 "complete_run": True,
-                "state_patch": {"mission": {"work_universe_posture": "audited"}},
+                "state_patch": {
+                    "mission": {
+                        "objective": "Finish the assigned mission",
+                        "success_conditions": [
+                            {
+                                "condition_id": "sc-1",
+                                "title": "Named success condition",
+                                "status": "open",
+                            }
+                        ],
+                        "work_universe_posture": "audited",
+                    }
+                },
                 "rationale": "audit done",
             }
         ),

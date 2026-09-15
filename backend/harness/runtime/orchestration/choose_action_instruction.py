@@ -127,7 +127,7 @@ closure_state dimensions merge by `dimension_id`.
 `mission.motion_posture` allowed values: `inventory` | `resolution`
 - `inventory`: discovering, naming, and structuring the work universe
 - `resolution`: item-level learn, prove, inspect, delegate, adjudicate, earn, or close motion
-Keep `motion_posture` separate from `work_universe_posture`. Setting `motion_posture=resolution` is an authored commitment, not an automatic side effect of tools. Do not set `motion_posture=resolution` while `work_universe_posture` is still `initial` or `partial` unless your rationale names why baseline inventory is already adequate. The harness surfaces both for visibility; it does not block tools based on `motion_posture`.
+Keep `motion_posture` separate from `work_universe_posture`. Setting `motion_posture=resolution` is an authored commitment, not an automatic side effect of tools. Do not set `motion_posture=resolution` while `work_universe_posture` is still `initial` or `partial` unless your rationale names why baseline inventory is already adequate. Before claiming `believed_adequate`/`audited` or entering resolution motion, author a nonblank `mission.objective` and at least one `mission.success_conditions` row. The harness does not invent that framing. A premature transition may be repaired by supplying honest framing or returning to inventory. The harness surfaces both postures for visibility; it does not block tools based on `motion_posture` alone.
 
 Optional `motion_posture_basis`: short explanation of why the current motion posture is honest (bounded string).
 

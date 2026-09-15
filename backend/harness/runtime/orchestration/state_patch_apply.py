@@ -276,6 +276,8 @@ def _derive_repair_targets_from_feedback(
         targets.append("repair_success_condition_row")
     elif reason.startswith("closure_dimension_") or reason.startswith("closure_state_"):
         targets.append("repair_closure_dimension_row")
+    elif reason == "mission_framing_required":
+        targets.append("author_mission_framing_or_return_to_inventory")
     elif reason.startswith("mission_"):
         targets.append("repair_mission_patch_shape")
     elif reason.startswith("resolution_") or reason.startswith("items_") or reason.startswith("relations_"):
@@ -301,6 +303,16 @@ def _repair_hint_from_rejection(
     failing_path: str | None,
 ) -> str | None:
     path = str(failing_path or "").strip()
+    if reason_code == "mission_framing_required":
+        return (
+            "Mission framing is incomplete for the effective posture. "
+            "Either author a real nonblank mission.objective and at least one typed "
+            "mission.success_conditions row and continue, or honestly return to "
+            "work_universe_posture initial|partial with motion_posture=inventory if "
+            "readiness was premature. The harness does not invent that framing and "
+            "does not prefer either path. Do not write placeholder or fabricated "
+            "framing merely to satisfy this rail."
+        )
     if reason_code.startswith("success_condition_"):
         return (
             f"Patch only {path or 'mission.success_conditions'} and include condition_id, title, and status."
@@ -441,6 +453,7 @@ def _build_state_patch_feedback(
     semantic_intent_kinds: list[str] | None = None,
     attempted_hitl_consumed_prompt_ids: tuple[str, ...] | list[str] | None = None,
     cleared_hitl_consumed_prompt_ids: tuple[str, ...] | list[str] | None = None,
+    carry_prior_repair_bundle: bool = True,
 ) -> dict[str, Any]:
     previous = dict(previous_feedback or {})
     feedback: dict[str, Any] = {
@@ -488,6 +501,9 @@ def _build_state_patch_feedback(
             "conflicts_omitted_count",
             "conflict_identity",
             "same_conflict_streak",
+            "missing_fields",
+            "effective_work_universe_posture",
+            "effective_motion_posture",
         ):
             if key in detail:
                 feedback[key] = detail[key]
@@ -577,7 +593,11 @@ def _build_state_patch_feedback(
     elif outcome == "rejected":
         if isinstance(new_bundle, Mapping) and new_bundle.get("fragments"):
             feedback["state_patch_repair_bundle"] = new_bundle
-        elif isinstance(prior_bundle, Mapping) and prior_bundle.get("fragments"):
+        elif (
+            carry_prior_repair_bundle
+            and isinstance(prior_bundle, Mapping)
+            and prior_bundle.get("fragments")
+        ):
             feedback["state_patch_repair_bundle"] = prior_bundle
 
     return feedback
@@ -1301,7 +1321,16 @@ def _apply_mission_branch(ms: MissionState, raw: Any) -> MissionState:
 
     if "objective" in raw:
         v = raw["objective"]
-        updates["objective"] = None if v is None else (str(v).strip()[:240] or None)
+        if v is None:
+            updates["objective"] = None
+        elif type(v) is str:
+            updates["objective"] = v.strip()[:240] or None
+        else:
+            raise StatePatchError(
+                "mission_objective_invalid",
+                "mission.objective must be a string or null",
+                detail={"failing_path": "mission.objective"},
+            )
 
     if "active_mode" in raw:
         v = raw["active_mode"]
