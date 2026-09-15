@@ -77,6 +77,8 @@ def _project_dossier_contract(spec: SemanticToolSpec) -> SemanticToolSpec:
                 "identity to the source segment/transcription lineage."
             ),
         )
+    if spec.tool_id == "initialize_working_transcript":
+        return _dossier_initialize_working_transcript_spec(spec)
     if spec.tool_id == "save_workspace_artifact":
         return _dossier_save_spec(spec)
     if spec.tool_id == "copy_forward_save_workspace_artifact":
@@ -86,6 +88,49 @@ def _project_dossier_contract(spec: SemanticToolSpec) -> SemanticToolSpec:
     if spec.tool_id == "publish_workspace_artifact":
         return _dossier_publish_spec(spec)
     return spec
+
+
+def _dossier_initialize_working_transcript_spec(spec: SemanticToolSpec) -> SemanticToolSpec:
+    return replace(
+        spec,
+        purpose=(
+            spec.purpose
+            + " In dossier mode, source_ref must be a dossier-qualified exact T0 draft ref. "
+            "The qualified source_ref itself determines the segment/transcription lineage; "
+            "do not pass a redundant target_ref. Deterministic code never chooses among peers."
+        ),
+        expected_request_shape=(
+            "source_ref: required dossier-qualified exact T0 draft ref in the form "
+            "dossier_segment:<segment_id>:run:<transcription_id>:t0:raw:<draft>. "
+            "Unknown fields are refused. No target_ref."
+        ),
+        expected_request_json_shape={
+            "type": "object",
+            "required": ["source_ref"],
+            "properties": {
+                "source_ref": {
+                    "type": "string",
+                    "description": (
+                        "Dossier-qualified exact T0 draft ref identifying the source text "
+                        "and the target segment/transcription lineage."
+                    ),
+                },
+            },
+            "additionalProperties": False,
+        },
+        example_request={
+            "source_ref": f"{_QUALIFIED_EXAMPLE_PREFIX}t0:raw:draft_1",
+        },
+        expected_result_shape=(
+            "artifact_refs include transcript_edit:working:rev:0001 + aggregate transcript_edit:working. "
+            "outputs: working_draft_ref, aggregate_working_ref, source_ref, "
+            "initialization_posture=unverified_candidate_copy, copied_lanes, idempotent_replay. "
+            "No host paths or source bytes. The returned exact revision is immediately usable as "
+            "base_revision_ref for apply_transcript_edits. "
+            "Dossier mode qualifies those refs to the lineage named by source_ref; no other segment "
+            "is mutated."
+        ),
+    )
 
 
 def _dossier_save_spec(spec: SemanticToolSpec) -> SemanticToolSpec:

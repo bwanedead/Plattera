@@ -8,7 +8,8 @@
 ## Contracts & invariants
 
 - **Domain vs tooling:** Dossier I/O and ref resolution live in `backend/tooling/mapping/transcript_edit/` only.
-- **Shared-capability tool surface:** `execution/tool_specs.py` declares tools matching shared `tooling/artifact_capability/` IDs plus domain-owned `copy_forward_save_workspace_artifact` and `apply_transcript_edits`: `hydrate_artifact_refs`, `transform_artifact`, `save_workspace_artifact`, `copy_forward_save_workspace_artifact`, `apply_transcript_edits`, `publish_workspace_artifact`. `execution/dossier_tool_specs.py` changes only their dossier-mode transport contracts; no fake or spec-only tools.
+- **Shared-capability tool surface:** `execution/tool_specs.py` declares tools matching shared `tooling/artifact_capability/` IDs plus domain-owned `initialize_working_transcript`, `copy_forward_save_workspace_artifact`, and `apply_transcript_edits`: `hydrate_artifact_refs`, `transform_artifact`, `initialize_working_transcript`, `save_workspace_artifact`, `copy_forward_save_workspace_artifact`, `apply_transcript_edits`, `publish_workspace_artifact`. `execution/dossier_tool_specs.py` changes only their dossier-mode transport contracts; no fake or spec-only tools.
+- **Working-transcript initialization:** `initialize_working_transcript` copies one exact agent-selected T0 draft into working `rev:0001` as an unverified candidate. It does not select among peers, verify text, or earn readings. Empty schema-v2 `transcript_edit_decisions` plus `initialization_provenance` are required; further lane edits use `apply_transcript_edits`.
 - **Pack is the semantic surface owner:** `domain_pack.py` declares the mapping-family branch, transcript-edit branch, procedural guidance, semantic tool menu, and closure policy. `runtime_adapter/` may only materialize that declaration with startup inventory and scoped handlers.
 - **Startup context is injected, not callable:** `build_startup_context_block` (from `prompting/surfaces/startup_context.py`) formats the startup inventory into a prompt block—there is no `load_transcript_edit_startup_inventory` callable tool.
 - **Handlers close over scope:** `build_transcript_edit_tool_bindings(dossier_id, transcription_id, workspace_key)` must be called with explicit scope. LLM requests carry only capability-level inputs.
@@ -34,7 +35,7 @@
 ## Gotchas
 
 - `build_transcript_edit_tool_bindings()` now requires `dossier_id`, `transcription_id`, `workspace_key` kwargs — no positional args.
-- All 4 tool handlers extract inputs via `request.inputs` (not `dict(request)`) to support both `ExecutionStepRequest` and direct dict calls.
+- All tool handlers extract inputs via `request.inputs` (not `dict(request)`) to support both `ExecutionStepRequest` and direct dict calls.
 - Leaf `surface.blocks` has 4 entries. Dossier mode adds `transcript_edit_dossier_guidance` before its startup context.
 
 ## Links

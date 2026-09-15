@@ -30,6 +30,24 @@ _RETRYABLE_REASON_CODES_BY_ACTION: dict[str, frozenset[str]] = {
             "dossier_ref_run_not_in_topology",
         }
     ),
+    "initialize_working_transcript": frozenset(
+        {
+            "invalid_request",
+            "unknown_request_fields",
+            "source_ref_required",
+            "source_ref_invalid_type",
+            "unsupported_source_ref",
+            "source_ref_unresolved",
+            "source_text_missing",
+            "source_text_invalid",
+            "source_text_oversized",
+            "working_lineage_already_initialized",
+            "dossier_ref_required",
+            "dossier_ref_invalid",
+            "dossier_ref_kind_not_runtime_resolvable",
+            "dossier_ref_run_not_in_topology",
+        }
+    ),
     "save_workspace_artifact": frozenset(
         {
             "invalid_request",

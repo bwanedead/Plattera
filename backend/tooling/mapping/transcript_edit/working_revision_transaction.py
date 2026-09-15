@@ -53,6 +53,38 @@ _create_only_write_json = create_only_write_json
 _VOLATILE_EQUALITY_FIELDS = frozenset({"saved_at"})
 
 
+def revision_saved_at_error(revision_doc: Any) -> str | None:
+    """Return detail when ``saved_at`` is missing or not a nonblank string.
+
+    Volatility for equivalence means the timestamp *value* may differ between
+    otherwise-identical documents. The field itself remains required and typed.
+    """
+    if type(revision_doc) is not dict:
+        return "Revision document must be an object."
+    if "saved_at" not in revision_doc:
+        return "saved_at must be a nonblank string."
+    saved_at = revision_doc.get("saved_at")
+    if type(saved_at) is not str or not saved_at.strip():
+        return "saved_at must be a nonblank string."
+    return None
+
+
+def revision_docs_equivalent(existing: dict[str, Any], intended: dict[str, Any]) -> bool:
+    """Full canonical equality; ``saved_at`` values may differ when both are valid.
+
+    Existing documents must carry an actual nonblank ``saved_at`` string before
+    they may compare equal. Intended comparison templates may omit ``saved_at``;
+    when present it must also be a nonblank string.
+    """
+    if revision_saved_at_error(existing) is not None:
+        return False
+    if "saved_at" in intended and revision_saved_at_error(intended) is not None:
+        return False
+    return content_sha256_of_doc(_canonical_for_equality(existing)) == content_sha256_of_doc(
+        _canonical_for_equality(intended)
+    )
+
+
 def _refuse(
     reason_code: str,
     error: str,
@@ -104,10 +136,8 @@ def _canonical_for_equality(doc: dict[str, Any]) -> dict[str, Any]:
 
 
 def _docs_equivalent(existing: dict[str, Any], intended: dict[str, Any]) -> bool:
-    """Full canonical equality; only explicitly volatile fields may differ."""
-    return content_sha256_of_doc(_canonical_for_equality(existing)) == content_sha256_of_doc(
-        _canonical_for_equality(intended)
-    )
+    """Internal alias for shared revision-doc equivalence."""
+    return revision_docs_equivalent(existing, intended)
 
 
 def _build_revision_doc(
@@ -170,10 +200,16 @@ def _advance_pointers(
             "invalid_revision_coordinate",
             f"Refusing pointer advancement: {coord_err}",
         )
+    saved_at_err = revision_saved_at_error(revision_doc)
+    if saved_at_err is not None:
+        return _refuse(
+            "invalid_working_storage_state",
+            f"Refusing pointer advancement: {saved_at_err}",
+        )
 
     next_rev = int(revision_doc["revision"])
     ref_id = str(revision_doc["ref_id"])
-    saved_at = str(revision_doc["saved_at"])
+    saved_at = revision_doc["saved_at"]
     rev_digits = f"{next_rev:04d}"
     rel_rev = f"working/rev_{rev_digits}.json"
 
@@ -612,6 +648,17 @@ def _recover_equivalent_existing_revision(
         return _refuse(
             "invalid_revision_coordinate",
             f"Existing revision coordinate is incoherent: {coord_err}",
+            outputs={
+                "orphan_revision_ref": str(
+                    existing.get("ref_id") or intended.get("ref_id") or ""
+                )
+            },
+        )
+    saved_at_err = revision_saved_at_error(existing)
+    if saved_at_err is not None:
+        return _refuse(
+            "invalid_working_storage_state",
+            saved_at_err,
             outputs={
                 "orphan_revision_ref": str(
                     existing.get("ref_id") or intended.get("ref_id") or ""

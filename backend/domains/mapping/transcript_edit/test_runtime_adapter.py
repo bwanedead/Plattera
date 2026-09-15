@@ -85,6 +85,7 @@ def test_tool_specs_shape_matches_shared_capability_ids() -> None:
     assert ids == [
         "hydrate_artifact_refs",
         "transform_artifact",
+        "initialize_working_transcript",
         "save_workspace_artifact",
         "copy_forward_save_workspace_artifact",
         "apply_transcript_edits",

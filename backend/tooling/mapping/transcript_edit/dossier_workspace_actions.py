@@ -1,4 +1,4 @@
-"""Dossier-scoped transform/save/copy-forward routing over leaf TE primitives.
+"""Dossier-scoped transform/initialize/save/copy-forward/apply routing over leaf TE primitives.
 
 Resolves dossier-qualified targets, delegates to existing per-transcription
 handlers/functions, and requalifies returned artifact refs.
@@ -27,6 +27,9 @@ from tooling.mapping.transcript_edit.draft_persistence import (
     parse_working_revision_ref,
     save_transcript_edit,
     working_revision_exists,
+)
+from tooling.mapping.transcript_edit.initialize_working_transcript import (
+    initialize_working_transcript,
 )
 
 HydrateHandler = Callable[[Any], Any]
@@ -62,6 +65,65 @@ def make_dossier_transform_artifact_handler(
             workspace_key=workspace_key,
         )
         leaf_result = leaf_handler(leaf_inputs)
+        return _project_result(leaf_result, ref_index=index, target=target)
+
+    return handler
+
+
+def make_dossier_initialize_working_transcript_handler(
+    *,
+    dossier_id: str,
+    ref_index: DossierArtifactRefIndex,
+    workspace_key: str | None,
+) -> Callable[[Any], Any]:
+    """Route initialize_working_transcript from a dossier-qualified exact T0 source_ref."""
+
+    _ALLOWED_KEYS = frozenset({"source_ref"})
+
+    def handler(request: Any) -> Any:
+        guarded = _guard_index(dossier_id=dossier_id, ref_index=ref_index)
+        if isinstance(guarded, dict):
+            return guarded
+        did, index = guarded
+        inputs = _request_inputs(request)
+        if type(inputs) is not dict:
+            return _refuse("invalid_request", "Request must be a JSON object.")
+        unknown = sorted(set(inputs) - _ALLOWED_KEYS)
+        if unknown:
+            return _refuse(
+                "unknown_request_fields",
+                f"Unknown fields: {unknown}",
+            )
+        if "source_ref" not in inputs:
+            return _refuse("source_ref_required", "source_ref is required.")
+        raw = inputs.get("source_ref")
+        if type(raw) is not str:
+            return _refuse(
+                "source_ref_invalid_type",
+                "source_ref must be an exact nonblank string.",
+            )
+        if not raw.strip() or raw != raw.strip():
+            return _refuse(
+                "source_ref_invalid_type",
+                "source_ref must be an exact nonblank string with no surrounding whitespace.",
+            )
+        try:
+            target = _resolve_target(index, raw)
+        except DossierArtifactRefError as exc:
+            return _refuse(exc.code, _safe_detail(exc))
+        if not target.leaf_ref.startswith("t0:raw:"):
+            return _refuse(
+                "unsupported_source_ref",
+                "source_ref must resolve to an exact hydratable T0 draft ref.",
+            )
+
+        leaf_result = initialize_working_transcript(
+            dossier_id=did,
+            transcription_id=target.transcription_id,
+            workspace_id=workspace_key,
+            request={"source_ref": target.leaf_ref},
+            durable_source_ref=raw,
+        )
         return _project_result(leaf_result, ref_index=index, target=target)
 
     return handler

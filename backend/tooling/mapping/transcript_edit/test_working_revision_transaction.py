@@ -575,3 +575,40 @@ def test_parse_working_revision_ref_rejects_non_strings():
     assert parse_working_revision_ref(b"transcript_edit:working:rev:0001") is None
     assert parse_working_revision_ref(1) is None
     assert parse_working_revision_ref(None) is None
+
+
+def test_revision_docs_equivalent_requires_typed_saved_at_on_existing():
+    from tooling.mapping.transcript_edit.working_revision_transaction import (
+        revision_docs_equivalent,
+        revision_saved_at_error,
+    )
+
+    intended = {
+        "schema_version": 1,
+        "revision": 1,
+        "ref_id": "transcript_edit:working:rev:0001",
+        "tool": "initialize_working_transcript",
+        "base_revision_ref": None,
+        "evidence_refs": ["t0:raw:draft_1"],
+        "rationale": None,
+        "payload": {"source_transcript_verbatim": "x"},
+    }
+    good = dict(intended)
+    good["saved_at"] = "2020-01-01T00:00:00Z"
+    assert revision_saved_at_error(good) is None
+    assert revision_docs_equivalent(good, intended) is True
+
+    for bad in (None, 1, True, {}, "  "):
+        existing = dict(intended)
+        existing["saved_at"] = bad
+        assert revision_saved_at_error(existing) is not None
+        assert revision_docs_equivalent(existing, intended) is False
+
+    missing = dict(intended)
+    assert revision_saved_at_error(missing) is not None
+    assert revision_docs_equivalent(missing, intended) is False
+
+    # Distinct valid timestamps still compare equal after volatile strip.
+    other = dict(good)
+    other["saved_at"] = "2021-02-03T04:05:06Z"
+    assert revision_docs_equivalent(other, intended) is True

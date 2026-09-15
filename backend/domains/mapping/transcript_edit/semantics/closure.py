@@ -23,6 +23,7 @@ def build_transcript_edit_closure_policy() -> DomainClosurePolicy:
         enforce_on_publish=True,
         enforce_on_complete=True,
         save_action_ids=(
+            "initialize_working_transcript",
             "save_workspace_artifact",
             "copy_forward_save_workspace_artifact",
             "apply_transcript_edits",

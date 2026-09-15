@@ -180,6 +180,7 @@ def test_leaf_action_ids_unchanged() -> None:
     assert [b.tool_id for b in surface.tool_bindings] == [
         "hydrate_artifact_refs",
         "transform_artifact",
+        "initialize_working_transcript",
         "save_workspace_artifact",
         "copy_forward_save_workspace_artifact",
         "apply_transcript_edits",

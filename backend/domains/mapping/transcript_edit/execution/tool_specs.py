@@ -333,6 +333,56 @@ def build_transcript_edit_tool_specs() -> tuple[SemanticToolSpec, ...]:
             ),
         ),
         SemanticToolSpec(
+            tool_id="initialize_working_transcript",
+            category="write",
+            purpose=(
+                "Initialize the first working transcript revision by copying one exact "
+                "agent-selected T0 draft ref into the working artifact. "
+                "Deterministic code loads that exact T0 text and writes revision 0001; "
+                "the model does not re-author the full segment in tool arguments. "
+                "The agent chooses the exact T0 candidate. "
+                "Initialization creates an explicitly unverified working baseline — "
+                "it does not verify, normalize, resolve graph items, or earn the copied text. "
+                "Inspect and improve it with apply_transcript_edits. "
+                "Do not postpone creating the working artifact merely because readings remain provisional. "
+                "Distinct from save_workspace_artifact (full agent-authored draft) and "
+                "copy_forward_save_workspace_artifact (payload-path copy from an existing working revision). "
+                "Nonbatchable: initializes exactly one working lineage per invocation."
+            ),
+            expected_request_shape=(
+                "source_ref: required exact nonblank t0:raw:* draft ref string. "
+                "Unknown fields are refused. No aggregate, legacy-pointer, working-revision, "
+                "image, or fabricated refs."
+            ),
+            expected_request_json_shape={
+                "type": "object",
+                "required": ["source_ref"],
+                "properties": {
+                    "source_ref": {
+                        "type": "string",
+                        "description": "Exact hydratable T0 draft ref (t0:raw:draft_N or t0:raw:<stem>).",
+                    },
+                },
+                "additionalProperties": False,
+            },
+            example_request={
+                "source_ref": "t0:raw:draft_1",
+            },
+            batching={
+                "allowed": False,
+                "max_calls_per_batch": 1,
+                "side_effect_class": "mutating",
+                "can_run_parallel": False,
+            },
+            expected_result_shape=(
+                "artifact_refs include transcript_edit:working:rev:0001 + aggregate transcript_edit:working. "
+                "outputs: working_draft_ref, aggregate_working_ref, source_ref, "
+                "initialization_posture=unverified_candidate_copy, copied_lanes, idempotent_replay. "
+                "No host paths or source bytes. The returned exact revision is immediately usable as "
+                "base_revision_ref for apply_transcript_edits."
+            ),
+        ),
+        SemanticToolSpec(
             tool_id="save_workspace_artifact",
             category="write",
             purpose=(
@@ -340,6 +390,8 @@ def build_transcript_edit_tool_specs() -> tuple[SemanticToolSpec, ...]:
                 "Does not mutate T0 raw drafts. Use transcript_text XOR draft_payload. "
                 "An initial working draft may include unresolved or provisional readings; "
                 "saving does not verify them. "
+                "When bootstrapping from an exact T0 peer draft without re-authoring the full text, "
+                "prefer initialize_working_transcript. "
                 "Transcript-edit payload note: the saved artifact is a source-faithful transcript "
                 "artifact first and a handoff-metadata carrier second. Follow the domain branch's "
                 "saved-artifact contract: `source_transcript_verbatim` is the first output obligation, "
@@ -481,7 +533,8 @@ def build_transcript_edit_tool_specs() -> tuple[SemanticToolSpec, ...]:
             purpose=(
                 "Apply exact agent-authored transcript text edits to one immutable working revision "
                 "and persist decision provenance on the resulting revision. "
-                "Distinct from save_workspace_artifact (initial draft creation) and "
+                "Distinct from initialize_working_transcript (exact T0 copy into rev:0001), "
+                "save_workspace_artifact (full agent-authored draft creation), and "
                 "copy_forward_save_workspace_artifact (general payload-path copy). "
                 "Use for corrections and source-supported confirmations. "
                 "expected_text == replacement_text records verification of already-correct text "

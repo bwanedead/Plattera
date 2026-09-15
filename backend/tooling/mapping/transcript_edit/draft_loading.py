@@ -250,6 +250,133 @@ def _draft_text(data: dict[str, Any]) -> str:
     return ""
 
 
+def _exact_t0_text_from_draft_object(data: dict[str, Any]) -> str:
+    """Type-strict T0 text extraction preserving ``_draft_text`` field order.
+
+    Accepts actual strings only. Malformed section bodies or top-level text
+    fields raise ``ExactT0DraftLoadError(source_text_invalid)``.
+    """
+    if "sections" in data and data.get("sections") is not None:
+        sections = data.get("sections")
+        if type(sections) is not list:
+            raise ExactT0DraftLoadError("source_text_invalid")
+        parts: list[str] = []
+        for sec in sections:
+            if type(sec) is not dict:
+                raise ExactT0DraftLoadError("source_text_invalid")
+            if "body" not in sec:
+                continue
+            body = sec.get("body")
+            if type(body) is not str:
+                raise ExactT0DraftLoadError("source_text_invalid")
+            if body:
+                parts.append(body)
+        if parts:
+            return "\n\n".join(parts).strip()
+
+    for key in ("text", "transcript", "body"):
+        if key not in data or data.get(key) in (None, ""):
+            continue
+        value = data.get(key)
+        if type(value) is not str:
+            raise ExactT0DraftLoadError("source_text_invalid")
+        if value:
+            return value.strip()
+    return ""
+
+
+class ExactT0DraftLoadError(Exception):
+    """Path-free refusal while loading one exact T0 draft text."""
+
+    def __init__(self, code: str, detail: str = "") -> None:
+        self.code = str(code)
+        self.detail = str(detail or "")
+        message = self.code if not self.detail else f"{self.code}: {self.detail}"
+        super().__init__(message)
+
+
+@dataclass(frozen=True)
+class ExactT0DraftText:
+    """Exact T0 draft text loaded by ref without host paths or binary material."""
+
+    source_ref: str
+    text: str
+    source_text_sha256: str
+
+
+def load_exact_t0_draft_text(
+    *,
+    dossier_id: str,
+    transcription_id: str,
+    source_ref: str,
+) -> ExactT0DraftText:
+    """Load one exact hydratable T0 draft text via the canonical stem-resolution seam.
+
+    Does not rank peers, fall back to another draft, or expose host paths.
+    Text extraction preserves the established field order but is type-strict
+    (actual strings only); legacy hydrate callers continue using ``_draft_text``.
+    """
+    did = str(dossier_id or "").strip()
+    tid = str(transcription_id or "").strip()
+    if type(source_ref) is not str:
+        raise ExactT0DraftLoadError("source_ref_invalid_type")
+    ref = source_ref.strip()
+    if not ref:
+        raise ExactT0DraftLoadError("source_ref_required")
+    if not ref.startswith(_T0_REF_PREFIX):
+        raise ExactT0DraftLoadError(
+            "unsupported_source_ref",
+            "source_ref must be an exact t0:raw:* draft ref.",
+        )
+    if not did or not tid:
+        raise ExactT0DraftLoadError("invalid_scope_path")
+
+    try:
+        raw_dir = raw_drafts_dir(did, tid)
+    except UnsafeArtifactPathSegmentError as exc:
+        raise ExactT0DraftLoadError("invalid_scope_path") from exc
+
+    stem, err = _resolve_source_stem_for_ref(
+        ref_id=ref,
+        raw_dir=raw_dir,
+        dossier_id=did,
+        transcription_id=tid,
+    )
+    if err is not None:
+        code = str(err.get("code") or "source_ref_unresolved")
+        if code == "legacy_pointer_alias":
+            raise ExactT0DraftLoadError(
+                "unsupported_source_ref",
+                "Legacy pointer aliases are not accepted.",
+            )
+        if code == "invalid_ref":
+            raise ExactT0DraftLoadError(
+                "unsupported_source_ref",
+                "source_ref must be an exact hydratable T0 draft ref.",
+            )
+        if code == "not_found":
+            raise ExactT0DraftLoadError("source_ref_unresolved")
+        raise ExactT0DraftLoadError("source_ref_unresolved")
+    if stem is None:
+        raise ExactT0DraftLoadError("source_ref_unresolved")
+
+    path = raw_dir / f"{stem}.json"
+    if not path.is_file():
+        raise ExactT0DraftLoadError("source_ref_unresolved")
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise ExactT0DraftLoadError("source_text_invalid") from exc
+    if type(data) is not dict:
+        raise ExactT0DraftLoadError("source_text_invalid")
+
+    text = _exact_t0_text_from_draft_object(data)
+    if type(text) is not str or not text:
+        raise ExactT0DraftLoadError("source_text_missing")
+    digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
+    return ExactT0DraftText(source_ref=ref, text=text, source_text_sha256=digest)
+
+
 def hydrate_t0_draft_refs(
     *,
     dossier_id: str,

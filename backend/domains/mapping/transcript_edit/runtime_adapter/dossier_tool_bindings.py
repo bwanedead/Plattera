@@ -1,6 +1,6 @@
 """Dossier-mode transcript-edit tool bindings (BR-002–BR-005 composition).
 
-Assembles existing dossier handlers behind the six transcript-edit action IDs.
+Assembles existing dossier handlers behind the seven transcript-edit action IDs.
 """
 
 from __future__ import annotations
@@ -22,6 +22,7 @@ from tooling.mapping.transcript_edit.dossier_startup_inventory import (
 from tooling.mapping.transcript_edit.dossier_workspace_actions import (
     make_dossier_apply_transcript_edits_handler,
     make_dossier_copy_forward_save_workspace_artifact_handler,
+    make_dossier_initialize_working_transcript_handler,
     make_dossier_save_workspace_artifact_handler,
     make_dossier_transform_artifact_handler,
 )
@@ -33,6 +34,7 @@ from .tool_refusal_boundary import apply_tool_refusal_boundary
 _MANIFEST_ACTION_IDS = (
     "hydrate_artifact_refs",
     "transform_artifact",
+    "initialize_working_transcript",
     "save_workspace_artifact",
     "copy_forward_save_workspace_artifact",
     "apply_transcript_edits",
@@ -74,6 +76,11 @@ def build_dossier_transcript_edit_tool_bindings(
         ),
         action_id="transform_artifact",
     )
+    initialize = make_dossier_initialize_working_transcript_handler(
+        dossier_id=dossier_id,
+        ref_index=ref_index,
+        workspace_key=workspace_key,
+    )
     save = make_dossier_save_workspace_artifact_handler(
         dossier_id=dossier_id,
         ref_index=ref_index,
@@ -95,7 +102,7 @@ def build_dossier_transcript_edit_tool_bindings(
         ToolBinding(tool_id=tool_id, handler=_guard_transport(handler, action_id=tool_id))
         for tool_id, handler in zip(
             _MANIFEST_ACTION_IDS,
-            (hydrate, transform, save, copy_forward, apply_edits, publish),
+            (hydrate, transform, initialize, save, copy_forward, apply_edits, publish),
             strict=True,
         )
     )
