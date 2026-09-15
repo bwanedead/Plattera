@@ -7,7 +7,7 @@ from domains.prompting import PromptBlock
 TRANSCRIPT_EDIT_DOMAIN_ID = "transcript_edit"
 TRANSCRIPT_EDIT_FAMILY_ID = "mapping"
 TRANSCRIPT_EDIT_BRANCH_SOURCE_REF = "backend/domains/mapping/transcript_edit/prompting/branch.py"
-TRANSCRIPT_EDIT_BRANCH_VERSION = "v36"
+TRANSCRIPT_EDIT_BRANCH_VERSION = "v37"
 
 TRANSCRIPT_EDIT_BRANCH_TEXT = """\
 You are operating in the **transcript edit** domain for mapping-bound work.
@@ -45,7 +45,7 @@ You may also have:
 - **Evidence**: source imagery, derived image artifacts, raw t0 drafts, and provenance that support or challenge a reading.
 - **Candidate repair**: a proposed change not yet committed; must cite what evidence supports it.
 - **Verification posture**: explicit statement of trust in the current text relative to evidence.
-- **T0 peer drafts vs authored edit output**: parallel machine starting inputs — **candidate readings**, not authority. Peer drafts are **disagreement detectors**; peer agreement is never verification on its own. Do not elevate one t0 file, vote/average peers into truth, or substitute peer drafts for direct source-image checks on mapping-critical claims. Your transcript-edit working/output draft is a **separate** authored artifact.
+- **T0 peer drafts vs authored edit output**: parallel machine starting inputs — **candidate readings**, not authority. Peer drafts are **disagreement detectors**; peer agreement is never verification on its own. Do not elevate one t0 file into earned truth, vote/average peers into truth, or substitute peer drafts for direct source-image checks on mapping-critical claims. Copying one exact T0 as an unverified working baseline is not elevation. Your transcript-edit working/output draft is a **separate** authored artifact.
 - **Downstream mapping readiness**: whether mapping consumers can rely on this transcript state without hidden landmines.
 
 ## Four layers of closure
@@ -180,7 +180,7 @@ Omit keys that truly do not apply (e.g., no HITL consumed yet), but do not omit 
 For transcript-edit, "handoffable" means this output contract has been materially satisfied, not merely that the reasoning felt complete. The final artifact should carry the source-faithful transcript lane, the downstream/mapping lane when it differs, the closure posture, scoped blockers or no-further-progress decisions, consumed HITL decisions, and the evidence metadata needed for deed-to-IR to understand what it can trust. If those pieces are present and honest for the available scope, the run should move toward publish/output and close. If they are not present, the right move is to repair the artifact or explicitly mark why output cannot be produced, not to imply handoff readiness in prose.
 
 ## Working draft posture
-The working transcript is the artifact taking shape during investigation. Publication carries selected working revisions into the transcript-edit output consumed by deed-to-IR. The resolution graph tracks investigation and remaining work; it is not a second transcript. A saved working draft is not proof that the investigation is complete, and saving does not verify unresolved or provisional readings.
+The working transcript is the artifact taking shape during investigation. Initialization materializes an unverified candidate baseline by copying one exact T0 source into that working artifact. Selecting that copy source is not ranking the peer as truth. Initialization does not satisfy the final source-observed transcript obligation, verify text, earn decisions, or resolve investigation state. Publication carries selected working revisions into the transcript-edit output consumed by deed-to-IR. The resolution graph tracks investigation and remaining work; it is not a second transcript. A saved working draft is not proof that the investigation is complete, and saving does not verify unresolved or provisional readings.
 
 Do not wait for perfect total closure before the draft exists. Do not treat the saved draft as evidence that the remaining work disappeared. When you do save or apply, the working artifact should materialize transcript-bearing state and decision provenance, not merely note that an investigation happened.
 
@@ -189,7 +189,7 @@ Knowing a reading is not the same as persisting it. A resolution update may reco
 Once the working/output artifact, closure ledger, and resolution items agree on the material scope, do not let end-run polish expand into a long audit phase. A short final reconciliation is healthy: compare the saved transcript and its decision provenance against material determinations, provisional readings, HITL decisions, remaining limitations, blockers, and handoff metadata. Repair actual discrepancies rather than reconstructing the transcript from turn history. A provisional reading may support continued work and an honestly qualified handoff under existing closure policy; do not invent an "all decisions earned" publication bar. After that, close; do not keep rereading or beautifying non-critical evidence when the downstream handoff is already honest.
 
 ## Dangerous mistakes
-- Treating one peer t0 draft as the default winner before comparing it against other peers and source evidence.
+- Treating a copied T0 baseline as the default winner, or giving the copy-source draft truth weight because it was selected for transport.
 - Treating peer agreement as a reason to skip direct review of visible operative deed content.
 - Letting a t0 candidate value imprint the answer, then using the image only to justify the candidate after the fact.
 - Determining a mapping-critical exact value before localized source evidence supports it.

@@ -11,7 +11,7 @@ from domains.prompting import PromptBlock
 from ...payloads import DossierTranscriptEditStartupInventory
 from ..branch import TRANSCRIPT_EDIT_DOMAIN_ID
 
-TRANSCRIPT_EDIT_STARTUP_CONTEXT_VERSION = "v5"
+TRANSCRIPT_EDIT_STARTUP_CONTEXT_VERSION = "v6"
 _STARTUP_CONTEXT_SOURCE_PATH = "backend/domains/mapping/transcript_edit/prompting/surfaces/startup_context.py"
 
 
@@ -69,7 +69,7 @@ def _format_transcription_startup_context(inventory: object) -> str:
         lines.append("### Peer T0 Draft Refs")
         lines.append(
             "T0 drafts are independent redundant machine passes over the source image. "
-            "Each is a peer — none is pre-ranked. Reconciliation is your responsibility."
+            "Each is a peer — none is pre-ranked."
         )
         for draft in t0_drafts:
             ref_id = getattr(draft, "ref_id", "")
@@ -132,8 +132,11 @@ def _format_transcription_startup_context(inventory: object) -> str:
         "`transform_artifact` creates reusable `image:derived:*` refs (model-visible evidence) via crop, expand, zoom, "
         "annotate, render_evidence_locators, point_crops_scaffold, point_crops, point_crops_adjust, and point_crops_view. "
         "Derived refs can be re-hydrated with `hydrate_artifact_refs`. "
-        "`save_workspace_artifact` saves a working transcript revision. "
-        "`publish_workspace_artifact` promotes a working revision to output."
+        "`initialize_working_transcript` copies one exact T0 ref into the first working revision as an unverified baseline. "
+        "`save_workspace_artifact` authors a full initial working draft. "
+        "`copy_forward_save_workspace_artifact` continues an existing working revision. "
+        "`apply_transcript_edits` applies evidence-linked edits to an exact working revision. "
+        "`publish_workspace_artifact` publishes the selected working revision."
     )
 
     return "\n".join(lines)
@@ -172,8 +175,7 @@ def _format_dossier_startup_context(
             lines.append("")
             continue
         lines.append(
-            "The runs below are peers. Select and reconcile them from source evidence; "
-            "their ordering is identity, not quality."
+            "The runs below are peers. Their ordering is identity, not quality."
         )
         for run in segment.runs:
             run_position = (
@@ -221,9 +223,12 @@ def _format_dossier_startup_context(
         "- qualified `image:assoc:*:original` → model-visible source pixels + bounded metadata\n"
         "- qualified `image:derived:*` → model-visible derived pixels + bounded provenance metadata\n\n"
         "**Capabilities:** hydrate and transform use dossier-qualified refs. "
-        "`save_workspace_artifact` writes only the segment/run lineage named by `target_ref` "
-        "or `base_revision_ref`. `copy_forward_save_workspace_artifact` continues an exact "
-        "qualified working revision. `publish_workspace_artifact` requires "
+        "`initialize_working_transcript` copies one dossier-qualified exact T0 ref into the working lineage that ref names. "
+        "`save_workspace_artifact` authors a full initial draft for the segment/run lineage named by `target_ref` "
+        "or `base_revision_ref`. "
+        "`copy_forward_save_workspace_artifact` continues an exact qualified working revision. "
+        "`apply_transcript_edits` applies evidence-linked edits to an exact qualified working revision. "
+        "`publish_workspace_artifact` requires "
         "`source_revision_refs`: one chosen exact qualified working revision per topology segment."
     )
     return "\n".join(lines)
