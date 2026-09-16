@@ -13,6 +13,9 @@ It does not claim improved reading accuracy.
 
 from __future__ import annotations
 
+from domains.mapping.transcript_edit.execution.delegate_observation_reminder import (
+    TRANSCRIPT_EDIT_DELEGATE_OBSERVATION_REMINDER,
+)
 from domains.mapping.transcript_edit.prompting.branch import build_transcript_edit_branch_blocks
 from domains.mapping.transcript_edit.prompting.surfaces.procedural_guidance import (
     build_transcript_edit_procedural_guidance_blocks,
@@ -92,6 +95,16 @@ def test_disagreement_is_preserved_without_forced_consensus() -> None:
         "delegate outputs do not become true by vote",
     ):
         assert marker in text, f"missing disagreement teaching: {marker!r}"
+
+
+def test_delegate_worklist_reminds_in_place_without_demanding_an_extra_check() -> None:
+    reminder = TRANSCRIPT_EDIT_DELEGATE_OBSERVATION_REMINDER.lower()
+    assert "during that integration" in reminder
+    assert "materially overlapping visible text already in this worklist" in reminder
+    assert "preserve a material mismatch as disagreement" in reminder
+    assert "rather than earning either reading" in reminder
+    assert "rerun until" not in reminder
+    assert "consensus" not in reminder
 
 
 def test_qualified_selections_use_existing_provisional_apply_contract() -> None:

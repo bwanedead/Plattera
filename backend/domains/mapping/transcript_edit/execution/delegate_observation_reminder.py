@@ -6,5 +6,7 @@ TRANSCRIPT_EDIT_DELEGATE_OBSERVATION_REMINDER = (
     "Completed delegate observations are available. "
     "Before making new crops or rerunning delegates, integrate target reads and "
     "opportunistically harvest clearly visible adjacent open atoms from "
-    "source_visible_text when anchored."
+    "source_visible_text when anchored. During that integration, compare a requested "
+    "reading with materially overlapping visible text already in this worklist; preserve "
+    "a material mismatch as disagreement rather than earning either reading."
 )
