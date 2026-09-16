@@ -1200,6 +1200,32 @@ def test_tool_spec_transform_teaches_point_crops_as_default_path() -> None:
     assert "plain_coordinate_reference" not in combined
 
 
+def test_tool_spec_point_crop_example_binds_known_atom_without_forcing_exploration() -> None:
+    specs = build_transcript_edit_tool_specs()
+    transform = next(s for s in specs if s.tool_id == "transform_artifact")
+    point = transform.example_request["params"]["points"][0]
+
+    assert point == {
+        "alias": "example_atom_crop",
+        "point_norm": [0.36, 0.63],
+        "size": "small_plus",
+        "shape": "wide",
+        "target_atom_id": "example-resolution-atom",
+        "target_context_id": "example-resolution-group",
+        "target_hint": "candidate token",
+        "target_hint_role": "candidate_only_not_earned",
+    }
+    teaching = " ".join(
+        (transform.expected_request_shape, str(transform.expected_request_json_shape))
+    ).lower()
+    assert "provide that exact target_atom_id" in teaching or "provide its exact target_atom_id" in teaching
+    assert "genuinely exploratory or not-yet-bound point" in teaching
+    assert "not proof" in teaching or "not earned truth" in teaching
+
+    contaminated = ("range 7 west", "range 77 west", "1638", "marked corner")
+    assert not any(term in str(transform.example_request).lower() for term in contaminated)
+
+
 # ---------------------------------------------------------------------------
 # Workstream 2: turn-local image evidence doctrine
 # ---------------------------------------------------------------------------

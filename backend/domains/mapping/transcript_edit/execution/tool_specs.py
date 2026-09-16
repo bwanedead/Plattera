@@ -152,8 +152,12 @@ def build_transcript_edit_tool_specs() -> tuple[SemanticToolSpec, ...]:
                 "trim_to_text_block?: boolean, trim_axis?: x, trim_padding_norm?: number, "
                 "points: [{alias, point_norm: [x,y], "
                 "size: small|small_plus|medium|large|span_line, shape: wide|portrait|square, width_norm?: number, height_norm?: number (both required), scale_x?: number, scale_y?: number, zoom_factor?: number, "
-                "trim_to_text_block?: boolean, trim_axis?: x, trim_padding_norm?: number}, ...], "
+                "trim_to_text_block?: boolean, trim_axis?: x, trim_padding_norm?: number, "
+                "target_atom_id?: str, target_context_id?: str, target_hint?: str, target_hint_role?: candidate_only_not_earned}, ...], "
                 "show?: [pin|box|letter]}. "
+                "When a point is intended to inspect an existing resolution atom, provide that exact target_atom_id; "
+                "omit target_atom_id only for a genuinely exploratory or not-yet-bound point. "
+                "Target mapping is deterministic crop-to-resolution wiring, not proof, and target_hint remains candidate context rather than earned truth. "
                 "Default show is [pin, letter]. show: box is accepted for compatibility but visual boxes are suppressed on normal master overlays "
                 "(render_warnings may note visual_boxes_suppressed_on_master_overlay); use point_crops_view for an explicit diagnostic box overlay. "
                 "Per-point width_norm/height_norm override template dimensions (both required together); then scale_x/scale_y may apply. "
@@ -247,7 +251,8 @@ def build_transcript_edit_tool_specs() -> tuple[SemanticToolSpec, ...]:
                             "size: small|small_plus|medium|large, shape: wide|portrait|square, width_norm?: number, height_norm?: number, scale_x?: number, scale_y?: number, zoom_factor?: number, "
                             "target_atom_id?: str, target_context_id?: str, target_hint?: str, target_hint_role?: candidate_only_not_earned}], "
                             "show?: [pin|box|letter]} — primary template crop packets; master overlay + review_rows/lines. "
-                            "Optional target_* fields are deterministic crop-to-resolution tracking only; target_hint is candidate context, not earned truth. "
+                            "For a known resolution atom, provide its exact target_atom_id; omission remains valid for a genuinely exploratory or not-yet-bound point. "
+                            "target_* fields are deterministic crop-to-resolution tracking only; target_hint is candidate context, not earned truth. "
                             "master overlay only in image_evidence; per-point crops are zoomed for legibility. "
                             "point_crops_adjust: {adjust: [{letter|alias, point_norm?, shift_norm?, size?, shape?, width_norm?, height_norm?, scale_x?, scale_y?, "
                             "zoom_factor?, target_atom_id?, target_context_id?, target_hint?, target_hint_role?}], show?: [pin|box|letter]} — adjust an existing crop set via prior master overlay ref_id. "
@@ -263,10 +268,14 @@ def build_transcript_edit_tool_specs() -> tuple[SemanticToolSpec, ...]:
                 "params": {
                     "points": [
                         {
-                            "alias": "cursive_atom_n4",
+                            "alias": "example_atom_crop",
                             "point_norm": [0.36, 0.63],
                             "size": "small_plus",
                             "shape": "wide",
+                            "target_atom_id": "example-resolution-atom",
+                            "target_context_id": "example-resolution-group",
+                            "target_hint": "candidate token",
+                            "target_hint_role": "candidate_only_not_earned",
                         }
                     ],
                     "show": ["pin", "letter"],
