@@ -26,22 +26,69 @@ def build_hot_latest_ref_keys(
     """Mechanical latest-ref keys that must stay exact in prompt projection."""
     keys: set[str] = set(_HOT_LATEST_REF_KEYS)
     policy = domain_closure_policy if isinstance(domain_closure_policy, Mapping) else {}
-    required_key = str(policy.get("required_output_ref_for_complete") or "").strip()
-    if required_key:
+    required_key = policy.get("required_output_ref_for_complete")
+    if type(required_key) is str and required_key:
         keys.add(required_key)
         family_prefix = _output_family_prefix(required_key)
         if family_prefix and isinstance(latest_refs, Mapping):
-            for raw_key in latest_refs.keys():
-                skey = str(raw_key)
-                if skey.startswith(f"{family_prefix}:") and ":working" in skey:
-                    keys.add(skey)
+            for raw_key, value in latest_refs.items():
+                if type(raw_key) is not str:
+                    continue
+                if _is_output_family_working_tier(raw_key, family=family_prefix):
+                    keys.add(raw_key)
+                    continue
+                ref_token = _string_token_for_working_tier_match(value)
+                if ref_token is not None and _is_output_family_working_tier(
+                    ref_token, family=family_prefix
+                ):
+                    keys.add(raw_key)
     return frozenset(keys)
 
 
-def _output_family_prefix(required_output_key: str) -> str | None:
-    if ":output" not in required_output_key:
+def _output_family_prefix(required_output_key: Any) -> str | None:
+    """Derive ``<family>`` from ``<family>:output``. Actual strings only."""
+    if type(required_output_key) is not str:
         return None
-    return required_output_key.rsplit(":output", 1)[0]
+    suffix = ":output"
+    if not required_output_key.endswith(suffix):
+        return None
+    family = required_output_key[: -len(suffix)]
+    return family or None
+
+
+def _string_token_for_working_tier_match(value: Any) -> str | None:
+    """Extract an actual string token for working-tier matching (no strip/coerce)."""
+    if type(value) is str:
+        return value
+    if isinstance(value, Mapping):
+        for key in ("ref", "artifact_ref", "derived_ref", "source_ref"):
+            raw = value.get(key)
+            if type(raw) is str:
+                return raw
+    return None
+
+
+def _is_output_family_working_tier(token: Any, *, family: str) -> bool:
+    """True when ``token`` is a delimiter-bounded member of ``<family>:working`` tier.
+
+    Matches only:
+    - ``<family>:working``
+    - ``<family>:working:<suffix>``
+    - ``<wrapper>:<family>:working``
+    - ``<wrapper>:<family>:working:<suffix>``
+
+    Requires an actual string. No ``str()`` coercion, case folding, strip, or
+    bare substring matching across family boundaries.
+    """
+    if type(token) is not str or type(family) is not str or not family:
+        return False
+    bare = f"{family}:working"
+    if token == bare or token.startswith(f"{bare}:"):
+        return True
+    wrapped = f":{family}:working"
+    if token.endswith(wrapped):
+        return True
+    return f"{wrapped}:" in token
 
 
 def _normalize_ref(value: Any) -> str | None:
