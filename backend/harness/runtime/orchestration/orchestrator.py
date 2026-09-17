@@ -9,6 +9,7 @@ from ...execution.session import ExecutionSessionManager
 from .contracts import ActionPlan, KernelLoopResult, OrchestrationAdapter, OrchestratorContext
 from .lifecycle import OrchestrationLifecycle, TurnCompletionObserver
 from ..memory import LoopMemoryState
+from ..llm.logical_call_budget import LogicalLlmCallBudgetError
 from ..hitl.request_shape import normalize_hitl_request, validate_hitl_consumed_prompt_ids
 from ..hitl.transport import (
     apply_hitl_consumed_prompt_ids,
@@ -60,7 +61,7 @@ from .orchestrator_policy import (
 )
 from .orchestrator_policy_block import handle_policy_block
 from .resume_checkpointing import write_resume_checkpoint
-from .run_control import build_kernel_loop_result, maybe_exit_for_run_control
+from .run_control import build_kernel_loop_result, build_logical_llm_call_budget_exhausted_result, maybe_exit_for_run_control
 from .recoverable_turn_failure import RecoverableTurnFailure
 from .resumable_model_interruption import ResumableModelInterruption
 from .orchestrator_turn import observe_turn_completed, record_turn_continuity
@@ -313,11 +314,17 @@ def run_orchestration_kernel_loop(
         )
 
         participant = active_lifecycle.pre_choose_action_participant
-        if participant is not None:
-            participant.before_choose_action(context, projection, tracer=tracer)
-
         try:
+            if participant is not None:
+                participant.before_choose_action(context, projection, tracer=tracer)
             action_plan = coerce_kernel_action_plan(orchestration_adapter.choose_action(context, projection))
+        except LogicalLlmCallBudgetError as exc:
+            _checkpoint(iterations)
+            return build_logical_llm_call_budget_exhausted_result(
+                loop_memory=loop_memory, reason_code=exc.reason_code, iterations=iterations,
+                session_id=session_id, run_artifact_ref=run_artifact_ref, tracer=tracer,
+                session_manager=session_manager,
+            )
         except ResumableModelInterruption as exc:
             _LOG.warning(
                 "KERNEL resumable_model_interruption ► iteration=%s reason_code=%s",

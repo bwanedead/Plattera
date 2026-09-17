@@ -292,7 +292,22 @@ def resume_run(*, run_id: str) -> dict[str, Any]:
     # immediately honor a stale pause/stop on its first safe boundary.
     consume_run_control_request(run_dir(run_id) / CONTROL_FILENAME)
     model_env = state.extra.get("model") if isinstance(state.extra, dict) else None
-    env = _child_env(paths=paths, run_id=run_id, loop_kind=state.loop_kind, model=model_env)
+    max_llm_calls = state.extra.get("max_llm_calls") if isinstance(state.extra, dict) else None
+    if isinstance(state.extra, dict) and "max_llm_calls" in state.extra and (
+        type(max_llm_calls) is not int or max_llm_calls < 0
+    ):
+        return {
+            "status": "refused",
+            "run_id": run_id,
+            "reason_code": "logical_llm_call_budget_invalid",
+        }
+    env = _child_env(
+        paths=paths,
+        run_id=run_id,
+        loop_kind=state.loop_kind,
+        model=model_env,
+        max_llm_calls=max_llm_calls if type(max_llm_calls) is int else None,
+    )
     env["HARNESS_CLI_RESUME_FILE"] = checkpoint
 
     extra = dict(state.extra or {})

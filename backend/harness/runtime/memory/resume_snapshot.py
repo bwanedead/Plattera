@@ -37,6 +37,7 @@ from .result_delivery import (
 )
 from .telemetry import PromptContactTelemetry
 from .turn_recovery import TurnRecoveryState
+from ..llm.logical_call_budget import budget_from_wire
 
 KERNEL_RESUME_SNAPSHOT_VERSION = "kernel_resume.v1"
 
@@ -134,6 +135,7 @@ def build_kernel_resume_snapshot(
             "turn_contact_records": list(loop_memory.telemetry.turn_contact_records),
         },
         "turn_recovery": loop_memory.turn_recovery.to_wire(),
+        "logical_llm_call_budget": loop_memory.logical_llm_call_budget.to_wire(),
         "execution_session": exec_wire,
     }
 
@@ -609,11 +611,16 @@ def parse_kernel_resume_snapshot(payload: Mapping[str, Any]) -> tuple[LoopMemory
     except (TypeError, ValueError):
         return empty, 1, "resume_snapshot_telemetry_invalid"
 
+    logical_llm_call_budget, budget_err = budget_from_wire(payload.get("logical_llm_call_budget"))
+    if budget_err or logical_llm_call_budget is None:
+        return empty, 1, budget_err or "resume_snapshot_logical_llm_call_budget_invalid"
+
     memory = LoopMemoryState(
         continuity=continuity,
         telemetry=telemetry,
         hitl=hitl,
         turn_recovery=TurnRecoveryState.from_wire(payload.get("turn_recovery")),
+        logical_llm_call_budget=logical_llm_call_budget,
         iterations=0,
     )
     return memory, next_it, None

@@ -42,6 +42,8 @@ LLM_CALL_TRACE_FIELDS: tuple[str, ...] = (
     "http_status",
     "error_type",
     "error_message_preview",
+    "logical_llm_call_number",
+    "logical_llm_call_max",
 )
 
 _CALL_ROLES = frozenset({"parent", "delegate", "subagent", "repair", "unknown"})
@@ -414,6 +416,8 @@ def sanitize_llm_call_trace(trace: Mapping[str, Any]) -> dict[str, Any]:
         if key.endswith("_tokens") or key in {
             "max_retries_configured",
             "retry_count_observed",
+            "logical_llm_call_number",
+            "logical_llm_call_max",
         }:
             out[key] = _coerce_int(value)
             continue

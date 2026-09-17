@@ -10,6 +10,7 @@ from typing import Any, Callable
 from services.llm.call_options import LlmCallOptions
 
 from harness.runtime.llm.streaming_config import apply_streaming_to_call_options
+from harness.runtime.llm.logical_call_budget import LogicalLlmCallBudgetError
 
 from .action_plan_parser import ModelActionParseError, parse_action_plan_response
 from .action_plan_prose_placement import normalize_misplaced_action_plan_prose
@@ -360,6 +361,10 @@ def attempt_repair(
             repair_method=REPAIR_METHOD_MODEL,
             repair_transformations=transformations,
         )
+    except LogicalLlmCallBudgetError:
+        # Budget exhaustion is a terminal mechanical rail, not a malformed
+        # repair result. Let the kernel end the run before another model call.
+        raise
     except Exception as exc:
         err = ModelActionParseError("model_caller_exception", "repair attempt raised unexpected exception")
         return RepairAttempt(

@@ -30,12 +30,24 @@ def _print_json(obj: dict[str, Any]) -> None:
     sys.stdout.flush()
 
 
+def _parse_cli_max_llm_calls(raw: str) -> int:
+    """Argparse type: exact nonnegative decimal string only (no ``+``, floats, or aliases)."""
+    from harness.runtime.llm.logical_call_budget import parse_env_max_llm_calls
+
+    value, err = parse_env_max_llm_calls(raw)
+    if err or value is None:
+        raise argparse.ArgumentTypeError("logical_llm_call_budget_invalid")
+    return value
+
+
 def _child_env(
     *,
     paths,
     run_id: str,
     loop_kind: str,
     model: str | None = None,
+    max_llm_calls: int | None = None,
+    forked_run: bool = False,
 ) -> dict[str, str]:
     base = os.environ.copy()
     base["HARNESS_CLI_RUN_ID"] = run_id
@@ -46,6 +58,10 @@ def _child_env(
     base["HARNESS_CLI_LOOP_KIND"] = loop_kind
     if str(model or "").strip():
         base["HARNESS_CLI_MODEL"] = str(model).strip()
+    if max_llm_calls is not None:
+        base["HARNESS_CLI_MAX_LLM_CALLS"] = str(max_llm_calls)
+    if forked_run:
+        base["HARNESS_CLI_FORKED_RUN"] = "1"
     return base
 
 
@@ -83,6 +99,7 @@ def start_run(
     mode: str,
     spawn_argv: list[str],
     model: str | None = None,
+    max_llm_calls: int | None = None,
     child_env_extra: dict[str, str] | None = None,
     run_dir: Path | None = None,
     run_collection: str | None = None,
@@ -91,6 +108,10 @@ def start_run(
     extra: dict[str, Any] = {}
     if model_str:
         extra["model"] = model_str
+    if max_llm_calls is not None:
+        if type(max_llm_calls) is not int or max_llm_calls < 0:
+            raise ValueError("logical_llm_call_budget_invalid")
+        extra["max_llm_calls"] = max_llm_calls
     state = new_run_state(
         run_id=run_id,
         pid=0,
@@ -107,7 +128,13 @@ def start_run(
     Path(paths.run_dir).mkdir(parents=True, exist_ok=True)
     run_control_file = write_initial_run_control_sidecar(paths.run_dir)
 
-    env = _child_env(paths=paths, run_id=run_id, loop_kind=loop_kind, model=model)
+    env = _child_env(
+        paths=paths,
+        run_id=run_id,
+        loop_kind=loop_kind,
+        model=model,
+        max_llm_calls=max_llm_calls,
+    )
     if child_env_extra:
         env.update(child_env_extra)
 
@@ -224,6 +251,12 @@ def main() -> None:
             "Passed through via HARNESS_CLI_MODEL and used only if launch context omits model."
         ),
     )
+    parser.add_argument(
+        "--max-llm-calls",
+        type=_parse_cli_max_llm_calls,
+        default=None,
+        help="Optional nonnegative cap on logical harness model calls for this run.",
+    )
     g = parser.add_mutually_exclusive_group()
     g.add_argument(
         "--stub",
@@ -238,6 +271,12 @@ def main() -> None:
         help="Extra argv segment after `-m module` (repeatable). Ignored without --python-module.",
     )
     args = parser.parse_args()
+
+    if args.max_llm_calls is not None and (
+        type(args.max_llm_calls) is not int or args.max_llm_calls < 0
+    ):
+        _print_json({"status": "error", "error": "logical_llm_call_budget_invalid"})
+        sys.exit(2)
 
     loop_kind = str(args.loop_kind or "harness_cli").strip() or "harness_cli"
     try:
@@ -272,6 +311,7 @@ def main() -> None:
         mode=mode,
         spawn_argv=spawn_argv,
         model=str(args.model or "").strip() or None,
+        max_llm_calls=args.max_llm_calls,
         run_dir=preallocated_run_dir,
         run_collection=run_collection,
     )

@@ -164,6 +164,15 @@ def fork_run_from_turn(
     if continued_workspace is not None:
         fork_lineage["source_workspace_id"] = continued_workspace
     model_env = source_state.extra.get("model") if isinstance(source_state.extra, dict) else None
+    max_llm_calls = source_state.extra.get("max_llm_calls") if isinstance(source_state.extra, dict) else None
+    if isinstance(source_state.extra, dict) and "max_llm_calls" in source_state.extra and (
+        type(max_llm_calls) is not int or max_llm_calls < 0
+    ):
+        return {
+            "status": "refused",
+            "run_id": source_id,
+            "reason_code": "logical_llm_call_budget_invalid",
+        }
     child_state = new_run_state(
         run_id=child_id,
         pid=0,
@@ -174,6 +183,7 @@ def fork_run_from_turn(
         extra={
             "fork_lineage": fork_lineage,
             **({"model": model_env} if model_env else {}),
+            **({"max_llm_calls": max_llm_calls} if type(max_llm_calls) is int else {}),
         },
         run_dir=allocated.run_dir,
         run_collection=source_state.run_collection,
@@ -228,6 +238,8 @@ def fork_run_from_turn(
         run_id=child_id,
         loop_kind=child_state.loop_kind,
         model=model_env if isinstance(model_env, str) else None,
+        max_llm_calls=max_llm_calls if type(max_llm_calls) is int else None,
+        forked_run=True,
     )
     env["HARNESS_CLI_RESUME_FILE"] = str(checkpoint.resolve())
 

@@ -8,6 +8,7 @@ from typing import Any
 from services.llm.call_options import LlmCallOptions
 
 from ..composition import ComposedTurnInput
+from ..llm.logical_call_budget import LogicalLlmCallBudgetError
 from ..memory.continuity_compaction import (
     apply_continuity_compaction_result,
     parse_compaction_response,
@@ -146,6 +147,10 @@ class LlmTurnPreChooseActionParticipant(PreChooseActionParticipant):
                 ),
             )
             summary = parse_compaction_response(raw_response)
+        except LogicalLlmCallBudgetError:
+            # Compaction is a logical harness LLM call. Exhaustion must terminate
+            # the run, not be swallowed as a soft compaction skip.
+            raise
         except Exception:
             emit_prompt_event_observability(
                 prompt_event_observer=self.prompt_event_observer,

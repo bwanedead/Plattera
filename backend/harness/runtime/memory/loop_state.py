@@ -6,6 +6,7 @@ from typing import Any
 from .continuity import OrchestrationContinuity
 from .telemetry import PromptContactTelemetry
 from .turn_recovery import TurnRecoveryState
+from ..llm.logical_call_budget import LogicalLlmCallBudget
 from ..hitl.transport import HitlTransportPosture
 
 
@@ -37,3 +38,6 @@ class LoopMemoryState:
     # semantic state; it only tells the next prompt why the prior model turn
     # produced no usable action plan and how many bounded retries remain.
     turn_recovery: TurnRecoveryState = field(default_factory=TurnRecoveryState)
+    # Run-local mechanical provider-call accounting. It is deliberately not
+    # semantic state: the cap limits resources, never plans or closure.
+    logical_llm_call_budget: LogicalLlmCallBudget = field(default_factory=LogicalLlmCallBudget)

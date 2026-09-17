@@ -121,6 +121,30 @@ def build_kernel_loop_result(
     )
 
 
+def build_logical_llm_call_budget_exhausted_result(
+    *,
+    loop_memory: LoopMemoryState,
+    reason_code: str,
+    iterations: int,
+    session_id: str,
+    run_artifact_ref: str | None,
+    tracer: KernelTraceCollector,
+    session_manager: ExecutionSessionManager,
+) -> KernelLoopResult:
+    """Terminal result when the next logical LLM call would exceed the run cap."""
+    return build_kernel_loop_result(
+        loop_memory=loop_memory,
+        terminal_class="exhausted",
+        reason_code=reason_code,
+        terminal_summary="Logical LLM call budget exhausted before another provider invocation.",
+        iterations=iterations,
+        session_id=session_id,
+        run_artifact_ref=run_artifact_ref,
+        tracer=tracer,
+        session_manager=session_manager,
+    )
+
+
 def _build_runtime_state(
     *,
     loop_memory: LoopMemoryState,
@@ -149,6 +173,7 @@ def _build_runtime_state(
         "kernel_compaction_covered_through_turn_index": int(
             loop_memory.continuity.kernel_compaction_covered_through_turn_index
         ),
+        "logical_llm_call_budget": loop_memory.logical_llm_call_budget.to_wire(),
     }
     if control_request is not None:
         runtime_state["control_request"] = control_request.to_json_dict()

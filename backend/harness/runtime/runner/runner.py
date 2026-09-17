@@ -68,6 +68,12 @@ from harness.runtime.llm.provider_model_caller import (
     ensure_model_provider_ready,
 )
 from harness.runtime.llm.provider_retry import public_exception_detail
+from harness.runtime.llm.logical_call_budget import (
+    budget_model_caller,
+    configure_logical_llm_call_budget,
+    parse_env_max_llm_calls,
+    parse_launch_max_llm_calls,
+)
 from .contracts import RuntimeAdapter, RuntimeArtifactTargets, RuntimeRunResult
 
 _LOG = logging.getLogger(__name__)
@@ -379,11 +385,40 @@ class RuntimeRunner:
         if resume_err:
             raise RuntimeRunnerError(resume_err)
 
+        initial_loop_memory = None
+        resume_start_iteration = 1
+        if resume_doc is not None:
+            initial_loop_memory, resume_start_iteration, perr = parse_kernel_resume_snapshot(resume_doc)
+            if perr:
+                raise RuntimeRunnerError(f"resume_snapshot_invalid:{perr}")
+
+        if initial_loop_memory is None:
+            from harness.runtime.memory import LoopMemoryState
+
+            initial_loop_memory = LoopMemoryState()
+        max_llm_calls, budget_config_err = _select_max_llm_calls(context)
+        if budget_config_err:
+            raise RuntimeRunnerError(budget_config_err, reason_code=budget_config_err)
+        logical_budget, budget_state_err = configure_logical_llm_call_budget(
+            restored=initial_loop_memory.logical_llm_call_budget,
+            configured_max_calls=max_llm_calls,
+            reset_for_fork=_is_forked_run(),
+        )
+        if budget_state_err or logical_budget is None:
+            raise RuntimeRunnerError(
+                budget_state_err or "logical_llm_call_budget_invalid",
+                reason_code=budget_state_err or "logical_llm_call_budget_invalid",
+            )
+        initial_loop_memory.logical_llm_call_budget = logical_budget
+
         model_name = _select_model_name(context)
         selected_caller = self._model_caller or _build_default_model_caller(
             model_name=model_name
         )
-        model_caller = ensure_provider_retry_model_caller(selected_caller)
+        model_caller = budget_model_caller(
+            ensure_provider_retry_model_caller(selected_caller),
+            budget=initial_loop_memory.logical_llm_call_budget,
+        )
         composed = _with_delegate_subtask_tool(
             composed,
             model_caller=model_caller,
@@ -393,13 +428,6 @@ class RuntimeRunner:
         executor = ExecutionExecutor()
         for tool_id, handler in composed.tool_handlers.items():
             executor.register(tool_id, handler)
-
-        initial_loop_memory = None
-        resume_start_iteration = 1
-        if resume_doc is not None:
-            initial_loop_memory, resume_start_iteration, perr = parse_kernel_resume_snapshot(resume_doc)
-            if perr:
-                raise RuntimeRunnerError(f"resume_snapshot_invalid:{perr}")
 
         session_manager = ExecutionSessionManager(executor=executor)
         run_id = _select_run_id(context)
@@ -769,6 +797,38 @@ def _select_model_name(context: Mapping[str, Any]) -> str:
         return launch_model
     cli_model = str(os.environ.get("HARNESS_CLI_MODEL") or "").strip()
     return cli_model or DEFAULT_HARNESS_MODEL
+
+
+def _select_max_llm_calls(context: Mapping[str, Any]) -> tuple[int | None, str | None]:
+    """Resolve the optional cap without changing model selection or coercing values.
+
+    Launch-context and CLI env are parsed independently with the strict parsers.
+    The operator CLI value is a non-bypassable ceiling: when both lanes supply
+    integers, the effective cap is ``min(launch_cap, cli_cap)``. A launch-context
+    ``null``/omitted lane does not clear a configured CLI ceiling.
+    """
+    if "max_llm_calls" in context:
+        launch_cap, launch_err = parse_launch_max_llm_calls(context.get("max_llm_calls"))
+        if launch_err:
+            return None, launch_err
+    else:
+        launch_cap = None
+
+    cli_cap, cli_err = parse_env_max_llm_calls(os.environ.get("HARNESS_CLI_MAX_LLM_CALLS"))
+    if cli_err:
+        return None, cli_err
+
+    if launch_cap is None and cli_cap is None:
+        return None, None
+    if launch_cap is None:
+        return cli_cap, None
+    if cli_cap is None:
+        return launch_cap, None
+    return min(launch_cap, cli_cap), None
+
+
+def _is_forked_run() -> bool:
+    return os.environ.get("HARNESS_CLI_FORKED_RUN") == "1"
 
 
 def _select_run_id(context: Mapping[str, Any]) -> str:
