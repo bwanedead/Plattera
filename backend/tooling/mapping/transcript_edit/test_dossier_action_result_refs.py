@@ -372,3 +372,116 @@ def test_leaf_failure_projection_strips_paths_keeps_repair_hint() -> None:
     assert param["refusal"]["retryable"] is True
     assert param["outputs"]["error"]["repair_hint"].startswith("Provide params.box_norm")
     assert "absolute_path" not in str(param)
+
+    # Hint transport must not require the leaf refusal to already be retryable.
+    terminal_with_hint = project_dossier_leaf_failure(
+        result={
+            "executed": False,
+            "refusal": {
+                "reason_code": "unknown_decision_fields",
+                "retryable": False,
+                "blocked_by_invariant": True,
+                "blocked_by_budget": False,
+                "missing_inputs": [],
+            },
+            "outputs": {
+                "error": {
+                    "code": "unknown_decision_fields",
+                    "message": "decisions[0] unknown fields: ['expected_text']",
+                    "repair_hint": (
+                        "Move lane, expected_text, and replacement_text into a "
+                        "decision's nonempty edits[] rows."
+                    ),
+                }
+            },
+        },
+        ref_index=index,
+        target=target,
+    )
+    assert terminal_with_hint["refusal"]["retryable"] is False
+    assert "Move lane" in terminal_with_hint["outputs"]["error"]["repair_hint"]
+
+
+def test_leaf_failure_projection_omits_oversized_and_non_string_repair_hints() -> None:
+    from tooling.mapping.transcript_edit.dossier_action_result_refs import (
+        _MAX_REPAIR_HINT_CHARS,
+    )
+
+    index = _index()
+    target = DossierArtifactRefTarget(
+        segment_id="seg_a",
+        transcription_id="tx_a",
+        leaf_ref="image:assoc:tx_a:original",
+    )
+    oversized = project_dossier_leaf_failure(
+        result={
+            "executed": False,
+            "refusal": {
+                "reason_code": "unknown_decision_fields",
+                "retryable": False,
+                "blocked_by_invariant": True,
+                "blocked_by_budget": False,
+                "missing_inputs": [],
+            },
+            "outputs": {
+                "error": {
+                    "code": "unknown_decision_fields",
+                    "message": "decisions[0] unknown fields: ['expected_text']",
+                    "repair_hint": "x" * (_MAX_REPAIR_HINT_CHARS + 1),
+                }
+            },
+        },
+        ref_index=index,
+        target=target,
+    )
+    assert "repair_hint" not in oversized["outputs"]["error"]
+
+    class _StrLike:
+        def __str__(self) -> str:
+            return "Move lane into edits[] rows."
+
+    non_string = project_dossier_leaf_failure(
+        result={
+            "executed": False,
+            "refusal": {
+                "reason_code": "unknown_decision_fields",
+                "retryable": False,
+                "blocked_by_invariant": True,
+                "blocked_by_budget": False,
+                "missing_inputs": [],
+            },
+            "outputs": {
+                "error": {
+                    "code": "unknown_decision_fields",
+                    "message": "decisions[0] unknown fields: ['expected_text']",
+                    "repair_hint": _StrLike(),
+                }
+            },
+        },
+        ref_index=index,
+        target=target,
+    )
+    assert "repair_hint" not in non_string["outputs"]["error"]
+
+    at_ceiling = project_dossier_leaf_failure(
+        result={
+            "executed": False,
+            "refusal": {
+                "reason_code": "unknown_decision_fields",
+                "retryable": False,
+                "blocked_by_invariant": True,
+                "blocked_by_budget": False,
+                "missing_inputs": [],
+            },
+            "outputs": {
+                "error": {
+                    "code": "unknown_decision_fields",
+                    "message": "ok",
+                    "repair_hint": "y" * _MAX_REPAIR_HINT_CHARS,
+                }
+            },
+        },
+        ref_index=index,
+        target=target,
+    )
+    assert at_ceiling["outputs"]["error"]["repair_hint"] == "y" * _MAX_REPAIR_HINT_CHARS

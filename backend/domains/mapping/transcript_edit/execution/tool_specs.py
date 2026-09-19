@@ -26,6 +26,33 @@ class SemanticToolSpec:
     batching: dict[str, Any] | None = None
 
 
+# Shared decision/edit grammar for leaf and dossier apply_transcript_edits.
+# Dossier mode only swaps base_revision_ref / evidence_refs qualification clauses.
+APPLY_TRANSCRIPT_EDITS_DECISION_EDIT_SHAPE = (
+    "decisions[]: decision_id; determination provisional|earned; "
+    "uncertainty_reasons (provisional >=1; earned []); verification_basis; "
+    "evidence_refs (earned >=1); candidate_values?; "
+    "edits[]: {lane source_transcript_verbatim|normalized_or_mapping_transcript; "
+    "expected_text; replacement_text; context_before?/context_after?}. "
+    "lane, expected_text, and replacement_text are edit-row fields only "
+    "(not decision-row). One decision may include more than one lane edit for "
+    "the same determination. expected_text == replacement_text is a valid confirmation."
+)
+
+APPLY_TRANSCRIPT_EDITS_LEAF_REQUEST_SHAPE = (
+    "base_revision_ref: exact transcript_edit:working:rev:NNNN "
+    "(current working head; no aggregate aliases). "
+    + APPLY_TRANSCRIPT_EDITS_DECISION_EDIT_SHAPE
+)
+
+APPLY_TRANSCRIPT_EDITS_DOSSIER_REQUEST_SHAPE = (
+    "base_revision_ref: exact dossier-qualified working revision "
+    "(dossier_segment:<segment_id>:run:<transcription_id>:transcript_edit:working:rev:NNNN). "
+    "evidence_refs must be dossier-valid/qualified. "
+    + APPLY_TRANSCRIPT_EDITS_DECISION_EDIT_SHAPE
+)
+
+
 def build_transcript_edit_tool_specs() -> tuple[SemanticToolSpec, ...]:
     return (
         SemanticToolSpec(
@@ -553,19 +580,7 @@ def build_transcript_edit_tool_specs() -> tuple[SemanticToolSpec, ...]:
                 "Requires the base_revision_ref to be the current working head. "
                 "Once managed provenance exists, use this action for evidence-linked transcript changes."
             ),
-            expected_request_shape=(
-                "base_revision_ref: required exact transcript_edit:working:rev:NNNN (no aggregate aliases). "
-                "decisions: required non-empty list of decision objects. "
-                "Each decision: decision_id (stable agent-authored id), determination "
-                "(provisional|earned), uncertainty_reasons (required list of canonical reason strings; "
-                "provisional requires >=1; earned requires []), verification_basis (nonblank), "
-                "evidence_refs (list; empty allowed for provisional; earned requires >=1), "
-                "optional candidate_values, and edits[]. "
-                "Each edit: lane, expected_text (nonempty exact match), replacement_text (string; empty deletes), "
-                "optional context_before/context_after for disambiguation. "
-                "expected_text == replacement_text is a valid verification that still persists provenance. "
-                "Reusing a decision_id replaces that current decision; prior immutable revisions retain history."
-            ),
+            expected_request_shape=APPLY_TRANSCRIPT_EDITS_LEAF_REQUEST_SHAPE,
             expected_request_json_shape={
                 "type": "object",
                 "required": ["base_revision_ref", "decisions"],

@@ -4,7 +4,11 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from .tool_specs import SemanticToolSpec, build_transcript_edit_tool_specs
+from .tool_specs import (
+    APPLY_TRANSCRIPT_EDITS_DOSSIER_REQUEST_SHAPE,
+    SemanticToolSpec,
+    build_transcript_edit_tool_specs,
+)
 
 _QUALIFIED_EXAMPLE_PREFIX = "dossier_segment:segment-01:run:tx-01:"
 
@@ -283,11 +287,7 @@ def _dossier_apply_transcript_edits_spec(spec: SemanticToolSpec) -> SemanticTool
             + " In dossier mode, base_revision_ref must be a dossier-qualified exact working revision. "
             "The target segment/transcription is derived from that ref."
         ),
-        expected_request_shape=(
-            "base_revision_ref: required dossier-qualified exact working revision "
-            "(dossier_segment:<segment_id>:run:<transcription_id>:transcript_edit:working:rev:NNNN). "
-            "decisions: same leaf decision/edit contract; evidence_refs must be dossier-valid."
-        ),
+        expected_request_shape=APPLY_TRANSCRIPT_EDITS_DOSSIER_REQUEST_SHAPE,
         expected_request_json_shape=_with_property_description(
             spec.expected_request_json_shape,
             "base_revision_ref",

@@ -41,6 +41,8 @@ _PATHISH_RE = re.compile(
     r"(?:[A-Za-z]:\\|\\\\|/Users/|/home/|AppData|LOCALAPPDATA|/tmp/|\\Users\\)",
     re.IGNORECASE,
 )
+# Bounded repair-hint transport; omit oversized hints whole (do not truncate).
+_MAX_REPAIR_HINT_CHARS = 320
 _SAFE_GENERIC_MESSAGES = {
     "transform_failed": "Leaf transform failed.",
     "source_image_missing": "Source image is missing or unreadable.",
@@ -162,7 +164,6 @@ def project_dossier_leaf_failure(
     outputs["error"] = _project_error_payload(
         outputs.get("error"),
         reason_code=reason_code,
-        retryable=retryable,
     )
     projected_body["outputs"] = outputs
 
@@ -189,7 +190,6 @@ def _project_error_payload(
     error: Any,
     *,
     reason_code: str,
-    retryable: bool,
 ) -> dict[str, Any]:
     code = reason_code
     message = _SAFE_GENERIC_MESSAGES.get(reason_code, "Leaf action failed.")
@@ -203,14 +203,21 @@ def _project_error_payload(
         elif code in _SAFE_GENERIC_MESSAGES:
             message = _SAFE_GENERIC_MESSAGES[code]
         raw_hint = error.get("repair_hint")
-        if isinstance(raw_hint, str) and raw_hint.strip() and not _is_path_bearing_text(raw_hint):
-            repair_hint = raw_hint.strip()
+        if type(raw_hint) is str:
+            stripped = raw_hint.strip()
+            if (
+                stripped
+                and len(stripped) <= _MAX_REPAIR_HINT_CHARS
+                and not _is_path_bearing_text(stripped)
+            ):
+                repair_hint = stripped
     elif isinstance(error, str) and error.strip() and not _is_path_bearing_text(error):
         message = error.strip()
 
-    # Parameter-repair guidance is only retained when the refusal is retryable and safe.
+    # Retain path-safe, length-bounded repair_hint for transport. Domain
+    # tool_refusal_boundary classifies retryability afterward.
     payload: dict[str, Any] = {"code": code, "message": message}
-    if retryable and repair_hint:
+    if repair_hint:
         payload["repair_hint"] = repair_hint
     return payload
 

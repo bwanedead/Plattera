@@ -28,11 +28,62 @@ from domains.mapping.transcript_edit.payloads.transcript_edit_decisions import (
 class ApplyTranscriptEditsContractError(Exception):
     """Whole-request refusal while validating apply_transcript_edits inputs."""
 
-    def __init__(self, reason_code: str, detail: str = "") -> None:
+    def __init__(
+        self,
+        reason_code: str,
+        detail: str = "",
+        *,
+        repair_hint: str | None = None,
+    ) -> None:
         self.reason_code = str(reason_code)
         self.detail = str(detail or "")
+        if type(repair_hint) is str:
+            stripped = repair_hint.strip()
+            self.repair_hint = stripped or None
+        else:
+            self.repair_hint = None
         message = self.reason_code if not self.detail else f"{self.reason_code}: {self.detail}"
         super().__init__(message)
+
+
+# Stable, bounded repair vocabulary — no request body or source text.
+_EDIT_ROW_FIELD_KEYS = frozenset({"lane", "expected_text", "replacement_text"})
+_NESTING_REPAIR_HINT = (
+    "Move lane, expected_text, and replacement_text into a decision's nonempty "
+    "edits[] rows. Keep determination, uncertainty reasons, verification basis, "
+    "and evidence refs on the decision."
+)
+_UNKNOWN_DECISION_FIELD_REPAIR_HINT = (
+    "Remove unknown decision fields. Allowed decision fields: decision_id, "
+    "determination, uncertainty_reasons, verification_basis, candidate_values, "
+    "evidence_refs, edits."
+)
+_REPAIR_HINTS_BY_REASON: dict[str, str] = {
+    "decision_id_required": "Provide a nonblank decision_id on the decision.",
+    "verification_basis_required": (
+        "Provide a nonblank verification_basis on the decision."
+    ),
+    "uncertainty_reasons_required": (
+        "Provide uncertainty_reasons as a list on the decision "
+        "(nonempty for provisional; empty list for earned)."
+    ),
+    "provisional_requires_uncertainty_reasons": (
+        "Provisional decisions require at least one allowed uncertainty reason."
+    ),
+    "earned_requires_empty_uncertainty_reasons": (
+        "Earned decisions require uncertainty_reasons: []."
+    ),
+    "earned_requires_evidence_refs": (
+        "Earned decisions require at least one evidence_ref."
+    ),
+    "edits_required": (
+        "Provide a nonempty edits[] array on the decision; put lane, "
+        "expected_text, and replacement_text inside each edit row."
+    ),
+    "invalid_determination": (
+        "Set determination to provisional or earned on the decision."
+    ),
+}
 
 
 @dataclass(frozen=True)
@@ -100,6 +151,10 @@ def validate_apply_transcript_edits_request(
         raise ApplyTranscriptEditsContractError(
             "unknown_request_fields",
             f"Unknown fields: {unknown}",
+            repair_hint=(
+                "Remove unknown top-level fields. Allowed fields: "
+                "base_revision_ref, decisions."
+            ),
         )
 
     try:
@@ -171,9 +226,15 @@ def _validate_decision(
         )
     unknown = sorted(set(item) - _ALLOWED_DECISION_KEYS)
     if unknown:
+        nesting_misplaced = bool(_EDIT_ROW_FIELD_KEYS.intersection(unknown))
         raise ApplyTranscriptEditsContractError(
             "unknown_decision_fields",
             f"decisions[{index}] unknown fields: {unknown}",
+            repair_hint=(
+                _NESTING_REPAIR_HINT
+                if nesting_misplaced
+                else _UNKNOWN_DECISION_FIELD_REPAIR_HINT
+            ),
         )
 
     decision_id = item.get("decision_id")
@@ -181,6 +242,7 @@ def _validate_decision(
         raise ApplyTranscriptEditsContractError(
             "decision_id_required",
             f"decisions[{index}].decision_id must be a nonblank string.",
+            repair_hint=_REPAIR_HINTS_BY_REASON["decision_id_required"],
         )
     decision_id = decision_id.strip()
     if len(decision_id) > MAX_DECISION_ID_CHARS:
@@ -201,6 +263,7 @@ def _validate_decision(
             "invalid_determination",
             f"decisions[{index}].determination must be one of "
             f"{sorted(ALLOWED_DETERMINATIONS)}.",
+            repair_hint=_REPAIR_HINTS_BY_REASON["invalid_determination"],
         )
 
     basis = item.get("verification_basis")
@@ -208,6 +271,7 @@ def _validate_decision(
         raise ApplyTranscriptEditsContractError(
             "verification_basis_required",
             f"decisions[{index}].verification_basis must be a nonblank string.",
+            repair_hint=_REPAIR_HINTS_BY_REASON["verification_basis_required"],
         )
     verification_basis = basis.strip()
     if len(verification_basis) > MAX_VERIFICATION_BASIS_CHARS:
@@ -228,6 +292,7 @@ def _validate_decision(
         raise ApplyTranscriptEditsContractError(
             "earned_requires_evidence_refs",
             f"decisions[{index}] determination 'earned' requires at least one evidence_ref.",
+            repair_hint=_REPAIR_HINTS_BY_REASON["earned_requires_evidence_refs"],
         )
 
     uncertainty_reasons = _validate_uncertainty_reasons(
@@ -253,6 +318,7 @@ def _validate_decision(
         raise ApplyTranscriptEditsContractError(
             "edits_required",
             f"decisions[{index}].edits must be a non-empty list.",
+            repair_hint=_REPAIR_HINTS_BY_REASON["edits_required"],
         )
     if len(edits_raw) > MAX_EDITS_PER_DECISION:
         raise ApplyTranscriptEditsContractError(
@@ -285,6 +351,7 @@ def _validate_uncertainty_reasons(
         raise ApplyTranscriptEditsContractError(
             "uncertainty_reasons_required",
             f"{field} must be a list.",
+            repair_hint=_REPAIR_HINTS_BY_REASON["uncertainty_reasons_required"],
         )
     if len(raw) > MAX_UNCERTAINTY_REASONS_PER_DECISION:
         raise ApplyTranscriptEditsContractError(
@@ -312,11 +379,13 @@ def _validate_uncertainty_reasons(
             "provisional_requires_uncertainty_reasons",
             f"decisions[{index}] determination 'provisional' requires at least one "
             "uncertainty_reason.",
+            repair_hint=_REPAIR_HINTS_BY_REASON["provisional_requires_uncertainty_reasons"],
         )
     if determination == DETERMINATION_EARNED and out:
         raise ApplyTranscriptEditsContractError(
             "earned_requires_empty_uncertainty_reasons",
             f"decisions[{index}] determination 'earned' requires uncertainty_reasons=[].",
+            repair_hint=_REPAIR_HINTS_BY_REASON["earned_requires_empty_uncertainty_reasons"],
         )
     return tuple(out)
 

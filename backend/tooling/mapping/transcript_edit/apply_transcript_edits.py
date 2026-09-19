@@ -62,7 +62,7 @@ def apply_transcript_edits(
             else validate_apply_transcript_edits_request(request)
         )
     except ApplyTranscriptEditsContractError as exc:
-        return _refuse(exc.reason_code, exc.detail)
+        return _refuse(exc.reason_code, exc.detail, repair_hint=exc.repair_hint)
 
     if parse_working_revision_ref(validated.base_revision_ref) is None:
         return _refuse(
@@ -334,9 +334,21 @@ def _maybe_idempotent_replay(
     }
 
 
-def _refuse(reason_code: str, detail: str = "") -> dict[str, Any]:
+def _refuse(
+    reason_code: str,
+    detail: str = "",
+    *,
+    repair_hint: str | None = None,
+) -> dict[str, Any]:
+    """Terminal tooling refusal. Domain tool_refusal_boundary owns retryability."""
+    message = detail or reason_code
+    error: dict[str, Any] = {"code": reason_code, "message": message}
+    if type(repair_hint) is str:
+        hint = repair_hint.strip()
+        if hint:
+            error["repair_hint"] = hint
     return {
         "executed": False,
         "refusal": {"reason_code": reason_code, "retryable": False},
-        "outputs": {"error": detail or reason_code},
+        "outputs": {"error": error},
     }
