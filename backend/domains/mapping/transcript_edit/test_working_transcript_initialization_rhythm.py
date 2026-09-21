@@ -113,11 +113,11 @@ def _all_teaching() -> str:
 
 
 def test_versions_bumped() -> None:
-    assert TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_VERSION == "v48"
+    assert TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_VERSION == "v49"
     assert TRANSCRIPT_EDIT_BRANCH_VERSION == "v37"
     assert TRANSCRIPT_EDIT_DOSSIER_GUIDANCE_VERSION == "v3"
     assert TRANSCRIPT_EDIT_STARTUP_CONTEXT_VERSION == "v6"
-    assert build_transcript_edit_procedural_guidance_blocks()[0].version == "v48"
+    assert build_transcript_edit_procedural_guidance_blocks()[0].version == "v49"
     assert build_transcript_edit_branch_blocks()[0].version == "v37"
     assert build_transcript_edit_dossier_guidance_block().version == "v3"
     assert (

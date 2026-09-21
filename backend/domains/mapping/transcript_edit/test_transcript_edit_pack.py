@@ -642,7 +642,8 @@ def test_domain_pack_declares_semantic_prompt_blocks() -> None:
     assert "memory of the raw source image" in text
     assert "do not place points from t0 sequence order" in text
     assert "hit the visible mark" in text
-    assert "small_plus` / `small+` wide is the normal atom/line starting shape" in text
+    assert "small_plus` / `small+` wide" in text
+    assert "one ordinary centered template" in text
     assert "span_line" in guidance.text
     assert "width-heavy, line-height escape hatch" in text
     assert "does not excuse lazy atomization" in text
