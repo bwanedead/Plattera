@@ -80,6 +80,30 @@ def build_review_row(
         row["size"] = size
     if shape:
         row["shape"] = shape
+    if point.get("geometry_form") == "window_extents" or isinstance(
+        point.get("window_extents_norm"), Mapping
+    ):
+        row["geometry_form"] = "window_extents"
+        extents = point.get("window_extents_norm")
+        if isinstance(extents, Mapping):
+            compact_extents: dict[str, float] = {}
+            for key in ("left", "right", "up", "down"):
+                if key not in extents:
+                    continue
+                try:
+                    compact_extents[key] = round(float(extents[key]), _DECIMALS)
+                except (TypeError, ValueError):
+                    continue
+            if len(compact_extents) == 4:
+                row["window_extents_norm"] = compact_extents
+        requested = _norm_box(point.get("requested_box_norm"))
+        if requested is not None:
+            row["requested_box_norm"] = requested
+        clipping = point.get("source_edge_clipping")
+        if isinstance(clipping, list) and clipping:
+            row["source_edge_clipping"] = [
+                str(edge) for edge in clipping if str(edge) in {"left", "right", "up", "down"}
+            ]
 
     crop_intent = str(point.get("crop_intent") or "").strip()
     if crop_intent:
@@ -191,7 +215,12 @@ def render_review_line(row: Mapping[str, Any]) -> str:
     box_norm = row.get("box_norm")
     size = str(row.get("size") or "").strip()
     shape = str(row.get("shape") or "").strip()
-    size_shape = f"{size}/{shape}" if size and shape else (size or shape or "?")
+    size_shape = f"{size}/{shape}" if size and shape else (size or shape or "")
+    if not size_shape and (
+        row.get("geometry_form") == "window_extents"
+        or isinstance(row.get("window_extents_norm"), Mapping)
+    ):
+        size_shape = "extents"
 
     parts = [
         f"{letter} {alias} ->",
@@ -209,7 +238,23 @@ def render_review_line(row: Mapping[str, Any]) -> str:
     )
     if edge_room:
         parts.append(edge_room)
-    parts.append(f"size={size_shape}")
+    if size_shape:
+        parts.append(f"size={size_shape}")
+    extents = row.get("window_extents_norm")
+    if isinstance(extents, Mapping) and all(k in extents for k in ("left", "right", "up", "down")):
+        try:
+            parts.append(
+                "extents=["
+                f"{float(extents['left']):.{_DECIMALS}f},"
+                f"{float(extents['right']):.{_DECIMALS}f},"
+                f"{float(extents['up']):.{_DECIMALS}f},"
+                f"{float(extents['down']):.{_DECIMALS}f}]"
+            )
+        except (TypeError, ValueError):
+            pass
+    clipping = row.get("source_edge_clipping")
+    if isinstance(clipping, list) and clipping:
+        parts.append("clip=" + ",".join(str(e) for e in clipping))
     crop_intent = str(row.get("crop_intent") or "").strip()
     if crop_intent:
         parts.append(f"intent={crop_intent}")

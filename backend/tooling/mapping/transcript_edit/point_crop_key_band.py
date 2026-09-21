@@ -48,13 +48,18 @@ def render_point_key_line(point: Mapping[str, Any]) -> str:
     parts = [letter, alias]
     parts.extend(format_target_mapping_parts(point))
     parts.append(f"point=[{x:.{_DECIMALS}f},{y:.{_DECIMALS}f}]")
-    extra = compact_size_shape_label(
-        str(point.get("size") or "").strip() or None,
-        str(point.get("shape") or "").strip() or None,
-        crop_intent=str(point.get("crop_intent") or "").strip() or None,
-    )
-    if extra:
-        parts.append(extra)
+    if point.get("geometry_form") == "window_extents" or isinstance(
+        point.get("window_extents_norm"), Mapping
+    ):
+        parts.append("extents")
+    else:
+        extra = compact_size_shape_label(
+            str(point.get("size") or "").strip() or None,
+            str(point.get("shape") or "").strip() or None,
+            crop_intent=str(point.get("crop_intent") or "").strip() or None,
+        )
+        if extra:
+            parts.append(extra)
     return " ".join(parts)
 
 

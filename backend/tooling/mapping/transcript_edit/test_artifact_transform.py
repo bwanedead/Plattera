@@ -2751,17 +2751,16 @@ def test_point_crops_default_show_omits_box_but_still_creates_crop_refs(tmp_path
     assert point["box_norm"][2] > point["box_norm"][0]
 
 
-def test_point_crops_show_box_accepted_but_suppressed_on_master_overlay(tmp_path, monkeypatch) -> None:
+def test_point_crops_show_box_paints_resolved_bounds_on_master_overlay(tmp_path, monkeypatch) -> None:
     from tooling.mapping.transcript_edit.derived_image_descriptor import load_derived_image_descriptor_dict as _load_derived_image_descriptor
+    from tooling.mapping.transcript_edit.point_crops import _BOX_FILL_ALPHA
     from PIL import Image
 
     handler, ref_id = _make_handler(tmp_path, monkeypatch, d="d1", tx="tx-1", ws="ws-1")
     default = handler({"ref_id": ref_id, **_point_crops_request()})
     with_box = handler({"ref_id": ref_id, **_point_crops_request(show=["pin", "letter", "box"])})
     assert with_box["outputs"]["crop_set"]["show"] == ["pin", "letter", "box"]
-    assert with_box["outputs"]["crop_set"]["render_warnings"] == [
-        "visual_boxes_suppressed_on_master_overlay"
-    ]
+    assert "render_warnings" not in with_box["outputs"]["crop_set"]
     point = with_box["outputs"]["crop_set"]["points"][0]
     assert point["box_norm"][2] > point["box_norm"][0]
     desc = _load_derived_image_descriptor("d1", "tx-1", "ws-1", with_box["outputs"]["derived_ref_id"])
@@ -2769,7 +2768,15 @@ def test_point_crops_show_box_accepted_but_suppressed_on_master_overlay(tmp_path
     img = Image.open(desc["absolute_path"])
     default_img = Image.open(default_desc["absolute_path"])
     sample = (point["box_px"][0] + 6, point["box_px"][1] + 6)
-    assert img.getpixel(sample) == default_img.getpixel(sample)
+    master_px = default_img.getpixel(sample)
+    col = tuple(int(v) for v in point["color"][:3])
+    blended = tuple(
+        int(master_px[i] + (_BOX_FILL_ALPHA / 255) * (col[i] - master_px[i]))
+        for i in range(3)
+    )
+    view_px = img.getpixel(sample)
+    assert view_px != master_px
+    assert all(abs(view_px[i] - blended[i]) <= 2 for i in range(3))
 
 
 def test_point_crops_explicit_dimensions_persist_in_sidecar(tmp_path, monkeypatch) -> None:
@@ -2933,7 +2940,8 @@ def test_point_crops_master_overlay_renders_marker_and_letter_without_box_fill(t
     from PIL import Image
 
     handler, ref_id = _make_handler(tmp_path, monkeypatch, d="d1", tx="tx-1", ws="ws-1")
-    result = handler({"ref_id": ref_id, **_point_crops_request(show=["pin", "letter", "box"])})
+    # Default show stays pin/letter-focused (no box paint).
+    result = handler({"ref_id": ref_id, **_point_crops_request()})
     master_ref = result["outputs"]["derived_ref_id"]
     desc = _load_derived_image_descriptor("d1", "tx-1", "ws-1", master_ref)
     img = Image.open(desc["absolute_path"])
@@ -2957,35 +2965,53 @@ def test_point_crops_default_show_remains_pin_and_letter_only(tmp_path, monkeypa
     assert result["outputs"]["crop_set"]["show"] == ["pin", "letter"]
 
 
-def test_point_crops_adjust_master_overlay_suppresses_visual_boxes(tmp_path, monkeypatch) -> None:
+def test_point_crops_adjust_master_overlay_paints_visual_boxes_when_requested(tmp_path, monkeypatch) -> None:
     from tooling.mapping.transcript_edit.derived_image_descriptor import load_derived_image_descriptor_dict as _load_derived_image_descriptor
+    from tooling.mapping.transcript_edit.point_crops import _BOX_FILL_ALPHA
     from PIL import Image
 
     handler, source_ref = _make_handler(tmp_path, monkeypatch, d="d1", tx="tx-1", ws="ws-1")
     created = handler({
         "ref_id": source_ref,
-        **_point_crops_request(show=["pin", "letter", "box"]),
+        **_point_crops_request(),
     })
-    adjusted = handler(_point_crops_adjust_request(
+    adjust = [{"letter": "A", "shift_norm": [0.02, 0.0]}]
+    with_box = handler(_point_crops_adjust_request(
         master_ref=created["outputs"]["derived_ref_id"],
-        adjust=[{"letter": "A", "shift_norm": [0.02, 0.0]}],
+        adjust=adjust,
         show=["pin", "letter", "box"],
     ))
-    assert adjusted["executed"] is True
-    assert adjusted["outputs"]["crop_set"]["render_warnings"] == [
-        "visual_boxes_suppressed_on_master_overlay"
-    ]
-    from tooling.mapping.transcript_edit.point_crops import _BOX_FILL_ALPHA
-
-    point = adjusted["outputs"]["crop_set"]["points"][0]
-    desc = _load_derived_image_descriptor("d1", "tx-1", "ws-1", adjusted["outputs"]["derived_ref_id"])
-    img = Image.open(desc["absolute_path"])
-    bg = (200, 200, 200)
+    without_box = handler(_point_crops_adjust_request(
+        master_ref=created["outputs"]["derived_ref_id"],
+        adjust=adjust,
+        show=["pin", "letter"],
+    ))
+    assert with_box["executed"] is True
+    assert without_box["executed"] is True
+    assert "render_warnings" not in with_box["outputs"]["crop_set"]
+    point = with_box["outputs"]["crop_set"]["points"][0]
+    img = Image.open(
+        _load_derived_image_descriptor("d1", "tx-1", "ws-1", with_box["outputs"]["derived_ref_id"])[
+            "absolute_path"
+        ]
+    )
+    clean = Image.open(
+        _load_derived_image_descriptor(
+            "d1", "tx-1", "ws-1", without_box["outputs"]["derived_ref_id"]
+        )["absolute_path"]
+    )
     sample = (point["box_px"][0] + 8, point["box_px"][1] + 8)
+    master_px = clean.getpixel(sample)
     col = tuple(int(v) for v in point["color"][:3])
-    blended = tuple(int(bg[i] + (_BOX_FILL_ALPHA / 255) * (col[i] - bg[i])) for i in range(3))
-    assert img.getpixel(sample) != blended
+    blended = tuple(
+        int(master_px[i] + (_BOX_FILL_ALPHA / 255) * (col[i] - master_px[i]))
+        for i in range(3)
+    )
+    view_px = img.getpixel(sample)
+    assert view_px != master_px
+    assert all(abs(view_px[i] - blended[i]) <= 2 for i in range(3))
     assert point["box_norm"][2] > point["box_norm"][0]
+
 
 
 def test_point_crops_overlay_render_metadata_has_no_paths_or_b64(tmp_path, monkeypatch) -> None:

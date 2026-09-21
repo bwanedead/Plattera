@@ -143,6 +143,34 @@ def _compact_point_row(point: Mapping[str, Any]) -> dict[str, Any]:
 
     row.update(copy_target_mapping_fields(point))
 
+    geometry_form = point.get("geometry_form")
+    if geometry_form == "window_extents" or (
+        isinstance(point.get("window_extents_norm"), Mapping)
+    ):
+        row["geometry_form"] = "window_extents"
+        extents = point.get("window_extents_norm")
+        if isinstance(extents, Mapping):
+            compact_extents: dict[str, float] = {}
+            for key in ("left", "right", "up", "down"):
+                if key not in extents:
+                    continue
+                try:
+                    compact_extents[key] = round(float(extents[key]), 4)
+                except (TypeError, ValueError):
+                    continue
+            if compact_extents:
+                row["window_extents_norm"] = compact_extents
+        requested = _norm_box(point.get("requested_box_norm"))
+        if requested is not None:
+            row["requested_box_norm"] = requested
+        clipping = point.get("source_edge_clipping")
+        if isinstance(clipping, list) and clipping:
+            row["source_edge_clipping"] = [
+                str(edge) for edge in clipping if str(edge) in {"left", "right", "up", "down"}
+            ]
+    elif isinstance(geometry_form, str) and geometry_form.strip():
+        row["geometry_form"] = geometry_form.strip()
+
     return {
         k: v
         for k, v in row.items()

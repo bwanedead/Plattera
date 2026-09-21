@@ -1143,7 +1143,8 @@ def test_tool_spec_transform_teaches_point_crops_as_default_path() -> None:
     assert "point-location markers" in combined or "bullseye" in combined
     assert "coordinate_lattice" in combined
     assert "reference_cells" in combined
-    assert "visual_boxes_suppressed" in combined or "metadata-only" in combined
+    assert "when show includes box" in combined or "resolved crop bounds" in combined
+    assert "window_extents_norm" in combined
     assert "review_rows" in combined
     assert "review_lines" in combined
     assert "point_key_lines" in combined
@@ -1206,21 +1207,25 @@ def test_tool_spec_point_crop_example_binds_known_atom_without_forcing_explorati
     point = transform.example_request["params"]["points"][0]
 
     assert point == {
-        "alias": "example_atom_crop",
-        "point_norm": [0.36, 0.63],
-        "size": "small_plus",
-        "shape": "wide",
-        "target_atom_id": "example-resolution-atom",
-        "target_context_id": "example-resolution-group",
+        "alias": "example-target",
+        "point_norm": [0.72, 0.48],
+        "window_extents_norm": {
+            "left": 0.08,
+            "right": 0.22,
+            "up": 0.03,
+            "down": 0.09,
+        },
+        "target_atom_id": "example-atom",
         "target_hint": "candidate token",
-        "target_hint_role": "candidate_only_not_earned",
     }
+    assert transform.example_request["params"]["show"] == ["pin", "letter", "box"]
     teaching = " ".join(
         (transform.expected_request_shape, str(transform.expected_request_json_shape))
     ).lower()
     assert "provide that exact target_atom_id" in teaching or "provide its exact target_atom_id" in teaching
     assert "genuinely exploratory or not-yet-bound point" in teaching
     assert "not proof" in teaching or "not earned truth" in teaching
+    assert "window_extents_norm" in teaching
 
     contaminated = ("range 7 west", "range 77 west", "1638", "marked corner")
     assert not any(term in str(transform.example_request).lower() for term in contaminated)

@@ -36,6 +36,17 @@ from .text_block_trim import (
     DEFAULT_TRIM_PADDING_NORM,
     trim_box_to_text_block,
 )
+from .point_crop_window_extents import (
+    DEFAULT_WINDOW_EXTENTS_ZOOM,
+    GEOMETRY_FORM_WINDOW_EXTENTS,
+    WindowExtentsError,
+    copy_window_extents_metadata,
+    point_has_window_extents,
+    reject_conflicting_geometry_controls,
+    reject_global_controls_with_extents_points,
+    resolve_window_extents_geometry,
+    validate_window_extents_object,
+)
 
 # Normalized box sizes centered on ``point_norm``.
 _POINT_CROP_TEMPLATES: dict[str, dict[str, tuple[float, float]]] = {
@@ -249,16 +260,34 @@ def validate_point_crops_params(params: dict[str, Any]) -> str | None:
                 raise ValueError
         except Exception:
             return f"params.points[{i}].point_norm values must be in [0.0, 1.0]."
-        size = str(p.get("size") or "").strip().lower()
-        shape = str(p.get("shape") or "").strip().lower()
-        if size not in ALLOWED_SIZES:
-            return f"params.points[{i}].size must be {_SIZE_OPTIONS_TEXT}."
-        if shape not in ALLOWED_SHAPES:
-            return f"params.points[{i}].shape must be wide|portrait|square."
-        if size == SPAN_LINE_CROP_INTENT and shape != "wide":
-            return f"params.points[{i}].size span_line requires shape wide."
-        p["size"] = size
-        p["shape"] = shape
+
+        if point_has_window_extents(p):
+            try:
+                reject_conflicting_geometry_controls(
+                    p,
+                    field_prefix=f"params.points[{i}]",
+                    global_params=params,
+                )
+                p["window_extents_norm"] = validate_window_extents_object(
+                    p.get("window_extents_norm"),
+                    field_prefix=f"params.points[{i}].window_extents_norm",
+                )
+            except WindowExtentsError as exc:
+                return str(exc)
+            # Explicit extents replace template size/shape; strip any blank leftovers.
+            p.pop("size", None)
+            p.pop("shape", None)
+        else:
+            size = str(p.get("size") or "").strip().lower()
+            shape = str(p.get("shape") or "").strip().lower()
+            if size not in ALLOWED_SIZES:
+                return f"params.points[{i}].size must be {_SIZE_OPTIONS_TEXT}."
+            if shape not in ALLOWED_SHAPES:
+                return f"params.points[{i}].shape must be wide|portrait|square."
+            if size == SPAN_LINE_CROP_INTENT and shape != "wide":
+                return f"params.points[{i}].size span_line requires shape wide."
+            p["size"] = size
+            p["shape"] = shape
         if "graph_ref" in p:
             try:
                 normalized_graph_ref = validate_graph_ref(
@@ -284,12 +313,18 @@ def validate_point_crops_params(params: dict[str, Any]) -> str | None:
             p.update(normalized_target)
     if len(points) > MAX_POINT_CROP_COUNT:
         return "point_crops point count exceeds safety cap (16)."
+    try:
+        reject_global_controls_with_extents_points(params, points)
+    except WindowExtentsError as exc:
+        return str(exc)
     global_zoom_err = _validate_zoom_factor_raw(params.get("zoom_factor"), "params.zoom_factor")
     if global_zoom_err:
         return global_zoom_err
     if params.get("zoom_factor") is not None:
         params["zoom_factor"] = _normalize_zoom_factor(params["zoom_factor"])
     for axis in ("scale_x", "scale_y"):
+        if axis not in params:
+            continue
         scale_err = _validate_axis_scale_raw(params.get(axis), f"params.{axis}")
         if scale_err:
             return scale_err
@@ -304,13 +339,17 @@ def validate_point_crops_params(params: dict[str, Any]) -> str | None:
             if point_zoom_err:
                 return point_zoom_err
             p["zoom_factor"] = _normalize_zoom_factor(p["zoom_factor"])
+        # Extents points already refused conflicting scale/dim/trim keys above.
+        if point_has_window_extents(p):
+            continue
         for axis in ("scale_x", "scale_y"):
             if axis not in p:
                 continue
             scale_err = _validate_axis_scale_raw(p.get(axis), f"params.points[{i}].{axis}")
             if scale_err:
                 return scale_err
-            p[axis] = _normalize_axis_scale(p[axis])
+            if p.get(axis) is not None:
+                p[axis] = _normalize_axis_scale(p[axis])
         dim_err = _validate_point_explicit_dimensions(p, f"params.points[{i}]")
         if dim_err:
             return dim_err
@@ -321,23 +360,38 @@ def validate_point_crops_params(params: dict[str, Any]) -> str | None:
         ("trim_axis", "params.trim_axis"),
         ("trim_padding_norm", "params.trim_padding_norm"),
     ):
-        if params.get(key) is not None:
-            if key == "trim_axis":
-                axis = str(params["trim_axis"]).strip().lower()
-                if axis not in ALLOWED_TRIM_AXES:
-                    return f"{label} must be x (only axis supported in this pass)."
-                params["trim_axis"] = axis
-            else:
-                err = _validate_trim_padding_norm_raw(params.get(key), label)
-                if err:
-                    return err
-                params[key] = round(float(params[key]), 6)
+        # Template path: null means unset (pre-BR-039). Extents packets already
+        # refused these keys by presence in reject_global_controls_with_extents_points.
+        if params.get(key) is None:
+            continue
+        if key == "trim_axis":
+            axis = str(params["trim_axis"]).strip().lower()
+            if axis not in ALLOWED_TRIM_AXES:
+                return f"{label} must be x (only axis supported in this pass)."
+            params["trim_axis"] = axis
+        else:
+            err = _validate_trim_padding_norm_raw(params.get(key), label)
+            if err:
+                return err
+            params[key] = round(float(params[key]), 6)
     if params.get("trim_to_text_block") is not None:
         params["trim_to_text_block"] = bool(params["trim_to_text_block"])
     return _validate_show_param(params) or None
 
 
 def point_crops_repair_hint_for(message: str) -> str | None:
+    if "window_extents_norm" in message:
+        if "cannot combine" in message or "cannot use" in message:
+            return (
+                "Choose one geometry form: window_extents_norm alone, or "
+                "size/shape (optional width_norm/height_norm), not both. "
+                "Omit scale_*/trim_* keys (including null) with extents; "
+                "omit global scale_x/scale_y/trim_* when any point uses extents."
+            )
+        return (
+            'Provide window_extents_norm = {"left": n, "right": n, "up": n, "down": n} '
+            "with non-negative finite numbers and positive axis spans."
+        )
     if "non-empty list" in message:
         return (
             'Provide params.points = [{"alias": "...", "point_norm": [x,y], '
@@ -1142,6 +1196,47 @@ def compute_point_crops(img: Any, params: dict[str, Any]) -> dict[str, Any]:
     per_point_data: list[dict[str, Any]] = []
     for i, p in enumerate(points):
         alias = str(p.get("alias") or "").strip()
+        if point_has_window_extents(p):
+            try:
+                geo = resolve_window_extents_geometry(
+                    img,
+                    point_norm=[float(p["point_norm"][0]), float(p["point_norm"][1])],
+                    extents=p["window_extents_norm"],
+                )
+            except WindowExtentsError as exc:
+                raise PointCropParamError(str(exc), repair_hint=exc.repair_hint) from exc
+            crop_img = img.crop(tuple(geo["box"]))
+            point_zoom = p.get("zoom_factor")
+            point_zoom = float(point_zoom) if point_zoom is not None else None
+            requested_zoom = (
+                _normalize_zoom_factor(point_zoom)
+                if point_zoom is not None
+                else (
+                    _normalize_zoom_factor(global_zoom)
+                    if global_zoom is not None
+                    else _normalize_zoom_factor(DEFAULT_WINDOW_EXTENTS_ZOOM)
+                )
+            )
+            zoomed_crop, zoom_meta = _apply_crop_zoom(crop_img, requested_zoom)
+            row = {
+                "alias": alias,
+                "letter": letters[i],
+                "color": list(colors[i]),
+                "point_norm": geo["point_norm"],
+                "pin_px": geo["pin_px"],
+                "box_px": geo["box_px"],
+                "box_norm": geo["box_norm"],
+                "crop_img": zoomed_crop,
+                "resolved_width_height_norm": geo["resolved_width_height_norm"],
+                **copy_window_extents_metadata(geo),
+                **zoom_meta,
+            }
+            if isinstance(p.get("graph_ref"), dict):
+                row["graph_ref"] = dict(p["graph_ref"])
+            row.update(copy_target_mapping_fields(p))
+            per_point_data.append(row)
+            continue
+
         point_scale_x = p.get("scale_x")
         point_scale_x = float(point_scale_x) if point_scale_x is not None else None
         point_scale_y = p.get("scale_y")
@@ -1198,6 +1293,9 @@ def compute_point_crops(img: Any, params: dict[str, Any]) -> dict[str, Any]:
         }
         if geo.get("explicit_width_height_norm") is not None:
             row["explicit_width_height_norm"] = geo["explicit_width_height_norm"]
+            row["geometry_form"] = "centered_dims"
+        else:
+            row["geometry_form"] = "template"
         crop_intent = crop_intent_for_point(p)
         if crop_intent:
             row["crop_intent"] = crop_intent
@@ -1212,7 +1310,13 @@ def compute_point_crops(img: Any, params: dict[str, Any]) -> dict[str, Any]:
         row.update(copy_target_mapping_fields(p))
         per_point_data.append(row)
 
-    canvas, legend_h, key_band_h, overlay = _render_master_overlay(img, per_point_data, show)
+    paint_boxes = "box" in show
+    canvas, legend_h, key_band_h, overlay = _render_master_overlay(
+        img,
+        per_point_data,
+        show,
+        paint_boxes=paint_boxes,
+    )
     return {
         "master_pil": canvas,
         "per_point": per_point_data,
@@ -1241,36 +1345,61 @@ def compute_point_crops_view(img: Any, points: list[dict[str, Any]], *, show: li
             color = [int(color_raw[0]), int(color_raw[1]), int(color_raw[2])]
         else:
             color = list(_POINT_COLORS[i % len(_POINT_COLORS)])
-        scale_x = float(p["scale_x"]) if p.get("scale_x") is not None else 1.0
-        scale_y = float(p["scale_y"]) if p.get("scale_y") is not None else 1.0
-        explicit_w, explicit_h = _explicit_dims_from_point(p)
-        geo = _compute_single_point_geometry(
-            img,
-            point_norm=[float(p["point_norm"][0]), float(p["point_norm"][1])],
-            size=str(p["size"]),
-            shape=str(p["shape"]),
-            scale_x=scale_x,
-            scale_y=scale_y,
-            width_norm=explicit_w,
-            height_norm=explicit_h,
-        )
-        row: dict[str, Any] = {
-            "alias": alias,
-            "letter": letter,
-            "color": color,
-            "point_norm": geo["point_norm"],
-            "pin_px": geo["pin_px"],
-            "box_px": geo["box_px"],
-            "box_norm": geo["box_norm"],
-            "size": p["size"],
-            "shape": p["shape"],
-            "scale_x": geo["scale_x"],
-            "scale_y": geo["scale_y"],
-            "template_width_height_norm": geo["template_width_height_norm"],
-            "resolved_width_height_norm": geo["resolved_width_height_norm"],
-        }
-        if geo.get("explicit_width_height_norm") is not None:
-            row["explicit_width_height_norm"] = geo["explicit_width_height_norm"]
+        if point_has_window_extents(p) or p.get("geometry_form") == GEOMETRY_FORM_WINDOW_EXTENTS:
+            try:
+                extents = validate_window_extents_object(
+                    p.get("window_extents_norm"),
+                    field_prefix=f"point_crops_view point {alias!r}.window_extents_norm",
+                )
+                geo = resolve_window_extents_geometry(
+                    img,
+                    point_norm=[float(p["point_norm"][0]), float(p["point_norm"][1])],
+                    extents=extents,
+                )
+            except WindowExtentsError as exc:
+                raise PointCropParamError(str(exc), repair_hint=exc.repair_hint) from exc
+            row = {
+                "alias": alias,
+                "letter": letter,
+                "color": color,
+                "point_norm": geo["point_norm"],
+                "pin_px": geo["pin_px"],
+                "box_px": geo["box_px"],
+                "box_norm": geo["box_norm"],
+                "resolved_width_height_norm": geo["resolved_width_height_norm"],
+                **copy_window_extents_metadata(geo),
+            }
+        else:
+            scale_x = float(p["scale_x"]) if p.get("scale_x") is not None else 1.0
+            scale_y = float(p["scale_y"]) if p.get("scale_y") is not None else 1.0
+            explicit_w, explicit_h = _explicit_dims_from_point(p)
+            geo = _compute_single_point_geometry(
+                img,
+                point_norm=[float(p["point_norm"][0]), float(p["point_norm"][1])],
+                size=str(p["size"]),
+                shape=str(p["shape"]),
+                scale_x=scale_x,
+                scale_y=scale_y,
+                width_norm=explicit_w,
+                height_norm=explicit_h,
+            )
+            row = {
+                "alias": alias,
+                "letter": letter,
+                "color": color,
+                "point_norm": geo["point_norm"],
+                "pin_px": geo["pin_px"],
+                "box_px": geo["box_px"],
+                "box_norm": geo["box_norm"],
+                "size": p["size"],
+                "shape": p["shape"],
+                "scale_x": geo["scale_x"],
+                "scale_y": geo["scale_y"],
+                "template_width_height_norm": geo["template_width_height_norm"],
+                "resolved_width_height_norm": geo["resolved_width_height_norm"],
+            }
+            if geo.get("explicit_width_height_norm") is not None:
+                row["explicit_width_height_norm"] = geo["explicit_width_height_norm"]
         crop_ref = p.get("crop_ref")
         if isinstance(crop_ref, str) and crop_ref.strip():
             row["crop_ref"] = crop_ref.strip()
@@ -1307,9 +1436,17 @@ def build_crop_set_point_record(point: dict[str, Any], *, crop_ref: str | None =
         "point_norm": point["point_norm"],
         "box_px": point["box_px"],
         "box_norm": point["box_norm"],
-        "size": point["size"],
-        "shape": point["shape"],
     }
+    if point.get("geometry_form") == GEOMETRY_FORM_WINDOW_EXTENTS or point_has_window_extents(point):
+        row.update(copy_window_extents_metadata(point))
+        if "resolved_width_height_norm" in point:
+            row["resolved_width_height_norm"] = point["resolved_width_height_norm"]
+    else:
+        row["size"] = point["size"]
+        row["shape"] = point["shape"]
+        row.update(_copy_scale_metadata(point))
+        if point.get("geometry_form"):
+            row["geometry_form"] = point["geometry_form"]
     if crop_ref:
         row["crop_ref"] = crop_ref
     elif isinstance(point.get("crop_ref"), str) and point["crop_ref"].strip():
@@ -1317,7 +1454,6 @@ def build_crop_set_point_record(point: dict[str, Any], *, crop_ref: str | None =
     if isinstance(point.get("graph_ref"), dict):
         row["graph_ref"] = dict(point["graph_ref"])
     row.update(_copy_zoom_metadata(point))
-    row.update(_copy_scale_metadata(point))
     row.update(copy_projection_fields(point))
     crop_intent = crop_intent_for_point(point)
     if crop_intent:
@@ -1421,8 +1557,13 @@ def point_crops_adjust_repair_hint_for(message: str) -> str | None:
         return "Each adjustment row must target exactly one point via letter OR alias, not both."
     if "no actual change" in message:
         return (
-            "Provide point_norm, shift_norm, size, shape, width_norm, height_norm, scale_x, scale_y, "
-            "and/or zoom_factor values that change the target point."
+            "Provide point_norm, shift_norm, size, shape, width_norm, height_norm, "
+            "window_extents_norm, scale_x, scale_y, and/or zoom_factor values that change the target point."
+        )
+    if "window_extents_norm" in message:
+        return (
+            "Use window_extents_norm alone ({left,right,up,down}), or size/shape "
+            "(optional width_norm/height_norm), not both; omit trim_* with explicit extents."
         )
     if "width_norm" in message or "height_norm" in message:
         return (
@@ -1479,17 +1620,38 @@ def prepare_point_crops_adjust(
             raise PointCropParamError(f"Prior crop_set point {alias!r} has invalid point_norm.")
         size = str(pt.get("size") or "").strip().lower()
         shape = str(pt.get("shape") or "").strip().lower()
-        if size not in ALLOWED_SIZES or shape not in ALLOWED_SHAPES:
-            raise PointCropParamError(f"Prior crop_set point {alias!r} has invalid size/shape.")
-        if size == SPAN_LINE_CROP_INTENT and shape != "wide":
-            raise PointCropParamError(f"Prior crop_set point {alias!r} has invalid span_line shape.")
-        row = {
-            "alias": alias,
-            "letter": letter,
-            "point_norm": [float(pn[0]), float(pn[1])],
-            "size": size,
-            "shape": shape,
-        }
+        prior_extents = pt.get("window_extents_norm")
+        is_extents = (
+            pt.get("geometry_form") == GEOMETRY_FORM_WINDOW_EXTENTS
+            or isinstance(prior_extents, dict)
+        )
+        if is_extents:
+            try:
+                extents = validate_window_extents_object(
+                    prior_extents,
+                    field_prefix=f"prior crop_set point {alias!r}.window_extents_norm",
+                )
+            except WindowExtentsError as exc:
+                raise PointCropParamError(str(exc), repair_hint=exc.repair_hint) from exc
+            row = {
+                "alias": alias,
+                "letter": letter,
+                "point_norm": [float(pn[0]), float(pn[1])],
+                "window_extents_norm": extents,
+                "geometry_form": GEOMETRY_FORM_WINDOW_EXTENTS,
+            }
+        else:
+            if size not in ALLOWED_SIZES or shape not in ALLOWED_SHAPES:
+                raise PointCropParamError(f"Prior crop_set point {alias!r} has invalid size/shape.")
+            if size == SPAN_LINE_CROP_INTENT and shape != "wide":
+                raise PointCropParamError(f"Prior crop_set point {alias!r} has invalid span_line shape.")
+            row = {
+                "alias": alias,
+                "letter": letter,
+                "point_norm": [float(pn[0]), float(pn[1])],
+                "size": size,
+                "shape": shape,
+            }
         if isinstance(pt.get("graph_ref"), dict):
             row["graph_ref"] = dict(pt["graph_ref"])
         row.update(copy_target_mapping_fields(pt))
@@ -1499,28 +1661,29 @@ def prepare_point_crops_adjust(
                 row["zoom_factor"] = _normalize_zoom_factor(prior_zoom)
             except (TypeError, ValueError):
                 pass
-        for axis in ("scale_x", "scale_y"):
-            prior_scale = pt.get(axis)
-            if prior_scale is not None:
+        if not is_extents:
+            for axis in ("scale_x", "scale_y"):
+                prior_scale = pt.get(axis)
+                if prior_scale is not None:
+                    try:
+                        row[axis] = _normalize_axis_scale(prior_scale)
+                    except (TypeError, ValueError):
+                        pass
+            explicit_w, explicit_h = _explicit_dims_from_point(pt)
+            if explicit_w is not None and explicit_h is not None:
+                row["width_norm"] = explicit_w
+                row["height_norm"] = explicit_h
+            if pt.get("trim_to_text_block") is not None:
+                row["trim_to_text_block"] = bool(pt["trim_to_text_block"])
+            elif size == SPAN_LINE_CROP_INTENT:
+                row["trim_to_text_block"] = True
+            if pt.get("trim_axis") is not None:
+                row["trim_axis"] = str(pt["trim_axis"]).strip().lower()
+            if pt.get("trim_padding_norm") is not None:
                 try:
-                    row[axis] = _normalize_axis_scale(prior_scale)
+                    row["trim_padding_norm"] = round(float(pt["trim_padding_norm"]), 6)
                 except (TypeError, ValueError):
                     pass
-        explicit_w, explicit_h = _explicit_dims_from_point(pt)
-        if explicit_w is not None and explicit_h is not None:
-            row["width_norm"] = explicit_w
-            row["height_norm"] = explicit_h
-        if pt.get("trim_to_text_block") is not None:
-            row["trim_to_text_block"] = bool(pt["trim_to_text_block"])
-        elif size == SPAN_LINE_CROP_INTENT:
-            row["trim_to_text_block"] = True
-        if pt.get("trim_axis") is not None:
-            row["trim_axis"] = str(pt["trim_axis"]).strip().lower()
-        if pt.get("trim_padding_norm") is not None:
-            try:
-                row["trim_padding_norm"] = round(float(pt["trim_padding_norm"]), 6)
-            except (TypeError, ValueError):
-                pass
         working_points.append(row)
         by_letter[letter] = row
         by_alias[alias] = row
@@ -1571,21 +1734,31 @@ def prepare_point_crops_adjust(
         seen_targets.add(target_key)
 
         prior_point_norm = list(target_row["point_norm"])
-        prior_size = target_row["size"]
-        prior_shape = target_row["shape"]
+        prior_is_extents = point_has_window_extents(target_row)
+        prior_extents = (
+            dict(target_row["window_extents_norm"]) if prior_is_extents else None
+        )
+        prior_size = str(target_row.get("size") or "").strip().lower() or None
+        prior_shape = str(target_row.get("shape") or "").strip().lower() or None
         prior_zoom_factor = target_row.get("zoom_factor")
         prior_scale_x = float(target_row.get("scale_x", 1.0))
         prior_scale_y = float(target_row.get("scale_y", 1.0))
         prior_width_norm, prior_height_norm = _explicit_dims_from_point(target_row)
-        prior_trim_settings = resolve_point_trim_settings(
-            target_row,
-            params,
-            size=prior_size,
-        )
-        prior_trim_to_text_block = prior_trim_settings["trim_to_text_block"]
-        prior_trim_axis = prior_trim_settings["trim_axis"]
-        prior_trim_padding_norm = prior_trim_settings["trim_padding_norm"]
+        if prior_is_extents:
+            prior_trim_to_text_block = False
+            prior_trim_axis = "x"
+            prior_trim_padding_norm = DEFAULT_TRIM_PADDING_NORM
+        else:
+            prior_trim_settings = resolve_point_trim_settings(
+                target_row,
+                params,
+                size=prior_size or "medium",
+            )
+            prior_trim_to_text_block = prior_trim_settings["trim_to_text_block"]
+            prior_trim_axis = prior_trim_settings["trim_axis"]
+            prior_trim_padding_norm = prior_trim_settings["trim_padding_norm"]
         new_point_norm = list(prior_point_norm)
+        new_extents = dict(prior_extents) if prior_extents is not None else None
         new_size = prior_size
         new_shape = prior_shape
         new_zoom_factor = prior_zoom_factor
@@ -1608,6 +1781,7 @@ def prepare_point_crops_adjust(
             "scale_y",
             "width_norm",
             "height_norm",
+            "window_extents_norm",
             "trim_to_text_block",
             "trim_axis",
             "trim_padding_norm",
@@ -1615,7 +1789,9 @@ def prepare_point_crops_adjust(
         )
         if not any(field in adj for field in change_fields):
             raise PointCropParamError(
-                f"params.adjust[{i}] specifies no actual change (need point_norm, shift_norm, size, shape, width_norm, height_norm, scale_x, scale_y, and/or zoom_factor).",
+                f"params.adjust[{i}] specifies no actual change (need point_norm, shift_norm, "
+                "size, shape, width_norm, height_norm, window_extents_norm, scale_x, scale_y, "
+                "and/or zoom_factor).",
                 repair_hint=point_crops_adjust_repair_hint_for("no actual change"),
             )
 
@@ -1648,7 +1824,47 @@ def prepare_point_crops_adjust(
 
         new_point_norm = _clamp_point_norm(new_point_norm[0], new_point_norm[1])
 
+        if "window_extents_norm" in adj:
+            centered_conflict = [
+                k
+                for k in (
+                    "size",
+                    "shape",
+                    "width_norm",
+                    "height_norm",
+                    "scale_x",
+                    "scale_y",
+                    "trim_to_text_block",
+                    "trim_axis",
+                    "trim_padding_norm",
+                )
+                if k in adj
+            ]
+            if centered_conflict:
+                raise PointCropParamError(
+                    f"params.adjust[{i}] cannot combine window_extents_norm with {centered_conflict}.",
+                    repair_hint=point_crops_adjust_repair_hint_for("window_extents_norm"),
+                )
+            try:
+                new_extents = validate_window_extents_object(
+                    adj.get("window_extents_norm"),
+                    field_prefix=f"params.adjust[{i}].window_extents_norm",
+                )
+            except WindowExtentsError as exc:
+                raise PointCropParamError(str(exc), repair_hint=exc.repair_hint) from exc
+            new_size = None
+            new_shape = None
+            new_width_norm = None
+            new_height_norm = None
+            new_scale_x = 1.0
+            new_scale_y = 1.0
+            new_trim_to_text_block = False
+            new_trim_axis = "x"
+            new_trim_padding_norm = DEFAULT_TRIM_PADDING_NORM
+
         if "size" in adj:
+            if new_extents is not None and "window_extents_norm" not in adj:
+                new_extents = None
             size = str(adj.get("size") or "").strip().lower()
             if size not in ALLOWED_SIZES:
                 raise PointCropParamError(f"params.adjust[{i}].size must be {_SIZE_OPTIONS_TEXT}.")
@@ -1657,6 +1873,8 @@ def prepare_point_crops_adjust(
                 new_shape = "wide"
 
         if "shape" in adj:
+            if new_extents is not None and "window_extents_norm" not in adj:
+                new_extents = None
             shape = str(adj.get("shape") or "").strip().lower()
             if shape not in ALLOWED_SHAPES:
                 raise PointCropParamError(f"params.adjust[{i}].shape must be wide|portrait|square.")
@@ -1693,6 +1911,8 @@ def prepare_point_crops_adjust(
             new_scale_y = _normalize_axis_scale(adj["scale_y"])
 
         if "width_norm" in adj or "height_norm" in adj:
+            if new_extents is not None and "window_extents_norm" not in adj:
+                new_extents = None
             if "width_norm" not in adj or "height_norm" not in adj:
                 raise PointCropParamError(
                     f"params.adjust[{i}] must include both width_norm and height_norm together.",
@@ -1708,39 +1928,86 @@ def prepare_point_crops_adjust(
             new_width_norm = _normalize_explicit_dim(adj["width_norm"])
             new_height_norm = _normalize_explicit_dim(adj["height_norm"])
 
-        if "trim_to_text_block" in adj:
-            new_trim_to_text_block = bool(adj["trim_to_text_block"])
-        elif "size" in adj and new_size == SPAN_LINE_CROP_INTENT and prior_size != SPAN_LINE_CROP_INTENT:
-            new_trim_to_text_block = True
-        if "trim_axis" in adj:
-            axis = str(adj.get("trim_axis") or "").strip().lower()
-            if axis not in ALLOWED_TRIM_AXES:
-                raise PointCropParamError(
-                    f"params.adjust[{i}].trim_axis must be x (only axis supported in this pass).",
+        if new_extents is not None:
+            extents_incompatible = [
+                k
+                for k in (
+                    "scale_x",
+                    "scale_y",
+                    "width_norm",
+                    "height_norm",
+                    "trim_to_text_block",
+                    "trim_axis",
+                    "trim_padding_norm",
                 )
-            new_trim_axis = axis
-        if "trim_padding_norm" in adj:
-            pad_err = _validate_trim_padding_norm_raw(
-                adj.get("trim_padding_norm"),
-                f"params.adjust[{i}].trim_padding_norm",
-            )
-            if pad_err:
-                raise PointCropParamError(pad_err)
-            new_trim_padding_norm = round(float(adj["trim_padding_norm"]), 6)
+                if k in adj
+            ]
+            if extents_incompatible:
+                raise PointCropParamError(
+                    f"params.adjust[{i}] cannot combine window_extents geometry with {extents_incompatible}.",
+                    repair_hint=point_crops_adjust_repair_hint_for("window_extents_norm"),
+                )
+        else:
+            if not new_size or not new_shape:
+                raise PointCropParamError(
+                    f"params.adjust[{i}] requires size and shape when leaving window_extents_norm.",
+                    repair_hint=(
+                        "Provide size and shape together to switch back to a template crop, "
+                        "or provide window_extents_norm to keep an explicit window."
+                    ),
+                )
+            if "trim_to_text_block" in adj:
+                new_trim_to_text_block = bool(adj["trim_to_text_block"])
+            elif "size" in adj and new_size == SPAN_LINE_CROP_INTENT and prior_size != SPAN_LINE_CROP_INTENT:
+                new_trim_to_text_block = True
+            if "trim_axis" in adj:
+                axis = str(adj.get("trim_axis") or "").strip().lower()
+                if axis not in ALLOWED_TRIM_AXES:
+                    raise PointCropParamError(
+                        f"params.adjust[{i}].trim_axis must be x (only axis supported in this pass).",
+                    )
+                new_trim_axis = axis
+            if "trim_padding_norm" in adj:
+                pad_err = _validate_trim_padding_norm_raw(
+                    adj.get("trim_padding_norm"),
+                    f"params.adjust[{i}].trim_padding_norm",
+                )
+                if pad_err:
+                    raise PointCropParamError(pad_err)
+                new_trim_padding_norm = round(float(adj["trim_padding_norm"]), 6)
 
-        prior_zoom_effective = resolve_point_zoom_factor(
-            size=prior_size,
-            point_zoom=float(prior_zoom_factor) if prior_zoom_factor is not None else None,
+        prior_zoom_effective = (
+            _normalize_zoom_factor(prior_zoom_factor)
+            if prior_zoom_factor is not None
+            else (
+                _normalize_zoom_factor(DEFAULT_WINDOW_EXTENTS_ZOOM)
+                if prior_is_extents
+                else resolve_point_zoom_factor(size=prior_size or "medium", point_zoom=None)
+            )
         )
-        new_zoom_effective = resolve_point_zoom_factor(
-            size=new_size,
-            point_zoom=float(new_zoom_factor) if new_zoom_factor is not None else None,
+        new_zoom_effective = (
+            _normalize_zoom_factor(new_zoom_factor)
+            if new_zoom_factor is not None
+            else (
+                _normalize_zoom_factor(DEFAULT_WINDOW_EXTENTS_ZOOM)
+                if new_extents is not None
+                else resolve_point_zoom_factor(size=new_size or "medium", point_zoom=None)
+            )
         )
 
         target_fields_in_adj = any(field in adj for field in TARGET_MAPPING_KEYS)
+        extents_unchanged = (
+            (prior_extents is None and new_extents is None)
+            or (
+                prior_extents is not None
+                and new_extents is not None
+                and prior_extents == new_extents
+            )
+        )
 
         if (
             new_point_norm == [round(prior_point_norm[0], 6), round(prior_point_norm[1], 6)]
+            and extents_unchanged
             and new_size == prior_size
             and new_shape == prior_shape
             and new_zoom_effective == prior_zoom_effective
@@ -1763,64 +2030,98 @@ def prepare_point_crops_adjust(
             )
 
         target_row["point_norm"] = new_point_norm
-        target_row["size"] = new_size
-        target_row["shape"] = new_shape
-        if new_zoom_factor is not None:
-            target_row["zoom_factor"] = new_zoom_factor
-        elif "zoom_factor" not in target_row and new_size != prior_size:
-            target_row.pop("zoom_factor", None)
-        if _normalize_axis_scale(new_scale_x) != 1.0:
-            target_row["scale_x"] = _normalize_axis_scale(new_scale_x)
-        else:
-            target_row.pop("scale_x", None)
-        if _normalize_axis_scale(new_scale_y) != 1.0:
-            target_row["scale_y"] = _normalize_axis_scale(new_scale_y)
-        else:
-            target_row.pop("scale_y", None)
-        if new_width_norm is not None and new_height_norm is not None:
-            target_row["width_norm"] = _normalize_explicit_dim(new_width_norm)
-            target_row["height_norm"] = _normalize_explicit_dim(new_height_norm)
-        else:
+        if new_extents is not None:
+            target_row["window_extents_norm"] = dict(new_extents)
+            target_row["geometry_form"] = GEOMETRY_FORM_WINDOW_EXTENTS
+            target_row.pop("size", None)
+            target_row.pop("shape", None)
             target_row.pop("width_norm", None)
             target_row.pop("height_norm", None)
-
-        if new_trim_to_text_block:
-            target_row["trim_to_text_block"] = True
-        else:
-            target_row["trim_to_text_block"] = False
-        if new_trim_axis != "x":
-            target_row["trim_axis"] = new_trim_axis
-        else:
+            target_row.pop("scale_x", None)
+            target_row.pop("scale_y", None)
+            target_row.pop("trim_to_text_block", None)
             target_row.pop("trim_axis", None)
-        if abs(new_trim_padding_norm - DEFAULT_TRIM_PADDING_NORM) > 1e-9:
-            target_row["trim_padding_norm"] = new_trim_padding_norm
-        else:
             target_row.pop("trim_padding_norm", None)
+        else:
+            target_row.pop("window_extents_norm", None)
+            target_row.pop("geometry_form", None)
+            target_row["size"] = new_size
+            target_row["shape"] = new_shape
+            if new_zoom_factor is not None:
+                target_row["zoom_factor"] = new_zoom_factor
+            elif "zoom_factor" not in target_row and new_size != prior_size:
+                target_row.pop("zoom_factor", None)
+            if _normalize_axis_scale(new_scale_x) != 1.0:
+                target_row["scale_x"] = _normalize_axis_scale(new_scale_x)
+            else:
+                target_row.pop("scale_x", None)
+            if _normalize_axis_scale(new_scale_y) != 1.0:
+                target_row["scale_y"] = _normalize_axis_scale(new_scale_y)
+            else:
+                target_row.pop("scale_y", None)
+            if new_width_norm is not None and new_height_norm is not None:
+                target_row["width_norm"] = _normalize_explicit_dim(new_width_norm)
+                target_row["height_norm"] = _normalize_explicit_dim(new_height_norm)
+            else:
+                target_row.pop("width_norm", None)
+                target_row.pop("height_norm", None)
+
+            if new_trim_to_text_block:
+                target_row["trim_to_text_block"] = True
+            else:
+                target_row["trim_to_text_block"] = False
+            if new_trim_axis != "x":
+                target_row["trim_axis"] = new_trim_axis
+            else:
+                target_row.pop("trim_axis", None)
+            if abs(new_trim_padding_norm - DEFAULT_TRIM_PADDING_NORM) > 1e-9:
+                target_row["trim_padding_norm"] = new_trim_padding_norm
+            else:
+                target_row.pop("trim_padding_norm", None)
+
+        if new_zoom_factor is not None:
+            target_row["zoom_factor"] = new_zoom_factor
 
         applied: dict[str, Any] = {
             "target": target,
             "prior_point_norm": [round(prior_point_norm[0], 6), round(prior_point_norm[1], 6)],
             "new_point_norm": new_point_norm,
-            "prior_size": prior_size,
-            "new_size": new_size,
-            "prior_shape": prior_shape,
-            "new_shape": new_shape,
         }
-        prior_intent = crop_intent_for_point({"size": prior_size})
-        new_intent = crop_intent_for_point({"size": new_size})
+        if prior_extents is not None:
+            applied["prior_window_extents_norm"] = dict(prior_extents)
+        if new_extents is not None:
+            applied["new_window_extents_norm"] = dict(new_extents)
+        if prior_size is not None:
+            applied["prior_size"] = prior_size
+        if new_size is not None:
+            applied["new_size"] = new_size
+        if prior_shape is not None:
+            applied["prior_shape"] = prior_shape
+        if new_shape is not None:
+            applied["new_shape"] = new_shape
+        prior_intent = crop_intent_for_point({"size": prior_size} if prior_size else {})
+        new_intent = crop_intent_for_point({"size": new_size} if new_size else {})
         if prior_intent != new_intent:
             applied["prior_crop_intent"] = prior_intent
             applied["new_crop_intent"] = new_intent
         if (
-            new_size != prior_size
-            or new_shape != prior_shape
-            or _normalize_axis_scale(new_scale_x) != _normalize_axis_scale(prior_scale_x)
-            or _normalize_axis_scale(new_scale_y) != _normalize_axis_scale(prior_scale_y)
-            or not _explicit_dimensions_equal(
-                prior_width_norm,
-                prior_height_norm,
-                new_width_norm,
-                new_height_norm,
+            prior_extents is None
+            and new_extents is None
+            and prior_size is not None
+            and prior_shape is not None
+            and new_size is not None
+            and new_shape is not None
+            and (
+                new_size != prior_size
+                or new_shape != prior_shape
+                or _normalize_axis_scale(new_scale_x) != _normalize_axis_scale(prior_scale_x)
+                or _normalize_axis_scale(new_scale_y) != _normalize_axis_scale(prior_scale_y)
+                or not _explicit_dimensions_equal(
+                    prior_width_norm,
+                    prior_height_norm,
+                    new_width_norm,
+                    new_height_norm,
+                )
             )
         ):
             applied["prior_resolved_width_height_norm"] = resolved_dims_from_template(
@@ -1842,34 +2143,35 @@ def prepare_point_crops_adjust(
         if prior_zoom_effective != new_zoom_effective:
             applied["prior_zoom_factor"] = prior_zoom_effective
             applied["new_zoom_factor"] = new_zoom_effective
-        if _normalize_axis_scale(prior_scale_x) != _normalize_axis_scale(new_scale_x):
-            applied["prior_scale_x"] = _normalize_axis_scale(prior_scale_x)
-            applied["new_scale_x"] = _normalize_axis_scale(new_scale_x)
-        if _normalize_axis_scale(prior_scale_y) != _normalize_axis_scale(new_scale_y):
-            applied["prior_scale_y"] = _normalize_axis_scale(prior_scale_y)
-            applied["new_scale_y"] = _normalize_axis_scale(new_scale_y)
-        if prior_width_norm != new_width_norm or prior_height_norm != new_height_norm:
-            applied["prior_width_height_norm"] = (
-                [_normalize_explicit_dim(prior_width_norm), _normalize_explicit_dim(prior_height_norm)]
-                if prior_width_norm is not None and prior_height_norm is not None
-                else None
-            )
-            applied["new_width_height_norm"] = (
-                [_normalize_explicit_dim(new_width_norm), _normalize_explicit_dim(new_height_norm)]
-                if new_width_norm is not None and new_height_norm is not None
-                else None
-            )
+        if new_extents is None and prior_extents is None:
+            if _normalize_axis_scale(prior_scale_x) != _normalize_axis_scale(new_scale_x):
+                applied["prior_scale_x"] = _normalize_axis_scale(prior_scale_x)
+                applied["new_scale_x"] = _normalize_axis_scale(new_scale_x)
+            if _normalize_axis_scale(prior_scale_y) != _normalize_axis_scale(new_scale_y):
+                applied["prior_scale_y"] = _normalize_axis_scale(prior_scale_y)
+                applied["new_scale_y"] = _normalize_axis_scale(new_scale_y)
+            if prior_width_norm != new_width_norm or prior_height_norm != new_height_norm:
+                applied["prior_width_height_norm"] = (
+                    [_normalize_explicit_dim(prior_width_norm), _normalize_explicit_dim(prior_height_norm)]
+                    if prior_width_norm is not None and prior_height_norm is not None
+                    else None
+                )
+                applied["new_width_height_norm"] = (
+                    [_normalize_explicit_dim(new_width_norm), _normalize_explicit_dim(new_height_norm)]
+                    if new_width_norm is not None and new_height_norm is not None
+                    else None
+                )
+            if prior_trim_to_text_block != new_trim_to_text_block:
+                applied["prior_trim_to_text_block"] = prior_trim_to_text_block
+                applied["new_trim_to_text_block"] = new_trim_to_text_block
+            if prior_trim_padding_norm != new_trim_padding_norm:
+                applied["prior_trim_padding_norm"] = prior_trim_padding_norm
+                applied["new_trim_padding_norm"] = new_trim_padding_norm
+            if prior_trim_axis != new_trim_axis:
+                applied["prior_trim_axis"] = prior_trim_axis
+                applied["new_trim_axis"] = new_trim_axis
         if shift_applied is not None:
             applied["shift_norm"] = shift_applied
-        if prior_trim_to_text_block != new_trim_to_text_block:
-            applied["prior_trim_to_text_block"] = prior_trim_to_text_block
-            applied["new_trim_to_text_block"] = new_trim_to_text_block
-        if prior_trim_padding_norm != new_trim_padding_norm:
-            applied["prior_trim_padding_norm"] = prior_trim_padding_norm
-            applied["new_trim_padding_norm"] = new_trim_padding_norm
-        if prior_trim_axis != new_trim_axis:
-            applied["prior_trim_axis"] = prior_trim_axis
-            applied["new_trim_axis"] = new_trim_axis
         try:
             apply_target_mapping_to_point(
                 target_row,
@@ -1883,29 +2185,37 @@ def prepare_point_crops_adjust(
 
     compute_points = []
     for pt in working_points:
-        point_row = {
-            "alias": pt["alias"],
-            "point_norm": pt["point_norm"],
-            "size": pt["size"],
-            "shape": pt["shape"],
-        }
+        if point_has_window_extents(pt):
+            point_row = {
+                "alias": pt["alias"],
+                "point_norm": pt["point_norm"],
+                "window_extents_norm": dict(pt["window_extents_norm"]),
+                "geometry_form": GEOMETRY_FORM_WINDOW_EXTENTS,
+            }
+        else:
+            point_row = {
+                "alias": pt["alias"],
+                "point_norm": pt["point_norm"],
+                "size": pt["size"],
+                "shape": pt["shape"],
+            }
+            for axis in ("scale_x", "scale_y"):
+                if pt.get(axis) is not None:
+                    point_row[axis] = pt[axis]
+            if pt.get("width_norm") is not None and pt.get("height_norm") is not None:
+                point_row["width_norm"] = pt["width_norm"]
+                point_row["height_norm"] = pt["height_norm"]
+            if pt.get("trim_to_text_block") is not None:
+                point_row["trim_to_text_block"] = bool(pt["trim_to_text_block"])
+            if pt.get("trim_axis") is not None:
+                point_row["trim_axis"] = str(pt["trim_axis"]).strip().lower()
+            if pt.get("trim_padding_norm") is not None:
+                point_row["trim_padding_norm"] = pt["trim_padding_norm"]
         if isinstance(pt.get("graph_ref"), dict):
             point_row["graph_ref"] = dict(pt["graph_ref"])
         point_row.update(copy_target_mapping_fields(pt))
         if pt.get("zoom_factor") is not None:
             point_row["zoom_factor"] = pt["zoom_factor"]
-        for axis in ("scale_x", "scale_y"):
-            if pt.get(axis) is not None:
-                point_row[axis] = pt[axis]
-        if pt.get("width_norm") is not None and pt.get("height_norm") is not None:
-            point_row["width_norm"] = pt["width_norm"]
-            point_row["height_norm"] = pt["height_norm"]
-        if pt.get("trim_to_text_block") is not None:
-            point_row["trim_to_text_block"] = bool(pt["trim_to_text_block"])
-        if pt.get("trim_axis") is not None:
-            point_row["trim_axis"] = str(pt["trim_axis"]).strip().lower()
-        if pt.get("trim_padding_norm") is not None:
-            point_row["trim_padding_norm"] = pt["trim_padding_norm"]
         compute_points.append(point_row)
 
     return {

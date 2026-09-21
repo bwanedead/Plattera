@@ -61,6 +61,7 @@ from .point_crop_source_lineage import (
     resolve_point_crop_source_lineage,
 )
 from .source_window import attach_crop_frame_edge_room_to_point, build_source_window
+from .point_crop_window_extents import copy_window_extents_metadata
 from .point_crops import (
     PointCropParamError,
     build_crop_set_point_record,
@@ -204,14 +205,17 @@ def _persist_point_crop_set(
             "alias": pt["alias"],
             "letter": pt["letter"],
             "color": pt["color"],
-            "size": pt["size"],
-            "shape": pt["shape"],
             "point_norm": pt["point_norm"],
             "box_px": pt["box_px"],
             "box_norm": pt["box_norm"],
             "source_width_height": source_width_height,
             "crop_set_overlay_ref": master_ref,
         }
+        if pt.get("size") is not None:
+            crop_transform_metadata["size"] = pt["size"]
+        if pt.get("shape") is not None:
+            crop_transform_metadata["shape"] = pt["shape"]
+        crop_transform_metadata.update(copy_window_extents_metadata(pt))
         crop_transform_metadata.update(
             {
                 key: pt[key]

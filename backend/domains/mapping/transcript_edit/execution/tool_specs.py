@@ -121,14 +121,14 @@ def build_transcript_edit_tool_specs() -> tuple[SemanticToolSpec, ...]:
                 "Normal sub-actions: crop, expand, zoom, annotate, render_evidence_locators, point_crops_scaffold, point_crops, point_crops_adjust, point_crops_view. "
                 "point_crops_scaffold is the blank master-overlay placement surface when no point-crop master overlay exists yet "
                 "(zero points; shared coordinate_lattice + 10x10 reference_cells; not the legacy plain coordinate-reference sub_action). "
-                "point_crops is the primary template point-crop packet mechanism when localized evidence targets are known "
-                "(small|small_plus|medium|large|span_line × wide|portrait|square). "
+                "point_crops is the primary point-crop packet mechanism when localized evidence targets are known "
+                "(templates size×shape by default, or window_extents_norm when the agent knows the context shape). "
                 "The master overlay uses the same coordinate/reference-cell foundation plus point-location markers and letters; "
-                "crop windows/boxes remain metadata (box_norm/box_px/review rows) and are not painted on normal master overlays. "
+                "default show is pin/letter (uncluttered); include box to paint final resolved crop bounds. "
                 "Returns one master overlay as immediate image_evidence (outputs.derived_ref_id); "
                 "per-point crop refs persist in outputs.crop_set.points / outputs.crop_records. "
                 "Use point_crops_adjust on a prior point_crops master overlay ref to revise by letter or alias "
-                "(shift_norm, size, shape, scale_x, scale_y); creates a new revision — old refs are not mutated. "
+                "(shift_norm, size, shape, window_extents_norm, scale_x, scale_y); creates a new revision — old refs are not mutated. "
                 "Use point_crops_view to render a filtered overlay from a prior crop set; overlay view only, no new per-point crops. "
                 "Letters A/B/C are visual local labels only; semantic aliases live in metadata. "
                 "For point-crop placement, the master overlay is the native control surface; do not substitute a separate legacy transform. "
@@ -178,15 +178,26 @@ def build_transcript_edit_tool_specs() -> tuple[SemanticToolSpec, ...]:
                 "POINT_CROPS — params: {scale_x?: number, scale_y?: number, zoom_factor?: number, "
                 "trim_to_text_block?: boolean, trim_axis?: x, trim_padding_norm?: number, "
                 "points: [{alias, point_norm: [x,y], "
-                "size: small|small_plus|medium|large|span_line, shape: wide|portrait|square, width_norm?: number, height_norm?: number (both required), scale_x?: number, scale_y?: number, zoom_factor?: number, "
+                "size?: small|small_plus|medium|large|span_line, shape?: wide|portrait|square, "
+                "width_norm?: number, height_norm?: number (both required), "
+                "window_extents_norm?: {left, right, up, down}, "
+                "scale_x?: number, scale_y?: number, zoom_factor?: number, "
                 "trim_to_text_block?: boolean, trim_axis?: x, trim_padding_norm?: number, "
                 "target_atom_id?: str, target_context_id?: str, target_hint?: str, target_hint_role?: candidate_only_not_earned}, ...], "
                 "show?: [pin|box|letter]}. "
                 "When a point is intended to inspect an existing resolution atom, provide that exact target_atom_id; "
                 "omit target_atom_id only for a genuinely exploratory or not-yet-bound point. "
                 "Target mapping is deterministic crop-to-resolution wiring, not proof, and target_hint remains candidate context rather than earned truth. "
-                "Default show is [pin, letter]. show: box is accepted for compatibility but visual boxes are suppressed on normal master overlays "
-                "(render_warnings may note visual_boxes_suppressed_on_master_overlay); use point_crops_view for an explicit diagnostic box overlay. "
+                "Default show is [pin, letter]. "
+                "When show includes box, the master overlay paints each point's final resolved crop bounds "
+                "(after source-edge clamping) as a thin outline with the pin; omit box to keep the overlay pin/letter-focused. "
+                "point_crops_view remains available when overlapping boxes are hard to inspect on a full overlay. "
+                "Templates (size/shape) remain the quick default when they fit. "
+                "Use window_extents_norm when you already know the context shape: left/right/up/down are fractions of the "
+                "input image width/height from point_norm, forming box [x-left, y-up, x+right, y+down]. "
+                "At a source edge only the out-of-image side clamps; the tool reports requested_box_norm vs box_norm and "
+                "source_edge_clipping. window_extents_norm cannot combine with size/shape, width_norm/height_norm, "
+                "scale_x/scale_y, or trim_*; zoom_factor may still apply after the crop. "
                 "Per-point width_norm/height_norm override template dimensions (both required together); then scale_x/scale_y may apply. "
                 "Per-point scale_x/scale_y override params.scale_x/scale_y; "
                 "1.0 leaves the template unchanged, >1.0 expands that axis, <1.0 condenses. "
@@ -207,7 +218,7 @@ def build_transcript_edit_tool_specs() -> tuple[SemanticToolSpec, ...]:
                 "Master overlay includes coordinate_lattice + reference_cells metadata, margin grid labels, interior cell labels, "
                 "bullseye point markers with halo at point_norm, letter labels, a template-size legend, and an appended point-key band "
                 "below the source image when points exist (display-only; does not affect coordinate math). "
-                "Crop box geometry is recorded in outputs.crop_set metadata but not painted on the normal master overlay image. "
+                "Crop box geometry is always in outputs.crop_set metadata; with show including box it is also painted on the master overlay. "
                 "outputs.crop_set carries review_rows / review_lines (letter, alias, crop_ref, point_norm, "
                 "box_norm, zoom, nearest major-grid anchor, signed offset), compact point_key_lines, and geometry per point. "
                 "Per-point crop output is capped at max_output_dimension 3200 px on the longest side "
@@ -222,12 +233,16 @@ def build_transcript_edit_tool_specs() -> tuple[SemanticToolSpec, ...]:
                 "Use individual crop refs for hydrate_artifact_refs, delegate_subtask.context_refs, and HITL evidence packets. "
                 "Aliases are stored in metadata; letters are local A/B/C labels. "
                 "Use point_crops_adjust when an existing letter/alias needs mechanical coordinate adjustment "
-                "(shift_norm, point_norm, size, shape, scale, zoom). "
+                "(shift_norm, point_norm, size, shape, window_extents_norm, scale, zoom). "
                 "POINT_CROPS_ADJUST — ref_id must be a prior point_crops master overlay ref (image:derived:*). "
-                "params: {adjust: [{letter|alias, point_norm?, shift_norm?, size?, shape?, width_norm?, height_norm?, scale_x?, scale_y?, zoom_factor?, "
-                "trim_to_text_block?, trim_axis?, trim_padding_norm?}, ...], "
+                "params: {adjust: [{letter|alias, point_norm?, shift_norm?, size?, shape?, width_norm?, height_norm?, "
+                "window_extents_norm?: {left,right,up,down}, scale_x?, scale_y?, zoom_factor?, "
+                "trim_to_text_block?, trim_axis?, trim_padding_norm?, "
+                "target_atom_id?, target_context_id?, target_hint?, target_hint_role?}, ...], "
                 "show?: [pin|box|letter]}. "
                 "Each adjust row targets exactly one point by letter OR alias and must make a real change. "
+                "window_extents_norm can replace a template window or revise an explicit window while retaining the point and target mapping; "
+                "moving point_norm (or shift_norm) with retained extents moves the window with its anchor, then re-resolves against source bounds. "
                 "Prior scale and zoom metadata are preserved unless scale_x, scale_y, or zoom_factor is changed on the adjust row. "
                 "Use numeric shift_norm (e.g. [0.015, 0.0]) — not natural-language movement. "
                 "Prior crop-set refs remain valid; adjustment mints a new master overlay and new crop refs. "
@@ -275,13 +290,15 @@ def build_transcript_edit_tool_specs() -> tuple[SemanticToolSpec, ...]:
                             "adjust_px?: {...}, adjust_norm?: {...}}]}. "
                             "render_evidence_locators: {locators: evidence_locators[]} — the durable evidence path. "
                             "point_crops: {scale_x?: number, scale_y?: number, zoom_factor?: number, points: [{alias: str, point_norm: [x,y], "
-                            "size: small|small_plus|medium|large, shape: wide|portrait|square, width_norm?: number, height_norm?: number, scale_x?: number, scale_y?: number, zoom_factor?: number, "
+                            "size?: small|small_plus|medium|large, shape?: wide|portrait|square, width_norm?: number, height_norm?: number, "
+                            "window_extents_norm?: {left,right,up,down}, scale_x?: number, scale_y?: number, zoom_factor?: number, "
                             "target_atom_id?: str, target_context_id?: str, target_hint?: str, target_hint_role?: candidate_only_not_earned}], "
-                            "show?: [pin|box|letter]} — primary template crop packets; master overlay + review_rows/lines. "
+                            "show?: [pin|box|letter]} — primary point-crop packets (template or window_extents_norm); master overlay + review_rows/lines. "
                             "For a known resolution atom, provide its exact target_atom_id; omission remains valid for a genuinely exploratory or not-yet-bound point. "
                             "target_* fields are deterministic crop-to-resolution tracking only; target_hint is candidate context, not earned truth. "
                             "master overlay only in image_evidence; per-point crops are zoomed for legibility. "
-                            "point_crops_adjust: {adjust: [{letter|alias, point_norm?, shift_norm?, size?, shape?, width_norm?, height_norm?, scale_x?, scale_y?, "
+                            "point_crops_adjust: {adjust: [{letter|alias, point_norm?, shift_norm?, size?, shape?, width_norm?, height_norm?, "
+                            "window_extents_norm?, scale_x?, scale_y?, "
                             "zoom_factor?, target_atom_id?, target_context_id?, target_hint?, target_hint_role?}], show?: [pin|box|letter]} — adjust an existing crop set via prior master overlay ref_id. "
                             "point_crops_view: {filter?: {letters?, aliases?}, show?: [pin|box|letter]} — filtered overlay view."
                         ),
@@ -295,17 +312,19 @@ def build_transcript_edit_tool_specs() -> tuple[SemanticToolSpec, ...]:
                 "params": {
                     "points": [
                         {
-                            "alias": "example_atom_crop",
-                            "point_norm": [0.36, 0.63],
-                            "size": "small_plus",
-                            "shape": "wide",
-                            "target_atom_id": "example-resolution-atom",
-                            "target_context_id": "example-resolution-group",
+                            "alias": "example-target",
+                            "point_norm": [0.72, 0.48],
+                            "window_extents_norm": {
+                                "left": 0.08,
+                                "right": 0.22,
+                                "up": 0.03,
+                                "down": 0.09,
+                            },
+                            "target_atom_id": "example-atom",
                             "target_hint": "candidate token",
-                            "target_hint_role": "candidate_only_not_earned",
                         }
                     ],
-                    "show": ["pin", "letter"],
+                    "show": ["pin", "letter", "box"],
                 },
             },
             batching={
@@ -335,11 +354,13 @@ def build_transcript_edit_tool_specs() -> tuple[SemanticToolSpec, ...]:
                 "Do not use artifact_refs[] as the normal hydrate target: it is the full per-point crop list, not the master overlay. "
                 "Master overlay image carries coordinate_lattice + reference_cells grid context plus bullseye point markers, letters, "
                 "template-size legend, and an appended point-key band when points exist; "
-                "crop box geometry is metadata-only on normal master overlays (render_warnings when show includes box). "
+                "when show includes box, resolved crop bounds are painted on the master overlay (omit box for the uncluttered default). "
                 "outputs.crop_set includes coordinate_lattice, reference_cells, review_rows, review_lines, point_key_lines, and points/crop_records "
                 "mapping letters/aliases/colors/geometry to individual crop refs in artifact_refs. "
                 "review_rows / review_lines list crop_ref, point_norm, box_norm, zoom, and nearest major-grid anchor "
                 "with signed offset for grid-relative coordinate review. "
+                "For window_extents_norm points, records include geometry_form, window_extents_norm, requested_box_norm, "
+                "and source_edge_clipping when an edge clamped the request. "
                 "Review lines may include edge= and room=[x-... x+... y-... y+...]; these are crop-frame facts from the selected "
                 "crop setting/window, not from point_norm and not source determinations. x-/x+ are remaining room left/right, "
                 "y-/y+ are remaining room above/below, and 0.0 means the crop frame reached that available source edge. "
@@ -355,7 +376,7 @@ def build_transcript_edit_tool_specs() -> tuple[SemanticToolSpec, ...]:
                 "fields map back to the original source when projection is available; "
                 "crop_set_overlay_ref links back to the master. "
                 "For point_crops_adjust: same result shape as point_crops (overlay_role point_crop_master) plus outputs.previous_crop_set_overlay_ref, "
-                "outputs.adjustment_source_ref, and outputs.adjustments_applied with prior/new point_norm/size/shape "
+                "outputs.adjustment_source_ref, and outputs.adjustments_applied with prior/new point_norm/size/shape/window_extents_norm "
                 "and prior/new scale_x/scale_y and prior/new zoom_factor when changed per adjusted target. Old master/crop refs are not mutated. "
                 "For point_crops_view: outputs.derived_ref_id is a filtered overlay ref (overlay_role point_crop_view); "
                 "artifact_refs contains only that overlay; crop_set.points preserves original crop refs for delegation/hydration. "
