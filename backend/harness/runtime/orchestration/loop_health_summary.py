@@ -20,6 +20,7 @@ from ..user_messages.ledger import (
     count_pending as _count_user_messages_pending,
 )
 from ..memory import LoopMemoryState
+from .artifact_action_roles import resolve_artifact_action_roles
 from ..memory.atom_evidence_worklist_projection import (
     build_atom_evidence_worklist_for_prompt,
     resolution_state_as_mapping,
@@ -56,6 +57,9 @@ def build_prompt_observability_summary(
     cont = loop_memory.continuity
     step_records = list(cont.kernel_step_records)
     step_result_records = list(getattr(cont, "kernel_step_result_records", ()) or ())
+    artifact_roles = resolve_artifact_action_roles(closure_policy)
+    working_write_action_ids = artifact_roles.working_write_action_ids
+    materialize_action_ids = artifact_roles.materialize_action_ids
     resolution_items = list(getattr(cont.resolution_state, "items", ()) or ())
     resolution_relations = list(getattr(cont.resolution_state, "relations", ()) or ())
     success_conditions = list(getattr(cont.mission_state, "success_conditions", ()) or ())
@@ -181,7 +185,10 @@ def build_prompt_observability_summary(
     same_ref_bundle_reread_no_gain_streak = _same_ref_bundle_reread_no_gain_streak(step_records)
     same_item_same_ref_bundle_stall_streak = _same_item_same_ref_bundle_stall_streak(step_records)
     same_item_hydrate_churn_no_gain_streak = _same_item_hydrate_churn_no_gain_streak(step_records)
-    artifact_refresh_trap_risk_count = _artifact_refresh_trap_risk(step_records)
+    artifact_refresh_trap_risk_count = _artifact_refresh_trap_risk(
+        step_records,
+        working_write_action_ids=working_write_action_ids,
+    )
     semantic_repair_debt_kinds_early = _semantic_repair_debt_kinds(feedback)
     pending_hitl_integration_ids_early = _pending_hitl_integration_ids(feedback)
     repair_ready_without_artifact_write_count = _repair_ready_without_artifact_write(
@@ -190,6 +197,7 @@ def build_prompt_observability_summary(
         pending_hitl_integration_ids=pending_hitl_integration_ids_early,
         artifact_refresh_trap_risk_count=artifact_refresh_trap_risk_count,
         feedback=feedback,
+        working_write_action_ids=working_write_action_ids,
     )
     pending_hitl_requests = list(getattr(loop_memory.hitl, "pending_hitl_requests", ()) or ())
     hitl_evidence_readiness_debt_count = _hitl_evidence_readiness_debt(
@@ -197,11 +205,18 @@ def build_prompt_observability_summary(
         step_result_records,
         pending_hitl_requests=pending_hitl_requests,
     )
-    post_hitl_spin_count = _post_hitl_spin_count(step_records)
-    post_write_artifact_consistency_check_count = _post_write_artifact_consistency_check_count(
-        step_records
+    post_hitl_spin_count = _post_hitl_spin_count(
+        step_records,
+        working_write_action_ids=working_write_action_ids,
     )
-    artifact_state_dirty_since_write_count = _artifact_state_dirty_since_write_count(step_records)
+    post_write_artifact_consistency_check_count = _post_write_artifact_consistency_check_count(
+        step_records,
+        working_write_action_ids=working_write_action_ids,
+    )
+    artifact_state_dirty_since_write_count = _artifact_state_dirty_since_write_count(
+        step_records,
+        materialize_action_ids=materialize_action_ids,
+    )
     substantial_artifact_output_count = _substantial_artifact_output_count(
         step_result_records,
         last_n=3,
@@ -827,17 +842,10 @@ def _same_item_hydrate_churn_no_gain_streak(step_records: list[dict[str, Any]]) 
 
 _ARTIFACT_REFRESH_TRAP_SAVE_LOOKBACK: int = 8
 _ARTIFACT_REFRESH_TRAP_HYDRATE_THRESHOLD: int = 3
-_ARTIFACT_REFRESH_TRAP_SAVE_ACTION_TYPES: frozenset[str] = frozenset(
-    {"save_workspace_artifact", "copy_forward_save_workspace_artifact"}
-)
-_ARTIFACT_MATERIALIZE_ACTION_TYPES: frozenset[str] = frozenset(
-    {"save_workspace_artifact", "copy_forward_save_workspace_artifact", "publish_workspace_artifact"}
-)
 _ARTIFACT_REFRESH_TRAP_WINDOW: int = 16
 _ARTIFACT_REFRESH_TRAP_SAVE_LOOKBACK_WIDE: int = 20
 _ARTIFACT_REFRESH_TRAP_SMALL_TARGET_SET_MAX: int = 4
 
-_REPAIR_READY_WRITE_ACTION_TYPES: frozenset[str] = _ARTIFACT_REFRESH_TRAP_SAVE_ACTION_TYPES
 _REPAIR_READY_MIN_NO_WRITE_TURNS: int = 3
 _POST_HITL_SPIN_MIN_TURNS: int = 3
 _HITL_EVIDENCE_READINESS_WINDOW: int = 5
@@ -855,7 +863,25 @@ _HITL_EVIDENCE_CAVEAT_KEYS: frozenset[str] = frozenset({
 })
 
 
-def _artifact_refresh_trap_streak(step_records: list[dict[str, Any]]) -> int:
+def _successful_configured_action(
+    row: Mapping[str, Any],
+    action_ids: frozenset[str],
+) -> bool:
+    """True when the step executed a configured action id.
+
+    Refusal, skip, failure, and unexecuted rows do not count.
+    """
+    action_type = _as_optional_text(row.get("action_type"))
+    if action_type not in action_ids:
+        return False
+    return _as_optional_text(row.get("execution_state")) == "executed"
+
+
+def _artifact_refresh_trap_streak(
+    step_records: list[dict[str, Any]],
+    *,
+    working_write_action_ids: frozenset[str],
+) -> int:
     """Simple consecutive hydrate streak after a recent save.
 
     Fires when the trailing turns are all hydrate_artifact_refs with unchanged refs
@@ -893,23 +919,26 @@ def _artifact_refresh_trap_streak(step_records: list[dict[str, Any]]) -> int:
     pre_streak = step_records[: len(step_records) - streak]
     lookback = pre_streak[-_ARTIFACT_REFRESH_TRAP_SAVE_LOOKBACK:]
     if not any(
-        _as_optional_text(row.get("action_type")) in _ARTIFACT_REFRESH_TRAP_SAVE_ACTION_TYPES
-        for row in lookback
+        _successful_configured_action(row, working_write_action_ids) for row in lookback
     ):
         return 0
 
     return streak
 
 
-def _artifact_refresh_trap_windowed(step_records: list[dict[str, Any]]) -> int:
+def _artifact_refresh_trap_windowed(
+    step_records: list[dict[str, Any]],
+    *,
+    working_write_action_ids: frozenset[str],
+) -> int:
     """Windowed hydrate-churn detector — fires on same-target repeats and small-set cycling.
 
-    Catches the run-10 interleaved trap: save → hydrate(A) → state_patch → hydrate(B) →
-    state_patch → hydrate(A) → ... where the agent cycles over a small bounded set of
-    recovery refs without producing new refs and without using copy_forward_save.
+    Catches the interleaved trap: a working write, then hydrate and state-only turns
+    that cycle over a small bounded set of recovery refs without producing new refs
+    and without another successful configured working write after hydration starts.
     State-only turns (state patches, no-dispatch) are invisible to the count.
 
-    Two firing conditions (both require prior save and no escape tool in window):
+    Two firing conditions (both require a prior working write and no later working write in the window):
     1. Trailing fruitless hydrate sub-streak: all trailing hydrate rows have the same
        latest_refs_snapshot as the most recent hydrate AND the same read-target signature.
     2. Cyclic small-set recovery: trailing fruitless hydrate rows (same latest_refs_snapshot)
@@ -922,11 +951,14 @@ def _artifact_refresh_trap_windowed(step_records: list[dict[str, Any]]) -> int:
 
     window = step_records[-_ARTIFACT_REFRESH_TRAP_WINDOW:]
 
-    if any(
-        _as_optional_text(row.get("action_type")) == "copy_forward_save_workspace_artifact"
-        for row in window
-    ):
-        return 0
+    seen_hydrate = False
+    for row in window:
+        action_type = _as_optional_text(row.get("action_type"))
+        if action_type == "hydrate_artifact_refs":
+            seen_hydrate = True
+            continue
+        if seen_hydrate and _successful_configured_action(row, working_write_action_ids):
+            return 0
 
     hydrate_rows = [
         row for row in window
@@ -964,15 +996,18 @@ def _artifact_refresh_trap_windowed(step_records: list[dict[str, Any]]) -> int:
 
     wide_lookback = step_records[-_ARTIFACT_REFRESH_TRAP_SAVE_LOOKBACK_WIDE:]
     if not any(
-        _as_optional_text(row.get("action_type")) in _ARTIFACT_REFRESH_TRAP_SAVE_ACTION_TYPES
-        for row in wide_lookback
+        _successful_configured_action(row, working_write_action_ids) for row in wide_lookback
     ):
         return 0
 
     return len(fruitless_rows)
 
 
-def _artifact_refresh_trap_risk(step_records: list[dict[str, Any]]) -> int:
+def _artifact_refresh_trap_risk(
+    step_records: list[dict[str, Any]],
+    *,
+    working_write_action_ids: frozenset[str],
+) -> int:
     """Artifact-refresh trap risk: max of the simple streak and windowed hydrate-churn detectors.
 
     The streak detector catches the simplest form (consecutive hydrates after a save).
@@ -981,8 +1016,14 @@ def _artifact_refresh_trap_risk(step_records: list[dict[str, Any]]) -> int:
     Purely structural — no ref content inspection, no domain knowledge.
     """
     return max(
-        _artifact_refresh_trap_streak(step_records),
-        _artifact_refresh_trap_windowed(step_records),
+        _artifact_refresh_trap_streak(
+            step_records,
+            working_write_action_ids=working_write_action_ids,
+        ),
+        _artifact_refresh_trap_windowed(
+            step_records,
+            working_write_action_ids=working_write_action_ids,
+        ),
     )
 
 
@@ -993,6 +1034,7 @@ def _repair_ready_without_artifact_write(
     pending_hitl_integration_ids: list[str],
     artifact_refresh_trap_risk_count: int,
     feedback: Mapping[str, Any],
+    working_write_action_ids: frozenset[str],
 ) -> int:
     """Advisory counter: repair/save pressure is present but recent turns avoid artifact writes.
 
@@ -1002,8 +1044,7 @@ def _repair_ready_without_artifact_write(
     - artifact_refresh_trap_risk_count > 0
     - feedback carries salvaged_rows (prose fields omitted on apply)
 
-    AND the trailing step_records carry no save_workspace_artifact or
-    copy_forward_save_workspace_artifact turn.
+    AND the trailing step_records carry no successful configured working-artifact write.
 
     Returns the count of consecutive trailing turns without an artifact write when
     the count meets _REPAIR_READY_MIN_NO_WRITE_TURNS. Returns 0 when no repair
@@ -1024,7 +1065,7 @@ def _repair_ready_without_artifact_write(
 
     trailing_no_write: int = 0
     for row in reversed(step_records):
-        if _as_optional_text(row.get("action_type")) in _REPAIR_READY_WRITE_ACTION_TYPES:
+        if _successful_configured_action(row, working_write_action_ids):
             break
         trailing_no_write += 1
 
@@ -1126,7 +1167,11 @@ def _hitl_evidence_readiness_debt(
     return len(debt_turns)
 
 
-def _post_hitl_spin_count(step_records: list[dict[str, Any]]) -> int:
+def _post_hitl_spin_count(
+    step_records: list[dict[str, Any]],
+    *,
+    working_write_action_ids: frozenset[str],
+) -> int:
     """Advisory: trailing post-HITL turns with no new refs, no artifact write, no state change.
 
     Fires when a wait_for_human turn exists in the step history AND the
@@ -1154,9 +1199,8 @@ def _post_hitl_spin_count(step_records: list[dict[str, Any]]) -> int:
     for row in post_hitl:
         curr_refs_sig = _stable_signature(row.get("latest_refs_snapshot"))
         curr_state_sig = _as_optional_text(row.get("work_state_signature"))
-        action_type = _as_optional_text(row.get("action_type"))
         had_progress = (
-            action_type in _REPAIR_READY_WRITE_ACTION_TYPES
+            _successful_configured_action(row, working_write_action_ids)
             or curr_refs_sig != prev_refs_sig
             or (
                 curr_state_sig is not None
@@ -1178,24 +1222,29 @@ def _post_hitl_spin_count(step_records: list[dict[str, Any]]) -> int:
     return spin_count
 
 
-def _post_write_artifact_consistency_check_count(step_records: list[dict[str, Any]]) -> int:
-    """One-turn advisory after a successful save-like artifact write.
+def _post_write_artifact_consistency_check_count(
+    step_records: list[dict[str, Any]],
+    *,
+    working_write_action_ids: frozenset[str],
+) -> int:
+    """One-turn advisory after a successful configured working-artifact write.
 
-    This is a reminder, not a gate: the agent should compare the saved revision
+    This is a reminder, not a gate: the agent should compare the written revision
     against compact earned/determined atoms using the write result when possible.
+    Publication is not a working revision and does not fire this reminder.
     """
     if not step_records:
         return 0
-    latest = step_records[-1]
-    action_type = _as_optional_text(latest.get("action_type"))
-    if action_type not in _ARTIFACT_REFRESH_TRAP_SAVE_ACTION_TYPES:
-        return 0
-    if _as_optional_text(latest.get("execution_state")) != "executed":
+    if not _successful_configured_action(step_records[-1], working_write_action_ids):
         return 0
     return 1
 
 
-def _artifact_state_dirty_since_write_count(step_records: list[dict[str, Any]]) -> int:
+def _artifact_state_dirty_since_write_count(
+    step_records: list[dict[str, Any]],
+    *,
+    materialize_action_ids: frozenset[str],
+) -> int:
     """Count turns since last materializing write when work state has changed after it."""
     if len(step_records) < 2:
         return 0
@@ -1203,10 +1252,7 @@ def _artifact_state_dirty_since_write_count(step_records: list[dict[str, Any]]) 
     if latest_sig is None:
         return 0
     for offset, row in enumerate(reversed(step_records), start=0):
-        action_type = _as_optional_text(row.get("action_type"))
-        if action_type not in _ARTIFACT_MATERIALIZE_ACTION_TYPES:
-            continue
-        if _as_optional_text(row.get("execution_state")) != "executed":
+        if not _successful_configured_action(row, materialize_action_ids):
             continue
         materialized_sig = _as_optional_text(row.get("work_state_signature"))
         if materialized_sig is None or materialized_sig == latest_sig:

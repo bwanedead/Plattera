@@ -443,3 +443,38 @@ def test_state_repair_mode_excludes_bulky_step_records_fields() -> None:
     # lean fields must still be present
     assert "latest_action_results" in spec.structured_state_fields
     assert "prompt_observability_summary" in spec.structured_state_fields
+
+
+def _artifact_progress_paragraphs() -> str:
+    flags = (
+        "repair_ready_without_artifact_write",
+        "post_write_artifact_consistency_check",
+        "artifact_state_dirty_since_write",
+    )
+    chunks: list[str] = []
+    for flag in flags:
+        start = CHOOSE_ACTION_INSTRUCTION.index(f"`{flag}")
+        end = CHOOSE_ACTION_INSTRUCTION.index("\n\n", start)
+        chunks.append(CHOOSE_ACTION_INSTRUCTION[start:end])
+    return "\n".join(chunks)
+
+
+def test_artifact_progress_teaching_is_role_neutral_and_advisory() -> None:
+    paragraphs = _artifact_progress_paragraphs()
+    lowered = paragraphs.lower()
+    assert "save_workspace_artifact" not in paragraphs
+    assert "copy_forward_save_workspace_artifact" not in paragraphs
+    assert "configured domain artifact-write" in lowered or "configured domain artifact write" in lowered
+    assert "domain-appropriate" in lowered
+    assert "advisory" in lowered
+    assert "not a write mandate" in lowered
+    assert "not a readiness decision" in lowered
+    assert "not every graph or state change requires an artifact edit" in lowered
+    assert "does not select a tool" in lowered
+    assert "not proof that the content is semantically correct" in lowered
+    for token in (
+        "apply_transcript_edits",
+        "initialize_working_transcript",
+        "transcript_edit",
+    ):
+        assert token not in CHOOSE_ACTION_INSTRUCTION

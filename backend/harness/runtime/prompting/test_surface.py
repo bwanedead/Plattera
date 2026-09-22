@@ -43,7 +43,7 @@ def test_harness_surface_defines_inventory_and_resolution_motion_gate() -> None:
 def test_harness_surface_qualifies_when_success_conditions_are_required() -> None:
     text = "\n".join((_HARNESS_TRUNK_CONTRACT_TEXT, _HARNESS_TRUNK_METHOD_TEXT))
     lowered = text.lower()
-    assert _HARNESS_TRUNK_VERSION == "v45"
+    assert _HARNESS_TRUNK_VERSION == "v46"
     assert "optional during early `initial|partial` inventory" in lowered
     assert "required before `believed_adequate`, `audited`, or resolution motion" in lowered
     assert "optional `success_conditions` when you need" not in lowered
