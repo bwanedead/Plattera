@@ -28,27 +28,37 @@ class SemanticToolSpec:
 
 # Shared decision/edit grammar for leaf and dossier apply_transcript_edits.
 # Dossier mode only swaps base_revision_ref / evidence_refs qualification clauses.
+_UNCERTAINTY_REASON_CODES = ", ".join(sorted(ALLOWED_UNCERTAINTY_REASONS))
 APPLY_TRANSCRIPT_EDITS_DECISION_EDIT_SHAPE = (
     "decisions[]: decision_id; determination provisional|earned; "
-    "uncertainty_reasons (provisional >=1; earned []); verification_basis; "
-    "evidence_refs (earned >=1); candidate_values?; "
+    f"uncertainty_reasons (allowed: {_UNCERTAINTY_REASON_CODES}; "
+    "provisional >=1; earned []); verification_basis; "
+    "evidence_refs (earned >=1; decision evidence is authoritative); candidate_values?; "
     "edits[]: {lane source_transcript_verbatim|normalized_or_mapping_transcript; "
     "expected_text; replacement_text; context_before?/context_after?}. "
     "lane, expected_text, and replacement_text are edit-row fields only "
     "(not decision-row). One decision may include more than one lane edit for "
     "the same determination. expected_text == replacement_text is a valid confirmation."
 )
+_ROOT_EVIDENCE_ASSERTION_SHAPE = (
+    "Optional root evidence_refs: exact assertion of the first-seen ordered "
+    "deduplicated union of decisions[].evidence_refs. Not an evidence source."
+)
 
 APPLY_TRANSCRIPT_EDITS_LEAF_REQUEST_SHAPE = (
     "base_revision_ref: exact transcript_edit:working:rev:NNNN "
     "(current working head; no aggregate aliases). "
+    + _ROOT_EVIDENCE_ASSERTION_SHAPE
+    + " "
     + APPLY_TRANSCRIPT_EDITS_DECISION_EDIT_SHAPE
 )
 
 APPLY_TRANSCRIPT_EDITS_DOSSIER_REQUEST_SHAPE = (
     "base_revision_ref: exact dossier-qualified working revision "
     "(dossier_segment:<segment_id>:run:<transcription_id>:transcript_edit:working:rev:NNNN). "
-    "evidence_refs must be dossier-valid/qualified. "
+    "Decision evidence_refs must be dossier-valid/qualified. "
+    "Optional root evidence_refs uses those same exact qualified identities and "
+    "only asserts their first-seen ordered union. Not an evidence source. "
     + APPLY_TRANSCRIPT_EDITS_DECISION_EDIT_SHAPE
 )
 
@@ -610,6 +620,15 @@ def build_transcript_edit_tool_specs() -> tuple[SemanticToolSpec, ...]:
                     "base_revision_ref": {
                         "type": "string",
                         "description": "Exact working revision to edit (transcript_edit:working:rev:NNNN).",
+                    },
+                    "evidence_refs": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": (
+                            "Optional exact assertion of the first-seen ordered "
+                            "deduplicated union of decisions[].evidence_refs. "
+                            "Not an evidence source."
+                        ),
                     },
                     "decisions": {
                         "type": "array",

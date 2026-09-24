@@ -10,6 +10,9 @@ from collections.abc import Callable
 from typing import Any
 
 from tooling.mapping.transcript_edit.apply_transcript_edits import apply_transcript_edits
+from tooling.mapping.transcript_edit.apply_transcript_edits_contract import (
+    APPLY_UNKNOWN_REQUEST_FIELDS_REPAIR_HINT,
+)
 from tooling.mapping.transcript_edit.artifact_transform import make_transform_artifact_handler
 from tooling.mapping.transcript_edit.dossier_action_result_refs import (
     DossierActionResultRefError,
@@ -288,7 +291,9 @@ def make_dossier_apply_transcript_edits_handler(
 ) -> Callable[[Any], Any]:
     """Route apply_transcript_edits using a dossier-qualified exact working revision base."""
 
-    _ALLOWED_DOSSIER_APPLY_KEYS = frozenset({"base_revision_ref", "decisions"})
+    _ALLOWED_DOSSIER_APPLY_KEYS = frozenset(
+        {"base_revision_ref", "decisions", "evidence_refs"}
+    )
 
     def handler(request: Any) -> Any:
         guarded = _guard_index(dossier_id=dossier_id, ref_index=ref_index)
@@ -303,6 +308,7 @@ def make_dossier_apply_transcript_edits_handler(
             return _refuse(
                 "unknown_request_fields",
                 f"Unknown fields: {unknown}",
+                repair_hint=APPLY_UNKNOWN_REQUEST_FIELDS_REPAIR_HINT,
             )
 
         base_ref = inputs.get("base_revision_ref")
@@ -359,6 +365,14 @@ def make_dossier_apply_transcript_edits_handler(
             "base_revision_ref": target.leaf_ref,
             "decisions": normalized_decisions,
         }
+        if "evidence_refs" in inputs:
+            forwarded, refusal = _forward_root_evidence_assertion(
+                inputs.get("evidence_refs"),
+                ref_index=index,
+            )
+            if refusal is not None:
+                return refusal
+            leaf_request["evidence_refs"] = forwarded
         leaf_result = apply_transcript_edits(
             dossier_id=did,
             transcription_id=target.transcription_id,
@@ -537,7 +551,47 @@ def _request_inputs(request: Any) -> dict[str, Any]:
     return {}
 
 
-def _refuse(code: str, message: str) -> dict[str, Any]:
+def _forward_root_evidence_assertion(
+    raw: Any,
+    *,
+    ref_index: DossierArtifactRefIndex,
+) -> tuple[Any, dict[str, Any] | None]:
+    """Pass a root evidence assertion through without qualifying or trimming it.
+
+    Already-qualified dossier_segment strings are checked and kept character-exact.
+    Surrounding whitespace is not stripped and is not forwarded as a trimmed ref;
+    the original list goes to the shared validator. Unqualified strings refuse.
+    Non-lists and non-string or blank members are forwarded so the shared
+    validator can refuse them without coercion.
+    """
+    if type(raw) is not list:
+        return raw, None
+    forwarded: list[str] = []
+    for item in raw:
+        if type(item) is not str or not item.strip() or item != item.strip():
+            return raw, None
+        if not item.startswith("dossier_segment:"):
+            return None, _refuse(
+                "dossier_ref_required",
+                "Root evidence_refs must already be exact dossier-qualified identities.",
+            )
+        try:
+            ref_index.resolve(item)
+        except DossierArtifactRefError as exc:
+            return None, _refuse(exc.code, _safe_detail(exc))
+        forwarded.append(item)
+    return forwarded, None
+
+
+def _refuse(
+    code: str,
+    message: str,
+    *,
+    repair_hint: str | None = None,
+) -> dict[str, Any]:
+    error: dict[str, Any] = {"code": code, "message": message}
+    if type(repair_hint) is str and repair_hint.strip():
+        error["repair_hint"] = repair_hint.strip()
     return {
         "executed": False,
         "refusal": {
@@ -547,7 +601,7 @@ def _refuse(code: str, message: str) -> dict[str, Any]:
             "blocked_by_budget": False,
             "missing_inputs": [],
         },
-        "outputs": {"error": {"code": code, "message": message}},
+        "outputs": {"error": error},
     }
 
 

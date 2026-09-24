@@ -104,6 +104,7 @@ _RETRYABLE_REASON_CODES_BY_ACTION: dict[str, frozenset[str]] = {
             "verification_basis_required",
             "verification_basis_too_long",
             "earned_requires_evidence_refs",
+            "evidence_assertion_mismatch",
             "uncertainty_reasons_required",
             "provisional_requires_uncertainty_reasons",
             "earned_requires_empty_uncertainty_reasons",

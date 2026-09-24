@@ -135,6 +135,12 @@ def _assert_complete_apply_grammar(text: str) -> None:
     assert "uncertainty_reasons" in text
     assert "verification_basis" in text
     assert "evidence_refs" in text
+    assert "not an evidence source" in text.lower()
+    assert "context_insufficient" in text
+    assert "evidence_incomplete" in text
+    assert "observer_disagreement" in text
+    assert "packet_insufficient" in text
+    assert "source_ambiguous" in text
     assert "base_revision_ref" in text
     assert "dossier_segment:" in text
     assert "transcript_edit:working:rev:NNNN" in text

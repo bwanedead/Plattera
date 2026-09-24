@@ -58,6 +58,19 @@ _UNKNOWN_DECISION_FIELD_REPAIR_HINT = (
     "determination, uncertainty_reasons, verification_basis, candidate_values, "
     "evidence_refs, edits."
 )
+APPLY_UNKNOWN_REQUEST_FIELDS_REPAIR_HINT = (
+    "Remove unknown top-level fields. Allowed fields: "
+    "base_revision_ref, decisions, evidence_refs."
+)
+_EVIDENCE_ASSERTION_MISMATCH_REPAIR_HINT = (
+    "Root evidence_refs is an optional exact assertion of decision evidence, "
+    "not an evidence source. Omit it or restate the decision refs in first-seen "
+    "order without duplicates."
+)
+_INVALID_UNCERTAINTY_REASON_REPAIR_HINT = (
+    "Choose an allowed uncertainty_reasons code and put the explanation in "
+    "verification_basis."
+)
 _REPAIR_HINTS_BY_REASON: dict[str, str] = {
     "decision_id_required": "Provide a nonblank decision_id on the decision.",
     "verification_basis_required": (
@@ -113,7 +126,7 @@ class ValidatedApplyTranscriptEditsRequest:
     request_identity: str
 
 
-_ALLOWED_REQUEST_KEYS = frozenset({"base_revision_ref", "decisions"})
+_ALLOWED_REQUEST_KEYS = frozenset({"base_revision_ref", "decisions", "evidence_refs"})
 _ALLOWED_DECISION_KEYS = frozenset(
     {
         "decision_id",
@@ -151,10 +164,7 @@ def validate_apply_transcript_edits_request(
         raise ApplyTranscriptEditsContractError(
             "unknown_request_fields",
             f"Unknown fields: {unknown}",
-            repair_hint=(
-                "Remove unknown top-level fields. Allowed fields: "
-                "base_revision_ref, decisions."
-            ),
+            repair_hint=APPLY_UNKNOWN_REQUEST_FIELDS_REPAIR_HINT,
         )
 
     try:
@@ -205,7 +215,19 @@ def validate_apply_transcript_edits_request(
     for index, item in enumerate(decisions_raw):
         decisions.append(_validate_decision(item, index=index, seen_ids=seen_ids))
 
-    request_identity = _sha256_hex(serialized)
+    if "evidence_refs" in raw:
+        _assert_root_evidence_refs(raw.get("evidence_refs"), decisions)
+
+    identity_body = raw
+    if "evidence_refs" in raw:
+        identity_body = {key: value for key, value in raw.items() if key != "evidence_refs"}
+    identity_serialized = json.dumps(
+        identity_body,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    request_identity = _sha256_hex(identity_serialized)
     return ValidatedApplyTranscriptEditsRequest(
         base_revision_ref=base_revision_ref,
         decisions=tuple(decisions),
@@ -366,6 +388,7 @@ def _validate_uncertainty_reasons(
                 "invalid_uncertainty_reason",
                 f"{field}[{reason_index}] must be one of "
                 f"{sorted(ALLOWED_UNCERTAINTY_REASONS)}.",
+                repair_hint=_INVALID_UNCERTAINTY_REASON_REPAIR_HINT,
             )
         if item in seen:
             raise ApplyTranscriptEditsContractError(
@@ -510,6 +533,72 @@ def _validate_string_list(
             )
         out.append(item.strip())
     return tuple(out)
+
+
+def _assert_root_evidence_refs(
+    raw_refs: Any,
+    decisions: list[ValidatedDecision],
+) -> None:
+    """Refuse unless the root list is the exact decision-evidence union.
+
+    Types and nonblank strings are checked here. Entries are not stripped or
+    otherwise normalized: comparison uses the original strings against the
+    already-validated decision union. The list is not stored and is not an
+    evidence source. A valid match is removed before request-identity hashing
+    by the caller.
+    """
+    expected = _ordered_decision_evidence_union(decisions)
+    actual = _exact_root_evidence_strings(raw_refs)
+    if actual != expected:
+        raise ApplyTranscriptEditsContractError(
+            "evidence_assertion_mismatch",
+            "evidence_refs must exactly equal the first-seen ordered union of "
+            "decisions[].evidence_refs.",
+            repair_hint=_EVIDENCE_ASSERTION_MISMATCH_REPAIR_HINT,
+        )
+
+
+def _exact_root_evidence_strings(value: Any) -> list[str]:
+    """Validate a root evidence assertion without rewriting its strings.
+
+    Decision-level lists still go through ``_validate_string_list``, which
+    strips. This path must not.
+    """
+    field = "evidence_refs"
+    max_items = MAX_DECISIONS_PER_REQUEST * MAX_EVIDENCE_REFS_PER_DECISION
+    if type(value) is not list:
+        raise ApplyTranscriptEditsContractError(
+            "invalid_string_list",
+            f"{field} must be a list of strings.",
+        )
+    if len(value) > max_items:
+        raise ApplyTranscriptEditsContractError(
+            "string_list_too_long",
+            f"{field} exceeds {max_items} items.",
+        )
+    out: list[str] = []
+    for i, item in enumerate(value):
+        if type(item) is not str or not item.strip():
+            raise ApplyTranscriptEditsContractError(
+                "invalid_string_list_item",
+                f"{field}[{i}] must be a nonblank string.",
+            )
+        out.append(item)
+    return out
+
+
+def _ordered_decision_evidence_union(
+    decisions: list[ValidatedDecision],
+) -> list[str]:
+    union: list[str] = []
+    seen: set[str] = set()
+    for decision in decisions:
+        for ref in decision.evidence_refs:
+            if ref in seen:
+                continue
+            seen.add(ref)
+            union.append(ref)
+    return union
 
 
 def _sha256_hex(text: str) -> str:
