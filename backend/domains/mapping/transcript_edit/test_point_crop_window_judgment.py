@@ -30,9 +30,9 @@ def _lower() -> str:
     return _guidance().lower()
 
 
-def test_procedural_version_is_v49() -> None:
-    assert TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_VERSION == "v49"
-    assert build_transcript_edit_procedural_guidance_blocks()[0].version == "v49"
+def test_procedural_version_is_v50() -> None:
+    assert TRANSCRIPT_EDIT_PROCEDURAL_GUIDANCE_VERSION == "v50"
+    assert build_transcript_edit_procedural_guidance_blocks()[0].version == "v50"
 
 
 def test_anchor_and_window_are_distinct() -> None:

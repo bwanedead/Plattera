@@ -165,6 +165,40 @@ def test_contradictory_immediate_corroboration_gates_are_absent() -> None:
         assert banned not in text, f"found contradictory integration gate: {banned!r}"
 
 
+def test_checkpoint_dispositions_are_honest_and_not_automatic() -> None:
+    text = _guidance_lower()
+    for marker in (
+        "natural work-pocket, segment, or revision checkpoint",
+        "not every turn",
+        "not as a document-wide sweep",
+        "if further evidence can help",
+        "next_needed_step",
+        "do not order another read of unchanged evidence merely to seek agreement",
+        "best-current qualified reading",
+        "do not invent a next step",
+        "useful in-run investigation is exhausted while material uncertainty remains",
+        "that uncertainty is still unresolved",
+        "no_further_progress` alone is not a substitute",
+        "a provisional reading can support continued work or a scoped handoff without becoming earned",
+        "not every provisional unit needs hitl",
+        "if the reading is honestly resolved",
+        "a successful delegate call or artifact write does not do that for you",
+        "neither candidate agreement nor a completed observation promotes that provisional reading to earned",
+    ):
+        assert marker in text, f"missing disposition teaching: {marker!r}"
+    for banned in (
+        "review every atom",
+        "every provisional unit must",
+        "must close every",
+        "automatically close",
+        "automatic closure",
+        "all provisional readings must be resolved before handoff",
+        "all provisional readings must be earned",
+        "when material uncertainty is exhausted",
+    ):
+        assert banned not in text, f"found mandatory disposition rule: {banned!r}"
+
+
 def test_branch_authority_is_unchanged_and_not_echoed_as_workflow() -> None:
     branch = build_transcript_edit_branch_blocks()[0].text.lower()
     guidance = _guidance_lower()

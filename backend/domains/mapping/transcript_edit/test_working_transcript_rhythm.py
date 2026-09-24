@@ -69,6 +69,32 @@ def _teaching_blobs() -> tuple[str, ...]:
     )
 
 
+def test_disposition_postures_reach_leaf_and_dossier_prompts() -> None:
+    from domains.mapping.transcript_edit.domain_pack import build_transcript_edit_domain_pack
+    from domains.mapping.transcript_edit.test_dossier_prompt_contract import _inventory
+
+    pack = build_transcript_edit_domain_pack()
+    leaf = next(
+        block.text
+        for block in pack.build_semantic_prompt_blocks()
+        if block.block_id == "transcript_edit_procedural_guidance"
+    ).lower()
+    dossier = next(
+        block.text
+        for block in pack.build_runtime_prompt_blocks(startup_inventory=_inventory())
+        if block.block_id == "transcript_edit_procedural_guidance"
+    ).lower()
+    for surface in (leaf, dossier):
+        assert "if further evidence can help" in surface
+        assert "best-current qualified reading" in surface
+        assert "if the reading is honestly resolved" in surface
+        assert "apply_transcript_edits" in surface
+        assert "only after a successful result" in surface
+        assert "not a requirement that every provisional reading be resolved before handoff" in surface
+        assert "all provisional readings must be resolved before handoff" not in surface
+        assert "automatic closure" not in surface
+
+
 def test_leaf_and_dossier_surfaces_expose_working_rhythm() -> None:
     guidance = build_transcript_edit_procedural_guidance_blocks()[0].text.lower()
     for marker in _WORKING_RHYTHM_MARKERS:
