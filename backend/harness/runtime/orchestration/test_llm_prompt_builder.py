@@ -914,3 +914,44 @@ def test_choose_action_prompt_ignores_legacy_prompt_carry_forward_in_continuity(
     blob = json.dumps(doc.prompt_body, ensure_ascii=False, default=str)
     assert "prompt_carry_forward" not in blob
     assert "prompt_carry_forward_omitted" not in blob
+
+
+def test_multi_action_working_write_appears_in_next_choose_action_prompt() -> None:
+    context = _context()
+    context.loop_memory.continuity.kernel_step_records.append(
+        {
+            "kernel_turn_index": 3,
+            "action_type": "action_sequence",
+            "execution_state": "executed",
+            "latest_refs_snapshot": {"draft": "ref://draft"},
+            "work_state_signature": "after-write",
+        }
+    )
+    context.loop_memory.continuity.kernel_step_result_records.append(
+        {
+            "kernel_turn_index": 3,
+            "action_type": "apply_transcript_edits",
+            "execution_state": "executed",
+            "artifact_refs": [],
+            "latest_refs_snapshot": {"draft": "ref://draft"},
+            "outputs_for_continuity": {},
+            "result_truncated": False,
+        }
+    )
+    doc = build_choose_action_prompt_document(
+        composed_input=_composed_input(),
+        opaque_launch_context={
+            "run_id": "r-write",
+            "domain_closure_policy": {
+                "save_action_ids": ["apply_transcript_edits"],
+                "publish_action_ids": [],
+            },
+        },
+        context=context,
+        projection=_projection(),
+        journal_verbatim_keep_n=2,
+    )
+    summary = doc.prompt_body["structured_state"]["prompt_observability_summary"]
+    assert summary["post_write_artifact_consistency_check_count"] == 1
+    assert "post_write_artifact_consistency_check:1" in summary["mechanical_flags"]
+    assert "post_write_artifact_consistency_check:1" in doc.prompt_text

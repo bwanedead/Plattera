@@ -8,8 +8,13 @@ from typing import Any
 from .atom_evidence_worklist import KIND, build_atom_evidence_worklist
 
 _UTIL_OPEN_PACKET_READY = "open_packet_ready_unused"
-_UTIL_OPEN_PACKET_USED = "open_packet_used_not_determined"
-_UTIL_OPEN_EVIDENCE_REF = "open_evidence_referenced_not_determined"
+_UTIL_OPEN_PACKET_USED = "open_packet_used"
+_UTIL_OPEN_EVIDENCE_REF = "open_evidence_referenced"
+_LEGACY_UTILIZATION_STATUS = {
+    "open_packet_used_not_determined": _UTIL_OPEN_PACKET_USED,
+    "open_evidence_referenced_not_determined": _UTIL_OPEN_EVIDENCE_REF,
+}
+_LEGACY_PACKET_USED_COUNT = "packet_used_not_determined"
 
 MAX_PROMPT_PRIORITY_ROWS = 12
 MAX_PROMPT_PACKET_REFS_PER_ROW = 2
@@ -23,6 +28,8 @@ _PRIORITY_UTILIZATION_ORDER: tuple[str, ...] = (
 )
 
 _PRIORITY_RANK = {status: index for index, status in enumerate(_PRIORITY_UTILIZATION_ORDER)}
+for _legacy_status, _neutral_status in _LEGACY_UTILIZATION_STATUS.items():
+    _PRIORITY_RANK[_legacy_status] = _PRIORITY_RANK[_neutral_status]
 
 
 def build_atom_evidence_worklist_for_prompt(
@@ -83,7 +90,7 @@ def project_atom_evidence_worklist_for_prompt(
 
     out: dict[str, Any] = {
         "kind": str(full_worklist.get("kind") or KIND),
-        "counts": dict(counts),
+        "counts": _present_worklist_counts(counts),
     }
     if priority_rows:
         out["priority_rows"] = priority_rows
@@ -112,10 +119,12 @@ def compact_atom_evidence_worklist_for_prompt(
 
     out: dict[str, Any] = {"kind": str(block.get("kind") or KIND)}
     if isinstance(counts, Mapping):
-        out["counts"] = dict(counts)
+        out["counts"] = _present_worklist_counts(counts)
     if has_priority:
         out["priority_rows"] = [
-            dict(row) for row in priority_rows[:MAX_PROMPT_PRIORITY_ROWS] if isinstance(row, Mapping)
+            _present_priority_row(row)
+            for row in priority_rows[:MAX_PROMPT_PRIORITY_ROWS]
+            if isinstance(row, Mapping)
         ]
     if has_unmatched:
         out["unmatched_packet_refs"] = [
@@ -141,13 +150,16 @@ def _counts_only_block(block: Mapping[str, Any]) -> dict[str, Any] | None:
     counts = block.get("counts")
     if not isinstance(counts, Mapping) or not _has_interesting_counts(counts):
         return None
-    return {"kind": str(block.get("kind") or KIND), "counts": dict(counts)}
+    return {"kind": str(block.get("kind") or KIND), "counts": _present_worklist_counts(counts)}
 
 
 def _has_interesting_counts(counts: Mapping[str, Any]) -> bool:
     for key in (
         "packet_ready_unused",
-        "packet_used_not_determined",
+        "packet_used",
+        _LEGACY_PACKET_USED_COUNT,
+        "provisional_open",
+        "earned_open",
         "unmatched_packet_refs",
     ):
         try:
@@ -158,16 +170,46 @@ def _has_interesting_counts(counts: Mapping[str, Any]) -> bool:
     return False
 
 
+def _neutral_utilization_status(status: str) -> str:
+    return _LEGACY_UTILIZATION_STATUS.get(status, status)
+
+
+def _present_worklist_counts(counts: Mapping[str, Any]) -> dict[str, Any]:
+    """Show the legacy packet-used count under the neutral key."""
+    presented = dict(counts)
+    if "packet_used" not in presented and _LEGACY_PACKET_USED_COUNT in presented:
+        presented["packet_used"] = presented[_LEGACY_PACKET_USED_COUNT]
+    presented.pop(_LEGACY_PACKET_USED_COUNT, None)
+    return presented
+
+
 def _is_priority_atom(row: Mapping[str, Any]) -> bool:
-    return str(row.get("utilization_status") or "") in _PRIORITY_UTILIZATION_ORDER
+    status = _neutral_utilization_status(str(row.get("utilization_status") or ""))
+    return status in _PRIORITY_UTILIZATION_ORDER
+
+
+def _present_priority_row(atom: Mapping[str, Any]) -> dict[str, Any]:
+    """Copy a saved priority row onto the neutral utilization vocabulary.
+
+    A missing determination_posture stays missing. This path does not author one.
+    """
+    presented = dict(atom)
+    presented["utilization_status"] = _neutral_utilization_status(
+        str(atom.get("utilization_status") or "")
+    )
+    return presented
 
 
 def _compact_priority_row(atom: Mapping[str, Any]) -> dict[str, Any]:
     row: dict[str, Any] = {
         "atom_id": atom.get("atom_id"),
         "status": atom.get("status"),
-        "utilization_status": atom.get("utilization_status"),
+        "utilization_status": _neutral_utilization_status(
+            str(atom.get("utilization_status") or "")
+        ),
     }
+    if "determination_posture" in atom:
+        row["determination_posture"] = atom.get("determination_posture")
     packet_refs = atom.get("packet_refs")
     if isinstance(packet_refs, list) and packet_refs:
         row["packet_refs"] = [

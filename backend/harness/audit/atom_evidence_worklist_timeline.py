@@ -12,8 +12,12 @@ from harness.audit.artifact_ref_links import (
 )
 
 _UTIL_OPEN_PACKET_READY = "open_packet_ready_unused"
-_UTIL_OPEN_PACKET_USED = "open_packet_used_not_determined"
-_UTIL_OPEN_EVIDENCE_REF = "open_evidence_referenced_not_determined"
+_UTIL_OPEN_PACKET_USED = "open_packet_used"
+_UTIL_OPEN_EVIDENCE_REF = "open_evidence_referenced"
+_LEGACY_UTILIZATION_STATUS = {
+    "open_packet_used_not_determined": _UTIL_OPEN_PACKET_USED,
+    "open_evidence_referenced_not_determined": _UTIL_OPEN_EVIDENCE_REF,
+}
 _MATCH_TARGET_ATOM_ID = "target_atom_id_match"
 
 
@@ -38,8 +42,8 @@ def render_atom_evidence_worklist_timeline(
         grouped = _group_priority_rows(priority_rows)
         for utilization_status, label in (
             (_UTIL_OPEN_PACKET_READY, "open packet ready unused"),
-            (_UTIL_OPEN_PACKET_USED, "open packet used not determined"),
-            (_UTIL_OPEN_EVIDENCE_REF, "open evidence referenced not determined"),
+            (_UTIL_OPEN_PACKET_USED, "open packet used"),
+            (_UTIL_OPEN_EVIDENCE_REF, "open evidence referenced"),
         ):
             rows = grouped.get(utilization_status) or []
             if not rows:
@@ -64,12 +68,16 @@ def render_atom_evidence_worklist_timeline(
     return lines
 
 
+def _neutral_utilization_status(status: str) -> str:
+    return _LEGACY_UTILIZATION_STATUS.get(status, status)
+
+
 def _group_priority_rows(rows: list[Any]) -> dict[str, list[Mapping[str, Any]]]:
     grouped: dict[str, list[Mapping[str, Any]]] = {}
     for row in rows:
         if not isinstance(row, Mapping):
             continue
-        status = str(row.get("utilization_status") or "")
+        status = _neutral_utilization_status(str(row.get("utilization_status") or ""))
         grouped.setdefault(status, []).append(row)
     return grouped
 
@@ -91,9 +99,17 @@ def _format_counts_line(counts: Mapping[str, Any]) -> str:
     ready = counts.get("packet_ready_unused")
     if ready is not None:
         parts.append(f"{ready} packet-ready-unused")
-    used = counts.get("packet_used_not_determined")
+    used = counts.get("packet_used")
+    if used is None:
+        used = counts.get("packet_used_not_determined")
     if used is not None:
-        parts.append(f"{used} packet-used-not-determined")
+        parts.append(f"{used} packet-used")
+    provisional = counts.get("provisional_open")
+    if provisional is not None:
+        parts.append(f"{provisional} provisional-open")
+    earned = counts.get("earned_open")
+    if earned is not None:
+        parts.append(f"{earned} earned-open")
     unmatched = counts.get("unmatched_packet_refs")
     if unmatched is not None:
         parts.append(f"{unmatched} unmatched-packet-refs")
@@ -107,6 +123,9 @@ def _format_priority_row(
     indent: str,
 ) -> list[str]:
     atom_id = str(row.get("atom_id") or "?")
+    posture = row.get("determination_posture")
+    if posture in {"provisional", "earned"}:
+        atom_id = f"{atom_id} determination={posture}"
     packet_refs = row.get("packet_refs")
     if not isinstance(packet_refs, list) or not packet_refs:
         return [f"{indent}- {atom_id} (no packet refs in projection)"]

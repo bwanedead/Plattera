@@ -156,6 +156,29 @@ def domain_closure_policy_for_ref_projection(
     return dict(raw)
 
 
+def _observability_closure_policy(
+    opaque_launch_context: Mapping[str, Any],
+    visible_launch_context: Mapping[str, Any],
+) -> dict[str, Any] | None:
+    """Prompt-visible policy plus the domain's write-action lanes.
+
+    The visible slice omits save and publish ids. The post-write reminder
+    needs those ids. Completion-anchor and other non-visible fields stay out
+    of the prompt summary.
+    """
+    visible = visible_launch_context.get("domain_closure_policy")
+    full = domain_closure_policy_for_ref_projection(opaque_launch_context)
+    if not isinstance(visible, Mapping) and full is None:
+        return None
+    policy = dict(visible) if isinstance(visible, Mapping) else {}
+    if full is None:
+        return policy or None
+    for key in ("save_action_ids", "publish_action_ids"):
+        if key in full:
+            policy[key] = full[key]
+    return policy
+
+
 def _apply_domain_artifact_ref_windowing(
     hot_refs: frozenset[str],
     domain_runtime_projection: Mapping[str, Any],
@@ -274,7 +297,10 @@ def build_turn_prompt_document(
     structured_state, delivery_receipt = _build_structured_state(
         context,
         journal_verbatim_keep_n,
-        closure_policy=visible_launch_context.get("domain_closure_policy"),
+        closure_policy=_observability_closure_policy(
+            opaque_launch_context,
+            visible_launch_context,
+        ),
         hot_refs=hot_refs,
         opaque_launch_context=opaque_launch_context,
     )

@@ -154,6 +154,12 @@ def _build_work_graph_block(loop_memory: LoopMemoryState) -> dict[str, Any]:
             "open_units": top_level,
             "blocked_units": 0,
             "determined_units": 0,
+            "provisional_items": 0,
+            "earned_items": 0,
+            "closed_items": 0,
+            "provisional_covered_units": 0,
+            "earned_covered_units": 0,
+            "closed_covered_units": 0,
         }
 
     top_level = len(_resolution_items(loop_memory))
@@ -166,6 +172,7 @@ def _build_work_graph_block(loop_memory: LoopMemoryState) -> dict[str, Any]:
     )
     determined_units = sum(1 for atom in atoms.values() if _is_determined(atom))
     work_units_total = len(atoms)
+    postures = _authored_determination_counts(atoms)
 
     return {
         "resolution_items_total": top_level,
@@ -175,6 +182,7 @@ def _build_work_graph_block(loop_memory: LoopMemoryState) -> dict[str, Any]:
         "open_units": work_units_total - closed_units,
         "blocked_units": blocked_units,
         "determined_units": determined_units,
+        **postures,
     }
 
 
@@ -463,6 +471,41 @@ def _is_closed_status(status: Any) -> bool:
 
 def _is_blocked_status(status: Any) -> bool:
     return str(status or "").strip().lower() == "blocked"
+
+
+def _authored_determination_counts(atoms: Mapping[str, Mapping[str, Any]]) -> dict[str, int]:
+    """Count authored provisional/earned rows separately from closure.
+
+    A parent item is not its covered unit. determined_value, crops, and
+    delegates do not author a determination.
+    """
+    counts = {
+        "provisional_items": 0,
+        "earned_items": 0,
+        "closed_items": 0,
+        "provisional_covered_units": 0,
+        "earned_covered_units": 0,
+        "closed_covered_units": 0,
+    }
+    for atom_id, atom in atoms.items():
+        posture = str(atom.get("determination") or "").strip().lower()
+        closed = _is_closed_status(atom.get("status"))
+        is_unit = atom_id.startswith("unit:")
+        if is_unit:
+            if posture == "provisional":
+                counts["provisional_covered_units"] += 1
+            elif posture == "earned":
+                counts["earned_covered_units"] += 1
+            if closed:
+                counts["closed_covered_units"] += 1
+        else:
+            if posture == "provisional":
+                counts["provisional_items"] += 1
+            elif posture == "earned":
+                counts["earned_items"] += 1
+            if closed:
+                counts["closed_items"] += 1
+    return counts
 
 
 def _is_determined(atom: Mapping[str, Any]) -> bool:

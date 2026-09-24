@@ -54,10 +54,11 @@ _MATCH_SHARED_EVIDENCE = "shared_evidence_ref"
 
 _UTIL_OPEN_NO_PACKET = "open_no_packet_seen"
 _UTIL_OPEN_PACKET_READY = "open_packet_ready_unused"
-_UTIL_OPEN_PACKET_USED = "open_packet_used_not_determined"
-_UTIL_OPEN_EVIDENCE_REF = "open_evidence_referenced_not_determined"
+_UTIL_OPEN_PACKET_USED = "open_packet_used"
+_UTIL_OPEN_EVIDENCE_REF = "open_evidence_referenced"
 _UTIL_CLOSED_EVIDENCE = "closed_evidence_referenced"
 _UTIL_CLOSED_NO_PACKET = "closed_no_packet_seen"
+_AUTHORED_DETERMINATIONS = frozenset({"provisional", "earned"})
 
 
 def build_atom_evidence_worklist(
@@ -147,15 +148,22 @@ def _atom_row_from_node(
         "determined_value": determined_value,
         "candidate_values": candidates or None,
         "evidence_refs": evidence_refs,
-        "is_closed_like": _is_closed_like(status, determination),
+        "determination_posture": _authored_determination_posture(determination),
+        "is_closed": _is_closed_status(status),
         "is_blocked": _is_blocked(status),
     }
 
 
-def _is_closed_like(status: str | None, determination: str | None) -> bool:
-    if str(status or "").strip().lower() == "closed":
-        return True
-    return str(determination or "").strip().lower() == "earned"
+def _authored_determination_posture(determination: str | None) -> str | None:
+    """Authored determination only. Crops, delegates, and candidates do not count."""
+    text = str(determination or "").strip().lower()
+    if text in _AUTHORED_DETERMINATIONS:
+        return text
+    return None
+
+
+def _is_closed_status(status: str | None) -> bool:
+    return str(status or "").strip().lower() == "closed"
 
 
 def _is_blocked(status: str | None) -> bool:
@@ -347,6 +355,8 @@ def _join_atoms(
                 "status": atom.get("status"),
                 "determined_value": atom.get("determined_value"),
                 "candidate_values": atom.get("candidate_values"),
+                "determination_posture": atom.get("determination_posture"),
+                "is_closed": bool(atom.get("is_closed")),
                 "utilization_status": utilization,
                 "packet_refs": packet_refs[:MAX_PACKET_REFS_PER_ATOM],
                 "delegate_refs": atom_delegates[:MAX_DELEGATE_REFS_PER_ATOM],
@@ -528,7 +538,7 @@ def _utilization_status(
     packet_refs: list[dict[str, Any]],
     atom_delegate_refs: list[dict[str, Any]],
 ) -> str:
-    closed = bool(atom.get("is_closed_like"))
+    closed = bool(atom.get("is_closed"))
     evidence_refs = set(atom.get("evidence_refs") or [])
 
     has_packet = bool(packet_refs)
@@ -606,17 +616,24 @@ def _build_counts(atom_rows: list[dict[str, Any]], *, unmatched_count: int) -> d
     blocked_count = 0
     packet_ready = 0
     packet_used = 0
+    provisional_open = 0
+    earned_open = 0
 
     for row in atom_rows:
         atom = row
         status = str(atom.get("status") or "").strip().lower()
         utilization = str(atom.get("utilization_status") or "")
+        posture = atom.get("determination_posture")
         if status == "blocked":
             blocked_count += 1
-        elif utilization.startswith("closed_"):
+        elif bool(atom.get("is_closed")):
             closed_count += 1
         else:
             open_count += 1
+            if posture == "provisional":
+                provisional_open += 1
+            elif posture == "earned":
+                earned_open += 1
         if utilization == _UTIL_OPEN_PACKET_READY:
             packet_ready += 1
         elif utilization == _UTIL_OPEN_PACKET_USED:
@@ -627,8 +644,10 @@ def _build_counts(atom_rows: list[dict[str, Any]], *, unmatched_count: int) -> d
         "open": open_count,
         "closed": closed_count,
         "blocked": blocked_count,
+        "provisional_open": provisional_open,
+        "earned_open": earned_open,
         "packet_ready_unused": packet_ready,
-        "packet_used_not_determined": packet_used,
+        "packet_used": packet_used,
         "unmatched_packet_refs": unmatched_count,
     }
 

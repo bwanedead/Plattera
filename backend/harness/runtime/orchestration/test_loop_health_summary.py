@@ -2457,6 +2457,62 @@ def test_post_write_artifact_consistency_check_fires_after_successful_save() -> 
     assert "post_write_artifact_consistency_check:1" in result["mechanical_flags"]
 
 
+def test_multi_action_working_write_reminds_on_next_summary_only() -> None:
+    policy = {"save_action_ids": ["apply_transcript_edits"], "publish_action_ids": []}
+    write_turn = [
+        _step_record(4, action_type="action_sequence", execution_state="executed"),
+    ]
+    results = [
+        {
+            "kernel_turn_index": 4,
+            "action_type": "hydrate_artifact_refs",
+            "execution_state": "executed",
+        },
+        {
+            "kernel_turn_index": 4,
+            "action_type": "apply_transcript_edits",
+            "execution_state": "executed",
+        },
+    ]
+    remembered = build_prompt_observability_summary(
+        _mem(step_records=write_turn, step_result_records=results),
+        closure_policy=policy,
+    )
+    assert remembered["post_write_artifact_consistency_check_count"] == 1
+
+    refused = build_prompt_observability_summary(
+        _mem(
+            step_records=write_turn,
+            step_result_records=[
+                {
+                    "kernel_turn_index": 4,
+                    "action_type": "apply_transcript_edits",
+                    "execution_state": "refused",
+                }
+            ],
+        ),
+        closure_policy=policy,
+    )
+    assert refused["post_write_artifact_consistency_check_count"] == 0
+
+    later = build_prompt_observability_summary(
+        _mem(
+            step_records=write_turn
+            + [_step_record(5, action_type="hydrate_artifact_refs", execution_state="executed")],
+            step_result_records=results
+            + [
+                {
+                    "kernel_turn_index": 5,
+                    "action_type": "hydrate_artifact_refs",
+                    "execution_state": "executed",
+                }
+            ],
+        ),
+        closure_policy=policy,
+    )
+    assert later["post_write_artifact_consistency_check_count"] == 0
+
+
 def test_post_write_artifact_consistency_check_is_one_turn_only() -> None:
     records = [
         _step_record(1, action_type="save_workspace_artifact", work_state_signature="saved"),

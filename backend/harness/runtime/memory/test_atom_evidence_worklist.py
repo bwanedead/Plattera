@@ -230,7 +230,7 @@ def test_ten_crops_four_delegates_six_packet_ready_unused() -> None:
         delegate_result_records=delegates,
     )
     assert worklist["counts"]["packet_ready_unused"] == 6
-    assert worklist["counts"]["packet_used_not_determined"] == 4
+    assert worklist["counts"]["packet_used"] == 4
     ready = [a for a in worklist["atoms"] if a["utilization_status"] == "open_packet_ready_unused"]
     assert len(ready) == 6
 
@@ -260,7 +260,7 @@ def test_delegate_ambiguous_or_failed_does_not_close_open_atom() -> None:
         )
         atom = _atom(worklist, "p1_bearing")
         assert atom["status"] == "open"
-        assert atom["utilization_status"] == "open_packet_used_not_determined"
+        assert atom["utilization_status"] == "open_packet_used"
         assert atom["delegate_refs"][0]["delegate_status"] == status
 
 
@@ -324,7 +324,7 @@ def test_shared_evidence_ref_when_crop_alias_differs() -> None:
     )
     atom = _atom(worklist, "p1_acreage")
     assert atom["packet_refs"][0]["match_kind"] == "shared_evidence_ref"
-    assert atom["utilization_status"] == "open_evidence_referenced_not_determined"
+    assert atom["utilization_status"] == "open_evidence_referenced"
 
 
 def test_unmatched_crop_alias_without_state_citation() -> None:
@@ -424,3 +424,74 @@ def test_output_strips_sensitive_fields_and_respects_caps() -> None:
         recent_result_records=[prebuilt],
     )
     assert _atom(worklist2, "x")["packet_refs"]
+
+
+def test_provisional_open_unit_is_not_labeled_undetermined() -> None:
+    crop_ref = "image:derived:crop-p1_bearing"
+    state = _resolution_state(
+        items=[
+            _group_item(
+                item_id="parcel_1",
+                units=[
+                    _unit(
+                        unit_id="p1_bearing",
+                        status="open",
+                        determination="provisional",
+                        candidate_values=["N 10 E"],
+                    ),
+                    _unit(
+                        unit_id="p1_earned_open",
+                        status="open",
+                        determination="earned",
+                    ),
+                    _unit(
+                        unit_id="p1_closed",
+                        status="closed",
+                        determination="earned",
+                    ),
+                    _unit(
+                        unit_id="p1_candidate",
+                        status="open",
+                        candidate_values=["12"],
+                    ),
+                ],
+            )
+        ]
+    )
+    worklist = build_atom_evidence_worklist(
+        resolution_state=state,
+        recent_result_records=[
+            _result_record(turn=4, outputs=_crop_outputs(aliases=["p1_bearing", "p1_candidate"]))
+        ],
+        delegate_result_records=[
+            _delegate_record(
+                turn=5,
+                alias="p1_bearing",
+                context_refs=[crop_ref],
+            ),
+            _delegate_record(
+                turn=6,
+                alias="p1_candidate",
+                context_refs=["image:derived:crop-p1_candidate"],
+            ),
+        ],
+    )
+    provisional = _atom(worklist, "p1_bearing")
+    assert provisional["determination_posture"] == "provisional"
+    assert provisional["is_closed"] is False
+    assert provisional["utilization_status"] == "open_packet_used"
+    assert "not_determined" not in provisional["utilization_status"]
+    earned = _atom(worklist, "p1_earned_open")
+    assert earned["determination_posture"] == "earned"
+    assert earned["is_closed"] is False
+    assert earned["status"] == "open"
+    closed = _atom(worklist, "p1_closed")
+    assert closed["is_closed"] is True
+    assert closed["utilization_status"].startswith("closed_")
+    candidate = _atom(worklist, "p1_candidate")
+    assert candidate["determination_posture"] is None
+    assert candidate["is_closed"] is False
+    assert candidate["utilization_status"] == "open_packet_used"
+    assert worklist["counts"]["provisional_open"] >= 1
+    assert worklist["counts"]["earned_open"] >= 1
+    assert worklist["counts"]["closed"] >= 1

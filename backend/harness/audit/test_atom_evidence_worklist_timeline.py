@@ -16,7 +16,7 @@ def _worklist_turn(*, priority_rows: list[dict], unmatched: list[dict] | None = 
         "closed": 10,
         "blocked": 1,
         "packet_ready_unused": 6,
-        "packet_used_not_determined": 2,
+        "packet_used": 2,
         "unmatched_packet_refs": len(unmatched or []),
     }
     block: dict = {
@@ -55,7 +55,7 @@ def test_timeline_renders_turn_six_style_unused_packets() -> None:
         {
             "atom_id": f"p1_used_{i}",
             "status": "open",
-            "utilization_status": "open_packet_used_not_determined",
+            "utilization_status": "open_packet_used",
             "packet_refs": [
                 {
                     "crop_ref": f"image:derived:crop-p1_used_{i}",
@@ -81,7 +81,7 @@ def test_timeline_renders_turn_six_style_unused_packets() -> None:
     assert "6 packet-ready-unused" in body
     assert "open packet ready unused:" in body
     assert "p1_atom_0 ->" in body
-    assert "open packet used not determined:" in body
+    assert "open packet used:" in body
     assert "status ambiguous" in body
     assert "b64" not in body
 
@@ -120,7 +120,7 @@ def test_timeline_renders_shared_evidence_without_alias_match_claim() -> None:
                 {
                     "atom_id": "p1_acreage",
                     "status": "open",
-                    "utilization_status": "open_evidence_referenced_not_determined",
+                    "utilization_status": "open_evidence_referenced",
                     "packet_refs": [
                         {
                             "crop_ref": "image:derived:crop-other",
@@ -135,7 +135,7 @@ def test_timeline_renders_shared_evidence_without_alias_match_claim() -> None:
         )
     )
     body = "\n".join(lines)
-    assert "open evidence referenced not determined:" in body
+    assert "open evidence referenced:" in body
     assert "shared/cited crop" in body
     assert "alias p1_other" in body
     assert "direct alias" not in body.lower()
@@ -225,3 +225,61 @@ def test_render_with_link_context_formats_refs() -> None:
     )
     body = "\n".join(lines)
     assert "crop-acreage.png" in body or "image:derived:crop-acreage" in body
+
+
+def test_timeline_renders_legacy_utilization_with_neutral_labels() -> None:
+    legacy = _worklist_turn(
+        priority_rows=[
+            {
+                "atom_id": "old_used",
+                "status": "open",
+                "utilization_status": "open_packet_used_not_determined",
+                "packet_refs": [
+                    {
+                        "crop_ref": "image:derived:crop-old-used",
+                        "source_alias": "old_used",
+                        "created_turn": 4,
+                    }
+                ],
+            },
+            {
+                "atom_id": "old_cited",
+                "status": "open",
+                "utilization_status": "open_evidence_referenced_not_determined",
+                "packet_refs": [
+                    {
+                        "crop_ref": "image:derived:crop-old-cited",
+                        "source_alias": "old_cited",
+                        "created_turn": 4,
+                    }
+                ],
+            },
+            {
+                "atom_id": "new_used",
+                "status": "open",
+                "utilization_status": "open_packet_used",
+                "determination_posture": "provisional",
+                "packet_refs": [
+                    {
+                        "crop_ref": "image:derived:crop-new-used",
+                        "source_alias": "new_used",
+                        "created_turn": 8,
+                    }
+                ],
+            },
+        ]
+    )
+    legacy["prompt_observability_summary"]["atom_evidence_worklist"]["counts"] = {
+        "atoms_total": 3,
+        "open": 3,
+        "packet_used_not_determined": 2,
+    }
+    body = "\n".join(render_atom_evidence_worklist_timeline(legacy))
+    assert "open packet used:" in body
+    assert "open evidence referenced:" in body
+    assert "old_used ->" in body
+    assert "old_cited ->" in body
+    assert "new_used determination=provisional ->" in body
+    assert "2 packet-used" in body
+    assert "not determined" not in body
+    assert "old_used determination=" not in body

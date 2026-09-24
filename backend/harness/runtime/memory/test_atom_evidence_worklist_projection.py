@@ -89,7 +89,7 @@ def test_priority_ordering_puts_packet_ready_before_used() -> None:
     assert projected is not None
     statuses = [row["utilization_status"] for row in projected["priority_rows"]]
     assert statuses.index("open_packet_ready_unused") < statuses.index(
-        "open_packet_used_not_determined"
+        "open_packet_used"
     )
 
 
@@ -161,3 +161,71 @@ def test_project_drops_closed_atoms_from_priority_rows() -> None:
     ids = [row["atom_id"] for row in projected.get("priority_rows", [])]
     assert "p1_closed" not in ids
     assert "p1_open" in ids
+
+
+def test_legacy_saved_worklist_projects_and_compacts_without_dropping_rows() -> None:
+    saved = {
+        "kind": "atom_evidence_worklist",
+        "counts": {"packet_used_not_determined": 1, "atoms_total": 2, "open": 2},
+        "atoms": [
+            {
+                "atom_id": "old_used",
+                "status": "open",
+                "utilization_status": "open_packet_used_not_determined",
+                "packet_refs": [{"crop_ref": "image:derived:crop-old"}],
+            },
+            {
+                "atom_id": "new_cited",
+                "status": "open",
+                "utilization_status": "open_evidence_referenced",
+                "determination_posture": "provisional",
+                "packet_refs": [{"crop_ref": "image:derived:crop-new"}],
+            },
+            {
+                "atom_id": "old_cited",
+                "status": "open",
+                "utilization_status": "open_evidence_referenced_not_determined",
+                "packet_refs": [{"crop_ref": "image:derived:crop-cited"}],
+            },
+        ],
+    }
+    projected = project_atom_evidence_worklist_for_prompt(saved)
+    assert projected is not None
+    by_id = {row["atom_id"]: row for row in projected["priority_rows"]}
+    assert set(by_id) == {"old_used", "new_cited", "old_cited"}
+    assert by_id["old_used"]["utilization_status"] == "open_packet_used"
+    assert "determination_posture" not in by_id["old_used"]
+    assert by_id["old_cited"]["utilization_status"] == "open_evidence_referenced"
+    assert by_id["new_cited"]["determination_posture"] == "provisional"
+    assert projected["counts"]["packet_used"] == 1
+    assert "packet_used_not_determined" not in projected["counts"]
+    blob = json.dumps(projected)
+    assert "not_determined" not in blob
+    assert "not determined" not in blob
+
+    compacted = compact_atom_evidence_worklist_for_prompt(
+        {
+            "kind": "atom_evidence_worklist",
+            "counts": {"packet_used_not_determined": 1},
+            "priority_rows": [
+                {
+                    "atom_id": "old_used",
+                    "status": "open",
+                    "utilization_status": "open_packet_used_not_determined",
+                },
+                {
+                    "atom_id": "new_used",
+                    "status": "open",
+                    "utilization_status": "open_packet_used",
+                    "determination_posture": "earned",
+                },
+            ],
+        }
+    )
+    assert compacted is not None
+    compacted_ids = [row["atom_id"] for row in compacted["priority_rows"]]
+    assert compacted_ids == ["old_used", "new_used"]
+    assert compacted["priority_rows"][0]["utilization_status"] == "open_packet_used"
+    assert "determination_posture" not in compacted["priority_rows"][0]
+    assert compacted["priority_rows"][1]["determination_posture"] == "earned"
+    assert "not_determined" not in json.dumps(compacted)

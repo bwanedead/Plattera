@@ -211,6 +211,7 @@ def build_prompt_observability_summary(
     )
     post_write_artifact_consistency_check_count = _post_write_artifact_consistency_check_count(
         step_records,
+        step_result_records,
         working_write_action_ids=working_write_action_ids,
     )
     artifact_state_dirty_since_write_count = _artifact_state_dirty_since_write_count(
@@ -1224,20 +1225,33 @@ def _post_hitl_spin_count(
 
 def _post_write_artifact_consistency_check_count(
     step_records: list[dict[str, Any]],
+    step_result_records: list[dict[str, Any]],
     *,
     working_write_action_ids: frozenset[str],
 ) -> int:
     """One-turn advisory after a successful configured working-artifact write.
 
-    This is a reminder, not a gate: the agent should compare the written revision
-    against compact earned/determined atoms using the write result when possible.
+    A multi-action turn stores action_type action_sequence on the step record.
+    The write itself is on that turn's step-result records. Refused, skipped,
+    or failed writes do not count. A later turn clears the reminder.
     Publication is not a working revision and does not fire this reminder.
     """
     if not step_records:
         return 0
-    if not _successful_configured_action(step_records[-1], working_write_action_ids):
+    latest = step_records[-1]
+    if _successful_configured_action(latest, working_write_action_ids):
+        return 1
+    latest_turn = latest.get("kernel_turn_index")
+    if latest_turn is None:
         return 0
-    return 1
+    for row in step_result_records:
+        if not isinstance(row, Mapping):
+            continue
+        if row.get("kernel_turn_index") != latest_turn:
+            continue
+        if _successful_configured_action(row, working_write_action_ids):
+            return 1
+    return 0
 
 
 def _artifact_state_dirty_since_write_count(

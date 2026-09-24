@@ -98,6 +98,30 @@ def test_work_graph_closed_open_blocked_determined_counts() -> None:
     assert graph["determined_units"] == 2
 
 
+def test_authored_posture_counts_do_not_merge_parent_and_unit() -> None:
+    items = [
+        _item(
+            "parent",
+            status="open",
+            determination="provisional",
+            covered_units=[
+                _unit("child_provisional", determination="provisional"),
+                _unit("child_earned", status="open", determination="earned"),
+                _unit("child_closed", status="closed", determination="earned"),
+                _unit("child_candidate"),
+            ],
+        )
+    ]
+    graph = build_performance_evaluation(_mem(items=items))["work_graph"]
+    assert graph["provisional_items"] == 1
+    assert graph["provisional_covered_units"] == 1
+    assert graph["earned_items"] == 0
+    assert graph["earned_covered_units"] == 2
+    assert graph["closed_items"] == 0
+    assert graph["closed_covered_units"] == 1
+    assert graph["determined_units"] == 4
+
+
 def test_determination_and_closure_transitions_counted_across_turn_records() -> None:
     before = {
         "items": [

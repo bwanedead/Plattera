@@ -33,6 +33,19 @@ def render_performance_evaluation_timeline(turn: Mapping[str, Any]) -> list[str]
             if blocked is not None:
                 parts.append(f"{blocked} blocked")
             lines.append(f"- work graph: {' / '.join(parts)}")
+        posture_parts = []
+        for key, label in (
+            ("provisional_items", "provisional items"),
+            ("provisional_covered_units", "provisional units"),
+            ("earned_items", "earned items"),
+            ("earned_covered_units", "earned units"),
+            ("closed_items", "closed items"),
+            ("closed_covered_units", "closed units"),
+        ):
+            if work_graph.get(key) is not None:
+                posture_parts.append(f"{work_graph[key]} {label}")
+        if posture_parts:
+            lines.append(f"- determination posture: {' / '.join(posture_parts)}")
 
     productivity = _coerce_mapping(metrics.get("productivity"))
     if productivity:
