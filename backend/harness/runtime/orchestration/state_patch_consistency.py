@@ -1,7 +1,8 @@
-"""Pre-dispatch consistency gate for contradictory closed resolution state.
+"""Pre-dispatch consistency gate for contradictory terminal-row state.
 
 Previews the same state_patch merge used at commit time, then blocks dispatch
-when an addressed resolved-like row would retain live-work posture.
+when an addressed terminal row would retain live-work posture. Completion also
+checks every retained mission closure dimension and success condition.
 """
 
 from __future__ import annotations
@@ -18,6 +19,7 @@ from harness.mission_state import (
     ResolutionState,
     TerminalRowConsistencyResult,
     evaluate_addressed_terminal_row_consistency,
+    evaluate_mission_terminal_row_consistency,
 )
 from harness.mission_state.terminal_row_consistency import (
     REASON_RESOLUTION_TERMINAL_ROW_HAS_LIVE_WORK,
@@ -65,6 +67,15 @@ _REPAIR_HINT = (
     "The transition is not evidence and does not prove earning; "
     "the harness does not choose which outcome is correct and only realizes an authored "
     "resolve mechanically."
+)
+
+_MISSION_REPAIR_HINT = (
+    "Mission closure dimensions and success-condition patches are sparse per-field overlays; "
+    "omitting a field preserves its existing value. A terminal row still carries live-work "
+    "posture (next_needed_step and/or a true posture flag). If its terminal posture is "
+    "genuinely correct, explicitly clear next_needed_step with null and posture flags with "
+    "false where present; otherwise author a non-terminal status or determination. The "
+    "harness does not choose either outcome."
 )
 
 
@@ -136,6 +147,42 @@ def collect_addressed_resolution_coordinates(
     return item_ids, units_by_item
 
 
+def collect_addressed_mission_terminal_coordinates(
+    state_patch: Mapping[str, Any] | None,
+) -> tuple[list[str], list[str]]:
+    """Return first-seen closure-dimension and success-condition ids in a patch."""
+    if not isinstance(state_patch, Mapping):
+        return [], []
+    try:
+        patch = _normalize_state_patch_aliases(dict(state_patch))
+    except StatePatchError:
+        return [], []
+    patch, _ = repair_state_patch_container_shapes(patch)
+    mission = patch.get("mission")
+    if not isinstance(mission, Mapping):
+        return [], []
+
+    def _ids(rows: Any, key: str) -> list[str]:
+        if not isinstance(rows, list):
+            return []
+        found: list[str] = []
+        seen: set[str] = set()
+        for row in rows:
+            if not isinstance(row, Mapping):
+                continue
+            value = row.get(key)
+            if type(value) is str and value.strip() and value not in seen:
+                seen.add(value)
+                found.append(value)
+        return found
+
+    closure = mission.get("closure_state")
+    dimensions = closure.get("dimensions") if isinstance(closure, Mapping) else None
+    return _ids(dimensions, "dimension_id"), _ids(
+        mission.get("success_conditions"), "condition_id"
+    )
+
+
 def preview_state_patch_merge(
     *,
     mission_state: MissionState,
@@ -159,12 +206,28 @@ def evaluate_state_patch_terminal_row_consistency(
     mission_state: MissionState,
     resolution_state: ResolutionState,
     state_patch: Mapping[str, Any] | None,
+    check_all_mission_terminal_rows: bool = False,
 ) -> TerminalRowConsistencyResult | None:
-    """Preview merge then evaluate only patch-addressed resolution coordinates."""
+    """Preview merge then evaluate addressed rows, or all mission rows at completion."""
     if not isinstance(state_patch, Mapping) or not state_patch:
-        return None
+        if not check_all_mission_terminal_rows:
+            return None
+        return evaluate_mission_terminal_row_consistency(
+            mission_state=mission_state,
+            addressed_dimension_ids=[
+                row.dimension_id for row in mission_state.closure_state.dimensions
+            ],
+            addressed_condition_ids=[row.condition_id for row in mission_state.success_conditions],
+        )
     item_ids, units_by_item = collect_addressed_resolution_coordinates(state_patch)
-    if not item_ids and not units_by_item:
+    dimension_ids, condition_ids = collect_addressed_mission_terminal_coordinates(state_patch)
+    if (
+        not item_ids
+        and not units_by_item
+        and not dimension_ids
+        and not condition_ids
+        and not check_all_mission_terminal_rows
+    ):
         return None
     preview = preview_state_patch_merge(
         mission_state=mission_state,
@@ -173,11 +236,21 @@ def evaluate_state_patch_terminal_row_consistency(
     )
     if preview is None:
         return None
-    _ms, preview_rs = preview
-    return evaluate_addressed_terminal_row_consistency(
+    preview_ms, preview_rs = preview
+    resolution_result = evaluate_addressed_terminal_row_consistency(
         resolution_state=preview_rs,
         addressed_item_ids=item_ids,
         addressed_unit_ids_by_item=units_by_item,
+    )
+    if resolution_result is not None:
+        return resolution_result
+    if check_all_mission_terminal_rows:
+        dimension_ids = [row.dimension_id for row in preview_ms.closure_state.dimensions]
+        condition_ids = [row.condition_id for row in preview_ms.success_conditions]
+    return evaluate_mission_terminal_row_consistency(
+        mission_state=preview_ms,
+        addressed_dimension_ids=dimension_ids,
+        addressed_condition_ids=condition_ids,
     )
 
 
@@ -223,13 +296,17 @@ def _parse_same_conflict_streak(raw: Any) -> int:
 def _next_same_conflict_streak(
     previous_feedback: Mapping[str, Any] | None,
     *,
+    reason_code: str,
     conflict_identity: str,
 ) -> int:
     previous = previous_feedback if isinstance(previous_feedback, Mapping) else {}
+    previous_reason_code = previous.get("reason_code")
+    previous_conflict_identity = previous.get("conflict_identity")
     if (
-        str(previous.get("reason_code") or "").strip()
-        == REASON_RESOLUTION_TERMINAL_ROW_HAS_LIVE_WORK
-        and str(previous.get("conflict_identity") or "") == conflict_identity
+        type(previous_reason_code) is str
+        and previous_reason_code == reason_code
+        and type(previous_conflict_identity) is str
+        and previous_conflict_identity == conflict_identity
     ):
         prev = _parse_same_conflict_streak(previous.get("same_conflict_streak"))
         return min(prev + 1, MAX_IDENTICAL_TERMINAL_ROW_CONFLICT_REJECTIONS)
@@ -245,16 +322,23 @@ def _conflict_feedback_detail(
 ) -> dict[str, Any]:
     payload = result.as_dict()
     first = result.conflicts[0].coordinate if result.conflicts else "resolution.items"
+    is_resolution_conflict = (
+        result.reason_code == REASON_RESOLUTION_TERMINAL_ROW_HAS_LIVE_WORK
+    )
     detail: dict[str, Any] = {
         "failing_path": first,
-        "repair_hint": _REPAIR_HINT,
-        "repair_targets": ["resolve_terminal_row_live_work_contradiction"],
+        "repair_hint": _REPAIR_HINT if is_resolution_conflict else _MISSION_REPAIR_HINT,
+        "repair_targets": [
+            "resolve_terminal_row_live_work_contradiction"
+            if is_resolution_conflict
+            else "repair_mission_terminal_row_live_work_contradiction"
+        ],
         "conflicts": payload["conflicts"],
         "conflicts_omitted_count": payload["conflicts_omitted_count"],
         "conflict_identity": conflict_identity,
         "same_conflict_streak": int(same_conflict_streak),
     }
-    if isinstance(state_patch, Mapping) and state_patch:
+    if is_resolution_conflict and isinstance(state_patch, Mapping) and state_patch:
         bundle = build_terminal_row_consistency_repair_bundle(
             state_patch=state_patch,
             result=result,
@@ -279,6 +363,7 @@ def record_terminal_row_consistency_rejection(
     conflict_identity = canonical_terminal_conflict_identity(result)
     same_conflict_streak = _next_same_conflict_streak(
         loop_memory.continuity.state_patch_feedback,
+        reason_code=result.reason_code,
         conflict_identity=conflict_identity,
     )
     detail = _conflict_feedback_detail(
@@ -291,19 +376,22 @@ def record_terminal_row_consistency_rejection(
         loop_memory.continuity.state_patch_feedback,
         outcome="rejected",
         iteration=iteration,
-        reason_code=REASON_RESOLUTION_TERMINAL_ROW_HAS_LIVE_WORK,
+        reason_code=result.reason_code,
         message=(
-            "state_patch would leave a closed/earned resolution row with live-work posture"
+            "state_patch would leave a closed/earned terminal row with live-work posture"
         ),
         detail=detail,
         gate="pre_dispatch_terminal_row_consistency",
+        carry_prior_repair_bundle=(
+            result.reason_code == REASON_RESOLUTION_TERMINAL_ROW_HAS_LIVE_WORK
+        ),
     )
     if tracer is not None:
         tracer.emit_state_patch_outcome(
             iteration=iteration,
             outcome="rejected",
-            reason_code=REASON_RESOLUTION_TERMINAL_ROW_HAS_LIVE_WORK,
-            message="resolution_terminal_row_has_live_work",
+            reason_code=result.reason_code,
+            message=result.reason_code,
             detail=detail,
             gate="pre_dispatch_terminal_row_consistency",
         )
@@ -323,7 +411,10 @@ def block_contradictory_closed_resolution_before_dispatch(
 ) -> StatePatchConsistencyGateOutcome | None:
     """Return a typed gate outcome when blocked; ``None`` when no conflict."""
     state_patch = action_plan.state_patch
-    if not isinstance(state_patch, Mapping) or not state_patch:
+    if (
+        (not isinstance(state_patch, Mapping) or not state_patch)
+        and not action_plan.complete_run
+    ):
         return None
 
     mission_state = loop_memory.continuity.mission_state
@@ -333,6 +424,7 @@ def block_contradictory_closed_resolution_before_dispatch(
         mission_state=mission_state,
         resolution_state=resolution_state,
         state_patch=state_patch,
+        check_all_mission_terminal_rows=bool(action_plan.complete_run),
     )
     if result is None:
         return None

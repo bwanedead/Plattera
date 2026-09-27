@@ -3,14 +3,19 @@
 from __future__ import annotations
 
 from harness.mission_state import (
+    ClosureDimension,
     MAX_TERMINAL_ROW_CONFLICTS,
+    REASON_MISSION_TERMINAL_ROW_HAS_LIVE_WORK,
     REASON_RESOLUTION_TERMINAL_ROW_HAS_LIVE_WORK,
+    MissionSuccessCondition,
     ResolutionCoveredUnit,
     ResolutionItem,
     evaluate_addressed_terminal_row_consistency,
+    evaluate_mission_terminal_row_consistency,
     is_resolved_like,
     live_work_fields_present,
     new_resolution_state,
+    new_mission_state,
 )
 
 
@@ -148,3 +153,43 @@ def test_covered_unit_conflict_coordinate() -> None:
         "resolution.items[item-1].covered_units[unit-2]"
     )
     assert result.conflicts[0].fields == ("requires_hitl",)
+
+
+def test_mission_terminal_rows_report_closed_live_work_without_authoring_repair() -> None:
+    mission = new_mission_state(
+        mission_id="m1",
+        loop_family="orchestration_kernel",
+        closure_state={
+            "dimensions": [
+                ClosureDimension(
+                    dimension_id="dimension-1",
+                    title="Closure check",
+                    status="closed",
+                    requires_hitl=True,
+                )
+            ]
+        },
+        success_conditions=[
+            MissionSuccessCondition(
+                condition_id="condition-1",
+                title="Success check",
+                status="earned",
+                next_needed_step="verify remaining evidence",
+            )
+        ],
+    )
+
+    result = evaluate_mission_terminal_row_consistency(
+        mission_state=mission,
+        addressed_dimension_ids=["dimension-1"],
+        addressed_condition_ids=["condition-1"],
+    )
+
+    assert result is not None
+    assert result.reason_code == REASON_MISSION_TERMINAL_ROW_HAS_LIVE_WORK
+    assert [row.coordinate for row in result.conflicts] == [
+        "mission.closure_state.dimensions[dimension-1]",
+        "mission.success_conditions[condition-1]",
+    ]
+    assert result.conflicts[0].fields == ("requires_hitl",)
+    assert result.conflicts[1].fields == ("next_needed_step",)

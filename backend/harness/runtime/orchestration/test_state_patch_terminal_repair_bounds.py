@@ -425,6 +425,43 @@ def test_malformed_resumed_streaks_do_not_raise() -> None:
     )
 
 
+def test_streak_metadata_requires_exact_strings() -> None:
+    mem = _seed_unit_memory()
+    plan = _omit_unit_close_plan()
+    result = TerminalRowConsistencyResult(
+        reason_code=REASON_RESOLUTION_TERMINAL_ROW_HAS_LIVE_WORK,
+        conflicts=(
+            TerminalRowConflict(
+                coordinate="resolution.items[item-1].covered_units[unit-2]",
+                fields=("next_needed_step",),
+            ),
+        ),
+        conflicts_omitted_count=0,
+    )
+    identity = canonical_terminal_conflict_identity(result)
+
+    for reason_code, conflict_identity in (
+        (b"resolution_terminal_row_has_live_work", identity),
+        (REASON_RESOLUTION_TERMINAL_ROW_HAS_LIVE_WORK, b"not-a-string"),
+        (True, identity),
+        (REASON_RESOLUTION_TERMINAL_ROW_HAS_LIVE_WORK, True),
+    ):
+        mem.continuity.state_patch_feedback = {
+            "outcome": "rejected",
+            "reason_code": reason_code,
+            "conflict_identity": conflict_identity,
+            "same_conflict_streak": 3,
+        }
+        streak = record_terminal_row_consistency_rejection(
+            loop_memory=mem,
+            tracer=None,
+            iteration=2,
+            result=result,
+            state_patch=plan.state_patch,
+        )
+        assert streak == 1
+
+
 def test_conflict_identity_is_fixed_digest_and_sensitive_to_inputs() -> None:
     base = TerminalRowConsistencyResult(
         reason_code=REASON_RESOLUTION_TERMINAL_ROW_HAS_LIVE_WORK,

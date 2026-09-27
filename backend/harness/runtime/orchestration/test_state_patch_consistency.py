@@ -14,7 +14,11 @@ from harness.execution.contracts import (
 )
 from harness.execution.session import ExecutionSessionManager
 from harness.mission_state import (
+    ClosureDimension,
+    ClosureState,
     MAX_TERMINAL_ROW_CONFLICTS,
+    MissionSuccessCondition,
+    REASON_MISSION_TERMINAL_ROW_HAS_LIVE_WORK,
     REASON_RESOLUTION_TERMINAL_ROW_HAS_LIVE_WORK,
     ResolutionCoveredUnit,
     ResolutionItem,
@@ -132,6 +136,109 @@ def _seed_memory(items: list[ResolutionItem]) -> LoopMemoryState:
 def _close_item_patch(item_id: str = "item-1", **fields: Any) -> dict[str, Any]:
     row = {"item_id": item_id, **fields}
     return {"resolution": {"items": [row]}}
+
+
+def test_mission_terminal_patch_retaining_next_step_is_blocked() -> None:
+    mem = _seed_memory([])
+    mem.continuity.mission_state = mem.continuity.mission_state.model_copy(
+        update={
+            "success_conditions": [
+                MissionSuccessCondition(
+                    condition_id="success-1",
+                    title="Success",
+                    status="open",
+                    next_needed_step="verify",
+                )
+            ]
+        }
+    )
+    result = evaluate_state_patch_terminal_row_consistency(
+        mission_state=mem.continuity.mission_state,
+        resolution_state=mem.continuity.resolution_state,
+        state_patch={
+            "mission": {
+                "success_conditions": [
+                    {"condition_id": "success-1", "status": "earned"}
+                ]
+            }
+        },
+    )
+    assert result is not None
+    assert result.reason_code == REASON_MISSION_TERMINAL_ROW_HAS_LIVE_WORK
+    assert result.conflicts[0].coordinate == "mission.success_conditions[success-1]"
+
+
+def test_complete_run_checks_existing_mission_terminal_rows_without_patch() -> None:
+    mem = _seed_memory([])
+    mem.continuity.mission_state = mem.continuity.mission_state.model_copy(
+        update={
+            "closure_state": ClosureState(
+                dimensions=[
+                    ClosureDimension(
+                        dimension_id="closure-1",
+                        title="Closure",
+                        status="closed",
+                        next_needed_step="stale next step",
+                    )
+                ]
+            )
+        }
+    )
+    result = evaluate_state_patch_terminal_row_consistency(
+        mission_state=mem.continuity.mission_state,
+        resolution_state=mem.continuity.resolution_state,
+        state_patch=None,
+        check_all_mission_terminal_rows=True,
+    )
+    assert result is not None
+    assert result.reason_code == REASON_MISSION_TERMINAL_ROW_HAS_LIVE_WORK
+    assert result.conflicts[0].coordinate == "mission.closure_state.dimensions[closure-1]"
+
+
+def test_complete_run_without_patch_is_refused_for_mission_terminal_conflict() -> None:
+    mem = _seed_memory([_seed_item()])
+    first = block_contradictory_closed_resolution_before_dispatch(
+        loop_memory=mem,
+        action_plan=ActionPlan(state_patch=_close_item_patch(status="closed")),
+        tracer=KernelTraceCollector(session_id="s", request_id="r-resolution"),
+        iteration=1,
+        lifecycle=OrchestrationLifecycle(),
+        session_manager=RecordingSessionManager(),
+        session_id="session",
+        turn_completion_observer=None,
+    )
+    assert first is not None
+    assert "state_patch_repair_bundle" in mem.continuity.state_patch_feedback
+    mem.continuity.mission_state = mem.continuity.mission_state.model_copy(
+        update={
+            "closure_state": ClosureState(
+                dimensions=[
+                    ClosureDimension(
+                        dimension_id="closure-1",
+                        title="Closure",
+                        status="closed",
+                        next_needed_step="stale next step",
+                    )
+                ]
+            )
+        }
+    )
+    outcome = block_contradictory_closed_resolution_before_dispatch(
+        loop_memory=mem,
+        action_plan=ActionPlan(complete_run=True),
+        tracer=KernelTraceCollector(session_id="s", request_id="r-mission"),
+        iteration=2,
+        lifecycle=OrchestrationLifecycle(),
+        session_manager=RecordingSessionManager(),
+        session_id="session",
+        turn_completion_observer=None,
+    )
+    assert outcome is not None
+    assert outcome.blocked is True
+    assert mem.continuity.state_patch_feedback["reason_code"] == (
+        REASON_MISSION_TERMINAL_ROW_HAS_LIVE_WORK
+    )
+    assert "state_patch_repair_bundle" not in str(mem.continuity.state_patch_feedback)
 
 
 def test_sparse_item_close_with_stale_next_step_is_blocked() -> None:

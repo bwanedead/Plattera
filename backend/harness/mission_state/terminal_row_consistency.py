@@ -9,12 +9,18 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from .contracts import ResolutionCoveredUnit, ResolutionItem, ResolutionState
+from .contracts import (
+    MissionState,
+    ResolutionCoveredUnit,
+    ResolutionItem,
+    ResolutionState,
+)
 
 # Shared closed-like vocabulary (also used by state_patch_shape_repair advisory).
 CLOSED_LIKE_STATUSES = frozenset({"closed", "earned", "resolved", "complete"})
 
 REASON_RESOLUTION_TERMINAL_ROW_HAS_LIVE_WORK = "resolution_terminal_row_has_live_work"
+REASON_MISSION_TERMINAL_ROW_HAS_LIVE_WORK = "mission_terminal_row_has_live_work"
 MAX_TERMINAL_ROW_CONFLICTS = 32
 _EARNED_DETERMINATION = "earned"
 _LIVE_WORK_FIELD_ORDER = ("next_needed_step", "requires_hitl", "no_further_progress")
@@ -94,6 +100,14 @@ def covered_unit_coordinate(item_id: str, unit_id: str) -> str:
     return f"resolution.items[{item_id}].covered_units[{unit_id}]"
 
 
+def closure_dimension_coordinate(dimension_id: str) -> str:
+    return f"mission.closure_state.dimensions[{dimension_id}]"
+
+
+def success_condition_coordinate(condition_id: str) -> str:
+    return f"mission.success_conditions[{condition_id}]"
+
+
 def evaluate_addressed_terminal_row_consistency(
     *,
     resolution_state: ResolutionState,
@@ -151,6 +165,71 @@ def evaluate_addressed_terminal_row_consistency(
         return None
     return TerminalRowConsistencyResult(
         reason_code=REASON_RESOLUTION_TERMINAL_ROW_HAS_LIVE_WORK,
+        conflicts=tuple(conflicts),
+        conflicts_omitted_count=omitted,
+    )
+
+
+def evaluate_mission_terminal_row_consistency(
+    *,
+    mission_state: MissionState,
+    addressed_dimension_ids: Sequence[str],
+    addressed_condition_ids: Sequence[str],
+) -> TerminalRowConsistencyResult | None:
+    """Evaluate addressed closure dimensions and success conditions after merge.
+
+    This is intentionally a mechanical posture check.  It neither decides
+    whether a terminal status is justified nor chooses clearing versus reopen.
+    Callers may pass every retained id for a terminal completion check.
+    """
+    dimensions_by_id = {
+        row.dimension_id: row for row in mission_state.closure_state.dimensions
+    }
+    conditions_by_id = {row.condition_id: row for row in mission_state.success_conditions}
+    conflicts: list[TerminalRowConflict] = []
+    omitted = 0
+    seen_coords: set[str] = set()
+
+    def _append(coordinate: str, fields: tuple[str, ...]) -> None:
+        nonlocal omitted
+        if not fields or coordinate in seen_coords:
+            return
+        seen_coords.add(coordinate)
+        if len(conflicts) >= MAX_TERMINAL_ROW_CONFLICTS:
+            omitted += 1
+            return
+        conflicts.append(TerminalRowConflict(coordinate=coordinate, fields=fields))
+
+    for dimension_id in addressed_dimension_ids:
+        if type(dimension_id) is not str or not dimension_id.strip():
+            continue
+        dimension = dimensions_by_id.get(dimension_id)
+        if dimension is not None and is_resolved_like(
+            status=dimension.status,
+            determination=dimension.determination,
+        ):
+            _append(
+                closure_dimension_coordinate(dimension_id),
+                live_work_fields_present(dimension.model_dump(mode="python")),
+            )
+
+    for condition_id in addressed_condition_ids:
+        if type(condition_id) is not str or not condition_id.strip():
+            continue
+        condition = conditions_by_id.get(condition_id)
+        if condition is not None and is_resolved_like(
+            status=condition.status,
+            determination=condition.determination,
+        ):
+            _append(
+                success_condition_coordinate(condition_id),
+                live_work_fields_present(condition.model_dump(mode="python")),
+            )
+
+    if not conflicts and omitted == 0:
+        return None
+    return TerminalRowConsistencyResult(
+        reason_code=REASON_MISSION_TERMINAL_ROW_HAS_LIVE_WORK,
         conflicts=tuple(conflicts),
         conflicts_omitted_count=omitted,
     )

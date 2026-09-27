@@ -29,10 +29,12 @@ from .mission_framing_consistency import (
 from .terminal_row_consistency import (
     CLOSED_LIKE_STATUSES,
     MAX_TERMINAL_ROW_CONFLICTS,
+    REASON_MISSION_TERMINAL_ROW_HAS_LIVE_WORK,
     REASON_RESOLUTION_TERMINAL_ROW_HAS_LIVE_WORK,
     TerminalRowConflict,
     TerminalRowConsistencyResult,
     evaluate_addressed_terminal_row_consistency,
+    evaluate_mission_terminal_row_consistency,
     is_resolved_like,
     live_work_fields_present,
 )
@@ -43,6 +45,7 @@ __all__ = [
     "RESOLUTION_STATE_VERSION",
     "CLOSED_LIKE_STATUSES",
     "MAX_TERMINAL_ROW_CONFLICTS",
+    "REASON_MISSION_TERMINAL_ROW_HAS_LIVE_WORK",
     "REASON_MISSION_FRAMING_REQUIRED",
     "REASON_RESOLUTION_TERMINAL_ROW_HAS_LIVE_WORK",
     "ClosureDimension",
@@ -62,6 +65,7 @@ __all__ = [
     "TerminalRowConsistencyResult",
     "WorkUniversePosture",
     "evaluate_addressed_terminal_row_consistency",
+    "evaluate_mission_terminal_row_consistency",
     "evaluate_mission_framing_consistency",
     "mission_framing_is_present",
     "missing_framing_fields",
