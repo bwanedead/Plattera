@@ -55,7 +55,11 @@ def test_small_t0_text_preserved_exactly() -> None:
 
 
 def test_small_transcript_edit_draft_payload_preserved() -> None:
-    payload = {"transcript_text": "hello", "evidence_refs": ["image:assoc:x:original"]}
+    payload = {
+        "source_transcript_verbatim": "hello",
+        "normalized_or_mapping_transcript": "hello",
+        "evidence_refs": ["image:assoc:x:original"],
+    }
     outputs = {
         "hydrated_count": 1,
         "cap_exceeded": False,
@@ -71,7 +75,12 @@ def test_small_transcript_edit_draft_payload_preserved() -> None:
     }
     view, omitted = build_hydrate_artifact_refs_view(outputs)
     assert omitted is None and view is not None
-    assert view.payload["results"][0]["payload"] == payload
+    row = view.payload["results"][0]
+    assert row["payload"] == {
+        "source_transcript_verbatim": "hello",
+        "normalized_or_mapping_transcript": "hello",
+    }
+    assert row["payload_omitted_field_count"] == 1
     assert "path" not in view.payload["results"][0]
     assert "continuity_key" not in agent_result_view_to_wire(view)
 
@@ -92,12 +101,17 @@ def test_oversized_text_omitted_whole_no_prefix() -> None:
     assert prefix not in blob
     assert view.payload["results"] == []
     assert view.payload["results_omitted"] == [
-        {"ref_id": "t0:raw:draft_1", "kind": "t0_draft", "reason": "view_budget"}
+        {
+            "ref_id": "t0:raw:draft_1",
+            "kind": "t0_draft",
+            "reason": "view_budget",
+            "text_omitted": True,
+        }
     ]
     assert view.payload["results_omitted_count"] == 1
 
 
-def test_oversized_structured_payload_omitted_whole() -> None:
+def test_oversized_nonworking_payload_is_omitted_without_evicting_identity() -> None:
     huge_payload = {"pad": "P" * 20_000}
     outputs = {
         "hydrated_count": 1,
@@ -113,9 +127,220 @@ def test_oversized_structured_payload_omitted_whole() -> None:
     }
     view, omitted = build_hydrate_artifact_refs_view(outputs)
     assert omitted is None and view is not None
-    assert view.payload["results"] == []
-    assert view.payload["results_omitted_count"] == 1
+    row = view.payload["results"][0]
+    assert row["ref_id"] == "transcript_edit:working:rev:0002"
+    assert row["payload"] == {}
+    assert row["payload_omitted_field_count"] == 1
+    assert row["working_text_unavailable"] is True
+    assert row["working_text_unavailable_reason"] == "no_exact_text_lanes"
     assert "PPPPP" not in json.dumps(view.payload)
+
+
+def _growing_decision_ledger(*, count: int) -> dict[str, object]:
+    return {
+        "schema_version": 2,
+        "decisions": [
+            {
+                "decision_id": f"decision-{index:03d}",
+                "determination": "provisional",
+                "uncertainty_reasons": ["context_insufficient"],
+                "verification_basis": f"basis-{index}: " + ("B" * 240),
+                "evidence_refs": [f"image:assoc:source:{index}:{item}" for item in range(12)],
+                "base_revision_ref": "transcript_edit:working:rev:0003",
+                "edits": [
+                    {
+                        "lane": "source_transcript_verbatim",
+                        "expected_text": "A",
+                        "replacement_text": "A",
+                        "start_offset": 0,
+                        "end_offset": 1,
+                    }
+                ],
+            }
+            for index in range(count)
+        ],
+    }
+
+
+def test_working_revision_view_keeps_exact_lanes_and_compacts_growing_ledger() -> None:
+    source_lane = "S" * 1_180
+    normalized_lane = "N" * 1_120
+    ledger = _growing_decision_ledger(count=40)
+    outputs = {
+        "hydrated_count": 1,
+        "cap_exceeded": False,
+        "results": [
+            {
+                "ref_id": "transcript_edit:working:rev:0004",
+                "kind": "transcript_edit_draft",
+                "payload": {
+                    "schema_version": 1,
+                    "ref_id": "transcript_edit:working:rev:0004",
+                    "revision": 4,
+                    "saved_at": "synthetic",
+                    "evidence_refs": [f"image:assoc:source:{item}" for item in range(40)],
+                    "payload": {
+                        "source_transcript_verbatim": source_lane,
+                        "normalized_or_mapping_transcript": normalized_lane,
+                        "transcript_edit_decisions": ledger,
+                        "evidence_refs": [f"image:assoc:source:{item}" for item in range(40)],
+                    },
+                },
+            }
+        ],
+        "errors": [],
+    }
+    assert len(json.dumps(outputs["results"][0])) > MAX_AGENT_RESULT_VIEW_CHARS
+
+    view, omitted = build_hydrate_artifact_refs_view(outputs)
+
+    assert omitted is None and view is not None
+    row = view.payload["results"][0]
+    assert row["payload"] == {
+        "source_transcript_verbatim": source_lane,
+        "normalized_or_mapping_transcript": normalized_lane,
+    }
+    assert row["payload_omitted_field_count"] == 2
+    orientation = row["decision_orientation"]
+    assert orientation["status"] == "unvalidated_compact_orientation"
+    assert orientation["source_decision_count"] == 40
+    assert orientation["retained_decision_id_count"] + orientation["decision_ids_omitted_count"] == 40
+    assert orientation["decision_ids_omitted_count"] > 0
+    assert orientation["retained_decision_ids"][0] == "decision-000"
+    assert orientation["provisional_count"] == 40
+    assert "basis-039" not in json.dumps(view.payload)
+    assert _measure_view(view) <= MAX_AGENT_RESULT_VIEW_CHARS
+
+
+def test_oversized_working_text_is_omitted_whole_with_honest_marker() -> None:
+    oversized_lane = "W" * 20_000
+    outputs = {
+        "hydrated_count": 1,
+        "cap_exceeded": False,
+        "results": [
+            {
+                "ref_id": "transcript_edit:working:rev:0004",
+                "kind": "transcript_edit_draft",
+                "payload": {"source_transcript_verbatim": oversized_lane},
+            }
+        ],
+        "errors": [],
+    }
+
+    view, omitted = build_hydrate_artifact_refs_view(outputs)
+
+    assert omitted is None and view is not None
+    assert oversized_lane not in json.dumps(view.payload)
+    assert view.payload["results"] == []
+    assert view.payload["results_omitted"] == [
+        {
+            "ref_id": "transcript_edit:working:rev:0004",
+            "kind": "transcript_edit_draft",
+            "reason": "view_budget",
+            "text_omitted": True,
+        }
+    ]
+
+
+def test_unsupported_revision_wrapper_schema_does_not_supply_working_text() -> None:
+    outputs = {
+        "hydrated_count": 1,
+        "cap_exceeded": False,
+        "results": [
+            {
+                "ref_id": "transcript_edit:working:rev:0004",
+                "kind": "transcript_edit_draft",
+                "payload": {
+                    "schema_version": 2,
+                    "ref_id": "transcript_edit:working:rev:0004",
+                    "payload": {"source_transcript_verbatim": "must-not-leak"},
+                },
+            }
+        ],
+        "errors": [],
+    }
+
+    view, omitted = build_hydrate_artifact_refs_view(outputs)
+
+    assert omitted is None and view is not None
+    row = view.payload["results"][0]
+    assert row["payload"] == {}
+    assert row["working_text_unavailable"] is True
+    assert "must-not-leak" not in json.dumps(view.payload)
+
+
+def test_dossier_qualified_row_uses_nested_leaf_revision_payload() -> None:
+    source_lane = "synthetic source lane"
+    normalized_lane = "synthetic normalized lane"
+    outputs = {
+        "hydrated_count": 1,
+        "cap_exceeded": False,
+        "results": [
+            {
+                "ref_id": (
+                    "dossier_segment:segment-a:run:transcription-a:"
+                    "transcript_edit:working:rev:0004"
+                ),
+                "kind": "transcript_edit_draft",
+                "payload": {
+                    "schema_version": 1,
+                    "ref_id": "transcript_edit:working:rev:0004",
+                    "revision": 4,
+                    "payload": {
+                        "source_transcript_verbatim": source_lane,
+                        "normalized_or_mapping_transcript": normalized_lane,
+                    },
+                },
+            }
+        ],
+        "errors": [],
+    }
+
+    view, omitted = build_hydrate_artifact_refs_view(outputs)
+
+    assert omitted is None and view is not None
+    assert view.payload["results"][0]["payload"] == {
+        "source_transcript_verbatim": source_lane,
+        "normalized_or_mapping_transcript": normalized_lane,
+    }
+
+
+def test_large_working_text_keeps_lanes_before_optional_orientation() -> None:
+    source_lane = "S" * 6_000
+    normalized_lane = "N" * 5_200
+    outputs = {
+        "hydrated_count": 1,
+        "cap_exceeded": False,
+        "results": [
+            {
+                "ref_id": "transcript_edit:working:rev:0004",
+                "kind": "transcript_edit_draft",
+                "payload": {
+                    "schema_version": 1,
+                    "ref_id": "transcript_edit:working:rev:0004",
+                    "revision": 4,
+                    "payload": {
+                        "source_transcript_verbatim": source_lane,
+                        "normalized_or_mapping_transcript": normalized_lane,
+                        "transcript_edit_decisions": _growing_decision_ledger(count=40),
+                    },
+                },
+            }
+        ],
+        "errors": [],
+    }
+
+    view, omitted = build_hydrate_artifact_refs_view(outputs)
+
+    assert omitted is None and view is not None
+    row = view.payload["results"][0]
+    assert row["payload"] == {
+        "source_transcript_verbatim": source_lane,
+        "normalized_or_mapping_transcript": normalized_lane,
+    }
+    assert row["decision_orientation_omitted"] == {"reason": "view_budget"}
+    assert "decision_orientation" not in row
+    assert _measure_view(view) <= MAX_AGENT_RESULT_VIEW_CHARS
 
 
 def test_large_first_row_does_not_block_later_small_row() -> None:

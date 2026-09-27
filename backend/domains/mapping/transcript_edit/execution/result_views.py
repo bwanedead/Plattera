@@ -9,6 +9,12 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping, MutableMapping, Sequence
 from typing import Any
 
+from domains.mapping.transcript_edit.payloads.transcript_edit_decisions import (
+    DETERMINATION_EARNED,
+    DETERMINATION_PROVISIONAL,
+    TRANSCRIPT_EDIT_DECISIONS_FIELD,
+    TRANSCRIPT_EDIT_LANES,
+)
 from harness.execution.agent_result_view import (
     AgentResultView,
     AgentResultViewOmission,
@@ -28,6 +34,9 @@ MAX_TRANSFORM_LOCATOR_ROWS = 32
 MAX_ERROR_MESSAGE_CHARS = 240
 MAX_ERROR_CODE_CHARS = 128
 MAX_ERROR_REF_ID_CHARS = 256
+MAX_HYDRATE_DECISION_IDS = 24
+MAX_HYDRATE_DECISION_ID_CHARS = 128
+_WORKING_REVISION_SCHEMA_VERSION = 1
 
 _HOST_OR_BINARY_KEYS = frozenset(
     {
@@ -128,40 +137,44 @@ def build_hydrate_artifact_refs_view(
     omitted: list[dict[str, Any]] = []
     omitted_extra = 0
     for row in sanitized_rows:
-        trial_kept = kept + [row]
-        payload = _hydrate_payload(
-            outputs,
-            results=trial_kept,
-            results_omitted=omitted,
-            results_omitted_extra=omitted_extra,
-            errors=[],
-            errors_omitted_count=0,
-        )
-        view, _ = _try_hydrate_view(payload)
-        if view is not None:
-            kept = trial_kept
-            continue
-        desc = _hydrate_omission_descriptor(row)
-        if desc is None:
-            omitted_extra += 1
-            continue
-        trial_omitted = omitted + [desc]
-        if len(trial_omitted) > MAX_HYDRATE_OMISSION_ROWS:
-            omitted_extra += 1
-            continue
-        payload2 = _hydrate_payload(
-            outputs,
-            results=kept,
-            results_omitted=trial_omitted,
-            results_omitted_extra=omitted_extra,
-            errors=[],
-            errors_omitted_count=0,
-        )
-        view2, _ = _try_hydrate_view(payload2)
-        if view2 is not None:
-            omitted = trial_omitted
+        for candidate in _hydrate_row_candidates(row):
+            trial_kept = kept + [candidate]
+            payload = _hydrate_payload(
+                outputs,
+                results=trial_kept,
+                results_omitted=omitted,
+                results_omitted_extra=omitted_extra,
+                errors=[],
+                errors_omitted_count=0,
+            )
+            view, _ = _try_hydrate_view(payload)
+            if view is not None:
+                kept = trial_kept
+                break
         else:
-            omitted_extra += 1
+            desc = _hydrate_omission_descriptor(row)
+            if desc is None:
+                omitted_extra += 1
+                continue
+            trial_omitted = omitted + [desc]
+            if len(trial_omitted) > MAX_HYDRATE_OMISSION_ROWS:
+                omitted_extra += 1
+                continue
+            payload2 = _hydrate_payload(
+                outputs,
+                results=kept,
+                results_omitted=trial_omitted,
+                results_omitted_extra=omitted_extra,
+                errors=[],
+                errors_omitted_count=0,
+            )
+            view2, _ = _try_hydrate_view(payload2)
+            if view2 is not None:
+                omitted = trial_omitted
+            else:
+                omitted_extra += 1
+            continue
+        continue
 
     errors_kept, errors_omitted_count = _fit_error_rows(
         outputs,
@@ -419,7 +432,11 @@ def _sanitize_hydrate_result_row(raw: Any) -> dict[str, Any] | None:
     if kind.strip() == "transcript_edit_draft":
         payload = raw.get("payload")
         if isinstance(payload, Mapping):
-            row["payload"] = _json_native(_strip_host_fields(dict(payload)))
+            row.update(
+                _project_transcript_edit_draft_payload(
+                    payload,
+                )
+            )
         return row
     if kind.strip() in {"source_image", "derived_image"}:
         for key in (
@@ -456,7 +473,129 @@ def _hydrate_omission_descriptor(row: Mapping[str, Any]) -> dict[str, Any] | Non
         return None
     if not isinstance(kind, str) or not kind.strip():
         return None
-    return {"ref_id": ref_id.strip(), "kind": kind.strip(), "reason": "view_budget"}
+    descriptor = {"ref_id": ref_id.strip(), "kind": kind.strip(), "reason": "view_budget"}
+    if kind.strip() in {"t0_draft", "transcript_edit_draft"}:
+        # No substring stands in for a draft; the caller cannot rely on text
+        # that did not fit this view.
+        descriptor["text_omitted"] = True
+    return descriptor
+
+
+def _hydrate_row_candidates(row: Mapping[str, Any]) -> tuple[dict[str, Any], ...]:
+    """Return full then text-prioritized hydrate rows without partial text."""
+    full = dict(row)
+    orientation = full.get("decision_orientation")
+    if not isinstance(orientation, Mapping):
+        return (full,)
+    text_first = dict(full)
+    text_first.pop("decision_orientation", None)
+    text_first["decision_orientation_omitted"] = {"reason": "view_budget"}
+    return (full, text_first)
+
+
+def _project_transcript_edit_draft_payload(
+    payload: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Project a working revision for continuation without replaying its ledger.
+
+    Working revisions accumulate a complete decision ledger and duplicate evidence
+    unions. A hydrate view needs the exact editable lanes, not another copy of
+    that history. The compact summary is deliberately separate from ``payload``
+    so it cannot be mistaken for the persisted provenance object.
+    """
+    payload_obj = _working_payload_from_hydrate_value(payload)
+    projected_lanes: dict[str, str] = {}
+    for lane in TRANSCRIPT_EDIT_LANES:
+        value = payload_obj.get(lane)
+        if type(value) is str:
+            projected_lanes[lane] = value
+
+    out: dict[str, Any] = {"payload": projected_lanes}
+    omitted_count = sum(1 for key in payload_obj if key not in projected_lanes)
+    if omitted_count:
+        out["payload_omitted_field_count"] = omitted_count
+    if not projected_lanes:
+        out["working_text_unavailable"] = True
+        out["working_text_unavailable_reason"] = "no_exact_text_lanes"
+
+    if TRANSCRIPT_EDIT_DECISIONS_FIELD not in payload_obj:
+        return out
+
+    out.update(_compact_working_decision_orientation(payload_obj))
+    return out
+
+
+def _working_payload_from_hydrate_value(
+    value: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Accept a direct payload or the established versioned revision wrapper."""
+    direct = dict(value)
+    if any(type(direct.get(lane)) is str for lane in TRANSCRIPT_EDIT_LANES):
+        return direct
+    nested = direct.get("payload")
+    if (
+        isinstance(nested, Mapping)
+        and type(direct.get("schema_version")) is int
+        and direct.get("schema_version") == _WORKING_REVISION_SCHEMA_VERSION
+    ):
+        return dict(nested)
+    return direct
+
+
+def _compact_working_decision_orientation(payload: Mapping[str, Any]) -> dict[str, Any]:
+    """Expose bounded ledger orientation without re-validating or copying it.
+
+    This is a domain result-view projection, not a tooling handoff projector:
+    it only reports stored shape/counts and bounded exact decision identifiers.
+    The explicit status prevents consumers from treating this as a complete or
+    validated decision ledger.
+    """
+    raw = payload.get(TRANSCRIPT_EDIT_DECISIONS_FIELD)
+    if not isinstance(raw, Mapping):
+        return {"decision_orientation_omitted": {"reason": "not_an_object"}}
+    decisions = raw.get("decisions")
+    if not isinstance(decisions, list):
+        return {"decision_orientation_omitted": {"reason": "decisions_not_a_list"}}
+
+    retained_ids: list[str] = []
+    provisional_count = 0
+    earned_count = 0
+    other_determination_count = 0
+    for item in decisions:
+        if not isinstance(item, Mapping):
+            other_determination_count += 1
+            continue
+        determination = item.get("determination")
+        if determination == DETERMINATION_PROVISIONAL:
+            provisional_count += 1
+        elif determination == DETERMINATION_EARNED:
+            earned_count += 1
+        else:
+            other_determination_count += 1
+        decision_id = item.get("decision_id")
+        if (
+            isinstance(decision_id, str)
+            and decision_id.strip()
+            and len(decision_id.strip()) <= MAX_HYDRATE_DECISION_ID_CHARS
+            and len(retained_ids) < MAX_HYDRATE_DECISION_IDS
+        ):
+            retained_ids.append(decision_id.strip())
+
+    orientation: dict[str, Any] = {
+        "status": "unvalidated_compact_orientation",
+        "source_decision_count": len(decisions),
+        "retained_decision_ids": retained_ids,
+        "retained_decision_id_count": len(retained_ids),
+        "decision_ids_omitted_count": len(decisions) - len(retained_ids),
+        "provisional_count": provisional_count,
+        "earned_count": earned_count,
+    }
+    if other_determination_count:
+        orientation["other_determination_count"] = other_determination_count
+    schema_version = raw.get("schema_version")
+    if type(schema_version) is int:
+        orientation["stored_schema_version"] = schema_version
+    return {"decision_orientation": orientation}
 
 
 def _sanitize_error_row(raw: Any) -> dict[str, Any] | None:
