@@ -16,6 +16,9 @@ MAX_PROVIDER_ATTEMPTS = 3
 MAX_PROVIDER_RETRIES = MAX_PROVIDER_ATTEMPTS - 1
 PROVIDER_CALL_DEADLINE_SECONDS = 300.0
 DEFAULT_RETRY_DELAYS_SECONDS = (1.0, 2.0)
+_PUBLIC_REQUEST_FAILURE_CATEGORIES = frozenset(
+    {"request_timeout", "connection_failure", "http_status", "logical_deadline"}
+)
 UNCLASSIFIED_PROVIDER_EXCEPTION_PUBLIC_MESSAGE = "Unclassified provider caller exception"
 
 
@@ -236,6 +239,12 @@ def _finalize_request_failure(
     )
     status = failure.get("http_status")
     out["http_status"] = status if type(status) is int else None
+    category = failure.get("category")
+    out["request_failure_category"] = (
+        category
+        if type(category) is str and category in _PUBLIC_REQUEST_FAILURE_CATEGORIES
+        else None
+    )
     # Internal retryability and Retry-After data never leave the retry owner.
     return out
 

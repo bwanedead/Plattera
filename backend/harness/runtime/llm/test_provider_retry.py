@@ -33,10 +33,11 @@ def _failure(
     *,
     retryable: bool = True,
     status: int | None = 500,
+    category: Any = "http_status",
     retry_after: Any = None,
 ) -> dict[str, Any]:
     metadata: dict[str, Any] = {
-        "category": "http_status",
+        "category": category,
         "retryable": retryable,
         "http_status": status,
     }
@@ -97,6 +98,7 @@ def test_repeated_transient_failures_stop_at_three_total_attempts() -> None:
     assert clock.sleeps == [1.0, 2.0]
     assert result["success"] is False
     assert result["failure_classification"] == "transient_exhausted"
+    assert result["request_failure_category"] == "http_status"
     assert result["http_status"] == 503
     assert result["retry_count_observed"] == 2
 
@@ -146,8 +148,36 @@ def test_response_arriving_after_logical_deadline_is_exhausted() -> None:
     )
     assert result["success"] is False
     assert result["failure_classification"] == "transient_exhausted"
+    assert result["request_failure_category"] == "logical_deadline"
     assert result["retry_count_observed"] == 0
     assert "late" not in str(result)
+
+
+@pytest.mark.parametrize("category", ["connection_failure", "request_timeout"])
+def test_sanitized_transport_category_survives_exhaustion(category: str) -> None:
+    result = call_with_provider_retries(
+        lambda prompt, model, **kwargs: _failure(category=category, status=None),
+        "p",
+        "model-a",
+        kwargs={},
+        clock=_Clock(),
+        sleep=lambda seconds: None,
+    )
+    assert result["request_failure_category"] == category
+    assert result["http_status"] is None
+
+
+@pytest.mark.parametrize("category", ["secret exception text", {"path": "sensitive"}, True])
+def test_unrecognized_failure_category_is_not_projected(category: Any) -> None:
+    result = call_with_provider_retries(
+        lambda prompt, model, **kwargs: _failure(category=category),
+        "p",
+        "model-a",
+        kwargs={},
+        clock=_Clock(),
+        sleep=lambda seconds: None,
+    )
+    assert result["request_failure_category"] is None
 
 
 @pytest.mark.parametrize(

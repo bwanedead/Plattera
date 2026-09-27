@@ -39,6 +39,7 @@ LLM_CALL_TRACE_FIELDS: tuple[str, ...] = (
     "retry_count_observed",
     "timeout_configured_seconds",
     "failure_classification",
+    "request_failure_category",
     "http_status",
     "error_type",
     "error_message_preview",
@@ -217,6 +218,7 @@ def build_llm_call_trace(
     retry_count_observed: int | None = None,
     timeout_configured_seconds: float | None = None,
     failure_classification: str | None = None,
+    request_failure_category: str | None = None,
     http_status: int | None = None,
     error_type: str | None = None,
     error_message_preview: str | None = None,
@@ -258,6 +260,7 @@ def build_llm_call_trace(
         "retry_count_observed": retry_count_observed,
         "timeout_configured_seconds": timeout_configured_seconds,
         "failure_classification": _bound_text(failure_classification, 80) or None,
+        "request_failure_category": _bound_text(request_failure_category, 80) or None,
         "http_status": _coerce_http_status(http_status),
         "error_type": _bound_text(error_type, 80) or None,
         "error_message_preview": _bound_text(error_message_preview, _MAX_ERROR_PREVIEW_CHARS) or None,
@@ -366,6 +369,7 @@ def build_llm_call_trace_from_response(
             else timeout_configured_seconds
         ),
         failure_classification=_optional_str(response_map.get("failure_classification")),
+        request_failure_category=_optional_str(response_map.get("request_failure_category")),
         http_status=_coerce_http_status(response_map.get("http_status")),
         error_type=error_type,
         error_message_preview=error_message_preview,
@@ -427,7 +431,7 @@ def sanitize_llm_call_trace(trace: Mapping[str, Any]) -> dict[str, Any]:
         if key in {"streaming_requested", "streaming_supported", "streaming_effective"}:
             out[key] = bool(value)
             continue
-        if key == "failure_classification":
+        if key in {"failure_classification", "request_failure_category"}:
             out[key] = _bound_text(value, 80) or None
             continue
         if isinstance(value, (dict, list, tuple)):

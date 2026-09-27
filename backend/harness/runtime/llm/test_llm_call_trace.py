@@ -344,6 +344,7 @@ def test_provider_retry_metadata_projects_from_response() -> None:
             "retry_count_observed": 2,
             "timeout_configured_seconds": 300.0,
             "failure_classification": "transient_exhausted",
+            "request_failure_category": "http_status",
             "http_status": 503,
         },
         call_role="parent",
@@ -357,6 +358,7 @@ def test_provider_retry_metadata_projects_from_response() -> None:
     assert trace["retry_count_observed"] == 2
     assert trace["timeout_configured_seconds"] == 300.0
     assert trace["failure_classification"] == "transient_exhausted"
+    assert trace["request_failure_category"] == "http_status"
     assert trace["http_status"] == 503
 
 
